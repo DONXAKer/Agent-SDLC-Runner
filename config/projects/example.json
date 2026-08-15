@@ -1,0 +1,36 @@
+{
+  "name": "example",
+  "projectRoot": "D:/Проекты/Agent-SDLC-Runner",
+
+  "activeProfile": "claude",
+  "maxBudgetUsd": 5.0,
+
+  "// profiles": "Профиль переводит весь виток целиком. Внутри профиля модель настраивается на каждом этапе. Флоу выводится из провайдера, отдельной настройки нет.",
+  "profiles": {
+    "claude": {
+      "label": "Claude (Max-подписка)",
+      "stages": {
+        "intent":  "claude-sdk:haiku",
+        "explore": "claude-sdk:sonnet",
+        "ask":     "claude-sdk:haiku",
+        "plan":    "claude-sdk:sonnet",
+        "chunk":   "claude-sdk:sonnet",
+        "verify":  "claude-sdk:opus",
+        "handoff": "claude-sdk:haiku"
+      }
+    },
+
+    "local": {
+      "label": "Локально (бесплатно)",
+      "stages": {
+        "intent":  "ollama:qwen3.5:4b",
+        "explore": "ollama:qwen3.5:4b",
+        "ask":     "ollama:qwen3.5:4b",
+        "plan":    "ollama:qwen3.5:4b",
+        "chunk":   "ollama:qwen3.5:4b",
+        "verify":  "ollama:qwen3.5:8b",
+        "handoff": "ollama:qwen3.5:4b"
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+import type { ModelsConfig, ProjectConfig, RunnerConfig } from './schema.ts';
+
+/** Ключи вида `"// заметка"` в JSON — комментарии для человека; рантайм их игнорирует. */
+function readJson<T>(file: string): T {
+  if (!existsSync(file)) throw new Error(`конфиг не найден: ${file}`);
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as T;
+  } catch (e) {
+    throw new Error(`конфиг «${file}» не разобрался: ${(e as Error).message}`);
+  }
+}
+
+export function configDir(): string {
+  return process.env['SDLC_CONFIG_DIR'] ?? resolve(import.meta.dirname, '../../../config');
+}
+
+export interface LoadedConfig {
+  dir: string;
+  runner: RunnerConfig;
+  models: ModelsConfig;
+  projects: Map<string, ProjectConfig>;
+}
+
+export function loadConfig(dir: string = configDir()): LoadedConfig {
+  const runner = readJson<RunnerConfig>(join(dir, 'runner.json'));
+  const models = readJson<ModelsConfig>(join(dir, 'models.json'));
+
+  const projectsDir = join(dir, 'projects');
+  const projects = new Map<string, ProjectConfig>();
+  if (existsSync(projectsDir)) {
+    for (const file of readdirSync(projectsDir)) {
+      if (!file.endsWith('.json')) continue;
+      const p = readJson<ProjectConfig>(join(projectsDir, file));
+      if (typeof p.name !== 'string' || p.name === '') {
+        throw new Error(`проект «${file}»: не задано поле name`);
+      }
+      if (typeof p.projectRoot !== 'string' || p.projectRoot === '') {
+        throw new Error(`проект «${p.name}»: не задано поле projectRoot`);
+      }
+      projects.set(p.name, p);
+    }
+  }
+
+  if (projects.size === 0) {
+    throw new Error(`в ${projectsDir} нет ни одного проекта — нечего запускать`);
+  }
+
+  return { dir, runner, models, projects };
+}
+
+export function requireProject(cfg: LoadedConfig, name: string): ProjectConfig {
+  const p = cfg.projects.get(name);
+  if (p === undefined) {
+    throw new Error(
+      `проект «${name}» не найден. Известные: ${[...cfg.projects.keys()].join(', ')}`,
+    );
+  }
+  return p;
+}
