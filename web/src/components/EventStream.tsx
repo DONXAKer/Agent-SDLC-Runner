@@ -1,0 +1,122 @@
+import { useEffect, useRef } from 'react';
+
+import type { NormalizedCall, RunEvent } from '../lib/types.ts';
+
+function describeCall(call: NormalizedCall): string {
+  switch (call.kind) {
+    case 'read':
+      return `Read ${call.path}`;
+    case 'glob':
+      return `Glob ${call.pattern}`;
+    case 'grep':
+      return `Grep /${call.pattern}/`;
+    case 'write':
+      return `Write ${call.path}`;
+    case 'edit':
+      return `Edit ${call.path}`;
+    case 'bash':
+      return `Bash ${call.command.split('\n')[0] ?? ''}`;
+    case 'ask_human':
+      return `Вопрос человеку (${call.questions.length})`;
+    case 'finalize_artifact':
+      return `Финализация ${call.artifact}`;
+    case 'unknown':
+      return `Неизвестный инструмент ${call.toolName}`;
+  }
+}
+
+export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [events.length]);
+
+  return (
+    <div className="space-y-1.5 font-mono text-xs leading-5">
+      {events.map((e, idx) => {
+        switch (e.type) {
+          case 'assistant_text':
+            return (
+              <div key={idx} className="whitespace-pre-wrap font-sans text-sm text-neutral-200">
+                {e.text}
+              </div>
+            );
+
+          case 'thinking':
+            return (
+              <div key={idx} className="whitespace-pre-wrap italic text-neutral-500">
+                {e.text}
+              </div>
+            );
+
+          case 'tool_request':
+            return (
+              <div key={idx} className={e.policy.ok ? 'text-sky-400' : 'text-red-400'}>
+                → {describeCall(e.call)}
+                {!e.policy.ok ? ` — отклонено политикой (${e.policy.policy})` : ''}
+              </div>
+            );
+
+          case 'tool_resolved':
+            return (
+              <div key={idx} className="text-neutral-500">
+                {e.decision.allowed
+                  ? `  ✓ разрешено (${e.decision.by})`
+                  : `  ✗ ${e.decision.reason}`}
+              </div>
+            );
+
+          case 'tool_result':
+            return (
+              <div key={idx} className={e.ok ? 'text-neutral-500' : 'text-red-400'}>
+                {`  ${e.ok ? '·' : '✗'} ${e.summary} (${e.durationMs} мс)`}
+              </div>
+            );
+
+          case 'artifact_written':
+            return (
+              <div key={idx} className={e.placeholders > 0 ? 'text-amber-400' : 'text-emerald-400'}>
+                ▪ {e.path}
+                {e.placeholders > 0
+                  ? ` — осталось незаполненных мест: ${e.placeholders}, артефакт не готов`
+                  : ' — заполнен'}
+              </div>
+            );
+
+          case 'stage_started':
+            return (
+              <div key={idx} className="mt-3 border-t border-neutral-800 pt-2 text-neutral-400">
+                ▶ этап {e.stage} · {e.flow} · {e.provider}:{e.model}
+              </div>
+            );
+
+          case 'stage_done':
+            return (
+              <div key={idx} className={e.ok ? 'text-emerald-400' : 'text-red-400'}>
+                ■ {e.note}
+              </div>
+            );
+
+          case 'usage':
+            return (
+              <div key={idx} className="text-neutral-600">
+                ↑{e.usage.inputTokens} ↓{e.usage.outputTokens}
+                {e.usage.costUsd === null ? '' : ` · $${e.usage.costUsd.toFixed(4)}`}
+              </div>
+            );
+
+          case 'error':
+            return (
+              <div key={idx} className="whitespace-pre-wrap text-amber-400">
+                ⚠ {e.message}
+              </div>
+            );
+
+          default:
+            return null;
+        }
+      })}
+      <div ref={end} />
+    </div>
+  );
+}
