@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { Decision, DiffPreview, NormalizedCall, PolicyVerdict } from '../lib/types.ts';
+import type { Decision, DiffPreview, NormalizedCall, PolicyVerdict } from '@sdlc-runner/shared';
 import { DiffView } from './DiffView.tsx';
 
 export interface PendingCall {

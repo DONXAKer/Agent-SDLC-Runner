@@ -283,7 +283,15 @@ export type RunEvent =
       durationMs: number;
     }
   | { type: 'usage'; runId: string; stage: StageId; usage: Usage; total: Usage }
-  | { type: 'artifact_written'; runId: string; stage: StageId; path: string; placeholders: number }
+  // `stage: null` — артефакт записал человек, а не этап: так выглядит запись решения
+  // (одобрение плана, приёмка). Это не «этап неизвестен», это «этап тут ни при чём».
+  | {
+      type: 'artifact_written';
+      runId: string;
+      stage: StageId | null;
+      path: string;
+      placeholders: number;
+    }
   | { type: 'gate_result'; runId: string; stage: StageId; gate: GateRunResult }
   | { type: 'verdict'; runId: string; stage: StageId; verdict: Verdict }
   | { type: 'stage_done'; runId: string; stage: StageId; ok: boolean; note: string }

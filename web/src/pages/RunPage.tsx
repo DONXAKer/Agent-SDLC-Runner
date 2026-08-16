@@ -7,7 +7,7 @@ import { PromptPane } from '../components/PromptPane.tsx';
 import { StageRail } from '../components/StageRail.tsx';
 import { ToolApproval, type PendingCall } from '../components/ToolApproval.tsx';
 import { api } from '../lib/api.ts';
-import type { Decision, PreparedPrompt, Question, RunDetail, StageId } from '../lib/types.ts';
+import type { Decision, PreparedPrompt, Question, RunDetail, StageId } from '@sdlc-runner/shared';
 import { useRunSocket } from '../lib/useRunSocket.ts';
 
 interface PendingAsk {
@@ -102,6 +102,18 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     void api.resolveApproval(runId, requestId, decision).catch((e: Error) => setError(e.message));
   };
 
+  const decide = async (): Promise<void> => {
+    const d = stageInfo?.decision;
+    if (d == null) return;
+    setError(null);
+    try {
+      await api.recordDecision(runId, d.artifact, d.label);
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const answer = (requestId: string, answers: Record<string, string[]>): void => {
     void api.answerQuestions(runId, requestId, answers).catch((e: Error) => setError(e.message));
   };
@@ -129,11 +141,13 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
 
         <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs">профиль: {detail.profile}</span>
         <span className="text-xs text-neutral-500">
-          chunk {detail.chunk} · попытка {detail.attempt}
+          chunk {detail.chunk} · попытка {detail.attempt} из {detail.attemptBudget}
         </span>
 
         <div className="ml-auto flex items-center gap-4">
-          <CostBar usage={detail.usage} budgetUsd={5} />
+          {/* Бюджет берётся из конфига проекта, а не из константы: до этого полоса
+              сравнивала расход с чужим числом и краснела не тогда, когда надо. */}
+          <CostBar usage={detail.usage} budgetUsd={detail.maxBudgetUsd} />
           <span className={connected ? 'text-xs text-emerald-500' : 'text-xs text-amber-500'}>
             {connected ? 'онлайн' : 'переподключение…'}
           </span>
@@ -201,6 +215,45 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
               <div className="max-h-[70vh] overflow-auto rounded border border-neutral-800 bg-neutral-950 p-3">
                 <EventStream events={stageEvents} />
               </div>
+
+              {detail.verdict !== null && stage === 'verify' ? (
+                <div
+                  className={`mt-3 rounded border p-3 text-sm ${
+                    detail.verdict.passed
+                      ? 'border-emerald-800 bg-emerald-950/30'
+                      : 'border-red-900 bg-red-950/30'
+                  }`}
+                >
+                  <div className="mb-1 font-medium">
+                    Вердикт: {detail.verdict.passed ? 'passed' : 'не пройден'} ·{' '}
+                    {detail.verdict.action}
+                  </div>
+                  <ul className="space-y-0.5 text-xs text-neutral-300">
+                    {detail.verdict.reasons.map((r, i) => (
+                      <li key={i} className="whitespace-pre-wrap break-words">
+                        — {r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {stageInfo?.decision != null ? (
+                <div className="mt-3 rounded border border-neutral-800 p-3">
+                  <div className="mb-2 text-xs text-neutral-400">
+                    Решение человека на этом этапе: <b>{stageInfo.decision.label}</b>. Пока оно не
+                    записано в артефакт, следующий этап не начинается — молчание одобрением не
+                    считается.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void decide()}
+                    className="rounded border border-emerald-700 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-950"
+                  >
+                    Записать решение в {stageInfo.decision.artifact}
+                  </button>
+                </div>
+              ) : null}
 
               {stageInfo !== null && stageInfo.produces.length > 0 ? (
                 <div className="mt-3">

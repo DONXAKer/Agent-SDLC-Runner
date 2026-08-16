@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { Question } from '../lib/types.ts';
+import type { Question } from '@sdlc-runner/shared';
 
 /**
  * Вопрос человеку. Отдельно от одобрения вызова: там человек разрешает уже сформированное

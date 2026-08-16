@@ -20,8 +20,8 @@ import type {
 } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
-import { readArtifact, writeArtifact } from '../artifacts/artifact.ts';
-import { WitokPaths } from '../artifacts/paths.ts';
+import { decisionValue, readArtifact, setDecision, writeArtifact } from '../artifacts/artifact.ts';
+import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { extractFilesToTouch } from '../artifacts/planFiles.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
@@ -107,6 +107,7 @@ export class Run {
   private aborter: AbortController | null = null;
   /** Фактический прогон гейтов текущей попытки — источник статусов для вердикта. */
   private lastGateResults: GateRunResult[] = [];
+  private verdict: Verdict | null = null;
 
   constructor(o: RunOptions) {
     this.config = o.config;
@@ -122,6 +123,37 @@ export class Run {
   get ctx(): StageContext {
     return { paths: this.paths, chunk: this.chunk, attempt: this.attempt };
   }
+
+  /** Итоги последнего прогона гейтов — для интерфейса. */
+  get gateResults(): GateRunResult[] {
+    return [...this.lastGateResults];
+  }
+
+  get lastVerdict(): Verdict | null {
+    return this.verdict;
+  }
+
+  /**
+   * Записывает решение человека полем в артефакт: имя оператора и дата.
+   *
+   * Путь берётся не от клиента: интерфейс называет артефакт коротким именем, а рантайм
+   * сам превращает его в путь внутри витка. Иначе поле решения можно было бы записать
+   * в произвольный файл на диске — в том числе в чужой виток.
+   */
+  recordDecision(artifact: string, label: string): string {
+    if (!isArtifactKey(artifact)) {
+      throw new Error(`неизвестный артефакт «${artifact}»`);
+    }
+    const path = artifactPathOf(this.paths, artifact, this.chunk, this.attempt);
+    const current = readArtifact(path);
+    if (!current.exists) throw new Error(`нет артефакта ${path} — решение записывать некуда`);
+
+    const value = decisionValue(this.config.runner.operator, new Date());
+    writeArtifact(path, setDecision(current.text, label, value));
+    this.emit({ type: 'artifact_written', runId: this.id, stage: null, path, placeholders: 0 });
+    return value;
+  }
+
 
   /** Каталоги вне проекта, открытые агенту только на чтение. */
   get readOnlyRoots(): string[] {
@@ -321,6 +353,7 @@ export class Run {
         ? verdict
         : { ...verdict, reasons: [...verdict.reasons, ...disagreements] };
 
+    this.verdict = withNotes;
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
     return withNotes;
   }

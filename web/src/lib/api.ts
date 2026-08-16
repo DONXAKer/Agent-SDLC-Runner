@@ -1,4 +1,4 @@
-import type { ConfigInfo, Decision, PreparedPrompt, RunDetail, StageId } from './types.ts';
+import type { ConfigInfo, Decision, PreparedPrompt, RunDetail, StageId } from '@sdlc-runner/shared';
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -55,6 +55,10 @@ export const api = {
     requestId: string,
     answers: Record<string, string[]>,
   ): Promise<unknown> => post(`/api/runs/${id}/questions/${requestId}`, { answers }).then(json),
+
+  /** Записывает решение человека полем в артефакт: имя оператора и дата ставит сервер. */
+  recordDecision: (id: string, artifact: string, label: string): Promise<{ value: string }> =>
+    post(`/api/runs/${id}/decision`, { artifact, label }).then((r) => json<{ value: string }>(r)),
 
   autoApprove: (id: string, stage: StageId, on: boolean): Promise<unknown> =>
     post(`/api/runs/${id}/auto-approve`, { stage, on }).then(json),

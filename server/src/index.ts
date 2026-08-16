@@ -12,7 +12,15 @@ import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
 
-import type { Decision, RunEvent, StageId } from '@sdlc-runner/shared';
+import type {
+  ConfigInfo,
+  Decision,
+  PromptResponse,
+  RunDetail,
+  RunEvent,
+  RunSummary,
+  StageId,
+} from '@sdlc-runner/shared';
 
 import { AskGate } from './approval/askGate.ts';
 import { ApprovalGate } from './approval/gate.ts';
@@ -104,7 +112,7 @@ function liveRun(id: string): LiveRun | null {
 
 // ── справочники ────────────────────────────────────────────────────────────
 
-app.get('/api/config', () => ({
+app.get('/api/config', (): ConfigInfo => ({
   operator: config.runner.operator,
   projects: [...config.projects.values()].map((p) => ({
     name: p.name,
@@ -164,7 +172,7 @@ app.post('/api/runs', async (req, reply) => {
   }
 });
 
-app.get('/api/runs', () =>
+app.get('/api/runs', (): RunSummary[] =>
   [...runs.values()].map(({ run, currentStage }) => ({
     runId: run.id,
     slug: run.slug,
@@ -184,7 +192,7 @@ app.get('/api/runs/:id', async (req, reply) => {
   if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
 
   const { run, currentStage } = live;
-  return {
+  const detail: RunDetail = {
     runId: run.id,
     slug: run.slug,
     project: run.project.name,
@@ -204,12 +212,41 @@ app.get('/api/runs/:id', async (req, reply) => {
       tools: s.tools,
       blockers: run.blockers(s.id),
       produces: s.produces(run.ctx),
+      decision: s.humanGate,
     })),
     pendingApprovals: gate.list().filter((p) => p.runId === id),
     pendingQuestions: askGate.list().filter((p) => p.runId === id),
+    gateResults: run.gateResults,
+    verdict: run.lastVerdict,
     // История событий здесь не отдаётся: клиент получает её по WebSocket при
     // подключении, а дублирование гоняло по проводу полные тексты файлов впустую.
   };
+  return detail;
+});
+
+/**
+ * Запись решения человека полем в артефакт.
+ *
+ * Отдельная ручка, потому что это и есть гейт: методология считает решение состоявшимся
+ * только тогда, когда оно записано в файл с именем и датой. Одобрение, оставшееся в
+ * интерфейсе, для следующего этапа не существует.
+ */
+app.post('/api/runs/:id/decision', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const live = liveRun(id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+
+  const body = req.body as { artifact?: string; label?: string };
+  if (typeof body.artifact !== 'string' || typeof body.label !== 'string') {
+    return reply.code(400).send({ error: 'нужны поля artifact и label' });
+  }
+
+  try {
+    const value = live.run.recordDecision(body.artifact, body.label);
+    return { ok: true, value };
+  } catch (e) {
+    return reply.code(400).send({ error: (e as Error).message });
+  }
 });
 
 /** Промпт готовится отдельным шагом: оператор вправе увидеть и поправить его до отправки. */
@@ -222,8 +259,11 @@ app.post('/api/runs/:id/stages/:stage/prompt', async (req, reply) => {
 
   const body = (req.body ?? {}) as { requirement?: string; extra?: string };
   try {
-    const prompt = live.run.preparePrompt(stage, body);
-    return { prompt, blockers: live.run.blockers(stage) };
+    const response: PromptResponse = {
+      prompt: live.run.preparePrompt(stage, body),
+      blockers: live.run.blockers(stage),
+    };
+    return response;
   } catch (e) {
     return reply.code(400).send({ error: (e as Error).message });
   }

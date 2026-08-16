@@ -12,7 +12,7 @@
  */
 
 import { DECISION, artifactExists, readArtifact, readDecision } from '../artifacts/artifact.ts';
-import type { WitokPaths } from '../artifacts/paths.ts';
+import type { ArtifactKey, WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_DIR } from '../artifacts/paths.ts';
 import type { StageId, ToolName } from '@sdlc-runner/shared';
 
@@ -47,8 +47,13 @@ export interface StageDef {
    * с себя любое ограничение.
    */
   protectedArtifacts: (c: StageContext) => string[];
-  /** Поле решения человека, без которого следующий этап не начинается. */
-  humanGate: { file: (c: StageContext) => string; label: string } | null;
+  /**
+   * Поле решения человека, без которого следующий этап не начинается.
+   *
+   * Артефакт назван ключом, а не путём: тот же ключ приходит из интерфейса, когда
+   * оператор записывает решение, и путь по нему собирает рантайм.
+   */
+  humanGate: { artifact: ArtifactKey; label: string } | null;
   /** Причина пропустить этап, либо `null`. */
   skipIf: ((c: StageContext) => string | null) | null;
 }
@@ -178,7 +183,7 @@ export const STAGES: readonly StageDef[] = [
       exists('проверка готовности пройдена (прогон 1)', (c) => c.paths.readiness),
     ],
     protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.plan)],
-    humanGate: { file: (c) => c.paths.explorationReport, label: DECISION.checklistComplete },
+    humanGate: { artifact: 'exploration', label: DECISION.checklistComplete },
     skipIf: (c) =>
       isSmallContour(c)
         ? 'мелкий контур: разведка точечная на этапе 5, отчёт не пишется'
@@ -226,7 +231,7 @@ export const STAGES: readonly StageDef[] = [
     ],
     // План здесь и создаётся, поэтому защищены только задача и набор гейтов.
     protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.intent)],
-    humanGate: { file: (c) => c.paths.plan, label: DECISION.approval },
+    humanGate: { artifact: 'plan', label: DECISION.approval },
     skipIf: null,
   },
 
@@ -248,7 +253,7 @@ export const STAGES: readonly StageDef[] = [
       granted('план одобрен человеком', (c) => c.paths.plan, DECISION.approval),
     ],
     protectedArtifacts: RUNTIME_PROTECTED,
-    humanGate: { file: (c) => c.paths.chunkJournal(c.chunk), label: DECISION.confirmed },
+    humanGate: { artifact: 'journal', label: DECISION.confirmed },
     skipIf: null,
   },
 
@@ -306,7 +311,7 @@ export const STAGES: readonly StageDef[] = [
     ],
     // gates.md здесь править можно: методология велит дописывать сюда строку долга.
     protectedArtifacts: (c) => [relOf(c, c.paths.plan), relOf(c, c.paths.intent)],
-    humanGate: { file: (c) => c.paths.handoff, label: DECISION.accepted },
+    humanGate: { artifact: 'handoff', label: DECISION.accepted },
     skipIf: null,
   },
 ];

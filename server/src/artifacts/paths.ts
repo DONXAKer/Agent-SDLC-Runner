@@ -12,6 +12,64 @@ import { join } from 'node:path';
 
 export const SDLC_DIR = '.sdlc';
 
+/**
+ * Короткие имена артефактов витка.
+ *
+ * Нужны там, где артефакт называет не код, а внешний мир: интерфейс просит записать
+ * решение в «plan», а не в путь. Путь рантайм собирает сам — иначе поле решения можно
+ * было бы записать в произвольный файл на диске, в том числе в чужой виток.
+ */
+export type ArtifactKey =
+  | 'intent'
+  | 'readiness'
+  | 'exploration'
+  | 'clarification'
+  | 'plan'
+  | 'journal'
+  | 'verification'
+  | 'handoff';
+
+const ARTIFACT_KEYS: readonly string[] = [
+  'intent',
+  'readiness',
+  'exploration',
+  'clarification',
+  'plan',
+  'journal',
+  'verification',
+  'handoff',
+];
+
+export function isArtifactKey(v: string): v is ArtifactKey {
+  return ARTIFACT_KEYS.includes(v);
+}
+
+export function artifactPathOf(
+  paths: WitokPaths,
+  key: ArtifactKey,
+  chunk: number,
+  attempt: number,
+): string {
+  switch (key) {
+    case 'intent':
+      return paths.intent;
+    case 'readiness':
+      return paths.readiness;
+    case 'exploration':
+      return paths.explorationReport;
+    case 'clarification':
+      return paths.clarificationReport;
+    case 'plan':
+      return paths.plan;
+    case 'journal':
+      return paths.chunkJournal(chunk);
+    case 'verification':
+      return paths.verificationReport(chunk, attempt);
+    case 'handoff':
+      return paths.handoff;
+  }
+}
+
 export class WitokPaths {
   readonly projectRoot: string;
   readonly slug: string;

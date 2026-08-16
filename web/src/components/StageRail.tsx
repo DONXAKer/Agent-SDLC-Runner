@@ -1,4 +1,4 @@
-import type { RunDetail, StageId } from '../lib/types.ts';
+import type { RunDetail, StageId } from '@sdlc-runner/shared';
 
 const FLOW_BADGE: Record<string, string> = {
   sdk: 'bg-violet-900/60 text-violet-200',

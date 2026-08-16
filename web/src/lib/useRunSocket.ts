@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import type { RunEvent } from './types.ts';
+import type { RunEvent } from '@sdlc-runner/shared';
 
 /**
  * Поток событий прогона. Сервер при подключении отдаёт историю, поэтому вкладка,
@@ -28,7 +28,13 @@ export function useRunSocket(runId: string | null): {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       socket = new WebSocket(`${proto}://${location.host}/ws?runId=${encodeURIComponent(runId)}`);
 
-      socket.onopen = () => setConnected(true);
+      // История отдаётся заново при каждом подключении, поэтому накопленное сбрасываем:
+      // иначе после каждого переподключения весь ход этапа дублировался в ленте, а
+      // очередь одобрений считалась по дублям и показывала уже разрешённые вызовы.
+      socket.onopen = () => {
+        setEvents([]);
+        setConnected(true);
+      };
       socket.onmessage = (m) => {
         try {
           setEvents((prev) => [...prev, JSON.parse(m.data as string) as RunEvent]);

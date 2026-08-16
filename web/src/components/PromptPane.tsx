@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import type { PreparedPrompt } from '../lib/types.ts';
+import type { PreparedPrompt } from '@sdlc-runner/shared';
 
 /**
  * Полный промпт с правкой перед отправкой.

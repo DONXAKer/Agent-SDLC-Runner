@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { RunPage } from './pages/RunPage.tsx';
 import { api } from './lib/api.ts';
-import type { ConfigInfo, ProjectInfo } from './lib/types.ts';
+import type { ConfigInfo, ProjectInfo } from '@sdlc-runner/shared';
 
 export default function App(): JSX.Element {
   const [config, setConfig] = useState<ConfigInfo | null>(null);

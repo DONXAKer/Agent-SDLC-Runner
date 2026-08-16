@@ -1,4 +1,4 @@
-import type { Usage } from '../lib/types.ts';
+import type { Usage } from '@sdlc-runner/shared';
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);

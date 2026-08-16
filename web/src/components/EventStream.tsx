@@ -1,29 +1,9 @@
 import { useEffect, useRef } from 'react';
 
-import type { NormalizedCall, RunEvent } from '../lib/types.ts';
-
-function describeCall(call: NormalizedCall): string {
-  switch (call.kind) {
-    case 'read':
-      return `Read ${call.path}`;
-    case 'glob':
-      return `Glob ${call.pattern}`;
-    case 'grep':
-      return `Grep /${call.pattern}/`;
-    case 'write':
-      return `Write ${call.path}`;
-    case 'edit':
-      return `Edit ${call.path}`;
-    case 'bash':
-      return `Bash ${call.command.split('\n')[0] ?? ''}`;
-    case 'ask_human':
-      return `Вопрос человеку (${call.questions.length})`;
-    case 'finalize_artifact':
-      return `Финализация ${call.artifact}`;
-    case 'unknown':
-      return `Неизвестный инструмент ${call.toolName}`;
-  }
-}
+import type { RunEvent } from '@sdlc-runner/shared';
+// Описание вызова берётся из общего пакета: пока у интерфейса была своя копия, она
+// отставала от нормализатора, и новый вид вызова показывался как «неизвестный».
+import { describeCall } from '@sdlc-runner/shared';
 
 export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
   const end = useRef<HTMLDivElement>(null);
@@ -105,6 +85,49 @@ export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
               </div>
             );
 
+          case 'gate_result':
+            return (
+              <div
+                key={idx}
+                className={
+                  e.gate.status === '✅'
+                    ? 'text-emerald-400'
+                    : e.gate.status === '❌'
+                      ? 'text-red-400'
+                      : 'text-amber-400'
+                }
+              >
+                {e.gate.status} {e.gate.name}
+                <span className="text-neutral-500">
+                  {' '}
+                  · {e.gate.command ?? 'встроенная проверка'} · {e.gate.durationMs} мс
+                </span>
+                <div className="whitespace-pre-wrap pl-4 text-neutral-500">{e.gate.lastLine}</div>
+              </div>
+            );
+
+          case 'verdict':
+            return (
+              <div
+                key={idx}
+                className={`mt-2 rounded border p-2 ${
+                  e.verdict.passed
+                    ? 'border-emerald-800 bg-emerald-950/30 text-emerald-300'
+                    : 'border-red-900 bg-red-950/30 text-red-300'
+                }`}
+              >
+                <div className="font-medium">
+                  вердикт: passed={String(e.verdict.passed)} · {e.verdict.action}
+                </div>
+                {e.verdict.reasons.map((r, i) => (
+                  <div key={i} className="whitespace-pre-wrap pl-3 text-neutral-300">
+                    — {r}
+                  </div>
+                ))}
+              </div>
+            );
+
+          case 'warning':
           case 'error':
             return (
               <div key={idx} className="whitespace-pre-wrap text-amber-400">
