@@ -6,7 +6,7 @@
  * исполнения выводится из провайдера, отдельной настройки для него нет.
  */
 
-import { STAGE_ORDER, type StageId } from '../types.ts';
+import { STAGE_ORDER, type StageId } from '@sdlc-runner/shared';
 import type { ModelsConfig, ProjectConfig, ResolvedProfile, ResolvedRoute } from './schema.ts';
 
 export class ProfileError extends Error {

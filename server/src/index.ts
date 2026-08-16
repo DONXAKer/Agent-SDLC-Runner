@@ -12,14 +12,15 @@ import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
 
-import { ApprovalGate } from './approval/gate.ts';
+import type { Decision, RunEvent, StageId } from '@sdlc-runner/shared';
+
 import { AskGate } from './approval/askGate.ts';
+import { ApprovalGate } from './approval/gate.ts';
 import { EventBus } from './bus.ts';
 import { loadConfig, requireProject } from './config/load.ts';
 import { ProfileError, resolveStartableProfile } from './config/profiles.ts';
 import { Run } from './run/Run.ts';
-import { STAGES, stageById } from './run/stages.ts';
-import type { Decision, RunEvent, StageId } from './types.ts';
+import { STAGES, isStageId, stageById } from './run/stages.ts';
 
 const config = loadConfig();
 const bus = new EventBus();
@@ -34,6 +35,7 @@ const gate = new ApprovalGate({
       call: p.call,
       policy: p.policy,
       preview: p.preview,
+      writeTargets: p.writeTargets,
     }),
   onResolved: (info, decision) =>
     bus.emit({
@@ -55,6 +57,7 @@ const askGate = new AskGate({
       call: { kind: 'ask_human', questions: p.questions },
       policy: { ok: true },
       preview: null,
+      writeTargets: null,
     }),
   onAnswered: (info, answers) =>
     bus.emit({
@@ -77,6 +80,27 @@ const runs = new Map<string, LiveRun>();
 
 const app = Fastify({ logger: { level: 'warn' } });
 await app.register(websocket);
+
+// ── валидация входа ────────────────────────────────────────────────────────
+
+/**
+ * Slug становится именем каталога артефактов, поэтому он не может содержать
+ * разделителей: `../../../Users/Root/.ssh` заставлял рантайм читать файлы вне проекта
+ * и вклеивать их содержимое в промпт. Политика тут не помогает — читает сам рантайм.
+ */
+const SLUG_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
+
+function badSlug(slug: string): string | null {
+  if (!SLUG_RE.test(slug)) {
+    return 'slug может содержать только латиницу, цифры, точку, дефис и подчёркивание (до 64 символов)';
+  }
+  if (slug === '.' || slug === '..' || slug.includes('..')) return 'slug не может содержать «..»';
+  return null;
+}
+
+function liveRun(id: string): LiveRun | null {
+  return runs.get(id) ?? null;
+}
 
 // ── справочники ────────────────────────────────────────────────────────────
 
@@ -104,6 +128,9 @@ app.post('/api/runs', async (req, reply) => {
   if (typeof body.project !== 'string' || typeof body.slug !== 'string') {
     return reply.code(400).send({ error: 'нужны поля project и slug' });
   }
+
+  const slugProblem = badSlug(body.slug);
+  if (slugProblem !== null) return reply.code(400).send({ error: slugProblem });
 
   try {
     const project = requireProject(config, body.project);
@@ -151,10 +178,6 @@ app.get('/api/runs', () =>
   })),
 );
 
-function liveRun(id: string): LiveRun | null {
-  return runs.get(id) ?? null;
-}
-
 app.get('/api/runs/:id', async (req, reply) => {
   const { id } = req.params as { id: string };
   const live = liveRun(id);
@@ -172,6 +195,8 @@ app.get('/api/runs/:id', async (req, reply) => {
     stage: currentStage,
     chunk: run.chunk,
     attempt: run.attempt,
+    attemptBudget: run.attemptBudget,
+    maxBudgetUsd: run.project.maxBudgetUsd,
     usage: run.totalUsage,
     stages: STAGES.map((s) => ({
       id: s.id,
@@ -182,19 +207,21 @@ app.get('/api/runs/:id', async (req, reply) => {
     })),
     pendingApprovals: gate.list().filter((p) => p.runId === id),
     pendingQuestions: askGate.list().filter((p) => p.runId === id),
-    events: bus.replay(id),
+    // История событий здесь не отдаётся: клиент получает её по WebSocket при
+    // подключении, а дублирование гоняло по проводу полные тексты файлов впустую.
   };
 });
 
 /** Промпт готовится отдельным шагом: оператор вправе увидеть и поправить его до отправки. */
 app.post('/api/runs/:id/stages/:stage/prompt', async (req, reply) => {
-  const { id, stage } = req.params as { id: string; stage: StageId };
+  const { id, stage } = req.params as { id: string; stage: string };
+  if (!isStageId(stage)) return reply.code(400).send({ error: `неизвестный этап: ${stage}` });
+
   const live = liveRun(id);
   if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
 
   const body = (req.body ?? {}) as { requirement?: string; extra?: string };
   try {
-    stageById(stage);
     const prompt = live.run.preparePrompt(stage, body);
     return { prompt, blockers: live.run.blockers(stage) };
   } catch (e) {
@@ -203,7 +230,9 @@ app.post('/api/runs/:id/stages/:stage/prompt', async (req, reply) => {
 });
 
 app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
-  const { id, stage } = req.params as { id: string; stage: StageId };
+  const { id, stage } = req.params as { id: string; stage: string };
+  if (!isStageId(stage)) return reply.code(400).send({ error: `неизвестный этап: ${stage}` });
+
   const live = liveRun(id);
   if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
   if (live.currentStage !== null) {
@@ -211,40 +240,89 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
   }
 
   const body = (req.body ?? {}) as {
-    prompt?: { system: string; user: string };
+    prompt?: { system?: unknown; user?: unknown };
     requirement?: string;
     extra?: string;
+    abortHandoff?: boolean;
   };
+
+  let editedPrompt: { system: string; user: string } | null = null;
+  if (body.prompt !== undefined) {
+    if (typeof body.prompt.system !== 'string' || typeof body.prompt.user !== 'string') {
+      return reply.code(400).send({ error: 'prompt.system и prompt.user должны быть строками' });
+    }
+    editedPrompt = { system: body.prompt.system, user: body.prompt.user };
+  }
+
+  // Схемы инструментов и пометка о скрытом пресете берутся из свежей сборки: оператор
+  // правит текст, а не состав инструментов, и presetNote обязан остаться правдой.
+  const base = live.run.preparePrompt(stage, body);
 
   live.currentStage = stage;
 
-  // Этап живёт дольше HTTP-запроса: клиент следит за ним по WebSocket.
+  // Этап живёт дольше HTTP-запроса: клиент следит за ним по WebSocket. Без catch любая
+  // ошибка вне try внутри runStage становилась unhandled rejection и роняла процесс
+  // вместе со всеми живыми витками.
   void live.run
     .runStage(stage, {
       ...(body.requirement === undefined ? {} : { requirement: body.requirement }),
       ...(body.extra === undefined ? {} : { extra: body.extra }),
-      ...(body.prompt === undefined
+      ...(body.abortHandoff === true ? { abortHandoff: true } : {}),
+      ...(editedPrompt === null
         ? {}
         : {
             prompt: {
-              presetNote: null,
-              system: body.prompt.system,
-              user: body.prompt.user,
-              tools: [],
+              ...base,
+              system: editedPrompt.system,
+              user: editedPrompt.user,
+              editedByOperator:
+                editedPrompt.system !== base.system || editedPrompt.user !== base.user,
             },
           }),
     })
+    .catch((e: unknown) => {
+      bus.emit({
+        type: 'error',
+        runId: id,
+        stage,
+        message: `этап не запустился: ${(e as Error).message}`,
+      });
+    })
     .finally(() => {
       live.currentStage = null;
+      // Автоодобрение действует на один этап: оставленное включённым, оно молча
+      // распространялось бы на все последующие попытки.
+      gate.clearAutoApprove(id, stage);
     });
 
   return reply.code(202).send({ started: true, stage });
 });
 
+/** Продвижение витка: новая попытка того же chunk'а либо следующий chunk. */
+app.post('/api/runs/:id/advance', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const live = liveRun(id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+  if (live.currentStage !== null) {
+    return reply.code(409).send({ error: `этап ${live.currentStage} выполняется` });
+  }
+
+  const body = req.body as { to?: 'attempt' | 'chunk' };
+  if (body.to === 'attempt') {
+    const attempt = live.run.nextAttempt();
+    return { chunk: live.run.chunk, attempt, attemptBudget: live.run.attemptBudget };
+  }
+  if (body.to === 'chunk') {
+    const chunk = live.run.nextChunk();
+    return { chunk, attempt: live.run.attempt, attemptBudget: live.run.attemptBudget };
+  }
+  return reply.code(400).send({ error: 'поле to должно быть «attempt» или «chunk»' });
+});
+
 // ── одобрения и вопросы ────────────────────────────────────────────────────
 
 app.post('/api/runs/:id/approvals/:requestId', async (req, reply) => {
-  const { requestId } = req.params as { id: string; requestId: string };
+  const { id, requestId } = req.params as { id: string; requestId: string };
   const body = req.body as {
     allowed?: boolean;
     reason?: string;
@@ -258,32 +336,37 @@ app.post('/api/runs/:id/approvals/:requestId', async (req, reply) => {
     ? { allowed: true, updatedInput: body.updatedInput ?? null, by: 'operator' }
     : { allowed: false, reason: body.reason ?? 'оператор отклонил вызов', by: 'operator' };
 
-  const ok = gate.resolve(requestId, decision);
+  const ok = gate.resolve(id, requestId, decision);
   if (!ok) return reply.code(404).send({ error: 'запрос уже разрешён или устарел' });
   return { ok: true };
 });
 
 app.post('/api/runs/:id/questions/:requestId', async (req, reply) => {
-  const { requestId } = req.params as { id: string; requestId: string };
+  const { id, requestId } = req.params as { id: string; requestId: string };
   const body = req.body as { answers?: Record<string, string[]> };
-  const ok = askGate.answer(requestId, body.answers ?? {});
+  const ok = askGate.answer(id, requestId, body.answers ?? {});
   if (!ok) return reply.code(404).send({ error: 'вопрос уже отвечен или устарел' });
   return { ok: true };
 });
 
 app.post('/api/runs/:id/auto-approve', async (req, reply) => {
   const { id } = req.params as { id: string };
-  const body = req.body as { stage?: StageId; on?: boolean };
-  if (typeof body.stage !== 'string' || typeof body.on !== 'boolean') {
-    return reply.code(400).send({ error: 'нужны поля stage и on' });
+  const live = liveRun(id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+
+  const body = req.body as { stage?: string; on?: boolean };
+  if (!isStageId(body.stage) || typeof body.on !== 'boolean') {
+    return reply.code(400).send({ error: 'нужны поля stage (известный этап) и on' });
   }
+
   gate.setAutoApprove(id, body.stage, body.on);
   bus.emit({
-    type: 'error',
+    type: 'warning',
     runId: id,
     stage: body.stage,
     message: body.on
-      ? `оператор включил автоодобрение на этапе ${body.stage} — дальнейшие вызовы шли без подтверждения`
+      ? `оператор включил автоодобрение на этапе ${body.stage} — дальнейшие вызовы этого этапа ` +
+        `идут без подтверждения. Отказы политики продолжают действовать.`
       : `автоодобрение на этапе ${body.stage} выключено`,
   });
   return { ok: true };
@@ -293,10 +376,26 @@ app.post('/api/runs/:id/cancel', async (req, reply) => {
   const { id } = req.params as { id: string };
   const live = liveRun(id);
   if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
-  gate.cancelRun(id, 'прогон отменён оператором');
-  askGate.cancelRun(id);
-  live.run.status = 'failed';
+
+  // Отмена доходит до исполнителя: без этого SDK продолжал крутиться, тратя бюджет и
+  // создавая новые запросы на одобрение на «отменённом» прогоне.
+  live.run.cancel('прогон отменён оператором');
   bus.emit({ type: 'run_finished', runId: id, ok: false, note: 'отменён оператором' });
+  return { ok: true };
+});
+
+/** Убрать завершённый виток из памяти: его состояние на диске, держать его тут незачем. */
+app.delete('/api/runs/:id', async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const live = liveRun(id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+  if (live.currentStage !== null) {
+    return reply.code(409).send({ error: `этап ${live.currentStage} выполняется` });
+  }
+
+  live.run.cancel('прогон закрыт оператором');
+  runs.delete(id);
+  bus.forget(id);
   return { ok: true };
 });
 

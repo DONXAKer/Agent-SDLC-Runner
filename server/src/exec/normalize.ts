@@ -9,24 +9,32 @@
  * считать его записью по худшему случаю и отклонить, а не пропустить молча.
  */
 
-import type { CallKind, EditOp, NormalizedCall, Question } from '../types.ts';
+import type { CallKind, EditOp, NormalizedCall, Question } from '@sdlc-runner/shared';
 
 /** Инструменты, которые рантайм подаёт через MCP во флоу `sdk`. */
 const MCP_PREFIX = 'mcp__sdlc__';
 
-const NAME_TO_KIND: Record<string, CallKind> = {
-  Read: 'read',
-  Glob: 'glob',
-  Grep: 'grep',
-  Write: 'write',
-  Edit: 'edit',
-  MultiEdit: 'edit',
-  Bash: 'bash',
-  AskHuman: 'ask_human',
-  ask_human: 'ask_human',
-  FinalizeArtifact: 'finalize_artifact',
-  finalize_artifact: 'finalize_artifact',
-};
+/**
+ * Map, а не объектный литерал: у литерала есть прототип, и инструмент с именем `toString`
+ * или `constructor` возвращал функцию вместо `undefined`. Тогда ни одна ветка switch не
+ * срабатывала, `normalize` отдавал `undefined`, и политика падала с TypeError вместо
+ * отказа по худшему случаю — то есть ровно наоборот к заявленному принципу.
+ */
+const NAME_TO_KIND = new Map<string, CallKind>([
+  ['Read', 'read'],
+  ['Glob', 'glob'],
+  ['Grep', 'grep'],
+  ['Write', 'write'],
+  ['Edit', 'edit'],
+  ['MultiEdit', 'edit'],
+  ['Bash', 'bash'],
+  ['AskHuman', 'ask_human'],
+  ['ask_human', 'ask_human'],
+  ['FinalizeArtifact', 'finalize_artifact'],
+  ['finalize_artifact', 'finalize_artifact'],
+  ['Task', 'subagent'],
+  ['Agent', 'subagent'],
+]);
 
 function str(input: Record<string, unknown>, ...keys: string[]): string | null {
   for (const k of keys) {
@@ -103,7 +111,7 @@ export function baseToolName(toolName: string): string {
 
 export function normalize(toolName: string, input: Record<string, unknown>): NormalizedCall {
   const name = baseToolName(toolName);
-  const kind = NAME_TO_KIND[name];
+  const kind = NAME_TO_KIND.get(name);
 
   if (kind === undefined) return { kind: 'unknown', toolName, raw: input };
 
@@ -113,11 +121,11 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
       if (path === null) return { kind: 'unknown', toolName, raw: input };
       const offset = num(input, 'offset');
       const limit = num(input, 'limit');
-      const range =
-        offset === null && limit === null
-          ? null
-          : { from: offset ?? 1, to: (offset ?? 1) + (limit ?? 0) };
-      return { kind: 'read', path, range };
+      if (offset === null && limit === null) return { kind: 'read', path, range: null };
+      const from = offset ?? 1;
+      // Диапазон включающий: `offset=10, limit=5` это строки 10..14, а не 10..15.
+      const to = limit === null ? from : from + Math.max(0, limit - 1);
+      return { kind: 'read', path, range: { from, to } };
     }
 
     case 'glob': {
@@ -151,7 +159,7 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
     case 'bash': {
       const command = str(input, 'command');
       if (command === null) return { kind: 'unknown', toolName, raw: input };
-      return { kind: 'bash', command, writeTargets: [] };
+      return { kind: 'bash', command };
     }
 
     case 'ask_human':
@@ -160,34 +168,16 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
     case 'finalize_artifact': {
       const artifact = str(input, 'artifact', 'file_path', 'path');
       if (artifact === null) return { kind: 'unknown', toolName, raw: input };
-      return { kind: 'finalize_artifact', artifact, data: input };
+      return { kind: 'finalize_artifact', artifact, note: str(input, 'note') };
+    }
+
+    case 'subagent': {
+      const agent = str(input, 'subagent_type', 'agent', 'name');
+      if (agent === null) return { kind: 'unknown', toolName, raw: input };
+      return { kind: 'subagent', agent, prompt: str(input, 'prompt', 'description') ?? '' };
     }
 
     case 'unknown':
       return { kind: 'unknown', toolName, raw: input };
-  }
-}
-
-/** Короткая строка для журнала и панели: что именно вызвали. */
-export function describeCall(call: NormalizedCall): string {
-  switch (call.kind) {
-    case 'read':
-      return `Read ${call.path}`;
-    case 'glob':
-      return `Glob ${call.pattern}`;
-    case 'grep':
-      return `Grep /${call.pattern}/`;
-    case 'write':
-      return `Write ${call.path} (${call.content.length} симв.)`;
-    case 'edit':
-      return `Edit ${call.path} (${call.edits.length} правк.)`;
-    case 'bash':
-      return `Bash ${call.command.split('\n')[0] ?? ''}`;
-    case 'ask_human':
-      return `Вопрос человеку (${call.questions.length})`;
-    case 'finalize_artifact':
-      return `Финализация ${call.artifact}`;
-    case 'unknown':
-      return `Неизвестный инструмент ${call.toolName}`;
   }
 }

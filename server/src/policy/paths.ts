@@ -1,9 +1,9 @@
 /**
  * Лексическая работа с путями — без обращений к файловой системе.
  *
- * Политика доступа обязана быть чистой: её гоняет conformance-тест на обоих флоу, и она
- * должна давать один и тот же ответ, не завися ни от состояния диска, ни от платформы.
- * Проверка symlink-побегов требует I/O и живёт не здесь, а в реализации инструментов.
+ * Политика доступа обязана быть чистой: её гоняет conformance-тест, и она должна давать
+ * один и тот же ответ, не завися ни от состояния диска, ни от платформы. Проверка
+ * symlink-побегов требует I/O и живёт не здесь, а в гейте одобрений.
  */
 
 export function toPosix(p: string): string {
@@ -47,29 +47,58 @@ export function isAbsolute(p: string): boolean {
   return posix.startsWith('/') || /^[A-Za-z]:\//.test(posix);
 }
 
-/** Абсолютный нормализованный корень без хвостового слэша. */
+/** Абсолютный нормализованный корень без хвостового слэша (кроме самого корня диска). */
 export function normalizeRoot(root: string): string {
-  const n = lexicalNormalize(root);
-  return n.endsWith('/') && n.length > 3 ? n.slice(0, -1) : n;
+  return lexicalNormalize(root);
 }
 
-/** Путь пользователя, разрешённый относительно корня проекта. */
-export function resolveUserPath(root: string, userPath: string): string {
-  return isAbsolute(userPath)
-    ? lexicalNormalize(userPath)
-    : lexicalNormalize(`${normalizeRoot(root)}/${userPath}`);
+/** Корень с гарантированным одним хвостовым слэшем — для сравнения префиксов. */
+function rootWithSlash(root: string): string {
+  const r = normalizeRoot(root);
+  return r.endsWith('/') ? r : `${r}/`;
 }
 
 /**
  * Windows-пути сравниваем без учёта регистра: конфиг и ввод модели регулярно расходятся
  * в написании (`D:/Проекты` против `d:/проекты`), а файл при этом один и тот же.
  */
-function windowsStyle(root: string): boolean {
+export function isWindowsStyle(root: string): boolean {
   return /^[A-Za-z]:\//.test(toPosix(root));
 }
 
-function eq(a: string, b: string, ci: boolean): boolean {
-  return ci ? a.toLowerCase() === b.toLowerCase() : a === b;
+export function pathsEqual(a: string, b: string, caseInsensitive: boolean): boolean {
+  return caseInsensitive ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+/**
+ * Чинит две формы, которые модели выдают регулярно и которые иначе валят весь блок плана
+ * (порт `PathScope.normalizeUserPath` из Java): повторённый корень внутри относительного
+ * пути (`Проекты/App/src/x.ts` при корне `D:/Проекты/App`).
+ *
+ * Требуется совпадение минимум двух сегментов корня: при одном сегменте `src/x.ts` в
+ * проекте с корнем `.../src` был бы неотличим от настоящего вложенного `src/src/x.ts`,
+ * и «починка» ломала бы верный путь.
+ */
+function repairRepeatedRoot(root: string, rel: string): string {
+  const ci = isWindowsStyle(root);
+  const rootSegs = normalizeRoot(root)
+    .replace(/^[A-Za-z]:\//, '')
+    .replace(/^\//, '')
+    .split('/')
+    .filter((s) => s !== '');
+
+  for (let k = rootSegs.length; k >= 2; k--) {
+    const prefix = `${rootSegs.slice(-k).join('/')}/`;
+    if (pathsEqual(rel.slice(0, prefix.length), prefix, ci)) return rel.slice(prefix.length);
+  }
+  return rel;
+}
+
+/** Путь пользователя, разрешённый относительно корня проекта. */
+export function resolveUserPath(root: string, userPath: string): string {
+  if (isAbsolute(userPath)) return lexicalNormalize(userPath);
+  const repaired = repairRepeatedRoot(root, toPosix(userPath.trim()));
+  return lexicalNormalize(`${rootWithSlash(root)}${repaired}`);
 }
 
 /**
@@ -79,12 +108,17 @@ function eq(a: string, b: string, ci: boolean): boolean {
 export function relativizeWithin(root: string, absolute: string): string | null {
   const r = normalizeRoot(root);
   const a = lexicalNormalize(absolute);
-  const ci = windowsStyle(r);
+  const ci = isWindowsStyle(r);
 
-  if (eq(a, r, ci)) return '';
-  const withSlash = `${r}/`;
-  if (eq(a.slice(0, withSlash.length), withSlash, ci)) return a.slice(withSlash.length);
+  if (pathsEqual(a, r, ci)) return '';
+  const withSlash = rootWithSlash(root);
+  if (pathsEqual(a.slice(0, withSlash.length), withSlash, ci)) return a.slice(withSlash.length);
   return null;
+}
+
+/** Лежит ли путь внутри одного из перечисленных корней (для каталогов только на чтение). */
+export function isWithinAny(roots: readonly string[], absolute: string): boolean {
+  return roots.some((r) => relativizeWithin(r, absolute) !== null);
 }
 
 /**
@@ -95,15 +129,18 @@ export function relativizeWithin(root: string, absolute: string): string | null 
 export function normalizePlanPath(root: string, raw: string): string {
   let p = toPosix(raw.trim());
 
-  // Отрезаем хвостовую заметку, но не трогаем букву диска ("C:/...").
-  const colon = p.indexOf(':');
-  if (colon > 1) p = p.slice(0, colon).trim();
+  // Отрезаем хвостовую заметку. Двоеточие ищем ПОСЛЕ префикса диска: иначе у
+  // `D:/proj/src/a.ts: правим тут` срабатывало двоеточие диска на индексе 1, условие
+  // «colon > 1» не выполнялось, и заметка оставалась частью пути — такой пункт плана
+  // не совпадал ни с одной записью, и агент ретраил до конца бюджета.
+  const driveEnd = /^[A-Za-z]:\//.test(p) ? 2 : 0;
+  const colon = p.indexOf(':', driveEnd);
+  if (colon >= 0) p = p.slice(0, colon).trim();
 
-  const r = normalizeRoot(root);
-  const ci = windowsStyle(r);
-  const withSlash = `${r}/`;
-  if (eq(p.slice(0, withSlash.length), withSlash, ci)) p = p.slice(withSlash.length);
+  const ci = isWindowsStyle(root);
+  const withSlash = rootWithSlash(root);
+  if (pathsEqual(p.slice(0, withSlash.length), withSlash, ci)) p = p.slice(withSlash.length);
   if (p.startsWith('./')) p = p.slice(2);
 
-  return lexicalNormalize(p);
+  return lexicalNormalize(repairRepeatedRoot(root, p));
 }

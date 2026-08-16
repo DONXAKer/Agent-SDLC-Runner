@@ -9,7 +9,7 @@
  * `AskHuman` и `FinalizeArtifact` наши в обоих флоу: в `sdk` они приезжают как MCP-сервер.
  */
 
-import type { ToolName } from '../types.ts';
+import type { ToolName } from '@sdlc-runner/shared';
 
 export interface ToolSpec {
   name: ToolName;
@@ -143,6 +143,24 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
         },
       },
       ['questions'],
+    ),
+  },
+
+  Task: {
+    name: 'Task',
+    sdkName: 'Task',
+    description:
+      'Запустить субагента. Методология требует независимого исполнителя там, где судящий ' +
+      'не должен быть автором: `sdlc-locator` на разведке места правки (у него нет прав ' +
+      'записи по построению) и `sdlc-reviewer` на верификации. Вызовы инструментов внутри ' +
+      'субагента проходят через тот же гейт одобрений.',
+    schema: obj(
+      {
+        subagent_type: str('Имя субагента: sdlc-locator или sdlc-reviewer'),
+        description: str('Коротко: что поручаем'),
+        prompt: str('Полное задание субагенту'),
+      },
+      ['subagent_type', 'prompt'],
     ),
   },
 

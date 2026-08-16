@@ -117,7 +117,16 @@ describe('сборка промпта из эталона', () => {
     ok(p.user.includes('Не додумывай'), p.user.slice(0, 300));
   });
 
+  // Регрессия: журнал chunk'а подавался верификации на вход, и рецензент читал рассказ
+  // исполнителя о собственной работе раньше, чем сам diff. Методология запрещает ровно это:
+  // «рецензент не получает рассказ исполнителя» — он смотрит на патч и на набор гейтов.
   it('этап 6 получает артефакты, но не рассказ исполнителя', () => {
+    writeArtifact(paths.intent, '# Задача\nтекст задачи\n');
+    writeArtifact(paths.plan, '# План\nfiles_to_touch\n');
+    writeArtifact(paths.gates, '# Набор гейтов\n');
+    writeArtifact(paths.chunkDiff(2, 3), 'diff --git a/x b/x\n');
+    writeArtifact(paths.chunkJournal(2), '# Журнал\nЯ всё сделал правильно, честное слово.\n');
+
     const p = buildPrompt({
       runner: cfg.runner,
       stage: stageById('verify'),
@@ -126,7 +135,12 @@ describe('сборка промпта из эталона', () => {
       slug: 'demo',
       now,
     });
-    // Инструментов записи у верификации нет — только отчёт и прогон гейтов.
-    ok(!p.tools.some((t) => t.name === 'Edit'), 'у этапа 6 не должно быть Edit');
+
+    ok(p.user.includes('diff --git'), 'патч попытки обязан быть на входе');
+    ok(!p.user.includes('честное слово'), 'журнал исполнителя на вход верификации не идёт');
+    ok(
+      p.system.includes('sdlc-reviewer'),
+      'независимый рецензент этапа 6 должен быть объявлен в промпте',
+    );
   });
 });

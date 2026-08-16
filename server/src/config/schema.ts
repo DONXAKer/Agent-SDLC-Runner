@@ -1,9 +1,15 @@
-import type { FlowId, StageId } from '../types.ts';
+import type { FlowId, StageId } from '@sdlc-runner/shared';
 
 export interface RunnerLimits {
   maxToolResultBytes: number;
   readRangeRequiredAboveBytes: number;
   maxIterationsPerStage: number;
+  /**
+   * Потолок на один гейт. Сборка и тест-сьют — самые долгие шаги витка, и повесить на
+   * них этап навсегда проще всего: `⏭` по таймауту роняет вердикт честно, зависший
+   * процесс не роняет ничего.
+   */
+  gateTimeoutMs: number;
 }
 
 export interface RunnerConfig {

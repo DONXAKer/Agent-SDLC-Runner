@@ -19,7 +19,7 @@ import { specsFor } from '../exec/toolSpecs.ts';
 import { toPosix } from '../policy/paths.ts';
 import type { StageContext, StageDef } from '../run/stages.ts';
 import { stageInputs } from '../run/stages.ts';
-import type { FlowId, PreparedPrompt } from '../types.ts';
+import type { FlowId, PreparedPrompt } from '@sdlc-runner/shared';
 
 const MAX_ARTIFACT_BYTES = 40_000;
 
@@ -87,8 +87,18 @@ function adapterBlock(i: BuildPromptInput): string {
     `- Текущий chunk: **${i.ctx.chunk}**, попытка: **${i.ctx.attempt}**.`,
     `- Доступные инструменты на этом этапе: ${i.stage.tools.join(', ')}. Других у тебя нет — ` +
       'права выдаются на шаг, а не на прогон.',
+    ...(i.stage.subagents.length > 0
+      ? [
+          `- Субагенты этого этапа: ${i.stage.subagents.join(', ')} — вызывай их инструментом ` +
+            '`Task`, поле `subagent_type`. Их права заданы конструкцией, а не просьбой: ' +
+            'разведчик места правки не имеет инструментов записи, рецензент не получает ' +
+            'твой рассказ о работе.',
+        ]
+      : []),
     '- Запись вне `files_to_touch` одобренного плана отклоняется в момент вызова. Это ' +
       'конструкция, а не сбой: если файл действительно нужен, его сначала добавляют в план.',
+    '- Решения человека и набор гейтов защищены от записи на этом этапе: одобренный план ' +
+      'правит человек, а не ты. Нужна правка плана — это новая редакция и новое одобрение.',
     '- Входные артефакты приложены ниже целиком. Не пересказывай их по памяти и не ' +
       'догадывайся о содержимом — работай по тексту.',
   ];
@@ -164,5 +174,6 @@ export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
     system,
     user: userMessage(i),
     tools,
+    editedByOperator: false,
   };
 }

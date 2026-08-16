@@ -8,9 +8,14 @@
  * 2. «Одобрение, оставшееся в чате, для следующей сессии не существует». Решение
  *    человека — поле в файле с именем и датой; предусловия следующего этапа проверяют
  *    файл, а не память диалога.
+ *
+ * Чтение решения — fail-closed. Формы держат оба исхода в одной строке («‹имя› · ‹дата› /
+ * **не одобрен**»), человек вычёркивает лишний, и способов вычеркнуть много. Всё, что не
+ * является внятной подписью с именем и датой, одобрением не считается: пропустить
+ * «отклонён» как согласие дороже, чем лишний раз попросить человека дописать дату.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 /** Плейсхолдер формы методологии: «‹что сюда вписать›». */
@@ -28,6 +33,20 @@ export function readArtifact(path: string): ArtifactState {
   if (!existsSync(path)) return { path, exists: false, text: '', placeholders: 0 };
   const text = readFileSync(path, 'utf8');
   return { path, exists: true, text, placeholders: countPlaceholders(text) };
+}
+
+/**
+ * Дешёвая проверка существования: предусловия этапов спрашивают «файл на месте?» по
+ * каждому входу на каждый запрос состояния, и чтение содержимого ради булева ответа
+ * стоило 400 КБ с диска на один GET — патч попытки читался целиком и прогонялся
+ * регуляркой, чтобы вернуть true.
+ */
+export function artifactExists(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 export function writeArtifact(path: string, text: string): void {
@@ -75,11 +94,11 @@ export type DecisionLabel = (typeof DECISION)[keyof typeof DECISION];
 export type DecisionState =
   /** Поля нет в файле — форма не та или файл не создан. */
   | { state: 'missing' }
-  /** Поле есть, но в нём остался плейсхолдер — человек ещё не решал. */
-  | { state: 'placeholder'; raw: string }
+  /** Поле есть, но решения в нём нет: плейсхолдер, пустота или оба исхода сразу. */
+  | { state: 'placeholder'; raw: string; why: string }
   /** Человек решил отрицательно: «не одобрен», «не принималась — обрыв». */
   | { state: 'declined'; raw: string }
-  /** Решение принято. */
+  /** Решение принято: есть имя и дата. */
   | { state: 'granted'; raw: string };
 
 function fieldRegex(label: string): RegExp {
@@ -91,18 +110,61 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Вычеркнутое markdown-зачёркиванием человек считает удалённым — и мы тоже. */
+function dropStruckThrough(s: string): string {
+  return s.replace(/~~[^~]*~~/g, ' ');
+}
+
+const NEGATIVE = /(^|\s)(не\s|отклон|отказ|отверг|провал)/i;
+const PENDING = /(ожида|не\s*реш|tbd|todo|^[\s—–\-?.]*$|н\/п)/i;
+/** Подпись: имя и дата в любом внятном написании. */
+const HAS_DATE = /\d{4}-\d{2}-\d{2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}/;
+const HAS_NAME = /\p{L}{2,}/u;
+
 export function readDecision(text: string, label: string): DecisionState {
   const m = fieldRegex(label).exec(text);
   if (m === null) return { state: 'missing' };
 
-  const raw = (m[2] ?? '').trim();
-  if (raw === '' || raw.includes('‹')) return { state: 'placeholder', raw };
+  const rawFull = (m[2] ?? '').trim();
+  if (rawFull === '' || rawFull.includes('‹')) {
+    return { state: 'placeholder', raw: rawFull, why: 'поле не заполнено' };
+  }
 
-  // Формы держат оба исхода в одной строке через « / »; человек вычёркивает лишний.
-  // Отрицательный исход всегда начинается с «не » и выделен жирным.
-  if (/^\*\*\s*не\s/i.test(raw) || /^не\s/i.test(raw)) return { state: 'declined', raw };
+  const raw = dropStruckThrough(rawFull).replace(/\s+/g, ' ').trim();
+  if (raw === '') return { state: 'declined', raw: rawFull };
 
-  return { state: 'granted', raw };
+  const stripped = raw.replace(/\*\*/g, '').trim();
+
+  // Оба исхода остались в строке через « / » — человек не вычеркнул лишний, значит
+  // решения нет. Раньше такая строка читалась как одобрение.
+  if (stripped.includes(' / ')) {
+    const sides = stripped.split(' / ').map((s) => s.trim());
+    const anyNegative = sides.some((s) => NEGATIVE.test(s));
+    const anySigned = sides.some((s) => HAS_DATE.test(s) && HAS_NAME.test(s));
+    if (anyNegative && !anySigned) return { state: 'declined', raw: rawFull };
+    if (anyNegative && anySigned) {
+      return {
+        state: 'placeholder',
+        raw: rawFull,
+        why: 'в поле остались оба исхода — человек не вычеркнул лишний',
+      };
+    }
+  }
+
+  if (NEGATIVE.test(stripped)) return { state: 'declined', raw: rawFull };
+  if (PENDING.test(stripped)) {
+    return { state: 'placeholder', raw: rawFull, why: 'решение отложено' };
+  }
+
+  if (!HAS_NAME.test(stripped) || !HAS_DATE.test(stripped)) {
+    return {
+      state: 'placeholder',
+      raw: rawFull,
+      why: 'нет имени и даты — методология требует записи «имя · дата», а не отметки',
+    };
+  }
+
+  return { state: 'granted', raw: rawFull };
 }
 
 /** Записывает решение в поле, заменяя всё после метки. Возвращает новый текст. */
@@ -118,14 +180,19 @@ export function setDecision(text: string, label: string, value: string): string 
 
 /** «Иван · 2026-08-16» — форма, которую ожидают шаблоны. */
 export function decisionValue(operator: string, date: Date): string {
-  const iso = date.toISOString().slice(0, 10);
-  return `${operator} · ${iso}`;
+  return `${operator} · ${date.toISOString().slice(0, 10)}`;
 }
 
 /**
  * Пометка для неинтерактивного прогона. Методология требует, чтобы ответ из файла
- * ответов нельзя было спутать с приёмкой живого человека.
+ * ответов нельзя было спутать с приёмкой живого человека, и чтобы такой виток нельзя
+ * было опубликовать без отдельного живого решения.
  */
-export function proxyDecisionValue(date: Date): string {
-  return `источник: файл ответов · ${date.toISOString().slice(0, 10)}`;
+export function proxyDecisionValue(operator: string, date: Date): string {
+  return `${operator} · ${date.toISOString().slice(0, 10)} · источник: файл ответов`;
+}
+
+/** Решение получено не от живого человека — публиковать такой виток нельзя. */
+export function isProxyDecision(raw: string): boolean {
+  return /источник:\s*файл ответов/i.test(raw);
 }

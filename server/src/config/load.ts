@@ -24,8 +24,23 @@ export interface LoadedConfig {
   projects: Map<string, ProjectConfig>;
 }
 
+/**
+ * Умолчания лимитов.
+ *
+ * JSON читается как есть, без схемы, поэтому забытый ключ приходил бы в код как
+ * `undefined` под типом `number` — и всплывал бы уже таймаутом в `NaN` мс посреди
+ * сборки. Дешевле подставить умолчание здесь.
+ */
+const LIMIT_DEFAULTS = {
+  maxToolResultBytes: 60_000,
+  readRangeRequiredAboveBytes: 120_000,
+  maxIterationsPerStage: 40,
+  gateTimeoutMs: 900_000,
+};
+
 export function loadConfig(dir: string = configDir()): LoadedConfig {
-  const runner = readJson<RunnerConfig>(join(dir, 'runner.json'));
+  const raw = readJson<RunnerConfig>(join(dir, 'runner.json'));
+  const runner: RunnerConfig = { ...raw, limits: { ...LIMIT_DEFAULTS, ...raw.limits } };
   const models = readJson<ModelsConfig>(join(dir, 'models.json'));
 
   const projectsDir = join(dir, 'projects');

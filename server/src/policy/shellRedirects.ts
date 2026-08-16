@@ -12,16 +12,50 @@
  *  - слишком мягко — затирание кавычек перед сканом делало `sh -c "echo x > f"` невидимым,
  *    то есть ровно тот обход, ради которого всё это и написано, открывался одним словом.
  *
- * Чтобы получить оба случая правильно одновременно, нужно отслеживать кавычки, экранирование,
- * тела heredoc и командную позицию — это и есть лексер.
- *
  * Что НЕ покрыто осознанно: `cp`, `mv`, `touch`, `sed -i`, `npm init`, `npx jest --init`.
- * Это остаётся делом scope_gate; здесь быстрый забор вокруг конструкции, к которой модели
- * реально тянутся, а не песочница.
+ * Здесь быстрый забор вокруг конструкции, к которой модели реально тянутся, а не песочница.
  */
 
 const SHELLS = new Set(['sh', 'bash', 'dash', 'zsh', 'ash', 'ksh']);
+
+/**
+ * Обёртки, за которыми прячется настоящая команда. Без них `nohup sh -c "echo x > f"`
+ * проходил мимо лексера целиком — обход открывался одним словом-префиксом, что ревью и
+ * поймало на живом коде.
+ */
+const WRAPPERS = new Set([
+  'nohup',
+  'env',
+  'timeout',
+  'time',
+  'stdbuf',
+  'nice',
+  'ionice',
+  'setsid',
+  'command',
+  'exec',
+  'sudo',
+  'doas',
+  'xargs',
+  'script',
+]);
+
 const OPERATOR_CHARS = '|;&<>()';
+
+/** Аргумент обёртки, который заведомо не является именем команды. */
+const WRAPPER_ARG = /^(-|--$|[A-Za-z_][A-Za-z0-9_]*=|\d+(\.\d+)?[smhd]?$)/;
+
+/** `-c`, `-lc`, `-ec`, `--command`: следующее слово — тело скрипта. */
+const SHELL_C_FLAG = /^(-[a-z]*c|--command)$/;
+
+export interface RedirectTarget {
+  path: string;
+  /**
+   * Путь содержит неразвёрнутую переменную. О таком нельзя судить как о плановом файле,
+   * но запрещённую категорию в нём разглядеть можно: `> $PWD/.env` это всё ещё `.env`.
+   */
+  unexpanded: boolean;
+}
 
 interface Tok {
   text: string;
@@ -29,19 +63,28 @@ interface Tok {
   quoted: boolean;
 }
 
-export function redirectTargets(command: string): string[] {
+export function redirectTargets(command: string): RedirectTarget[] {
   if (!command) return [];
   return targetsOf(stripHeredocBodies(command), 0);
 }
 
-function targetsOf(command: string, depth: number): string[] {
-  const out: string[] = [];
+/** Только те цели, о которых можно судить как о путях: для сверки с планом. */
+export function expandedRedirectTargets(command: string): string[] {
+  return redirectTargets(command)
+    .filter((t) => !t.unexpanded)
+    .map((t) => t.path);
+}
+
+function targetsOf(command: string, depth: number): RedirectTarget[] {
+  const out: RedirectTarget[] = [];
   // Незакрытая кавычка означает, что правила квотирования эту строку не описывают:
   // `echo don't > STATUS.md` иначе заглушил бы всё после апострофа. Для шелла это тоже
   // синтаксическая ошибка, так что откатом в quote-blind режим ничего не теряется —
   // пропустить редирект дороже, чем лишний раз его увидеть.
   const toks = lex(command, !hasUnbalancedQuote(command));
   let commandPosition = true;
+  /** Идём сквозь аргументы обёртки, всё ещё разыскивая настоящее имя команды. */
+  let unwrapping = false;
 
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i]!;
@@ -54,11 +97,21 @@ function targetsOf(command: string, depth: number): string[] {
       }
       // После редиректа следующее слово — его цель, а не имя команды.
       commandPosition = !t.text.startsWith('>') && !t.text.startsWith('<');
+      unwrapping = false;
       continue;
     }
 
     if (commandPosition) {
       const name = baseName(t.text);
+
+      if (unwrapping && WRAPPER_ARG.test(t.text)) continue; // аргумент обёртки, не команда
+
+      if (WRAPPERS.has(name)) {
+        unwrapping = true;
+        continue; // настоящая команда ещё впереди
+      }
+
+      unwrapping = false;
 
       if (name === 'tee') {
         // Каждый нефлаговый аргумент — файл, в который tee пишет. Флаги слишком
@@ -71,7 +124,7 @@ function targetsOf(command: string, depth: number): string[] {
         }
       } else if (SHELLS.has(name) && depth < 2) {
         for (let j = i + 1; j < toks.length && !toks[j]!.op; j++) {
-          if (toks[j]!.text === '-c' && j + 1 < toks.length && !toks[j + 1]!.op) {
+          if (SHELL_C_FLAG.test(toks[j]!.text) && j + 1 < toks.length && !toks[j + 1]!.op) {
             out.push(...targetsOf(toks[j + 1]!.text, depth + 1));
             break;
           }
@@ -85,12 +138,9 @@ function targetsOf(command: string, depth: number): string[] {
   return out;
 }
 
-function collect(out: string[], target: string): void {
+function collect(out: RedirectTarget[], target: string): void {
   if (target.trim() === '' || target.startsWith('/dev/') || target.startsWith('&')) return;
-  // Неразвёрнутая переменная — не путь, о котором мы можем судить. Отказ здесь был бы
-  // ложным обвинением, на которое модель не может ответить, поэтому оставляем scope_gate.
-  if (target.includes('$')) return;
-  out.push(target);
+  out.push({ path: target, unexpanded: target.includes('$') });
 }
 
 function nextWord(toks: Tok[], from: number): Tok | null {
@@ -108,7 +158,15 @@ function baseName(s: string): string {
  * Разбивает командную строку на слова и операторы, разрешая кавычки и экранирование
  * обратным слэшем. Переводы строк — операторы: они разделяют команды, и обращение с ними
  * как с обычным текстом давало цели вида `report.md\nls` — путь, которого не может быть.
+ *
+ * Пробельность считается по ASCII, а не по `\s`: JS-`\s` включает NBSP и BOM, которых
+ * шелл разделителями не считает, и имя файла, скопированное из markdown-плана, ломалось
+ * пополам.
  */
+function isShellSpace(c: string): boolean {
+  return c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v';
+}
+
 function lex(s: string, honourQuotes: boolean): Tok[] {
   const out: Tok[] = [];
   let cur = '';
@@ -154,7 +212,7 @@ function lex(s: string, honourQuotes: boolean): Tok[] {
       continue;
     }
 
-    if (/\s/.test(c)) {
+    if (isShellSpace(c)) {
       flush();
       if (c === '\n' || c === '\r') out.push({ text: '\n', op: true, quoted: false });
       i++;

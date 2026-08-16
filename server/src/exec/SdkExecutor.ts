@@ -1,10 +1,10 @@
 /**
  * Флоу `sdk`: этап исполняет Claude Agent SDK.
  *
- * Почему он есть, хотя свой цикл всё равно написан: `canUseTool` даёт полный перехват
- * (отклонить и подменить аргументы) и при этом идёт по Max-подписке — под капотом
- * запускается локальный `claude`. Отказываться от этого ради единообразия значило бы
- * платить по API-ключу за то, что уже оплачено.
+ * Почему он есть, хотя свой цикл всё равно нужен для локальных моделей: `canUseTool` даёт
+ * полный перехват (отклонить и подменить аргументы) и при этом идёт по Max-подписке — под
+ * капотом запускается локальный `claude`. Отказываться от этого ради единообразия значило
+ * бы платить по API-ключу за то, что уже оплачено.
  *
  * Ограничение, которое здесь честно отслеживается: SDK может исполнить инструмент, не
  * спросив `canUseTool` (авто-разрешение харнесса). Такие вызовы мы не можем остановить,
@@ -13,11 +13,14 @@
 
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 
-import { TOOL_SPECS } from './toolSpecs.ts';
-import { describeCall, normalize } from './normalize.ts';
+import type { Usage } from '@sdlc-runner/shared';
+import { emptyUsage } from '@sdlc-runner/shared';
+
+import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
-import { emptyUsage, type Usage } from '../types.ts';
+import { TOOL_SPECS } from './toolSpecs.ts';
 
 /** Инструменты рантайма, которых у Claude Code нет: вопрос человеку и финализация артефакта. */
 function sdlcMcpServer(hooks: ExecHooks) {
@@ -38,10 +41,14 @@ function sdlcMcpServer(hooks: ExecHooks) {
     },
     async (args) => {
       const call = normalize('ask_human', args as unknown as Record<string, unknown>);
+      // Вопрос человеку тоже проходит политику: этап, у которого AskHuman не в правах,
+      // не должен получать работающий инструмент только потому, что он приехал по MCP.
+      const decision = await hooks.onToolRequest(call, { requestId: `ask:${randomUUID()}` });
+      if (!decision.allowed) {
+        return { content: [{ type: 'text' as const, text: decision.reason }], isError: true };
+      }
       const answers = await hooks.onAskHuman(call);
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(answers, null, 2) }],
-      };
+      return { content: [{ type: 'text' as const, text: JSON.stringify(answers, null, 2) }] };
     },
   );
 
@@ -51,7 +58,10 @@ function sdlcMcpServer(hooks: ExecHooks) {
     { artifact: z.string(), note: z.string().optional() },
     async (args) => {
       const call = normalize('finalize_artifact', args as unknown as Record<string, unknown>);
-      const decision = await hooks.onToolRequest(call, { requestId: `finalize:${args.artifact}` });
+      // Идентификатор уникален на вызов: фиксированный ключ `finalize:<файл>` при повторной
+      // финализации того же артефакта затирал первую запись в очереди, и её промис не
+      // резолвился никогда — этап висел вечно.
+      const decision = await hooks.onToolRequest(call, { requestId: `finalize:${randomUUID()}` });
       const text = decision.allowed
         ? `Артефакт принят рантаймом: ${args.artifact}`
         : `Артефакт не принят: ${decision.reason}`;
@@ -92,7 +102,13 @@ export class SdkExecutor implements StageExecutor {
     /** Вызовы, которые агент вообще сделал (из сообщений ассистента). */
     const attempted = new Map<string, string>();
 
-    let usage = emptyUsage();
+    /**
+     * `total_cost_usd` и `usage` в result-сообщении кумулятивны по контракту SDK
+     * («read the latest result rather than summing across results»). Складывать их
+     * означало бы завысить стоимость витка кратно числу result-сообщений — и по этой
+     * же завышенной сумме оператор видел бы приближение к бюджету.
+     */
+    let latestUsage = emptyUsage();
     let finalText = '';
     let note = 'этап завершён';
     let ok = true;
@@ -100,11 +116,24 @@ export class SdkExecutor implements StageExecutor {
     // Имена встроенных инструментов Claude Code + наши MCP-инструменты.
     const sdkToolNames = req.allowedTools.map((t) => TOOL_SPECS[t].sdkName);
 
+    const agents = Object.fromEntries(
+      req.subagents.map((a) => [
+        a.name,
+        {
+          description: a.description,
+          prompt: a.prompt,
+          ...(a.tools.length > 0 ? { tools: a.tools } : {}),
+          ...(a.model === null ? {} : { model: a.model }),
+        },
+      ]),
+    );
+
     const response = query({
       prompt: req.prompt.user,
       options: {
         cwd: req.cwd,
         model: req.model,
+        abortController: toAbortController(req.signal),
         // Пресет несёт описания встроенных инструментов; наш текст этапа идёт добавкой.
         // Оператору это показано отдельной пометкой — «полный промпт» не притворяется полным.
         systemPrompt: { type: 'preset', preset: 'claude_code', append: req.prompt.system },
@@ -117,6 +146,10 @@ export class SdkExecutor implements StageExecutor {
         // canUseTool до них не доходит, а гейт одобрений становится декорацией.
         permissionMode: 'default',
         mcpServers: { sdlc: sdlcMcpServer(hooks) },
+        // Каталоги форм методологии и текстов этапов: промпт велит их читать, а лежат
+        // они вне целевого проекта.
+        ...(req.readOnlyDirs.length > 0 ? { additionalDirectories: [...req.readOnlyDirs] } : {}),
+        ...(Object.keys(agents).length > 0 ? { agents } : {}),
         maxTurns: req.maxTurns,
         ...(req.maxBudgetUsd === null ? {} : { maxBudgetUsd: req.maxBudgetUsd }),
 
@@ -143,38 +176,51 @@ export class SdkExecutor implements StageExecutor {
       },
     });
 
-    for await (const m of response) {
-      switch (m.type) {
-        case 'assistant': {
-          for (const block of m.message.content) {
-            if (block.type === 'text') {
-              finalText = block.text;
-              hooks.onText(block.text);
-            } else if (block.type === 'thinking') {
-              hooks.onThinking(block.thinking);
-            } else if (block.type === 'tool_use') {
-              attempted.set(block.id, describeCall(normalize(block.name, block.input as Record<string, unknown>)));
+    try {
+      for await (const m of response) {
+        switch (m.type) {
+          case 'assistant': {
+            for (const block of m.message.content) {
+              if (block.type === 'text') {
+                finalText = block.text;
+                hooks.onText(block.text);
+              } else if (block.type === 'thinking') {
+                hooks.onThinking(block.thinking);
+              } else if (block.type === 'tool_use') {
+                attempted.set(
+                  block.id,
+                  `${block.name}${'input' in block ? '' : ''}`.trim() || block.name,
+                );
+              }
             }
+            break;
           }
-          break;
-        }
 
-        case 'result': {
-          usage = usageFromResult(m);
-          hooks.onUsage(usage);
-          if (m.subtype !== 'success') {
-            ok = false;
-            note = `этап оборван: ${m.subtype}`;
-          } else {
-            note = `этап завершён за ${m.num_turns} ход(ов)`;
+          case 'result': {
+            latestUsage = usageFromResult(m);
+            if (m.subtype !== 'success') {
+              ok = false;
+              note = `этап оборван: ${m.subtype}`;
+            } else {
+              note = `этап завершён за ${m.num_turns} ход(ов)`;
+            }
+            break;
           }
-          break;
-        }
 
-        default:
-          break;
+          default:
+            break;
+        }
+      }
+    } catch (e) {
+      if (req.signal.aborted) {
+        ok = false;
+        note = 'этап отменён оператором';
+      } else {
+        throw e;
       }
     }
+
+    hooks.onUsage(latestUsage);
 
     // Вызовы, исполненные мимо гейта. Остановить их задним числом нельзя, но молчать
     // о них нельзя тем более: «прошло через одобрение» должно означать ровно это.
@@ -186,6 +232,14 @@ export class SdkExecutor implements StageExecutor {
       );
     }
 
-    return { ok, finalText, usage, note };
+    return { ok, finalText, usage: latestUsage, note };
   }
+}
+
+/** SDK принимает AbortController, а машина витка отдаёт сигнал. */
+function toAbortController(signal: AbortSignal): AbortController {
+  const controller = new AbortController();
+  if (signal.aborted) controller.abort();
+  else signal.addEventListener('abort', () => controller.abort(), { once: true });
+  return controller;
 }

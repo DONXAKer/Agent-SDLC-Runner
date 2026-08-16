@@ -7,7 +7,7 @@
  * розетку — вопрос».
  */
 
-import type { Question, StageId } from '../types.ts';
+import type { Question, StageId } from '@sdlc-runner/shared';
 
 export interface PendingQuestions {
   runId: string;
@@ -57,9 +57,10 @@ export class AskGate {
     });
   }
 
-  answer(requestId: string, answers: Record<string, string[]>): boolean {
+  /** Ключ включает прогон — по тем же причинам, что и в гейте одобрений. */
+  answer(runId: string, requestId: string, answers: Record<string, string[]>): boolean {
     const w = this.waiting.get(requestId);
-    if (w === undefined) return false;
+    if (w === undefined || w.runId !== runId) return false;
     this.waiting.delete(requestId);
     this.events.onAnswered({ runId: w.runId, stage: w.stage, requestId }, answers);
     w.resolve(answers);

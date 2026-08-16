@@ -9,7 +9,7 @@
  * отдать его в `onToolRequest`, а решение принимают общие для обоих флоу чистые функции.
  */
 
-import type { Decision, NormalizedCall, PreparedPrompt, ToolName, Usage } from '../types.ts';
+import type { Decision, NormalizedCall, PreparedPrompt, ToolName, Usage } from '@sdlc-runner/shared';
 
 export interface ExecHooks {
   /** Текст ассистента по мере поступления. */
@@ -36,14 +36,32 @@ export interface ExecHooks {
   onWarn: (message: string) => void;
 }
 
+/** Субагент этапа: у него собственные права, и это конструкция, а не просьба. */
+export interface SubagentDef {
+  name: string;
+  description: string;
+  prompt: string;
+  tools: string[];
+  model: string | null;
+}
+
 export interface ExecRequest {
   prompt: PreparedPrompt;
   /** Корень целевого проекта — рабочий каталог агента. */
   cwd: string;
   model: string;
   allowedTools: readonly ToolName[];
+  /** Каталоги вне проекта, доступные агенту на чтение (формы методологии, тексты этапов). */
+  readOnlyDirs: readonly string[];
+  /** Субагенты, доступные на этом этапе. */
+  subagents: readonly SubagentDef[];
   maxTurns: number;
   maxBudgetUsd: number | null;
+  /**
+   * Отмена прогона. Без неё «отменить» только меняло статус в UI, а исполнитель
+   * продолжал крутиться, тратя бюджет и создавая новые запросы на одобрение.
+   */
+  signal: AbortSignal;
 }
 
 export interface StageResult {

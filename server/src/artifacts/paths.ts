@@ -80,4 +80,16 @@ export class WitokPaths {
   verificationReport(chunk: number, attempt: number): string {
     return this.file(`verification-report-${chunk}-attempt-${attempt}.md`);
   }
+
+  /**
+   * Снимок грязного дерева перед этапом 5: путь → хеш содержимого.
+   *
+   * Служебный файл рантайма, не артефакт методологии — отсюда точка в имени. Без него
+   * scope-гейт вменяет исполнителю чужие незакоммиченные правки оператора; по хешу,
+   * а не по имени, потому что правка агента внутри уже-грязного файла обязана остаться
+   * видимой.
+   */
+  chunkBaseline(chunk: number): string {
+    return this.file(`.chunk-${chunk}-baseline.json`);
+  }
 }
