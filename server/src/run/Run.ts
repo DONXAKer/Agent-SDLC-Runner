@@ -27,7 +27,9 @@ import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import type { ProjectConfig, ResolvedProfile } from '../config/schema.ts';
+import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
+import { createProvider } from '../provider/registry.ts';
 import type { ExecHooks, StageExecutor, StageResult } from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
@@ -224,10 +226,17 @@ export class Run {
   private executorFor(stage: StageId): StageExecutor {
     const route = this.profile.routes[stage];
     if (route.flow === 'sdk') return new SdkExecutor();
-    throw new Error(
-      `флоу «${route.flow}» ещё не реализован (этап ${stage}, маршрут ${route.modelId}). ` +
-        `Собственный цикл tool-use для локальных моделей — следующий шаг.`,
-    );
+
+    const limits = this.config.runner.limits;
+    return new LoopExecutor({
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+      maxResultBytes: limits.maxToolResultBytes,
+      readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
+      bashTimeoutMs: limits.gateTimeoutMs,
+      // Температуру не задаём: у части серверов «не задано» и «0» ведут себя по-разному,
+      // и подставлять своё значение молча — значит менять поведение модели за оператора.
+      temperature: null,
+    });
   }
 
   /**

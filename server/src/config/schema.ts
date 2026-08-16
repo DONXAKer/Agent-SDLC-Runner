@@ -10,6 +10,11 @@ export interface RunnerLimits {
    * процесс не роняет ничего.
    */
   gateTimeoutMs: number;
+  /**
+   * Потолок на один запрос к модели во флоу `loop`. Локальный сервер, ушедший в своп,
+   * соединение не закрывает — без своего таймаута этап висел бы до отмены оператором.
+   */
+  chatTimeoutMs: number;
 }
 
 export interface RunnerConfig {

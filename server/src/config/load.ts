@@ -36,6 +36,7 @@ const LIMIT_DEFAULTS = {
   readRangeRequiredAboveBytes: 120_000,
   maxIterationsPerStage: 40,
   gateTimeoutMs: 900_000,
+  chatTimeoutMs: 600_000,
 };
 
 export function loadConfig(dir: string = configDir()): LoadedConfig {
