@@ -127,6 +127,17 @@ export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
               </div>
             );
 
+          // Промпт собран заново — это событие обязано быть видным. На этапе 6 рантайм
+          // подклеивает к тексту оператора итоги гейтов, и молчание об этом прямо противоречило
+          // обещанию «видно, какой именно промпт ушёл»: событие шло в шину и нигде не рисовалось.
+          case 'prompt_prepared':
+            return (
+              <div key={idx} className="text-neutral-500">
+                ≡ промпт собран ({e.prompt.system.length} + {e.prompt.user.length} симв.
+                {e.prompt.editedByOperator ? ', с правкой оператора' : ''})
+              </div>
+            );
+
           case 'warning':
           case 'error':
             return (

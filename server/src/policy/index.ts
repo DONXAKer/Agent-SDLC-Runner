@@ -83,6 +83,27 @@ export function evaluate(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
 }
 
 /**
+ * Во что запишет вызов — ПУТИ, без пояснений для человека.
+ *
+ * Это то, что скармливают проверкам: канонизации, сверке с планом, детекту побега через
+ * symlink. Отдельная функция от `writeTargetsOf` не ради вкуса — та подмешивает в строку
+ * «(переменная не развёрнута)», и путь с этим хвостом на диске не находится: `symlinkEscape`
+ * получал несуществующий файл, не видел симлинка и пропускал ровно тот случай, ради
+ * которого проверка написана.
+ */
+export function writeTargetPaths(call: NormalizedCall): string[] | null {
+  switch (call.kind) {
+    case 'write':
+    case 'edit':
+      return [call.path];
+    case 'bash':
+      return redirectTargets(call.command).map((t) => t.path);
+    default:
+      return null;
+  }
+}
+
+/**
  * Во что запишет вызов — для панели одобрений. Оператор, одобряющий команду, должен
  * видеть её цели записи; заявленного поля на самом вызове для этого нет намеренно, чтобы
  * никто не принял незаполненный массив за посчитанный ответ.

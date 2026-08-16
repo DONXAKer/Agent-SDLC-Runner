@@ -21,8 +21,14 @@ export interface ExecHooks {
    */
   onToolRequest: (
     call: NormalizedCall,
-    /** `toolName` — как вызов назвал исполнитель: по нему гейт перепроверяет правку. */
-    meta: { requestId: string; toolName: string },
+    /**
+     * `toolName` — как вызов назвал исполнитель: по нему гейт перепроверяет правку.
+     * `rawInput` — аргументы инструмента ДО нормализации. Нужны для правки оператором:
+     * интерфейс присылает только изменённые поля, и без исходных мержить их не с чем —
+     * `Edit` с правленым путём приходил без `new_string`, и одобренная правка стирала
+     * файл вместо замены строки.
+     */
+    meta: { requestId: string; toolName: string; rawInput: Record<string, unknown> },
   ) => Promise<Decision>;
   onToolResult: (meta: {
     requestId: string;

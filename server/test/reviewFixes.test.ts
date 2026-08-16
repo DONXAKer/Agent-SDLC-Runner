@@ -88,6 +88,7 @@ describe('пол безопасности', () => {
       stage: 'chunk',
       requestId: 'edit-1',
       toolName: 'Write',
+      rawInput: { file_path: 'src/Foo.java', content: 'x' },
       call: { kind: 'write', path: 'src/Foo.java', content: 'x' },
       ctx: ctx(),
     });
@@ -122,11 +123,15 @@ describe('пол безопасности', () => {
 // ---------------------------------------------------------------------------
 
 describe('нормализация', () => {
+  // «До конца файла» записано `null`, а не `Number.MAX_SAFE_INTEGER`: большое число
+  // утекало в карточку одобрения («строки 200–9007199254740991») и делало чтение целиком
+  // неотличимым от настоящего диапазона — предохранитель на большом файле обходился
+  // одним `offset`.
   it('offset без limit читает до конца файла, а не одну строку', () => {
     const call = normalize('Read', { file_path: 'a.ts', offset: 200 });
     ok(call.kind === 'read' && call.range !== null);
     strictEqual(call.kind === 'read' ? call.range?.from : 0, 200);
-    ok(call.kind === 'read' && (call.range?.to ?? 0) > 1_000_000, 'верхняя граница — конец файла');
+    strictEqual(call.kind === 'read' ? call.range?.to : 0, null, 'верхней границы нет');
   });
 
   it('пачка правок с битым элементом отвергается целиком', () => {
@@ -152,12 +157,14 @@ describe('инструменты цикла', () => {
 
   // Прервать бэктрекинг внутри одного `test` нечем: замерено 146 секунд на строке в 80
   // символов, и всё это время стоит весь процесс. Поэтому такой шаблон не запускается.
-  it('шаблон с вложенным повторением не запускается вовсе', async () => {
-    writeFileSync(join(root, 'bait.txt'), `${'a'.repeat(80)}!`);
+  // Отказ стоит в ПОЛИТИКЕ, а не в реализации инструмента: второй флоу исполняет
+  // Grep своим кодом, и правило, спрятанное в `exec/tools`, его не защищает.
+  it('шаблон с вложенным повторением отвергается политикой', () => {
     const started = Date.now();
-    const r = await executeTool({ kind: 'grep', pattern: '(a+)+$', path: 'bait.txt' }, toolCtx);
-    strictEqual(r.ok, false);
-    ok(/вложенное повторение/.test(r.text), r.text);
+    const v = evaluate({ kind: 'grep', pattern: '(a+)+$', path: 'bait.txt' }, ctx());
+    strictEqual(v.ok, false);
+    ok(!v.ok && v.policy === 'denyList', JSON.stringify(v));
+    ok(!v.ok && /вложенное повторение/.test(v.reason), JSON.stringify(v));
     ok(Date.now() - started < 5_000, 'отказ обязан быть мгновенным');
   });
 
@@ -429,9 +436,13 @@ describe('артефакты', () => {
     strictEqual(readDecision(t, DECISION.confirmed).state, 'granted');
   });
 
-  it('плейсхолдер в ASCII-скобках считается наравне с типографским', () => {
-    strictEqual(countPlaceholders('| <файл> | <зачем> |'), 2);
+  // Плейсхолдер — ТОЛЬКО типографские скобки. ASCII-вариант пробовался и оказался хуже
+  // болезни: отчёт рецензента полон дженериков и сравнений, и каждый такой фрагмент
+  // становился «незаполненным местом» — готовый артефакт навсегда числился неготовым.
+  it('плейсхолдер — только типографские скобки, обычный текст в <> — нет', () => {
     strictEqual(countPlaceholders('‹что вписать›'), 1);
+    strictEqual(countPlaceholders('‹файл› и ‹зачем›'), 2);
+    strictEqual(countPlaceholders('Map<string, Gate> и если a < b, то <br>'), 0);
     strictEqual(countPlaceholders('обычный текст без форм'), 0);
   });
 });

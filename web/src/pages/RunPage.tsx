@@ -41,7 +41,12 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     const last = events[events.length - 1];
     if (last === undefined) return;
     if (last.type === 'stage_done' || last.type === 'artifact_written') refresh();
-    if (last.type === 'stage_done') setBusy(false);
+    // `error` разблокирует кнопки наравне с `stage_done`: этап, оборвавшийся до него
+    // (нет ключа провайдера, нереализованный маршрут, падение исполнителя), оставлял
+    // интерфейс навсегда «занятым» — запустить заново можно было только перезагрузив
+    // страницу, хотя сам прогон уже стоял.
+    if (last.type === 'stage_done' || last.type === 'error') setBusy(false);
+    if (last.type === 'error') setError(last.message);
   }, [events, refresh]);
 
   /**
@@ -68,6 +73,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     for (const p of detail?.pendingApprovals ?? []) {
       approvals.set(p.requestId, {
         requestId: p.requestId,
+        rawInput: p.rawInput,
         call: p.call,
         policy: p.policy,
         preview: p.preview,
@@ -86,6 +92,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
       } else if (!resolved.has(e.requestId)) {
         approvals.set(e.requestId, {
           requestId: e.requestId,
+          rawInput: e.rawInput,
           call: e.call,
           policy: e.policy,
           preview: e.preview,
@@ -106,6 +113,10 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
 
   const stageInfo = detail?.stages.find((s) => s.id === stage) ?? null;
   const blockers = stageInfo?.blockers ?? [];
+  // Предусловия обрыва витка считаются отдельно от штатных: у handoff'а два входа, и
+  // штатный заблокирован ровно тогда, когда обрыв и нужен.
+  const abortBlockers =
+    detail?.stages.find((s) => s.id === 'handoff')?.abortBlockers ?? [];
 
   const build = async (): Promise<void> => {
     setError(null);
@@ -369,9 +380,13 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 <button
                   type="button"
                   onClick={() => void abortWitok()}
-                  disabled={busy}
+                  disabled={busy || abortBlockers.length > 0}
                   className="ml-auto rounded border border-amber-800 px-2 py-1 text-xs text-amber-300 hover:bg-amber-950 disabled:opacity-40"
-                  title="Оформить передачу без зелёного вердикта: запись о том, почему виток брошен"
+                  title={
+                    abortBlockers.length > 0
+                      ? `Обрыв невозможен: ${abortBlockers.join('; ')}`
+                      : 'Оформить передачу без зелёного вердикта: запись о том, почему виток брошен'
+                  }
                 >
                   Обрыв витка → handoff
                 </button>

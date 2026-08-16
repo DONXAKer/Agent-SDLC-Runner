@@ -139,6 +139,36 @@ export function checkBash(command: string): PolicyVerdict {
   return POLICY_OK;
 }
 
+/**
+ * Вложенное повторение в шаблоне поиска — конструкция, дорогая по своей природе.
+ *
+ * Движок регулярных выражений в JS не прерывается: на `(a+)+$` он уходит в
+ * экспоненциальный бэктрекинг внутри ОДНОГО вызова `test`, и никакой таймаут между
+ * строками этого не остановит — процесс встаёт вместе с HTTP-ручкой отмены и потоком
+ * событий всех витков (измерено: 146 секунд на строке в 80 символов). Прерывать нечем,
+ * поэтому такие шаблоны не запускаются вовсе.
+ *
+ * Живёт в политике, а не в реализации инструмента: `exec/tools` — исполнитель, решения
+ * «можно/нельзя» принимают общие для обоих флоу чистые функции, и правило, спрятанное в
+ * одном исполнителе, второй флоу не защищает.
+ *
+ * Проверка эвристическая и намеренно грубая: ложный отказ стоит модели одной попытки с
+ * более простым шаблоном, ложный пропуск — всего сервиса.
+ */
+export function nestedQuantifier(pattern: string): boolean {
+  return /\([^()]*[+*}][^()]*\)\s*[+*{]/.test(pattern);
+}
+
+export function checkSearchPattern(pattern: string): PolicyVerdict {
+  if (!nestedQuantifier(pattern)) return POLICY_OK;
+  return policyDeny(
+    'denyList',
+    `шаблон «${pattern}» содержит вложенное повторение (группа с «+» или «*» под ещё ` +
+      `одним «+»/«*»). Такой поиск может выполняться экспоненциально долго, а остановить ` +
+      `его нечем — он не запускается. Упрости выражение.`,
+  );
+}
+
 export function check(call: NormalizedCall): PolicyVerdict {
   switch (call.kind) {
     case 'write':
@@ -146,6 +176,8 @@ export function check(call: NormalizedCall): PolicyVerdict {
       return checkWritePath(call.path);
     case 'bash':
       return checkBash(call.command);
+    case 'grep':
+      return checkSearchPattern(call.pattern);
     default:
       return POLICY_OK;
   }

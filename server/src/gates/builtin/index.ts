@@ -81,6 +81,11 @@ function resolveModule(ctx: GateContext): { dir: string; files: Set<string> } | 
 
 const JS_FILE = /\.(js|cjs|mjs)$/i;
 
+/** Сколько процессов `node --check` держим одновременно. */
+const NODE_CHECK_PARALLEL = 8;
+/** Потолок на один файл: `node --check` — миллисекунды, всё сверх — зависший процесс. */
+const NODE_CHECK_TIMEOUT_MS = 10_000;
+
 /** `node --check` одним процессом на файл, путь — аргументом, а не текстом команды. */
 function nodeCheck(
   path: string,
@@ -92,10 +97,39 @@ function nodeCheck(
       ...(signal === undefined ? {} : { signal }),
     });
     const err: string[] = [];
+    let settled = false;
+    const done = (r: { code: number | null; stderr: string }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(r);
+    };
+    // Без своего потолка гейт «Сборка» висел бы до таймаута всего этапа: у `node --check`
+    // собственного лимита нет, а процесс, севший на блокировке файла (антивирус, сетевой
+    // диск), не закроется сам.
+    const timer = setTimeout(() => {
+      child.kill();
+      done({ code: null, stderr: `node --check не уложился в ${NODE_CHECK_TIMEOUT_MS} мс` });
+    }, NODE_CHECK_TIMEOUT_MS);
+    timer.unref?.();
+
     child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
-    child.on('error', (e) => resolve({ code: null, stderr: e.message }));
-    child.on('close', (code) => resolve({ code, stderr: err.join('') }));
+    child.on('error', (e) => done({ code: null, stderr: e.message }));
+    child.on('close', (code) => done({ code, stderr: err.join('') }));
   });
+}
+
+/** Прогоняет задачи пачками по `size`: без потолка на витке с сотней файлов рождается сотня процессов. */
+async function inBatches<T, R>(
+  items: readonly T[],
+  size: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(...(await Promise.all(items.slice(i, i + size).map(fn))));
+  }
+  return out;
 }
 
 /**
@@ -120,13 +154,15 @@ async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome
     };
   }
 
-  // Проверки независимы, поэтому идут разом: последовательный запуск поднимал шелл и
-  // процесс node на каждый файл (≈96 мс на файл, ~4 с на сорок) прямо на критическом
-  // пути оператора. Путь передаётся аргументом, а не вклеивается в строку команды.
-  const outcomes = await Promise.all(
-    changed
-      .filter((f) => existsSync(join(ctx.projectRoot, f)))
-      .map(async (f) => ({ f, r: await nodeCheck(join(ctx.projectRoot, f), ctx.signal) })),
+  // Проверки независимы, поэтому идут пачками: последовательный запуск поднимал процесс
+  // node на каждый файл (≈96 мс на файл, ~4 с на сорок) прямо на критическом пути
+  // оператора, а разом — рождал по процессу на каждый изменённый файл, и на витке,
+  // затронувшем сотню, машина уходила в своп. Путь передаётся аргументом, а не
+  // вклеивается в строку команды.
+  const outcomes = await inBatches(
+    changed.filter((f) => existsSync(join(ctx.projectRoot, f))),
+    NODE_CHECK_PARALLEL,
+    async (f) => ({ f, r: await nodeCheck(join(ctx.projectRoot, f), ctx.signal) }),
   );
 
   const bad: string[] = [];
@@ -346,25 +382,26 @@ const scopeGate: BuiltinGate = async (ctx) => {
  * «Анти-обход тест-гейта» и «Секреты в diff» — две строки набора, включаемые независимо,
  * но смотрят они в один и тот же diff. Пока каждая тянула его сама, при обоих включённых
  * гейтах было десять вызовов git вместо пяти и два полных прохода регулярок — при том
- * что комментарий рядом обещал «один разбор». Ключ кэша — корень проекта: прогон гейтов
- * идёт последовательно и на неизменном дереве.
+ * что комментарий рядом обещал «один разбор».
+ *
+ * Ключ кэша — САМ контекст прогона, а не корень проекта. Ключ по корню жил дольше прогона:
+ * `runGates` создаёт контекст заново на каждую попытку, а запись в модульной карте
+ * оставалась от предыдущей — вторая попытка chunk'а получала находки первой, и исполнитель,
+ * который включил обратно отключённый тест, всё равно видел `❌`, а внесённый заново секрет
+ * не видел никто. `WeakMap` по контексту истекает вместе с прогоном: сбрасывать нечего и
+ * забыть сброс невозможно.
  */
-const diffCache = new Map<string, InvariantViolation[]>();
+const diffCache = new WeakMap<GateContext, InvariantViolation[]>();
 
 async function diffViolations(ctx: GateContext): Promise<InvariantViolation[]> {
-  const cached = diffCache.get(ctx.projectRoot);
+  const cached = diffCache.get(ctx);
   if (cached !== undefined) return cached;
 
   const diff = await workingDiff(ctx.projectRoot, [], ctx.signal);
   const deleted = await deletedPaths(ctx.projectRoot, ctx.signal);
   const violations = invariantViolations(diff, deleted);
-  diffCache.set(ctx.projectRoot, violations);
+  diffCache.set(ctx, violations);
   return violations;
-}
-
-/** Сбрасывается перед каждым прогоном: дерево между попытками меняется. */
-export function resetDiffCache(): void {
-  diffCache.clear();
 }
 
 /**

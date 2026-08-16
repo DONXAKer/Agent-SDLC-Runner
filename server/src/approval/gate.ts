@@ -13,7 +13,7 @@
  * запись не произошла, а содержимое приватного ключа утекло и осело в истории событий.
  */
 
-import { evaluate, writeTargetsOf } from '../policy/index.ts';
+import { evaluate, writeTargetPaths, writeTargetsOf } from '../policy/index.ts';
 import { normalize } from '../exec/normalize.ts';
 import type {
   Decision,
@@ -32,6 +32,13 @@ export interface PendingApproval {
   requestId: string;
   /** Имя инструмента как его назвал исполнитель — нужно, чтобы перепроверить правку. */
   toolName: string;
+  /**
+   * Аргументы инструмента до нормализации.
+   *
+   * Правка оператора накладывается НА них, а не заменяет их целиком: интерфейс присылает
+   * то, что человек изменил, и «полным входом» это считать нельзя.
+   */
+  rawInput: Record<string, unknown>;
   call: NormalizedCall;
   policy: PolicyVerdict;
   preview: DiffPreview | null;
@@ -132,6 +139,7 @@ export class ApprovalGate {
     stage: StageId;
     requestId: string;
     toolName: string;
+    rawInput: Record<string, unknown>;
     call: NormalizedCall;
     ctx: PolicyContext;
   }): Promise<Decision> {
@@ -186,7 +194,10 @@ export class ApprovalGate {
     const verdict = evaluate(call, ctx);
     if (!verdict.ok) return verdict;
 
-    const paths = [...(writeTargetsOf(call) ?? [])];
+    // Именно `writeTargetPaths`, а не отображаемый список: во втором к пути приклеено
+    // «(переменная не развёрнута)», и такой строки на диске нет — проверка на симлинк
+    // молча проходила по несуществующему файлу.
+    const paths = [...(writeTargetPaths(call) ?? [])];
     if (call.kind === 'read') paths.push(call.path);
 
     for (const path of paths) {
@@ -221,9 +232,15 @@ export class ApprovalGate {
   private revalidate(w: Waiting, decision: Decision): Decision {
     if (!decision.allowed || decision.updatedInput === null) return decision;
 
-    const edited = normalize(w.toolName, decision.updatedInput as Record<string, unknown>);
+    // Правка НАКЛАДЫВАЕТСЯ на исходные аргументы, а не заменяет их. Интерфейс присылает
+    // изменённые поля, и трактовка «это весь вход» была разрушительной: оператор, поправив
+    // путь у `Edit`, отправлял исполнителю вызов без `new_string` — а `Write` без
+    // `content` затирал файл пустотой. Наружу уходит уже слитый вход, потому что
+    // исполнитель подставляет `updatedInput` дословно.
+    const merged = { ...w.rawInput, ...(decision.updatedInput as Record<string, unknown>) };
+    const edited = normalize(w.toolName, merged);
     const verdict = this.checkAll(edited, w.ctx);
-    if (verdict.ok) return decision;
+    if (verdict.ok) return { ...decision, updatedInput: merged };
 
     return {
       allowed: false,

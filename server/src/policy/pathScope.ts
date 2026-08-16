@@ -70,8 +70,7 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
     case 'write':
     case 'edit':
       return checkPath(ctx, call.path, 'write');
-    case 'glob':
-    case 'grep': {
+    case 'glob': {
       // Шаблон — тоже путь. Пока проверялось только необязательное поле `path`,
       // `Glob {pattern: "C:/Users/Root/.claude/*.json"}` уходил наружу проекта, и следа
       // не оставалось даже в очереди одобрений: поиск в неё не ставится по дешевизне.
@@ -79,6 +78,13 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
       if (patternProblem !== null) return patternProblem;
       return call.path === null ? POLICY_OK : checkPath(ctx, call.path, 'read');
     }
+    case 'grep':
+      // У `Grep` шаблон — это регулярное выражение по СОДЕРЖИМОМУ, а не путь, и мерить его
+      // тем же предикатом нельзя: `\d+`, `\bimport\b`, `C:\\Users` внутри разбираемой
+      // строки после замены `\` на `/` выглядят как абсолютный путь или восхождение вверх,
+      // и обычный поиск получал отказ политики, снять который оператор не может. Каталог
+      // поиска ограничивает поле `path` — оно и проверяется.
+      return call.path === null ? POLICY_OK : checkPath(ctx, call.path, 'read');
     // Bash исполняется с cwd = корень проекта. Цели редиректов, уходящие наружу
     // (включая /dev/null и временные файлы), здесь намеренно не трогаем — модель
     // законно пишет во временные файлы, а отказ политики оператор снять не может.

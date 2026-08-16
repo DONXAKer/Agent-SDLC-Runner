@@ -49,6 +49,9 @@ export interface LoopOptions {
  */
 const REPEAT_LIMIT = 3;
 
+/** Инструмент есть, но исполнить его этот флоу не умеет: не успех и не крах этапа. */
+export class SubagentUnavailable extends Error {}
+
 function callFingerprint(call: ChatToolCall): string {
   return `${call.name}|${call.rawArguments}`;
 }
@@ -121,7 +124,12 @@ export class LoopExecutor implements StageExecutor {
         // «Завершил ход» — это только end_turn. Всё прочее (лимит длины, фильтр
         // содержимого, оборванный поток, сервер без finish_reason) успехом не считается:
         // иначе этап, где модель не написала ни строки, помечался бы как выполненный.
-        const done = answer.finishReason === 'end_turn';
+        // `other` с непустым текстом — законное завершение: Ollama и часть сборок vLLM
+        // не шлют `finish_reason` вовсе, и трактовать их ответ как обрыв значило бы
+        // валить каждый этап на локальном профиле.
+        const done =
+          answer.finishReason === 'end_turn' ||
+          (answer.finishReason === 'other' && answer.text.trim() !== '');
         const note = done
           ? 'модель завершила ход'
           : answer.finishReason === 'max_tokens'
@@ -200,7 +208,11 @@ export class LoopExecutor implements StageExecutor {
 
     const normalized: NormalizedCall = normalize(call.name, call.arguments);
 
-    const decision = await hooks.onToolRequest(normalized, { requestId, toolName: call.name });
+    const decision = await hooks.onToolRequest(normalized, {
+      requestId,
+      toolName: call.name,
+      rawInput: call.arguments,
+    });
     if (!decision.allowed) {
       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
       return `вызов отклонён: ${decision.reason}`;
@@ -215,7 +227,23 @@ export class LoopExecutor implements StageExecutor {
         ? normalized
         : normalize(call.name, decision.updatedInput as Record<string, unknown>);
 
-    const text = await this.execute(effective, req, hooks, toolCtx);
+    let text: string;
+    try {
+      text = await this.execute(effective, req, hooks, toolCtx);
+    } catch (e) {
+      // Инструмент, который не может отработать, отчитывается ОШИБКОЙ — иначе «ok» на
+      // заглушке становится доказательством того, чего не было (гейт ревью зеленел от
+      // отказа запускать субагента).
+      const message = e instanceof SubagentUnavailable ? e.message : (e as Error).message;
+      hooks.onToolResult({
+        requestId,
+        ok: false,
+        summary: message,
+        durationMs: Date.now() - started,
+      });
+      return message;
+    }
+
     hooks.onToolResult({
       requestId,
       ok: true,
@@ -247,12 +275,14 @@ export class LoopExecutor implements StageExecutor {
       case 'subagent': {
         // Субагент во флоу `loop` — вложенный прогон того же цикла с урезанными правами.
         // Его отсутствие не проглатывается: методология держит на субагентах ровно то,
-        // что нельзя доверить автору работы.
+        // что нельзя доверить автору работы. Отдаётся ОШИБКОЙ, а не текстом: успешный
+        // исход здесь засчитывался как состоявшееся ревью и зажигал обязательный гейт
+        // на витке, где независимого рецензента не было вовсе.
         const note =
-          `субагент «${call.agent}» во флоу loop пока не запускается. Этап 6 без ` +
-          `независимого рецензента неполон — сделай проверку сам и скажи об этом в отчёте.`;
+          `субагент «${call.agent}» во флоу loop не запускается. Этап 6 без независимого ` +
+          `рецензента неполон — гейт «Ревью независимым агентом» останется ⏭.`;
         hooks.onWarn(note);
-        return note;
+        throw new SubagentUnavailable(note);
       }
 
       default: {

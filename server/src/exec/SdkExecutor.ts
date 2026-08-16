@@ -41,12 +41,9 @@ function sdlcMcpServer(hooks: ExecHooks) {
     },
     async (args) => {
       const call = normalize('ask_human', args as unknown as Record<string, unknown>);
-      // Вопрос человеку тоже проходит политику: этап, у которого AskHuman не в правах,
-      // не должен получать работающий инструмент только потому, что он приехал по MCP.
-      const decision = await hooks.onToolRequest(call, { requestId: `ask:${randomUUID()}`, toolName: 'ask_human' });
-      if (!decision.allowed) {
-        return { content: [{ type: 'text' as const, text: decision.reason }], isError: true };
-      }
+      // Политику этот вызов уже прошёл: SDK спрашивает `canUseTool` и для MCP-инструментов.
+      // Второй заход сюда давал оператору ДВЕ карточки на один вопрос, и закрытие только
+      // одной оставляло вторую висеть неотвеченной.
       const answers = await hooks.onAskHuman(call);
       return { content: [{ type: 'text' as const, text: JSON.stringify(answers, null, 2) }] };
     },
@@ -57,18 +54,9 @@ function sdlcMcpServer(hooks: ExecHooks) {
     TOOL_SPECS.FinalizeArtifact.description,
     { artifact: z.string(), note: z.string().optional() },
     async (args) => {
-      const call = normalize('finalize_artifact', args as unknown as Record<string, unknown>);
-      // Идентификатор уникален на вызов: фиксированный ключ `finalize:<файл>` при повторной
-      // финализации того же артефакта затирал первую запись в очереди, и её промис не
-      // резолвился никогда — этап висел вечно.
-      const decision = await hooks.onToolRequest(call, {
-        requestId: `finalize:${randomUUID()}`,
-        toolName: 'finalize_artifact',
-      });
-      const text = decision.allowed
-        ? `Артефакт принят рантаймом: ${args.artifact}`
-        : `Артефакт не принят: ${decision.reason}`;
-      return { content: [{ type: 'text' as const, text }], isError: !decision.allowed };
+      // Политику вызов уже прошёл через `canUseTool` — см. комментарий в `ask_human`.
+      const text = `Артефакт принят рантаймом: ${args.artifact}`;
+      return { content: [{ type: 'text' as const, text }] };
     },
   );
 
@@ -104,6 +92,8 @@ export class SdkExecutor implements StageExecutor {
     const gated = new Set<string>();
     /** Вызовы, которые агент вообще сделал (из сообщений ассистента). */
     const attempted = new Map<string, string>();
+    /** Когда вызов начался — для честной длительности в событии результата. */
+    const startedAt = new Map<string, number>();
 
     /**
      * `total_cost_usd` и `usage` в result-сообщении кумулятивны по контракту SDK
@@ -163,6 +153,7 @@ export class SdkExecutor implements StageExecutor {
           const decision = await hooks.onToolRequest(call, {
             requestId: opts.toolUseID,
             toolName,
+            rawInput: input as Record<string, unknown>,
           });
 
           if (!decision.allowed) {
@@ -199,6 +190,7 @@ export class SdkExecutor implements StageExecutor {
                 // возвращавшим пустую строку в обеих ветках, было тождественно имени.
                 const input = 'input' in block ? (block.input as Record<string, unknown>) : {};
                 attempted.set(block.id, describeCall(normalize(block.name, input)));
+                startedAt.set(block.id, Date.now());
               }
             }
             break;
@@ -211,6 +203,27 @@ export class SdkExecutor implements StageExecutor {
               note = `этап оборван: ${m.subtype}`;
             } else {
               note = `этап завершён за ${m.num_turns} ход(ов)`;
+            }
+            break;
+          }
+
+          // Результат исполненного инструмента приходит отдельным сообщением от SDK.
+          // Без этой ветки `onToolResult` вызывался ТОЛЬКО при отказе политики: успешный
+          // вызов не давал ни события в шину, ни факта «инструмент отработал» — а на
+          // последнем держится статус гейта «Ревью независимым агентом», и он не мог
+          // стать зелёным ни на одной попытке.
+          case 'user': {
+            const content = m.message.content;
+            if (typeof content === 'string') break;
+            for (const block of content) {
+              if (block.type !== 'tool_result') continue;
+              const started = startedAt.get(block.tool_use_id) ?? Date.now();
+              hooks.onToolResult({
+                requestId: block.tool_use_id,
+                ok: block.is_error !== true,
+                summary: attempted.get(block.tool_use_id) ?? 'инструмент отработал',
+                durationMs: Date.now() - started,
+              });
             }
             break;
           }

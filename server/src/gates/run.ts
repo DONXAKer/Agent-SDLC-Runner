@@ -35,7 +35,7 @@ export interface RunGatesInput extends GateContext {
   onResult?: (r: GateRunResult) => void;
 }
 
-async function runOne(row: GateRow, i: RunGatesInput): Promise<GateRunResult> {
+async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise<GateRunResult> {
   const started = Date.now();
 
   // Сопоставление по ключу, а не по точному имени: оператор пишет строку набора как
@@ -88,13 +88,7 @@ async function runOne(row: GateRow, i: RunGatesInput): Promise<GateRunResult> {
     };
   }
 
-  const outcome = await builtin({
-    projectRoot: i.projectRoot,
-    planFiles: i.planFiles,
-    baseline: i.baseline,
-    timeoutMs: i.timeoutMs,
-    ...(i.signal === undefined ? {} : { signal: i.signal }),
-  });
+  const outcome = await builtin(ctx);
   return { name: row.name, ...outcome, durationMs: Date.now() - started };
 }
 
@@ -104,10 +98,22 @@ async function runOne(row: GateRow, i: RunGatesInput): Promise<GateRunResult> {
  * а взаимные помехи — настоящие.
  */
 export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
+  // Контекст один на прогон и общий для всех гейтов: по нему кэшируется разбор diff'а
+  // (`diffViolations`), который иначе тянут по разу «Анти-обход» и «Секреты». Пересоздание
+  // контекста на каждый гейт обнуляло бы кэш, а модульный кэш по корню проекта пережил бы
+  // прогон и отдал бы второй попытке находки первой.
+  const ctx: GateContext = {
+    projectRoot: i.projectRoot,
+    planFiles: i.planFiles,
+    baseline: i.baseline,
+    timeoutMs: i.timeoutMs,
+    ...(i.signal === undefined ? {} : { signal: i.signal }),
+  };
+
   const out: GateRunResult[] = [];
   for (const row of gatesRunnableAtVerify(i.gates)) {
     if (i.signal?.aborted === true) break;
-    const r = await runOne(row, i);
+    const r = await runOne(row, i, ctx);
     out.push(r);
     i.onResult?.(r);
   }

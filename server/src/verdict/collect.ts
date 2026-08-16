@@ -14,7 +14,7 @@
 
 import type { ClaimStatus, GateRunResult, GateStatus, VerdictInput } from '@sdlc-runner/shared';
 
-import { hasPlaceholder, isSignedByHuman } from '../artifacts/artifact.ts';
+import { hasPlaceholder, nameOnlyProblem } from '../artifacts/artifact.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
 import { gateKey, gatesExpectedInReport, openDebt } from '../gates/gatesFile.ts';
@@ -71,6 +71,10 @@ function bullet(report: string, label: RegExp): string | null {
     }
 
     if (nested.length === 0) return head;
+    // В самой строке сказано «нет» — вложенное под ней является пояснением, а не
+    // перечнем находок. Склейка превращала «- Расхождение: нет / - (проверены все
+    // пункты)» в непустое значение и роняла вердикт по несуществующему расхождению.
+    if (head !== '' && isEmptyValue(head)) return head;
     return head === '' ? nested.join('; ') : `${head}; ${nested.join('; ')}`;
   }
   return null;
@@ -79,10 +83,16 @@ function bullet(report: string, label: RegExp): string | null {
 /**
  * «н/п», «нет», «—» и плейсхолдер — это «пусто», а не содержимое.
  *
- * Сравнение по ПОЛНОМУ значению, а не по префиксу. Пока стоял префикс, содержательная
+ * Сравнение по ПОЛНОМУ значению, а не по префиксу: пока стоял префикс, содержательная
  * находка, начинающаяся с тех же слов — «нет отката миграции при падении деплоя»,
  * «отсутствуют тесты на новый путь ошибки», — выбрасывалась вместе с настоящими
  * заглушками, и красный вердикт становился зелёным.
+ *
+ * Но и голое равенство слишком узко: человек пишет не «н/п», а «н/п — не применимо» и
+ * «нет (все пункты закрыты)». Поэтому перед сверкой отрезается пояснительный хвост —
+ * то, что идёт ПОСЛЕ разделителя (тире, скобка, двоеточие, запятая). Разделитель здесь
+ * и есть различитель: «нет отката миграции» — сплошная фраза без него и остаётся
+ * находкой, «нет — всё закрыто» распадается на маркер и пояснение.
  */
 const EMPTY_VALUES = new Set([
   'н/п',
@@ -99,12 +109,18 @@ const EMPTY_VALUES = new Set([
   'нет замечаний',
 ]);
 
+/** Маркер пустоты с отрезанным пояснительным хвостом: «нет — всё закрыто» → «нет». */
+function emptyMarker(t: string): string {
+  const cut = t.split(/\s[—–-]\s|\s*[(:,]/u)[0] ?? t;
+  return cut.replace(/[.;,]+$/, '').trim();
+}
+
 function isEmptyValue(v: string | null): boolean {
   if (v === null) return true;
   const t = v.trim().toLowerCase().replace(/ё/g, 'е').replace(/[.;,]+$/, '').trim();
   if (t === '') return true;
   if (PLACEHOLDER.test(v)) return true;
-  return EMPTY_VALUES.has(t);
+  return EMPTY_VALUES.has(t) || EMPTY_VALUES.has(emptyMarker(t));
 }
 
 export interface ReportFacts {
@@ -121,15 +137,15 @@ export interface ReportFacts {
 /**
  * Запоминает подписанную строку неприменимости.
  *
- * Подпись проверяется тем же предикатом, что и решение человека в артефакте и закрытие
- * долга в наборе: имя И дата. Планка «две буквы в ячейке» стояла ровно на том пути,
- * который делает красный вердикт зелёным — снятии `⏭` с обязательного гейта, — и была
- * самой слабой из трёх. Дату здесь требуем не для формальности: она отличает решение,
- * принятое по этому diff'у, от строки, скопированной из прошлого отчёта.
+ * Планка — имя, и только имя: форма методологии держит в этой колонке `‹имя›` и говорит
+ * дословно «колонка "Утвердил" без имени = артефакт не заполнен». Требование даты, которое
+ * тут стояло, форма не предъявляет — оно блокировало снятие `⏭` на отчёте, заполненном
+ * строго по шаблону эталона. Плейсхолдер и пустота именем по-прежнему не считаются: это
+ * тот самый путь, которым красный вердикт становится зелёным, и слабее он быть не может.
  */
 function rememberInapplicable(into: Map<string, string>, name: string, who: string): void {
   if (name === '' || PLACEHOLDER.test(name)) return;
-  if (!isSignedByHuman(who)) return;
+  if (nameOnlyProblem(who) !== null) return;
   into.set(gateKey(name), who.trim());
 }
 
@@ -265,6 +281,15 @@ export interface CollectInput {
   gates: GatesFile;
   /** Что рантайм прогнал сам на этом этапе. */
   gateResults: readonly GateRunResult[];
+  /**
+   * Гейты (ключами `gateKey`), чей зелёный статус рантайм знает достовернее отчёта.
+   *
+   * Ровно один случай на сегодня: «Ревью независимым агентом». Рантайм видел фактический
+   * вызов субагента — это факт, а не мнение, и `⏭` в отчёте («не запускался») его
+   * опровергнуть не может, потому что запускался. Красный отчёта при этом всё равно
+   * побеждает: рецензент, нашедший дефект, — не тот источник, который стоит переспоривать.
+   */
+  runtimeAuthoritativeWhenGreen?: readonly string[];
   /** Текст `verification-report-<N>-attempt-<K>.md`. Пусто — отчёта нет. */
   report: string;
   attempt: number;
@@ -326,11 +351,20 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       continue;
     }
 
-    const status = run === undefined ? reported : worst(run.status, reported);
+    const authoritative =
+      run !== undefined &&
+      run.status === '✅' &&
+      reported === '⏭' &&
+      (i.runtimeAuthoritativeWhenGreen ?? []).includes(key);
+
+    const status = run === undefined ? reported : authoritative ? '✅' : worst(run.status, reported);
     if (run !== undefined && run.status !== reported) {
       disagreements.push(
         `гейт «${row.name}»: в отчёте ${reported}, фактический прогон дал ${run.status} — ` +
-          `в вердикт идёт худший из двух (${status})`,
+          (authoritative
+            ? `в вердикт идёт статус прогона (${status}): «не запускался» опровергается ` +
+              `фактом запуска, а не наоборот`
+            : `в вердикт идёт худший из двух (${status})`),
       );
     }
     gates.push({

@@ -43,8 +43,12 @@ export function git(args: string[], cwd: string, signal?: AbortSignal): Promise<
       child.kill();
     }, GIT_TIMEOUT_MS);
 
+    let truncated = false;
     const collect = (bucket: string[], d: Buffer): void => {
-      if (size >= GIT_MAX_OUTPUT) return;
+      if (size >= GIT_MAX_OUTPUT) {
+        truncated = true;
+        return;
+      }
       const chunk = d.toString('utf8');
       size += chunk.length;
       bucket.push(chunk);
@@ -57,7 +61,13 @@ export function git(args: string[], cwd: string, signal?: AbortSignal): Promise<
       settled = true;
       clearTimeout(timer);
       const note = timedOut ? `\n[рантайм] git не уложился в ${GIT_TIMEOUT_MS} мс` : '';
-      resolve({ code, stdout: out.join(''), stderr: err.join('') + (extra ?? '') + note });
+      // Обрезка обязана быть сказана вслух: гейты «Анти-обход» и «Секреты» ищут по тексту
+      // diff'а, и молча урезанный вывод даёт им «чисто» ровно там, где смотреть было
+      // нечего. Отсутствие доказательства не есть доказательство отсутствия.
+      const cut = truncated
+        ? `\n[рантайм] вывод git обрезан на ${GIT_MAX_OUTPUT} символах — проверено НЕ ВСЁ`
+        : '';
+      resolve({ code, stdout: out.join(''), stderr: err.join('') + (extra ?? '') + note + cut });
     };
     child.on('error', (e) => done(null, e.message));
     child.on('close', (code) => done(code));
@@ -114,6 +124,18 @@ export async function changedPaths(cwd: string, signal?: AbortSignal): Promise<s
  * с захардкоженным ключом давали «✅ чисто». Scope-гейт такой файл замечал (он смотрит
  * `changedPaths`), а анти-обход и секреты — нет.
  */
+/**
+ * Артефакты витка из diff'а исключены: они его сопровождение, а не предмет.
+ *
+ * Без этого гейт секретов краснел от собственного отчёта рецензента (тот цитирует найденные
+ * строки), а анти-обход — от плана, где перечислены имена отключаемых тестов. Scope-гейт
+ * исключает `.sdlc/**` у себя по той же причине, и форма отчёта прямо это оговаривает.
+ */
+const SDLC_EXCLUDE = ':(exclude).sdlc';
+
+/** Сколько неотслеживаемых файлов разбираем поштучно. Каждый — отдельный процесс git. */
+const MAX_UNTRACKED_DIFFS = 200;
+
 export async function workingDiff(
   cwd: string,
   args: string[] = [],
@@ -121,14 +143,20 @@ export async function workingDiff(
 ): Promise<string> {
   const head = (await hasCommits(cwd)) ? ['HEAD'] : [];
   const tracked = await git(
-    ['diff', '--ignore-cr-at-eol', '-U0', ...head, '--', '.', ...args],
+    ['diff', '--ignore-cr-at-eol', '-U0', ...head, '--', '.', SDLC_EXCLUDE, ...args],
     cwd,
     signal,
   );
 
-  const untracked = await git(['ls-files', '--others', '--exclude-standard', '--', '.'], cwd, signal);
+  const untracked = await git(
+    ['ls-files', '--others', '--exclude-standard', '--', '.', SDLC_EXCLUDE],
+    cwd,
+    signal,
+  );
   const parts = [tracked.stdout];
-  for (const file of lines(untracked.stdout)) {
+  const newFiles = lines(untracked.stdout);
+  for (const file of newFiles.slice(0, MAX_UNTRACKED_DIFFS)) {
+    if (signal?.aborted === true) break;
     // `--no-index` против пустоты даёт для нового файла обычный unified diff, который
     // разбирается тем же кодом, что и остальное.
     const d = await git(
@@ -138,12 +166,28 @@ export async function workingDiff(
     );
     if (d.stdout.trim() !== '') parts.push(d.stdout);
   }
+  if (newFiles.length > MAX_UNTRACKED_DIFFS) {
+    // Молчаливая усечённость здесь — то же «чисто» на непроверенном: гейт обязан увидеть
+    // текст и покраснеть сам, а не считать неразобранное отсутствующим.
+    parts.push(
+      `\n[рантайм] неотслеживаемых файлов ${newFiles.length}, разобрано ` +
+        `${MAX_UNTRACKED_DIFFS} — остальные в diff НЕ вошли и НЕ проверены`,
+    );
+  }
   return parts.join('\n');
 }
 
 export async function deletedPaths(cwd: string, signal?: AbortSignal): Promise<string[]> {
   if (!(await hasCommits(cwd))) return [];
-  const r = await git(['diff', '--diff-filter=D', '--name-only', 'HEAD'], cwd, signal);
+  // `--relative -- .`, как в `changedPaths`: без этого в монорепо, где projectRoot —
+  // подкаталог, приходили удаления из ЧУЖИХ подпроектов и путь печатался от корня
+  // репозитория. Анти-обходный гейт краснел от удалённого теста, которого исполнитель
+  // не касался, и сверить путь с планом было нельзя — базы разные.
+  const r = await git(
+    ['diff', '--diff-filter=D', '--name-only', '--relative', 'HEAD', '--', '.', SDLC_EXCLUDE],
+    cwd,
+    signal,
+  );
   return lines(r.stdout);
 }
 

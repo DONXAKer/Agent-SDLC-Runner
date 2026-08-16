@@ -115,6 +115,17 @@ function withExtra(prompt: PreparedPrompt, block: string | undefined): PreparedP
   return { ...prompt, user: `${prompt.user}\n\n${block}` };
 }
 
+/**
+ * Субагенты, вызов которых засчитывается как состоявшееся независимое ревью.
+ *
+ * Реестр, а не подстрока в имени: от этого списка зависит зелёный статус гейта из
+ * минимальной пятёрки, и расширяться он должен осознанно.
+ */
+const REVIEWER_AGENTS: readonly string[] = ['sdlc-reviewer'];
+
+/** Гейт минимума, который рантайм не исполняет скриптом. */
+const REVIEW_GATE = 'Ревью независимым агентом';
+
 export class Run {
   readonly id = randomUUID();
   readonly project: ProjectConfig;
@@ -445,16 +456,16 @@ export class Run {
    * при полном отсутствии ревью.
    */
   private externalGateStatuses(): Record<string, GateStatus> {
-    const { missing } = loadSubagents(this.config.runner.agentsDir, ['sdlc-reviewer']);
+    const { missing } = loadSubagents(this.config.runner.agentsDir, REVIEWER_AGENTS);
 
     const status: GateStatus =
-      missing.length > 0
-        ? '⏭' // определения субагента нет — рецензировать некому
+      missing.length === REVIEWER_AGENTS.length
+        ? '⏭' // ни одного определения субагента нет — рецензировать некому
         : this.reviewerRan
           ? '✅'
           : '⏭'; // прогона ещё не было либо субагент не вызывался
 
-    return { [gateKey('Ревью независимым агентом')]: status };
+    return { [gateKey(REVIEW_GATE)]: status };
   }
 
   /**
@@ -501,6 +512,10 @@ export class Run {
       // прогон идёт ДО ревью, и на его момент рецензент заведомо не отработал. Без
       // пересчёта гейт ревью навсегда оставался бы `⏭` даже после честного прогона.
       gateResults: this.gateResultsForVerdict(),
+      // Факт запуска рецензента рантайм знает достовернее отчёта: `⏭` («не запускался»)
+      // в отчёте не может опровергнуть состоявшийся вызов субагента. Красный отчёта при
+      // этом всё равно побеждает — см. `collectVerdictInput`.
+      runtimeAuthoritativeWhenGreen: [gateKey(REVIEW_GATE)],
       report: report.text,
       attempt: this.attempt,
       attemptBudget: this.attemptBudget,
@@ -640,6 +655,14 @@ export class Run {
     const ctx = this.policyContext(stage);
     /** Вызовы субагента-рецензента, ждущие результата: по ним ставится факт ревью. */
     const pendingReviewer = new Set<string>();
+    /**
+     * Имена, под которыми у этого этапа объявлен независимый рецензент, — и только они.
+     *
+     * Пересечение объявленного этапом списка с реестром рецензентов, а не поиск подстроки
+     * в имени: гейт минимальной пятёрки не может зажигаться от того, как модель назвала
+     * вызванного агента. Пусто — рецензента этап не объявлял, и зажечь гейт нечем.
+     */
+    const reviewerNames = new Set(def.subagents.filter((n) => REVIEWER_AGENTS.includes(n)));
 
     const hooks: ExecHooks = {
       onText: (text) => this.emit({ type: 'assistant_text', runId: this.id, stage, text }),
@@ -653,10 +676,15 @@ export class Run {
             stage,
             requestId: meta.requestId,
             toolName: meta.toolName,
+            rawInput: meta.rawInput,
             call,
             ctx,
           });
-          if (decision.allowed && call.kind === 'subagent' && call.agent.includes('reviewer')) {
+          // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
+          // рантайм прочитал с диска. Подстрока «reviewer» в имени этой планкой не
+          // является: модель, вызвавшая несуществующего `code-reviewer-helper`, получала
+          // отказ загрузки — и всё равно зажигала гейт минимальной пятёрки.
+          if (decision.allowed && call.kind === 'subagent' && reviewerNames.has(call.agent)) {
             pendingReviewer.add(meta.requestId);
           }
           return decision;

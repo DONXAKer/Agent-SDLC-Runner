@@ -71,7 +71,19 @@ export interface Question {
  * за посчитанный ответ.
  */
 export type NormalizedCall =
-  | { kind: 'read'; path: string; range: { from: number; to: number } | null }
+  | {
+      kind: 'read';
+      path: string;
+      /**
+       * Диапазон строк, включающий. `to: null` — «до конца файла».
+       *
+       * Именно `null`, а не «очень большое число»: `Number.MAX_SAFE_INTEGER` утекал в
+       * карточку одобрения («строки 10–9007199254740991») и, что хуже, делал такой вызов
+       * неотличимым от настоящего диапазона — предохранитель, требующий читать большой
+       * файл частями, пропускал чтение всего файла целиком.
+       */
+      range: { from: number; to: number | null } | null;
+    }
   | { kind: 'glob'; pattern: string; path: string | null }
   | { kind: 'grep'; pattern: string; path: string | null }
   | { kind: 'write'; path: string; content: string }
@@ -266,6 +278,10 @@ export type RunEvent =
       runId: string;
       stage: StageId;
       requestId: string;
+      /** Имя инструмента, как его назвал исполнитель. */
+      toolName: string;
+      /** Аргументы до нормализации — то, что правит оператор и что уйдёт исполнителю. */
+      rawInput: Record<string, unknown>;
       call: NormalizedCall;
       policy: PolicyVerdict;
       preview: DiffPreview | null;

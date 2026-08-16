@@ -53,6 +53,8 @@ describe('шина событий', () => {
         runId: 'r1',
         stage: 'chunk',
         requestId: `t${i}`,
+        toolName: 'Write',
+        rawInput: { file_path: 'a.txt', content: big },
         call: { kind: 'write', path: 'a.txt', content: big },
         policy: { ok: true },
         preview: { path: 'a.txt', before: null, after: big },
@@ -105,6 +107,7 @@ describe('гейт одобрений', () => {
       stage: 'chunk',
       requestId: 'a1',
       toolName: 'Write',
+      rawInput: { file_path: 'README.md' },
       call: { kind: 'read', path: 'README.md', range: null },
       ctx: ctx(),
     });
@@ -123,6 +126,7 @@ describe('гейт одобрений', () => {
       stage: 'chunk',
       requestId: 'a2',
       toolName: 'Write',
+      rawInput: {},
       call: write('secret.key'),
       ctx: ctx(),
     });
@@ -142,6 +146,7 @@ describe('гейт одобрений', () => {
       stage: 'chunk',
       requestId: 'shared-id',
       toolName: 'Write',
+      rawInput: {},
       call: write('src/Foo.java'),
       ctx: ctx(),
     });
@@ -159,6 +164,7 @@ describe('гейт одобрений', () => {
       stage: 'chunk',
       requestId: 'a3',
       toolName: 'Write',
+      rawInput: {},
       call: write('src/Foo.java'),
       ctx: ctx(),
     });
@@ -176,6 +182,7 @@ describe('гейт одобрений', () => {
       stage: 'chunk',
       requestId: 'a4',
       toolName: 'Write',
+      rawInput: {},
       call: write('.env'),
       ctx: ctx(),
     });
@@ -189,6 +196,7 @@ describe('гейт одобрений', () => {
       stage: 'chunk',
       requestId: 'a5',
       toolName: 'Write',
+      rawInput: {},
       call: write('src/Foo.java'),
       ctx: ctx(),
     });

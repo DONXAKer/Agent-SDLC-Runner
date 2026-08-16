@@ -5,6 +5,14 @@ import { DiffView } from './DiffView.tsx';
 
 export interface PendingCall {
   requestId: string;
+  /**
+   * Аргументы инструмента в его собственной форме — то, что правит оператор.
+   *
+   * Не `call`: исполнителю уходит `updatedInput` дословно, в форме инструмента
+   * (`file_path`, `old_string`), а нормализованная форма (`path`, `oldStr`) на входе
+   * инструмента не значит ничего — правка молча теряла содержимое.
+   */
+  rawInput: Record<string, unknown>;
   call: NormalizedCall;
   policy: PolicyVerdict;
   preview: DiffPreview | null;
@@ -42,7 +50,7 @@ export function ToolApproval({
   onResolve: (requestId: string, decision: Decision) => void;
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(() => JSON.stringify(pending.call, null, 2));
+  const [draft, setDraft] = useState(() => JSON.stringify(pending.rawInput, null, 2));
   const blocked = !pending.policy.ok;
 
   return (

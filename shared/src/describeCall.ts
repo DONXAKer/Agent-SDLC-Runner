@@ -12,7 +12,10 @@ import type { NormalizedCall } from './types.ts';
 export function describeCall(call: NormalizedCall): string {
   switch (call.kind) {
     case 'read': {
-      const range = call.range === null ? '' : ` [${call.range.from}–${call.range.to}]`;
+      const range =
+        call.range === null
+          ? ''
+          : ` [${call.range.from}–${call.range.to ?? 'конец'}]`;
       return `Read ${call.path}${range}`;
     }
     case 'glob':

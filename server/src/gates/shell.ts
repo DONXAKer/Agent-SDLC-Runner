@@ -97,7 +97,14 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
       if (child.pid === undefined) return;
       if (process.platform === 'win32') {
         // `taskkill /T` снимает всё поддерево по идентификатору родителя.
-        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+        // Слушатель `error` обязателен: у `ChildProcess` без него неудачный spawn
+        // (taskkill не в PATH на урезанном образе, отказ в правах) поднимается
+        // необработанным исключением на уровень процесса и роняет ВЕСЬ сервер — в
+        // обработчике таймаута, то есть ровно тогда, когда всё уже идёт не так.
+        const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+          windowsHide: true,
+        });
+        killer.on('error', () => child.kill());
       } else {
         // Отрицательный pid — сигнал всей группе процессов.
         try {

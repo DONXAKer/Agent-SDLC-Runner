@@ -136,7 +136,7 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
       // семантике которого модель обучена. Пока это давало одну строку, модель после
       // отказа «читай диапазоном» выедала бюджет ходов по строке за ход.
       // Диапазон включающий: `offset=10, limit=5` это строки 10..14, а не 10..15.
-      const to = limit === null ? Number.MAX_SAFE_INTEGER : from + Math.max(1, limit) - 1;
+      const to = limit === null ? null : from + Math.max(1, limit) - 1;
       return { kind: 'read', path, range: { from, to } };
     }
 

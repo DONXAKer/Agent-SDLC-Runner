@@ -85,9 +85,9 @@ function replaceFirstLiteral(text: string, from: string, to: string): string {
  * терялись и финальный текст, и вся история сообщений, хотя модели достаточно было
  * сказать «так нельзя».
  */
-function guard(action: () => ToolOutcome): ToolOutcome {
+async function guard(action: () => ToolOutcome | Promise<ToolOutcome>): Promise<ToolOutcome> {
   try {
-    return action();
+    return await action();
   } catch (e) {
     return { ok: false, text: `операция не удалась: ${(e as Error).message}` };
   }
@@ -98,7 +98,11 @@ function readTool(call: NormalizedCall & { kind: 'read' }, ctx: ToolContext): To
   if (!existsSync(abs)) return { ok: false, text: `файла нет: ${call.path}` };
 
   const size = statSync(abs).size;
-  if (call.range === null && size > ctx.readRangeRequiredAboveBytes) {
+  // «С начала и без конца» — это чтение целиком, как бы оно ни было записано. Пока
+  // предохранитель смотрел только на `range === null`, модель обходила его одним
+  // `offset: 1` без `limit` — и выгребала в контекст весь файл, ради чего проверка и стоит.
+  const wholeFile = call.range === null || (call.range.from <= 1 && call.range.to === null);
+  if (wholeFile && size > ctx.readRangeRequiredAboveBytes) {
     return {
       ok: false,
       text:
@@ -109,7 +113,10 @@ function readTool(call: NormalizedCall & { kind: 'read' }, ctx: ToolContext): To
 
   const lines = readFileSync(abs, 'utf8').split(/\r?\n/);
   const from = call.range === null ? 1 : Math.max(1, call.range.from);
-  const to = call.range === null ? lines.length : Math.min(lines.length, call.range.to);
+  const to =
+    call.range === null || call.range.to === null
+      ? lines.length
+      : Math.min(lines.length, call.range.to);
   // Нумерация строк обязательна: без неё Edit по «строке 42» не с чем сверить, а модель
   // всё равно её выдумает.
   const body = lines
@@ -202,35 +209,15 @@ async function globTool(
 const GREP_BUDGET_MS = 20_000;
 
 /**
- * Вложенное повторение — конструкция, дорогая по своей природе.
- *
- * Движок регулярных выражений в JS не прерывается: на `(a+)+$` он уходит в
- * экспоненциальный бэктрекинг внутри ОДНОГО вызова `test`, и никакой таймаут между
- * строками этого не остановит — процесс встаёт вместе с HTTP-ручкой отмены и потоком
- * событий всех витков (измерено: 146 секунд на строке в 80 символов). Прерывать нечем,
- * поэтому такие шаблоны не запускаются вовсе.
- *
- * Проверка эвристическая и намеренно грубая: ложный отказ стоит модели одной попытки с
- * более простым шаблоном, ложный пропуск — всего сервиса.
+ * Отказ по вложенному повторению (`(a+)+`) живёт в `policy/denyList.ts`, а не здесь:
+ * решения «можно/нельзя» принимают общие для обоих флоу чистые функции, и правило,
+ * спрятанное в реализации инструмента, второй флоу не защищает. Сюда вызов доходит уже
+ * пропущенным политикой — остаётся бюджет времени на честно дорогой, но законный поиск.
  */
-export function nestedQuantifier(pattern: string): boolean {
-  return /\([^()]*[+*}][^()]*\)\s*[+*{]/.test(pattern);
-}
-
 async function grepTool(
   call: NormalizedCall & { kind: 'grep' },
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
-  if (nestedQuantifier(call.pattern)) {
-    return {
-      ok: false,
-      text:
-        `шаблон «${call.pattern}» содержит вложенное повторение (группа с «+» или «*» под ` +
-        `ещё одним «+»/«*»). Такой поиск может выполняться экспоненциально долго и ` +
-        `остановить его нечем, поэтому он не запускается. Упрости выражение.`,
-    };
-  }
-
   let re: RegExp;
   try {
     re = new RegExp(call.pattern, 'i');
@@ -318,9 +305,20 @@ async function grepTool(
     };
   }
 
-  if (hits.length === 0) return { ok: true, text: 'совпадений нет' };
+  // Обрыв обхода называется ВСЕГДА, а не только когда не нашлось ничего. Пока он молчал
+  // при непустом результате, «поиск не уложился в отведённое время» выглядел для модели
+  // как исчерпывающий ответ, и она делала вывод «больше вхождений нет» по недосмотренному
+  // дереву — на этом держится половина ложных «расхождений не найдено».
+  const cut = stopped === null ? '' : `\n…[${stopped}: дерево просмотрено НЕ полностью]`;
+
+  if (hits.length === 0) {
+    return { ok: true, text: stopped === null ? 'совпадений нет' : `совпадений нет.${cut}` };
+  }
   const note = hits.length >= MAX_HITS ? `\n…[показаны первые ${MAX_HITS} совпадений]` : '';
-  return { ok: true, text: cap(hits.join('\n') + note, ctx.maxResultBytes) };
+  // Пометка идёт ПЕРЕД совпадениями: `cap` режет хвост, и предупреждение о неполноте
+  // исчезало бы ровно на длинном результате, где оно нужнее всего.
+  const body = cut === '' ? '' : `${cut.trim()}\n`;
+  return { ok: true, text: cap(body + hits.join('\n') + note, ctx.maxResultBytes) };
 }
 
 async function bashTool(
@@ -355,12 +353,16 @@ export async function executeTool(call: NormalizedCall, ctx: ToolContext): Promi
       return guard(() => writeTool(call, ctx));
     case 'edit':
       return guard(() => editTool(call, ctx));
+    // Под `guard` ВСЕ, включая асинхронные: `Glob`, `Grep` и `Bash` ходят на диск ровно
+    // так же, и `EACCES` на подкаталоге или снятый носитель ронял этап целиком — вместе с
+    // финальным текстом и всей историей сообщений, — хотя модели достаточно было сказать
+    // «так нельзя». Раньше их обходило то, что `guard` был синхронным.
     case 'glob':
-      return globTool(call, ctx);
+      return guard(() => globTool(call, ctx));
     case 'grep':
-      return grepTool(call, ctx);
+      return guard(() => grepTool(call, ctx));
     case 'bash':
-      return bashTool(call, ctx);
+      return guard(() => bashTool(call, ctx));
     default:
       return { ok: false, text: `инструмент «${call.kind}» этот цикл не исполняет` };
   }

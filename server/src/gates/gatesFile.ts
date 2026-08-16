@@ -108,6 +108,12 @@ export function parseCommand(cell: string): string | null {
   // Ячейка целиком в форме («‹чем; пути `.sdlc/**` исключены›») команды не содержит.
   if (cmd === '' || hasPlaceholder(cell)) return null;
 
+  // Ячейка, которая ВСЯ состоит из одного фрагмента в кавычках, — это команда, чем бы она
+  // ни выглядела. Иначе эвристика ниже отвергала самые обычные записи набора — `make`,
+  // `pytest`, `tox`, `npm test` пишутся именно так, — и обязательный гейт уходил во
+  // встроенную реализацию мимо того, чем проект реально собирается.
+  if (cell.replace(/`[^`]+`/, '').trim() === '') return cmd;
+
   // Ячейка «Чем реализован» держит и команду, и прозу с процитированными именами:
   // эталонный набор методологии пишет «скрипт сверки diff с `files_to_touch`», шаблон —
   // «‹чем; пути `.sdlc/**` из сверки исключены›». Пока командой считался первый попавшийся
@@ -217,11 +223,24 @@ export function configProblems(g: GatesFile): string[] {
   const out = minimumProblems(g);
 
   for (const row of g.rows) {
-    if (row.enabled && row.reportsAt === null) {
+    if (!row.enabled) continue;
+    if (row.reportsAt === null) {
       out.push(
         `у включённого гейта «${row.name}» не распознана колонка «Где отчитывается»: ` +
           `значение не похоже ни на «этап N», ни на «вне витка». Такой гейт не ` +
           `прогоняется и не участвует в вердикте — это молчаливое отключение.`,
+      );
+      continue;
+    }
+    // Распознанный, но никем не собираемый этап — то же молчаливое отключение, только
+    // незаметнее. Отчёт этапа 6 собирает этапы 1/2/4/5/6; «этап 7» отчитывается в
+    // handoff'е, «вне витка» — своими артефактами. Всё прочее (например «этап 3», где
+    // артефакта со статусами гейтов нет вовсе) не спросит никто.
+    if (!REPORTED_AT_VERIFY.includes(row.reportsAt) && !NOT_REPORTED_AT_VERIFY.includes(row.reportsAt)) {
+      out.push(
+        `включённый гейт «${row.name}» отчитывается на «${row.reportsAt}» — этого статуса ` +
+          `не спрашивает ни отчёт приёмки, ни handoff. Гейт не участвует в вердикте ни на ` +
+          `одном этапе: перенеси его на этап 1/2/4/5/6, на этап 7 или «вне витка».`,
       );
     }
   }
@@ -245,6 +264,9 @@ export function configProblems(g: GatesFile): string[] {
 
 /** Этапы, чьи гейты обязаны отчитаться в отчёте приёмки этапа 6. */
 const REPORTED_AT_VERIFY: ReportsAt[] = ['этап 1', 'этап 2', 'этап 4', 'этап 5', 'этап 6'];
+
+/** Где статус спрашивают не в отчёте этапа 6, но всё-таки спрашивают. */
+const NOT_REPORTED_AT_VERIFY: ReportsAt[] = ['этап 7', 'вне витка'];
 
 /**
  * Строки, которые обязаны быть в отчёте этапа 6.
@@ -275,10 +297,13 @@ export function openDebt(g: GatesFile): string[] {
   for (const row of g.debt) {
     if (!row.closed) out.push(`${row.name} (${row.why})`);
   }
-  const named = new Set(g.debt.map((d) => d.name.toLowerCase()));
+  // Сверка имён — тем же ключом, что и везде: `toLowerCase()` не приводит «ё», обратные
+  // кавычки и двойные пробелы, и строка долга «Секреты в diff'е» не находилась к гейту
+  // «Секреты в diff'е » — закрытый долг числился открытым и ронял вердикт.
+  const named = new Set(g.debt.map((d) => gateKey(d.name)));
   for (const row of g.rows) {
     if (row.enabled) continue;
-    if (named.has(row.name.toLowerCase())) continue;
+    if (named.has(gateKey(row.name))) continue;
     out.push(`${row.name} (гейт выключен, а строки в таблице «Долг» нет вовсе)`);
   }
   return out;

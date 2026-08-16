@@ -230,6 +230,7 @@ describe('политика решает одинаково независимо 
         stage: 'chunk',
         requestId: `c-${call.kind}`,
         toolName: 'X',
+        rawInput: {},
         call,
         ctx: CTX,
       });
