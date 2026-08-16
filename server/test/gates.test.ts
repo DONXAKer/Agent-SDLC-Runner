@@ -20,6 +20,8 @@ import { lastMeaningfulLine } from '../src/gates/shell.ts';
 
 const set = (...f: string[]): Set<string> => new Set(f);
 
+const ROOT = 'D:/work/proj';
+
 describe('детект build-системы', () => {
   it('gradle wrapper предпочитается системному gradle', () => {
     strictEqual(detectBuildSystem(set('gradlew', 'build.gradle'), null)?.build.includes('./gradlew'), true);
@@ -72,23 +74,30 @@ describe('каталог модуля выводится из плана', () =>
 
 describe('scope: файлы вне плана', () => {
   it('файл из плана проходит, посторонний — нет', () => {
-    const v = scopeViolations(['src/a.ts', 'src/b.ts'], ['src/a.ts']);
+    const v = scopeViolations(['src/a.ts', 'src/b.ts'], ['src/a.ts'], ROOT);
     deepStrictEqual(v.map((x) => x.path), ['src/b.ts']);
   });
 
   // Регрессия: совпадение только по имени файла — почти всегда промах модулем,
   // и диагноз «новый файл» отправлял бы исполнителя чинить не то.
   it('совпадение по имени в другом каталоге помечается отдельно', () => {
-    const v = scopeViolations(['other/module/Foo.java'], ['src/main/Foo.java']);
+    const v = scopeViolations(['other/module/Foo.java'], ['src/main/Foo.java'], ROOT);
     strictEqual(v[0]?.sameName, true);
   });
 
   it('артефакты витка из сверки исключены', () => {
-    deepStrictEqual(scopeViolations(['.sdlc/demo/plan.md', 'src/a.ts'], ['src/a.ts']), []);
+    deepStrictEqual(scopeViolations(['.sdlc/demo/plan.md', 'src/a.ts'], ['src/a.ts'], ROOT), []);
   });
 
   it('формы записи пути приводятся к одной', () => {
-    deepStrictEqual(scopeViolations(['src\\a.ts'], ['./src/a.ts']), []);
+    deepStrictEqual(scopeViolations(['src\\a.ts'], ['./src/a.ts'], ROOT), []);
+  });
+
+  // Регрессия: у гейта была своя нормализация, и план с абсолютным путём давал
+  // расхождение с PlanScope — запись рантайм разрешал, а гейт печатал «файл вне плана».
+  it('абсолютный путь в плане не расходится с PlanScope', () => {
+    deepStrictEqual(scopeViolations(['src/a.ts'], [`${ROOT}/src/a.ts`], ROOT), []);
+    deepStrictEqual(scopeViolations(['src/a.ts'], [`${ROOT}/src/a.ts: правим тут`], ROOT), []);
   });
 });
 

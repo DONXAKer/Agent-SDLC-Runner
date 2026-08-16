@@ -74,13 +74,19 @@ function parseArguments(raw: unknown): { args: Record<string, unknown> | null; t
   }
 }
 
+/**
+ * Причина завершения хода.
+ *
+ * `length` не затирается наличием вызовов: обрезанный по лимиту токенов ход отдаёт
+ * вызов с оборванной строкой аргументов, и пока `hasCalls` побеждал безусловно, цикл
+ * диагностировал «сломанный JSON» и «прогресса нет» вместо настоящей причины.
+ */
 function mapFinish(reason: string | undefined, hasCalls: boolean): FinishReason {
+  if (reason === 'length') return 'max_tokens';
   if (hasCalls) return 'tool_use';
   switch (reason) {
     case 'stop':
       return 'end_turn';
-    case 'length':
-      return 'max_tokens';
     case 'tool_calls':
       return 'tool_use';
     default:
@@ -96,10 +102,17 @@ function mapFinish(reason: string | undefined, hasCalls: boolean): FinishReason 
  * и приняв его за вызов, мы бы исполнили то, чего модель не просила.
  */
 export function toolCallFromText(text: string, known: ReadonlySet<string>): ChatToolCall | null {
-  const start = text.indexOf('{');
-  if (start < 0) return null;
+  // Кандидаты ищем по КАЖДОЙ открывающей скобке, а не только по первой: модель часто
+  // пишет вызов после прозы, в которой фигурная скобка уже встретилась (пример формата,
+  // фрагмент кода), и с фиксированным началом ни одна нарезка не разбиралась.
+  //
+  // Границы объекта считаем сканером, а не перебором всех закрывающих скобок: перебор
+  // давал квадратичный JSON.parse на горячем пути — ответ на 20 КБ с тремя сотнями
+  // скобок разбирался мегабайтами впустую.
+  for (let start = text.indexOf('{'); start >= 0; start = text.indexOf('{', start + 1)) {
+    const end = objectEnd(text, start);
+    if (end < 0) continue;
 
-  for (let end = text.lastIndexOf('}'); end > start; end = text.lastIndexOf('}', end - 1)) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(text.slice(start, end + 1));
@@ -121,6 +134,27 @@ export function toolCallFromText(text: string, known: ReadonlySet<string>): Chat
     };
   }
   return null;
+}
+
+/** Индекс закрывающей скобки объекта, начинающегося в `start`. `-1` — не закрыт. */
+function objectEnd(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return i;
+  }
+  return -1;
 }
 
 export class OpenAiCompatProvider implements ChatProvider {

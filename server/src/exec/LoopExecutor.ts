@@ -40,7 +40,13 @@ export interface LoopOptions {
   temperature: number | null;
 }
 
-/** Сколько раз подряд один и тот же вызов терпим, прежде чем оборвать этап. */
+/**
+ * Сколько раз подряд один и тот же вызов терпим, прежде чем оборвать этап.
+ *
+ * Считается по числу ВЫЗОВОВ, а не по счётчику повторов: первый исполняется, второй
+ * получает замечание, третий обрывает. Раньше обрыв наступал на четвёртом, потому что
+ * счётчик начинался с нуля, — лишний полный round-trip к серверу на каждом залипании.
+ */
 const REPEAT_LIMIT = 3;
 
 function callFingerprint(call: ChatToolCall): string {
@@ -102,12 +108,35 @@ export class LoopExecutor implements StageExecutor {
         hooks.onText(answer.text);
       }
 
+      // Бюджет прогона действует на обоих флоу. Проверяется ПОСЛЕ хода, а не до: цена
+      // хода известна только по факту, и обрывать этап на непревышенном бюджете нельзя.
+      const spent = usage.costUsd;
+      if (req.maxBudgetUsd !== null && spent !== null && spent >= req.maxBudgetUsd) {
+        const note = `бюджет прогона исчерпан: $${spent.toFixed(4)} из $${req.maxBudgetUsd}`;
+        hooks.onWarn(note);
+        return { ok: false, finalText, usage, note };
+      }
+
       if (answer.toolCalls.length === 0) {
-        const note =
-          answer.finishReason === 'max_tokens'
+        // «Завершил ход» — это только end_turn. Всё прочее (лимит длины, фильтр
+        // содержимого, оборванный поток, сервер без finish_reason) успехом не считается:
+        // иначе этап, где модель не написала ни строки, помечался бы как выполненный.
+        const done = answer.finishReason === 'end_turn';
+        const note = done
+          ? 'модель завершила ход'
+          : answer.finishReason === 'max_tokens'
             ? 'модель упёрлась в лимит длины ответа'
-            : 'модель завершила ход';
-        return { ok: answer.finishReason !== 'max_tokens', finalText, usage, note };
+            : `ход оборван: причина завершения «${answer.finishReason}», вызовов инструментов нет`;
+        return { ok: done, finalText, usage, note };
+      }
+
+      // Обрезанный по лимиту токенов ход с вызовами исполнять нельзя: аргументы у
+      // последнего вызова заведомо неполны, а разбор их выдаст «сломанный JSON» и
+      // отправит модель по кругу с неверным диагнозом.
+      if (answer.finishReason === 'max_tokens') {
+        const note = 'ход обрезан лимитом длины на середине вызова инструмента — не исполняем';
+        hooks.onWarn(note);
+        return { ok: false, finalText, usage, note };
       }
 
       messages.push({ role: 'assistant', content: answer.text, toolCalls: answer.toolCalls });
@@ -117,7 +146,7 @@ export class LoopExecutor implements StageExecutor {
         repeats = fingerprint === lastFingerprint ? repeats + 1 : 0;
         lastFingerprint = fingerprint;
 
-        if (repeats >= REPEAT_LIMIT) {
+        if (repeats + 1 >= REPEAT_LIMIT) {
           const note =
             `цикл остановлен: «${call.name}» вызван ${repeats + 1} раза подряд с теми же ` +
             `аргументами — прогресса нет`;
@@ -171,14 +200,16 @@ export class LoopExecutor implements StageExecutor {
 
     const normalized: NormalizedCall = normalize(call.name, call.arguments);
 
-    const decision = await hooks.onToolRequest(normalized, { requestId });
+    const decision = await hooks.onToolRequest(normalized, { requestId, toolName: call.name });
     if (!decision.allowed) {
       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
       return `вызов отклонён: ${decision.reason}`;
     }
 
     // Оператор вправе поправить аргументы — тогда исполняется именно правленый вызов,
-    // а не исходный. Иначе кнопка «править аргументы» была бы декорацией.
+    // а не исходный. Иначе кнопка «править аргументы» была бы декорацией. Политику
+    // правленый вызов проходит заново — это делает гейт в `resolve`, до того как решение
+    // доедет сюда.
     const effective =
       decision.updatedInput === null
         ? normalized

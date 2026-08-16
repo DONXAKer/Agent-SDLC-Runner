@@ -20,6 +20,8 @@ import type {
 } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
+import { statSync } from 'node:fs';
+
 import { decisionValue, readArtifact, setDecision, writeArtifact } from '../artifacts/artifact.ts';
 import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { extractFilesToTouch } from '../artifacts/planFiles.ts';
@@ -33,13 +35,18 @@ import { createProvider } from '../provider/registry.ts';
 import type { ExecHooks, StageExecutor, StageResult } from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
-import { minimumProblems, parseGates } from '../gates/gatesFile.ts';
+import { configProblems, gateKey, parseGates } from '../gates/gatesFile.ts';
 import { snapshotBaseline } from '../gates/builtin/index.ts';
 import { runGates } from '../gates/run.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
 import { buildPrompt } from '../prompt/build.ts';
-import { checkPreconditions, stageById, type StageContext } from './stages.ts';
+import {
+  checkPreconditions,
+  stageById,
+  type PreconditionReport,
+  type StageContext,
+} from './stages.ts';
 
 export type RunStatus = 'idle' | 'running' | 'awaiting' | 'done' | 'failed' | 'cancelled';
 
@@ -71,23 +78,41 @@ const PLAN_SCOPED_STAGES: readonly StageId[] = ['chunk', 'verify', 'handoff'];
  * статус и последняя содержательная строка. Полный вывод остаётся в шине событий.
  */
 function gateReportBlock(results: readonly GateRunResult[]): string {
+  // Вертикальная черта экранируется, как требует форма набора. Без этого команда или
+  // строка ошибки с трубой (`grep 'a|b'`, вывод junit) разъезжает по колонкам, а
+  // разъехавшуюся таблицу рецензент переносит в отчёт — там сдвинутая колонка «Статус»
+  // читается как `⏭` и роняет вердикт по несуществующей причине.
+  const cell = (v: string): string => v.split('\n').join(' ').split('|').join('\\|');
+
   const rows = results.map(
     (r) =>
-      `| ${r.name} | ${r.status} | ${r.command ?? 'встроенная проверка'} · код ${
+      `| ${cell(r.name)} | ${r.status} | ${cell(r.command ?? 'встроенная проверка')} · код ${
         r.exitCode ?? '—'
-      } · ${r.durationMs} мс |\n| | | ${r.lastLine.split('\n').join(' ')} |`,
+      } · ${r.durationMs} мс |\n| | | ${cell(r.lastLine)} |`,
   );
   return [
     '## Итоги автоматических гейтов (прогон рантайма, этот этап)',
     '',
     'Эти статусы получены фактическим прогоном до начала ревью. Переписывать их своим',
-    'мнением нельзя: в отчёт они переносятся как есть, вердикт всё равно считается по',
-    'прогону. Твоя работа — §1–§5 отчёта и поиск того, чего гейты не видят.',
+    'мнением нельзя: в отчёт они переносятся как есть, а вердикт считается по худшему из',
+    'двух — твоего и фактического. Твоя работа — §1–§5 отчёта и поиск того, чего гейты',
+    'не видят.',
     '',
     '| Гейт | Статус | Результат |',
     '|---|---|---|',
     ...rows,
   ].join('\n');
+}
+
+/**
+ * Дописывает к промпту оператора блок фактов, которых на момент правки ещё не было.
+ *
+ * Повторно не подклеивает: если оператор собрал промпт после прогона гейтов, блок уже
+ * внутри, и второй экземпляр только сбил бы рецензента.
+ */
+function withExtra(prompt: PreparedPrompt, block: string | undefined): PreparedPrompt {
+  if (block === undefined || block === '' || prompt.user.includes(block)) return prompt;
+  return { ...prompt, user: `${prompt.user}\n\n${block}` };
 }
 
 export class Run {
@@ -110,6 +135,10 @@ export class Run {
   /** Фактический прогон гейтов текущей попытки — источник статусов для вердикта. */
   private lastGateResults: GateRunResult[] = [];
   private verdict: Verdict | null = null;
+  /** Отработал ли независимый рецензент на ТЕКУЩЕЙ попытке. */
+  private reviewerRan = false;
+  /** Разобранный набор гейтов: файл проекта, читать его на каждое обращение незачем. */
+  private gatesCache: { mtimeMs: number; parsed: GatesFile } | null = null;
 
   constructor(o: RunOptions) {
     this.config = o.config;
@@ -142,16 +171,42 @@ export class Run {
    * сам превращает его в путь внутри витка. Иначе поле решения можно было бы записать
    * в произвольный файл на диске — в том числе в чужой виток.
    */
-  recordDecision(artifact: string, label: string): string {
-    if (!isArtifactKey(artifact)) {
-      throw new Error(`неизвестный артефакт «${artifact}»`);
+  recordDecision(o: {
+    artifact: string;
+    label: string;
+    /** `false` — решение отрицательное: методология требует записывать и отказ. */
+    granted: boolean;
+    /** Что именно решил человек. Дописывается к подписи, а не вместо неё. */
+    note?: string;
+    /** Chunk и попытка, к которым относится решение: клиент называет их явно. */
+    chunk?: number;
+    attempt?: number;
+  }): string {
+    if (!isArtifactKey(o.artifact)) {
+      throw new Error(`неизвестный артефакт «${o.artifact}»`);
     }
-    const path = artifactPathOf(this.paths, artifact, this.chunk, this.attempt);
+
+    // Chunk и попытка приходят от клиента, а не берутся текущие: между показом артефакта
+    // и нажатием кнопки оператор мог перейти к новой попытке, и подпись ложилась бы в
+    // другой файл — тот, которого он не читал.
+    const chunk = o.chunk ?? this.chunk;
+    const attempt = o.attempt ?? this.attempt;
+
+    const path = artifactPathOf(this.paths, o.artifact, chunk, attempt);
     const current = readArtifact(path);
     if (!current.exists) throw new Error(`нет артефакта ${path} — решение записывать некуда`);
 
-    const value = decisionValue(this.config.runner.operator, new Date());
-    writeArtifact(path, setDecision(current.text, label, value));
+    const signature = decisionValue(this.config.runner.operator, new Date());
+    const note = (o.note ?? '').trim();
+    // Содержательная часть решения сохраняется: `setDecision` заменяет всё после метки,
+    // и без этого запись «пропуск найден: claim-4 не покрыт» стиралась подписью.
+    const value = o.granted
+      ? note === ''
+        ? signature
+        : `${signature} — ${note}`
+      : `**не одобрено** — ${note === '' ? 'причина не названа' : note} · ${signature}`;
+
+    writeArtifact(path, setDecision(current.text, o.label, value));
     this.emit({ type: 'artifact_written', runId: this.id, stage: null, path, placeholders: 0 });
     return value;
   }
@@ -173,6 +228,7 @@ export class Run {
    */
   nextAttempt(): number {
     this.attempt += 1;
+    this.resetAttemptState();
     return this.attempt;
   }
 
@@ -180,21 +236,65 @@ export class Run {
   nextChunk(): number {
     this.chunk += 1;
     this.attempt = 1;
+    this.resetAttemptState();
     return this.chunk;
+  }
+
+  /**
+   * Состояние, принадлежащее попытке, а не витку.
+   *
+   * Без сброса `GET /api/runs/:id` после «новой попытки» отдавал гейты и вердикт
+   * ПРЕДЫДУЩЕЙ как текущие, и интерфейс рисовал зелёный вердикт рядом с номером попытки,
+   * которая ещё не запускалась.
+   */
+  private resetAttemptState(): void {
+    this.lastGateResults = [];
+    this.verdict = null;
+    this.reviewerRan = false;
   }
 
   /** Набор гейтов проекта. `null` — файла нет. */
   get gatesFile(): GatesFile | null {
+    // Кэш по времени правки: один `GET /api/runs/:id` спрашивал набор семь раз (по разу
+    // на этап в `blockers` плюс бюджет попыток), и каждый раз это было чтение файла и
+    // полный разбор всех его таблиц — синхронно, в том же цикле событий, что и поток
+    // WebSocket. Набор — файл проекта: он меняется раз в месяцы, а не раз в запрос.
+    let mtimeMs: number;
+    try {
+      mtimeMs = statSync(this.paths.gates).mtimeMs;
+    } catch {
+      this.gatesCache = null;
+      return null;
+    }
+
+    if (this.gatesCache?.mtimeMs === mtimeMs) return this.gatesCache.parsed;
+
     const a = readArtifact(this.paths.gates);
-    return a.exists ? parseGates(a.text) : null;
+    if (!a.exists) {
+      this.gatesCache = null;
+      return null;
+    }
+    const parsed = parseGates(a.text);
+    this.gatesCache = { mtimeMs, parsed };
+    return parsed;
   }
 
   /** Бюджет попыток из набора гейтов, умолчание методологии — 3. */
   get attemptBudget(): number {
+    const DEFAULT = 3;
     const row = this.gatesFile?.rows.find((r) => /бюджет итераций/i.test(r.name));
-    const m = row === undefined ? null : /(\d+)/.exec(row.implementation);
+
+    // Число берётся ТОЛЬКО у включённой строки. Пока читалась любая, проза выключенной
+    // («н/п — долг, скрипт tools/budget2.py») давала бюджет 2, а «вернуться в Q2 2027» —
+    // свой мусор: оператор видел «попытка 1 из 2027», и эскалация не наступала никогда.
+    if (row === undefined || !row.enabled) return DEFAULT;
+
+    const m = /(\d+)/.exec(row.implementation);
     const parsed = m === null ? NaN : Number(m[1]);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
+    if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT;
+
+    // Потолок: бюджет — это число попыток человека, а не год из фразы.
+    return Math.min(parsed, 20);
   }
 
   /**
@@ -260,9 +360,18 @@ export class Run {
     return prompt;
   }
 
-  /** Причины, по которым этап не начинается. Пустой массив — можно стартовать. */
-  blockers(stage: StageId, opts: { abortHandoff?: boolean } = {}): string[] {
-    const report = checkPreconditions(stageById(stage), this.ctx, opts);
+  /**
+   * Причины, по которым этап не начинается. Пустой массив — можно стартовать.
+   *
+   * `precomputed` передаётся, когда предусловия уже посчитаны вызывающим: `runStage`
+   * считал их дважды подряд ради одного и того же ответа.
+   */
+  blockers(
+    stage: StageId,
+    opts: { abortHandoff?: boolean } = {},
+    precomputed?: PreconditionReport,
+  ): string[] {
+    const report = precomputed ?? checkPreconditions(stageById(stage), this.ctx, opts);
     const problems = [...report.problems];
 
     if (PLAN_SCOPED_STAGES.includes(stage)) {
@@ -278,7 +387,11 @@ export class Run {
     // Обязательная пятёрка проверяется на старте КАЖДОГО этапа, кроме первого: именно
     // на первом набор и собирают. Проверять её только на этапе 6 значило бы узнавать
     // о несобранном наборе, потратив весь виток.
-    if (stage !== 'intent') {
+    //
+    // Объявленный обрыв витка из-под этой проверки выведен намеренно: handoff при обрыве —
+    // единственный способ оставить запись о том, почему виток бросили, и запирать его
+    // тем же несобранным набором значило бы лишить виток последнего легального выхода.
+    if (stage !== 'intent' && !(stage === 'handoff' && opts.abortHandoff === true)) {
       const gates = this.gatesFile;
       if (gates === null) {
         problems.push(
@@ -286,7 +399,7 @@ export class Run {
             `условия вердикта — виток не стартует.`,
         );
       } else {
-        problems.push(...minimumProblems(gates));
+        problems.push(...configProblems(gates));
       }
     }
 
@@ -322,15 +435,53 @@ export class Run {
   /**
    * Статусы гейтов, которые рантайм не исполняет скриптом.
    *
-   * «Ревью независимым агентом» — единственный такой в минимальной пятёрке: его статус
-   * определяется тем, был ли субагент-рецензент вообще доступен. Отсутствие определения
-   * субагента это не `✅` — это `⏭`, и он честно роняет вердикт.
+   * «Ревью независимым агентом» — единственный такой в минимальной пятёрке, и зелёный он
+   * получает ТОЛЬКО по факту состоявшегося прогона субагента-рецензента на этой попытке.
+   *
+   * Раньше статус выводился из наличия файла `sdlc-reviewer.md` на диске и вычислялся до
+   * запуска исполнителя. На профиле `local` это давало ложный зелёный на каждом витке:
+   * субагенты во флоу `loop` не запускаются вовсе, а определение лежит в каталоге — и
+   * гейт, ради которого построен принцип «автор не рецензирует себя», отчитывался `✅`
+   * при полном отсутствии ревью.
    */
   private externalGateStatuses(): Record<string, GateStatus> {
     const { missing } = loadSubagents(this.config.runner.agentsDir, ['sdlc-reviewer']);
-    return {
-      'Ревью независимым агентом': missing.length === 0 ? '✅' : '⏭',
-    };
+
+    const status: GateStatus =
+      missing.length > 0
+        ? '⏭' // определения субагента нет — рецензировать некому
+        : this.reviewerRan
+          ? '✅'
+          : '⏭'; // прогона ещё не было либо субагент не вызывался
+
+    return { [gateKey('Ревью независимым агентом')]: status };
+  }
+
+  /**
+   * Отмечает, что независимый рецензент отработал на этой попытке.
+   *
+   * Ставится исполнителем при фактическом вызове субагента, а не наличием файла: это
+   * единственный факт, по которому гейт минимума может стать зелёным.
+   */
+  markReviewerRan(): void {
+    this.reviewerRan = true;
+  }
+
+  /** Итоги прогона с пересчитанными статусами «не скриптовых» гейтов. */
+  private gateResultsForVerdict(): GateRunResult[] {
+    const external = this.externalGateStatuses();
+    return this.lastGateResults.map((r) => {
+      const fresh = external[gateKey(r.name)];
+      if (fresh === undefined || fresh === r.status) return r;
+      return {
+        ...r,
+        status: fresh,
+        lastLine:
+          fresh === '✅'
+            ? 'независимый рецензент отработал на этой попытке'
+            : 'независимый рецензент на этой попытке не запускался',
+      };
+    });
   }
 
   /**
@@ -346,7 +497,10 @@ export class Run {
     const report = readArtifact(this.paths.verificationReport(this.chunk, this.attempt));
     const { input, disagreements } = collectVerdictInput({
       gates,
-      gateResults: this.lastGateResults,
+      // Статусы гейтов, которые рантайм не исполняет скриптом, пересчитываются здесь:
+      // прогон идёт ДО ревью, и на его момент рецензент заведомо не отработал. Без
+      // пересчёта гейт ревью навсегда оставался бы `⏭` даже после честного прогона.
+      gateResults: this.gateResultsForVerdict(),
       report: report.text,
       attempt: this.attempt,
       attemptBudget: this.attemptBudget,
@@ -354,9 +508,9 @@ export class Run {
     });
 
     const verdict = computeVerdict(input);
-    // Расхождение отчёта с прогоном — не причина падения само по себе (статус уже взят
-    // по прогону), но оно обязано быть видно: рецензент, переписывающий статусы, это
-    // отдельный симптом.
+    // Расхождение отчёта с прогоном не роняет вердикт само по себе (в статус уже взят
+    // худший из двух), но обязано быть видно: рецензент, переписывающий статусы, —
+    // отдельный симптом, о котором оператор должен узнать.
     const withNotes: Verdict =
       disagreements.length === 0
         ? verdict
@@ -404,16 +558,17 @@ export class Run {
     const route = this.profile.routes[stage];
     const abortOpts = opts.abortHandoff === true ? { abortHandoff: true } : {};
 
-    const blockers = this.blockers(stage, abortOpts);
+    // Предусловия считаются ОДИН раз: `blockers` вызывает `checkPreconditions` внутри,
+    // и второй вызов рядом был чистым дублированием чтения артефактов, хотя комментарий
+    // рядом утверждал обратное.
+    const report = checkPreconditions(def, this.ctx, abortOpts);
+    const blockers = this.blockers(stage, abortOpts, report);
     if (blockers.length > 0) {
       const message = blockers.join('\n');
       this.emit({ type: 'error', runId: this.id, stage, message });
       return { ok: false, finalText: '', usage: emptyUsage(), note: message };
     }
 
-    // Один вызов предусловий на старт этапа: раньше их считали дважды, и на verify это
-    // было больше мегабайта чтения с диска ради одного и того же ответа.
-    const report = checkPreconditions(def, this.ctx, abortOpts);
     if (report.skip !== null) {
       this.emit({ type: 'stage_done', runId: this.id, stage, ok: true, note: report.skip });
       return { ok: true, finalText: '', usage: emptyUsage(), note: report.skip };
@@ -452,42 +607,39 @@ export class Run {
 
     // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он
     // судит по своему представлению о сборке и тестах, а не по их фактическому итогу.
+    //
+    // Подклеиваются ВСЕГДА, в том числе к промпту, который оператор редактировал.
+    // Условие «только если промпт собран рантаймом» на практике не выполнялось никогда:
+    // интерфейс отправляет содержимое textarea при каждом запуске, поэтому рецензент не
+    // получал итогов гейтов ни разу, а оператор на каждом прогоне видел предупреждение
+    // о правке, которой не делал. Блок фактов от прогона — не «дополнение промпта за
+    // спиной»: без него этап 6 не исполняет порядок, ради которого он и устроен.
     let extra = opts.extra;
     if (stage === 'verify') {
       const results = await this.runVerifyGates(this.aborter.signal);
       if (results.length > 0) {
         const block = gateReportBlock(results);
-        if (opts.prompt === undefined) {
-          extra = extra === undefined ? block : `${extra}\n\n${block}`;
-        } else {
-          // Промпт, отредактированный оператором, рантайм молча не дополняет — иначе в
-          // модель ушло бы не то, что человек видел и утвердил.
-          this.emit({
-            type: 'warning',
-            runId: this.id,
-            stage,
-            message:
-              'промпт отредактирован оператором, поэтому итоги прогона гейтов в него не ' +
-              'подклеены — рецензент их не увидит. Итоги видны в интерфейсе и учтены в вердикте.',
-          });
-        }
+        extra = extra === undefined ? block : `${extra}\n\n${block}`;
       }
     }
 
-    // Отредактированный оператором промпт тоже уходит в шину: иначе в журнале витка
-    // остаётся текст предыдущей сборки, а в модель ушёл другой.
+    // Промпт пересобирается, когда есть что подклеить: иначе правка оператора и факты
+    // прогона исключали бы друг друга. Правка человека при этом сохраняется — она
+    // приходит отдельными полями `system`/`user`.
     const prompt =
-      opts.prompt ??
-      this.preparePrompt(stage, {
-        ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
-        ...(extra === undefined ? {} : { extra }),
-      });
+      opts.prompt === undefined
+        ? this.preparePrompt(stage, {
+            ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
+            ...(extra === undefined ? {} : { extra }),
+          })
+        : withExtra(opts.prompt, stage === 'verify' ? extra : undefined);
     if (opts.prompt !== undefined) {
       this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     }
 
     const ctx = this.policyContext(stage);
-    const executor = this.executorFor(stage);
+    /** Вызовы субагента-рецензента, ждущие результата: по ним ставится факт ревью. */
+    const pendingReviewer = new Set<string>();
 
     const hooks: ExecHooks = {
       onText: (text) => this.emit({ type: 'assistant_text', runId: this.id, stage, text }),
@@ -496,19 +648,29 @@ export class Run {
       onToolRequest: async (call, meta) => {
         this.status = 'awaiting';
         try {
-          return await this.gate.request({
+          const decision = await this.gate.request({
             runId: this.id,
             stage,
             requestId: meta.requestId,
+            toolName: meta.toolName,
             call,
             ctx,
           });
+          if (decision.allowed && call.kind === 'subagent' && call.agent.includes('reviewer')) {
+            pendingReviewer.add(meta.requestId);
+          }
+          return decision;
         } finally {
           this.status = 'running';
         }
       },
 
-      onToolResult: (meta) =>
+      onToolResult: (meta) => {
+        // Гейт «Ревью независимым агентом» зеленеет только по факту состоявшегося
+        // прогона рецензента, и вот он, этот факт: вызов дошёл до результата без ошибки.
+        if (meta.ok && pendingReviewer.has(meta.requestId)) this.markReviewerRan();
+        pendingReviewer.delete(meta.requestId);
+
         this.emit({
           type: 'tool_result',
           runId: this.id,
@@ -517,7 +679,8 @@ export class Run {
           ok: meta.ok,
           summary: meta.summary,
           durationMs: meta.durationMs,
-        }),
+        });
+      },
 
       onAskHuman: async (call) => {
         if (call.kind !== 'ask_human') return {};
@@ -538,6 +701,14 @@ export class Run {
     };
 
     try {
+      // Исполнитель создаётся ВНУТРИ try: `createProvider` бросает при отсутствии ключа
+      // и на нереализованном маршруте, а к этому моменту уже отправлен `stage_started`,
+      // выставлен статус `running` и — для этапа 6 — прогнаны все гейты, то есть сборка
+      // и тест-сьют. Пока бросок случался снаружи, `finally` не отрабатывал: статус
+      // навсегда оставался `running`, `stage_done` не приходил, и кнопка запуска в
+      // интерфейсе не разблокировалась до перезагрузки страницы.
+      const executor = this.executorFor(stage);
+
       const result = await executor.run(
         {
           prompt,
@@ -554,6 +725,18 @@ export class Run {
       );
 
       this.reportArtifacts(stage);
+
+      // Отмена не переписывается исходом исполнителя. Пока статус выставлялся безусловно,
+      // отменённый оператором этап числился `failed`, а при удачном тайминге во флоу
+      // `sdk` (поток успел закрыться штатным result:success) — даже `done`.
+      const cancelled = this.aborter?.signal.aborted === true;
+      if (cancelled) {
+        this.status = 'cancelled';
+        const note = 'этап отменён оператором';
+        this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note });
+        return { ...result, ok: false, note };
+      }
+
       // Вердикт считается сразу после этапа 6 — по отчёту, который только что записан,
       // и по прогону гейтов, который был до ревью. Отдельной кнопки у него нет: вердикт,
       // который надо не забыть посчитать, рано или поздно не считают.
@@ -582,11 +765,15 @@ export class Run {
    * попытку: ложная эскалация дороже ложного продолжения.
    */
   detectNoProgress(): boolean {
-    if (this.attempt < 3) return false;
+    // Сравниваются ТЕКУЩАЯ попытка и предыдущая. Патч текущей к моменту вердикта уже
+    // существует — он обязательное предусловие этапа 6. Пока сравнивались две прошлые,
+    // одинаковые попытки 1 и 2 обнаруживались только на третьей: целая итерация бюджета
+    // тратилась на заведомо известный факт.
+    if (this.attempt < 2) return false;
+    const current = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt));
     const prev = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt - 1));
-    const before = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt - 2));
-    if (!prev.exists || !before.exists) return false;
-    return prev.text.trim() === before.text.trim();
+    if (!current.exists || !prev.exists) return false;
+    return current.text.trim() === prev.text.trim();
   }
 
   /** Сообщает о произведённых артефактах и о том, сколько мест в них осталось незаполненными. */

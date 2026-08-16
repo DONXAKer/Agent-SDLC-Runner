@@ -19,7 +19,11 @@ export interface ExecHooks {
    * Единственная точка, через которую проходит вызов инструмента. Держит промис, пока
    * политика и оператор не дадут ответ.
    */
-  onToolRequest: (call: NormalizedCall, meta: { requestId: string }) => Promise<Decision>;
+  onToolRequest: (
+    call: NormalizedCall,
+    /** `toolName` — как вызов назвал исполнитель: по нему гейт перепроверяет правку. */
+    meta: { requestId: string; toolName: string },
+  ) => Promise<Decision>;
   onToolResult: (meta: {
     requestId: string;
     ok: boolean;

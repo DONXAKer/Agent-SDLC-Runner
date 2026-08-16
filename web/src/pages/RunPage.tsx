@@ -20,6 +20,8 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
   const [stage, setStage] = useState<StageId>('intent');
   const [prompt, setPrompt] = useState<PreparedPrompt | null>(null);
   const [requirement, setRequirement] = useState('');
+  /** Что именно решил человек — сохраняется в артефакте рядом с подписью. */
+  const [decisionNote, setDecisionNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +44,16 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     if (last.type === 'stage_done') setBusy(false);
   }, [events, refresh]);
 
-  /** Что ещё ждёт ответа: запрос без парного разрешения. */
+  /**
+   * Что ещё ждёт ответа.
+   *
+   * Источник — ответ сервера (`detail.pendingApprovals` / `pendingQuestions`), а лента
+   * событий только дополняет его свежими запросами, о которых сервер ещё не спрашивали.
+   * Пока очередь выводилась ИСКЛЮЧИТЕЛЬНО из ленты, она теряла запросы: буфер шины
+   * ограничен объёмом и вытесняет с начала, а при переподключении сокета лента
+   * сбрасывается — карточка одобрения исчезала, промис на сервере не резолвился ничем,
+   * и этап вставал навсегда, хотя `GET /api/runs/:id` этот запрос честно перечислял.
+   */
   const { approvals, asks } = useMemo(() => {
     const resolved = new Set<string>();
     const answered = new Set<string>();
@@ -51,14 +62,29 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
       if (e.type === 'tool_result') answered.add(e.requestId);
     }
 
-    const approvals: PendingCall[] = [];
-    const asks: PendingAsk[] = [];
+    const approvals = new Map<string, PendingCall>();
+    const asks = new Map<string, PendingAsk>();
+
+    for (const p of detail?.pendingApprovals ?? []) {
+      approvals.set(p.requestId, {
+        requestId: p.requestId,
+        call: p.call,
+        policy: p.policy,
+        preview: p.preview,
+      });
+    }
+    for (const q of detail?.pendingQuestions ?? []) {
+      asks.set(q.requestId, { requestId: q.requestId, questions: q.questions });
+    }
+
     for (const e of events) {
       if (e.type !== 'tool_request') continue;
       if (e.call.kind === 'ask_human') {
-        if (!answered.has(e.requestId)) asks.push({ requestId: e.requestId, questions: e.call.questions });
+        if (!answered.has(e.requestId)) {
+          asks.set(e.requestId, { requestId: e.requestId, questions: e.call.questions });
+        }
       } else if (!resolved.has(e.requestId)) {
-        approvals.push({
+        approvals.set(e.requestId, {
           requestId: e.requestId,
           call: e.call,
           policy: e.policy,
@@ -66,8 +92,12 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
         });
       }
     }
-    return { approvals, asks };
-  }, [events]);
+
+    for (const id of resolved) approvals.delete(id);
+    for (const id of answered) asks.delete(id);
+
+    return { approvals: [...approvals.values()], asks: [...asks.values()] };
+  }, [events, detail]);
 
   const stageEvents = useMemo(
     () => events.filter((e) => !('stage' in e) || e.stage === stage || e.stage === null),
@@ -87,11 +117,47 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     }
   };
 
-  const run = async (edited: { system: string; user: string }): Promise<void> => {
+  const run = async (
+    edited: { system: string; user: string },
+    opts: { abortHandoff?: boolean } = {},
+  ): Promise<void> => {
     setError(null);
     setBusy(true);
     try {
-      await api.runStage(runId, stage, { prompt: edited });
+      await api.runStage(runId, stage, { prompt: edited, ...opts });
+    } catch (e) {
+      setBusy(false);
+      setError((e as Error).message);
+    }
+  };
+
+  /** Новая попытка того же chunk'а либо следующий chunk — единственный выход из красного вердикта. */
+  const advance = async (to: 'attempt' | 'chunk'): Promise<void> => {
+    setError(null);
+    try {
+      await api.advance(runId, to);
+      setPrompt(null);
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /**
+   * Обрыв витка: этап 7 оформляет передачу без зелёного вердикта.
+   *
+   * Промпт собирается здесь же, потому что обычная кнопка запуска для handoff'а
+   * заблокирована предусловием — оно и требует этого флага.
+   */
+  const abortWitok = async (): Promise<void> => {
+    setError(null);
+    setBusy(true);
+    try {
+      const p = await api.preparePrompt(runId, 'handoff', {});
+      await api.runStage(runId, 'handoff', {
+        prompt: { system: p.prompt.system, user: p.prompt.user },
+        abortHandoff: true,
+      });
     } catch (e) {
       setBusy(false);
       setError((e as Error).message);
@@ -102,12 +168,22 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     void api.resolveApproval(runId, requestId, decision).catch((e: Error) => setError(e.message));
   };
 
-  const decide = async (): Promise<void> => {
+  const decide = async (granted: boolean): Promise<void> => {
     const d = stageInfo?.decision;
-    if (d == null) return;
+    if (d == null || detail === null) return;
     setError(null);
     try {
-      await api.recordDecision(runId, d.artifact, d.label);
+      await api.recordDecision(runId, {
+        artifact: d.artifact,
+        label: d.label,
+        granted,
+        ...(decisionNote.trim() === '' ? {} : { note: decisionNote.trim() }),
+        // Chunk и попытка — те, что человек сейчас видит: между чтением артефакта и
+        // нажатием кнопки виток мог уйти на следующую попытку.
+        chunk: detail.chunk,
+        attempt: detail.attempt,
+      });
+      setDecisionNote('');
       refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -243,17 +319,63 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                   <div className="mb-2 text-xs text-neutral-400">
                     Решение человека на этом этапе: <b>{stageInfo.decision.label}</b>. Пока оно не
                     записано в артефакт, следующий этап не начинается — молчание одобрением не
-                    считается.
+                    считается. Отказ методология требует записывать тем же полем.
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void decide()}
-                    className="rounded border border-emerald-700 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-950"
-                  >
-                    Записать решение в {stageInfo.decision.artifact}
-                  </button>
+                  <input
+                    value={decisionNote}
+                    onChange={(e) => setDecisionNote(e.target.value)}
+                    placeholder="Что именно решено — сохранится в артефакте рядом с подписью"
+                    className="mb-2 w-full rounded border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void decide(true)}
+                      className="rounded border border-emerald-700 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-950"
+                    >
+                      Одобрить — записать в {stageInfo.decision.artifact}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void decide(false)}
+                      className="rounded border border-red-800 px-2 py-1 text-xs text-red-300 hover:bg-red-950"
+                    >
+                      Отклонить
+                    </button>
+                  </div>
                 </div>
               ) : null}
+
+              {/* Выход из красного вердикта: новая попытка, следующий chunk или обрыв витка.
+                  Без этих трёх кнопок интерфейс не имел ни одного легального продолжения. */}
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded border border-neutral-800 p-3">
+                <span className="text-xs text-neutral-400">Продвинуть виток:</span>
+                <button
+                  type="button"
+                  onClick={() => void advance('attempt')}
+                  disabled={busy}
+                  className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 disabled:opacity-40"
+                >
+                  Новая попытка ({detail.attempt} из {detail.attemptBudget})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void advance('chunk')}
+                  disabled={busy}
+                  className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 disabled:opacity-40"
+                >
+                  Следующий chunk
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void abortWitok()}
+                  disabled={busy}
+                  className="ml-auto rounded border border-amber-800 px-2 py-1 text-xs text-amber-300 hover:bg-amber-950 disabled:opacity-40"
+                  title="Оформить передачу без зелёного вердикта: запись о том, почему виток брошен"
+                >
+                  Обрыв витка → handoff
+                </button>
+              </div>
 
               {stageInfo !== null && stageInfo.produces.length > 0 ? (
                 <div className="mt-3">

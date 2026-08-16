@@ -222,13 +222,32 @@ app.post('/api/runs/:id/decision', async (req, reply) => {
   const live = liveRun(id);
   if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
 
-  const body = req.body as { artifact?: string; label?: string };
+  const body = req.body as {
+    artifact?: string;
+    label?: string;
+    granted?: boolean;
+    note?: string;
+    chunk?: number;
+    attempt?: number;
+  };
   if (typeof body.artifact !== 'string' || typeof body.label !== 'string') {
     return reply.code(400).send({ error: 'нужны поля artifact и label' });
   }
+  // Умолчания нет намеренно: «одобрить» и «отклонить» — разные решения человека, и
+  // угадывать за него, какое из них он имел в виду, рантайм не должен.
+  if (typeof body.granted !== 'boolean') {
+    return reply.code(400).send({ error: 'нужно поле granted: true (одобрено) или false (нет)' });
+  }
 
   try {
-    const value = live.run.recordDecision(body.artifact, body.label);
+    const value = live.run.recordDecision({
+      artifact: body.artifact,
+      label: body.label,
+      granted: body.granted,
+      ...(typeof body.note === 'string' ? { note: body.note } : {}),
+      ...(typeof body.chunk === 'number' ? { chunk: body.chunk } : {}),
+      ...(typeof body.attempt === 'number' ? { attempt: body.attempt } : {}),
+    });
     return { ok: true, value };
   } catch (e) {
     return reply.code(400).send({ error: (e as Error).message });

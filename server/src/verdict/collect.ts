@@ -1,27 +1,25 @@
 /**
  * Сборка входа вердикта: набор гейтов + прогон рантайма + отчёт приёмки → `VerdictInput`.
  *
- * Здесь и только здесь встречаются два источника статуса. Гейты, которые рантайм прогнал
- * сам, берутся из прогона: файлы исполнителя — свидетельство этапа 5, а не источник
- * вердикта, и переписанный рецензентом статус не должен подменять фактический код
- * возврата. Остальное — из отчёта, потому что больше неоткуда.
+ * Здесь и только здесь встречаются два источника статуса: фактический прогон рантайма и
+ * отчёт, который пишет модель. Расхождение между ними не сглаживается — в вердикт идёт
+ * ХУДШИЙ из двух статусов, а само расхождение попадает в причины.
  *
- * Расхождение между двумя источниками не сглаживается: если рецензент написал `✅` там,
- * где прогон дал `❌`, побеждает прогон, а расхождение попадает в причины.
+ * Почему именно худший, а не «прогон всегда прав»: правило «побеждает прогон» защищало
+ * от рецензента, перекрашивающего красное в зелёное, но работало и в обратную сторону —
+ * рецензент ставил `❌`, найдя расхождение, а фиктивный «прогон» перебивал его зелёным.
+ * Оба источника могут ошибаться в сторону зелёного и ни один — в сторону красного, и
+ * только поэтому максимум по строгости безопасен.
  */
 
 import type { ClaimStatus, GateRunResult, GateStatus, VerdictInput } from '@sdlc-runner/shared';
 
+import { hasPlaceholder, isSignedByHuman } from '../artifacts/artifact.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
-import { gatesExpectedInReport, openDebt } from '../gates/gatesFile.ts';
+import { gateKey, gatesExpectedInReport, openDebt } from '../gates/gatesFile.ts';
 
-const PLACEHOLDER = /[‹<][^›>]*[›>]/;
-const HAS_NAME = /\p{L}{2,}/u;
-
-function normName(s: string): string {
-  return s.replace(/`/g, '').trim().toLowerCase().replace(/ё/g, 'е');
-}
+const PLACEHOLDER = { test: (v: string): boolean => hasPlaceholder(v) };
 
 function parseGateStatus(cell: string): GateStatus | null {
   if (PLACEHOLDER.test(cell)) return null;
@@ -39,28 +37,74 @@ function parseClaimStatus(cell: string): ClaimStatus | null {
   return null;
 }
 
-/** Значение пункта списка вида «- Метка: значение». `null`, если пункта нет. */
+/**
+ * Значение пункта списка вида «- Метка: значение», ВКЛЮЧАЯ вложенный список под ним.
+ *
+ * Раньше брался только хвост той же строки, и самая естественная запись — когда находок
+ * несколько и они идут вложенными пунктами — читалась как пустое значение. Главное
+ * условие падения вердикта («любое подтверждённое расхождение из ревью») не срабатывало
+ * ровно тогда, когда расхождений было больше одного.
+ */
 function bullet(report: string, label: RegExp): string | null {
-  for (const line of report.split(/\r?\n/)) {
-    const t = line.trim();
+  const lines = report.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]!;
+    const t = raw.trim();
     if (!t.startsWith('-') && !t.startsWith('*')) continue;
     const body = t.replace(/^[-*]\s*/, '');
     if (!label.test(body)) continue;
-    const i = body.indexOf(':');
-    return i < 0 ? '' : body.slice(i + 1).replace(/\*\*/g, '').trim();
+
+    const colon = body.indexOf(':');
+    const head = colon < 0 ? '' : body.slice(colon + 1).replace(/\*\*/g, '').trim();
+    const indent = raw.length - raw.trimStart().length;
+
+    const nested: string[] = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j]!;
+      if (next.trim() === '') continue;
+      const nextIndent = next.length - next.trimStart().length;
+      if (nextIndent <= indent) break;
+      const item = next.trim().replace(/^[-*]\s*/, '').replace(/\*\*/g, '').trim();
+      // Курсивная подсказка формы — часть шаблона, а не находка рецензента.
+      if (item.startsWith('_')) continue;
+      if (item !== '') nested.push(item);
+    }
+
+    if (nested.length === 0) return head;
+    return head === '' ? nested.join('; ') : `${head}; ${nested.join('; ')}`;
   }
   return null;
 }
 
-/** «н/п», «нет», «—» и плейсхолдер — это «пусто», а не содержимое. */
+/**
+ * «н/п», «нет», «—» и плейсхолдер — это «пусто», а не содержимое.
+ *
+ * Сравнение по ПОЛНОМУ значению, а не по префиксу. Пока стоял префикс, содержательная
+ * находка, начинающаяся с тех же слов — «нет отката миграции при падении деплоя»,
+ * «отсутствуют тесты на новый путь ошибки», — выбрасывалась вместе с настоящими
+ * заглушками, и красный вердикт становился зелёным.
+ */
+const EMPTY_VALUES = new Set([
+  'н/п',
+  'нет',
+  'нету',
+  '—',
+  '–',
+  '-',
+  'отсутствуют',
+  'отсутствует',
+  'не выявлено',
+  'не выявлены',
+  'не обнаружено',
+  'нет замечаний',
+]);
+
 function isEmptyValue(v: string | null): boolean {
   if (v === null) return true;
-  const t = v.trim().toLowerCase().replace(/ё/g, 'е');
+  const t = v.trim().toLowerCase().replace(/ё/g, 'е').replace(/[.;,]+$/, '').trim();
   if (t === '') return true;
   if (PLACEHOLDER.test(v)) return true;
-  // Без `\b`: в JS она считается по ASCII, и после кириллического «нет» её нет —
-  // «нет» читалось бы как содержательная находка и роняло бы каждый зелёный виток.
-  return /^(н\/п|нет|—|-|отсутствуют?|не выявлено|нету)(\s|[.,;—–-]|$)/.test(t);
+  return EMPTY_VALUES.has(t);
 }
 
 export interface ReportFacts {
@@ -72,6 +116,21 @@ export interface ReportFacts {
   regressions: string[];
   plannedPathsUntouched: string[];
   diffMatchesTree: boolean;
+}
+
+/**
+ * Запоминает подписанную строку неприменимости.
+ *
+ * Подпись проверяется тем же предикатом, что и решение человека в артефакте и закрытие
+ * долга в наборе: имя И дата. Планка «две буквы в ячейке» стояла ровно на том пути,
+ * который делает красный вердикт зелёным — снятии `⏭` с обязательного гейта, — и была
+ * самой слабой из трёх. Дату здесь требуем не для формальности: она отличает решение,
+ * принятое по этому diff'у, от строки, скопированной из прошлого отчёта.
+ */
+function rememberInapplicable(into: Map<string, string>, name: string, who: string): void {
+  if (name === '' || PLACEHOLDER.test(name)) return;
+  if (!isSignedByHuman(who)) return;
+  into.set(gateKey(name), who.trim());
 }
 
 export function readReport(report: string): ReportFacts {
@@ -87,20 +146,10 @@ export function readReport(report: string): ReportFacts {
     const signedCol = columnIndex(t.header, 'утвердил');
     const idCol = columnIndex(t.header, 'id');
 
-    // Таблица неприменимости: имя гейта + кто подписал. Колонки «Статус» у неё нет,
-    // и это единственный надёжный признак — заголовок секции у неё общий с гейтами.
-    if (gateCol >= 0 && signedCol >= 0) {
-      for (const row of t.rows) {
-        const name = row[gateCol] ?? '';
-        const who = row[signedCol] ?? '';
-        if (name === '' || PLACEHOLDER.test(name)) continue;
-        // Колонка «Утвердил» без имени = артефакт не заполнен, а не «подписано».
-        if (!HAS_NAME.test(who) || PLACEHOLDER.test(who)) continue;
-        inapplicable.set(normName(name), who.trim());
-      }
-      continue;
-    }
-
+    // Порядок веток значим: СНАЧАЛА статусы. Пока первой стояла неприменимость, таблица
+    // естественной формы «Гейт | Статус | Утвердил» целиком уходила в неё и делала
+    // continue: все статусы терялись, каждый включённый гейт попадал в «не отчитался»,
+    // и вердикт краснел без единой настоящей причины.
     if (gateCol >= 0 && statusCol >= 0) {
       for (const row of t.rows) {
         const name = row[gateCol] ?? '';
@@ -108,7 +157,18 @@ export function readReport(report: string): ReportFacts {
         const st = parseGateStatus(row[statusCol] ?? '');
         // Строка есть, а статуса в ней нет — это не «прошёл». Гейт со стёртым статусом
         // получает `⏭` и роняет вердикт, как и не запускавшийся.
-        gateStatuses.set(normName(name), st ?? '⏭');
+        gateStatuses.set(gateKey(name), st ?? '⏭');
+
+        // Подпись неприменимости может стоять в той же таблице — читаем её здесь же.
+        if (signedCol >= 0) rememberInapplicable(inapplicable, name, row[signedCol] ?? '');
+      }
+      continue;
+    }
+
+    // Отдельная таблица неприменимости: имя гейта + кто подписал, колонки «Статус» нет.
+    if (gateCol >= 0 && signedCol >= 0) {
+      for (const row of t.rows) {
+        rememberInapplicable(inapplicable, row[gateCol] ?? '', row[signedCol] ?? '');
       }
       continue;
     }
@@ -214,21 +274,41 @@ export interface CollectInput {
 
 export interface CollectResult {
   input: VerdictInput;
-  /** Гейты, где отчёт и прогон разошлись. Побеждает прогон, расхождение — в причины. */
+  /** Гейты, где отчёт и прогон разошлись. Побеждает ХУДШИЙ из двух статусов. */
   disagreements: string[];
+}
+
+/**
+ * Строгость статуса: чем больше число, тем хуже исход.
+ *
+ * `⏭` строже `✅`, потому что «не запускался» роняет вердикт, а `❌` строже всего.
+ */
+const SEVERITY: Record<GateStatus, number> = { '✅': 0, '⏭': 1, '❌': 2 };
+
+/**
+ * Итоговый статус гейта при расхождении отчёта и прогона.
+ *
+ * Берётся ХУДШИЙ, а не «прогон всегда прав». Правило «побеждает прогон» защищало от
+ * рецензента, который перекрашивает красное в зелёное, но работало и в обратную сторону:
+ * рецензент ставил `❌`, найдя расхождение, а фиктивный «прогон» гейта ревью (проверка
+ * наличия файла субагента на диске) перебивал его зелёным — и виток уходил в коммит с
+ * известным дефектом. Худший статус закрывает обе стороны сразу.
+ */
+function worst(a: GateStatus, b: GateStatus): GateStatus {
+  return SEVERITY[a] >= SEVERITY[b] ? a : b;
 }
 
 export function collectVerdictInput(i: CollectInput): CollectResult {
   const facts = readReport(i.report);
   const expected = gatesExpectedInReport(i.gates);
-  const byRun = new Map(i.gateResults.map((r) => [normName(r.name), r]));
+  const byRun = new Map(i.gateResults.map((r) => [gateKey(r.name), r]));
 
   const gates: VerdictInput['gates'] = [];
   const missing: string[] = [];
   const disagreements: string[] = [];
 
   for (const row of expected) {
-    const key = normName(row.name);
+    const key = gateKey(row.name);
     const run = byRun.get(key);
     const reported = facts.gateStatuses.get(key);
 
@@ -246,11 +326,11 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       continue;
     }
 
-    const status = run?.status ?? reported;
+    const status = run === undefined ? reported : worst(run.status, reported);
     if (run !== undefined && run.status !== reported) {
       disagreements.push(
         `гейт «${row.name}»: в отчёте ${reported}, фактический прогон дал ${run.status} — ` +
-          `вердикт считается по прогону`,
+          `в вердикт идёт худший из двух (${status})`,
       );
     }
     gates.push({

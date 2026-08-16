@@ -38,9 +38,30 @@ export const api = {
   runStage: (
     id: string,
     stage: StageId,
-    body: { prompt?: { system: string; user: string }; requirement?: string; extra?: string },
+    body: {
+      prompt?: { system: string; user: string };
+      requirement?: string;
+      extra?: string;
+      /** Объявленный оператором обрыв витка: handoff оформляется без зелёного вердикта. */
+      abortHandoff?: boolean;
+    },
   ): Promise<{ started: boolean }> =>
     post(`/api/runs/${id}/stages/${stage}/run`, body).then((r) => json<{ started: boolean }>(r)),
+
+  /**
+   * Продвижение витка: новая попытка того же chunk'а либо следующий chunk.
+   *
+   * Без этой ручки из интерфейса не было ни одного легального выхода из красного
+   * вердикта: номер попытки навсегда оставался первым, а артефакты следующей писались
+   * поверх — вместе с уликой для детекта отсутствия прогресса.
+   */
+  advance: (
+    id: string,
+    to: 'attempt' | 'chunk',
+  ): Promise<{ chunk: number; attempt: number; attemptBudget: number }> =>
+    post(`/api/runs/${id}/advance`, { to }).then((r) =>
+      json<{ chunk: number; attempt: number; attemptBudget: number }>(r),
+    ),
 
   resolveApproval: (id: string, requestId: string, decision: Decision): Promise<unknown> =>
     post(
@@ -57,8 +78,26 @@ export const api = {
   ): Promise<unknown> => post(`/api/runs/${id}/questions/${requestId}`, { answers }).then(json),
 
   /** Записывает решение человека полем в артефакт: имя оператора и дата ставит сервер. */
-  recordDecision: (id: string, artifact: string, label: string): Promise<{ value: string }> =>
-    post(`/api/runs/${id}/decision`, { artifact, label }).then((r) => json<{ value: string }>(r)),
+  /**
+   * Записывает решение человека полем в артефакт: подпись ставит сервер.
+   *
+   * `granted` обязателен — методология требует записывать и отказ, а единственная кнопка
+   * «одобрить в один клик» отказом не является. `note` сохраняется рядом с подписью, а
+   * `chunk`/`attempt` привязывают решение к тому артефакту, который человек читал, а не к
+   * текущему на момент нажатия.
+   */
+  recordDecision: (
+    id: string,
+    body: {
+      artifact: string;
+      label: string;
+      granted: boolean;
+      note?: string;
+      chunk?: number;
+      attempt?: number;
+    },
+  ): Promise<{ value: string }> =>
+    post(`/api/runs/${id}/decision`, body).then((r) => json<{ value: string }>(r)),
 
   autoApprove: (id: string, stage: StageId, on: boolean): Promise<unknown> =>
     post(`/api/runs/${id}/auto-approve`, { stage, on }).then(json),

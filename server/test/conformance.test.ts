@@ -17,6 +17,7 @@ import { describe, it } from 'node:test';
 
 import type { NormalizedCall, PolicyContext, ToolName } from '@sdlc-runner/shared';
 
+import { ApprovalGate } from '../src/approval/gate.ts';
 import { baseToolName, normalize } from '../src/exec/normalize.ts';
 import { evaluate } from '../src/policy/index.ts';
 
@@ -199,12 +200,41 @@ describe('политика решает одинаково независимо 
     deepStrictEqual(sdk, loop);
   });
 
-  it('shell-запись вне плана отклоняется в обеих формах', () => {
-    const cmd = 'echo x > tmp.sh';
-    deepStrictEqual(
-      evaluate(normalize('Bash', { command: cmd }), CTX),
-      evaluate(normalize('Bash', { command: cmd }), CTX),
+  it('shell-запись вне плана отклоняется независимо от формы аргументов', () => {
+    // Сравнение X === X, стоявшее здесь раньше, упасть не могло никогда. Формы должны
+    // РАЗЛИЧАТЬСЯ: у флоу sdk аргумент называется `command`, у нашего цикла — так же,
+    // но описание команды приходит разными полями, и нормализатор обязан дать одно.
+    const sdk = evaluate(normalize('Bash', { command: 'echo x > tmp.sh' }), CTX);
+    const loop = evaluate(
+      normalize('Bash', { command: 'echo x > tmp.sh', description: 'создать временный скрипт' }),
+      CTX,
     );
-    ok(!evaluate(normalize('Bash', { command: cmd }), CTX).ok);
+    ok(!sdk.ok);
+    deepStrictEqual(sdk, loop);
+  });
+
+  // Оба исполнителя обязаны спрашивать гейт по ОДНОМУ и тому же признаку. Проверяем это
+  // напрямую: у обоих `NO_HUMAN_STEP` — общий, и «дешёвый» вызов не должен требовать
+  // человека ни в одном флоу, а вопрос человеку не должен вставать в очередь одобрений.
+  it('дешёвые вызовы и вопрос человеку шаг оператора не требуют', async () => {
+    const gate = new ApprovalGate({ onPending: () => {}, onResolved: () => {} });
+    const cheap: NormalizedCall[] = [
+      { kind: 'read', path: 'README.md', range: null },
+      { kind: 'glob', pattern: 'src/**/*.ts', path: null },
+      { kind: 'grep', pattern: 'foo', path: null },
+      { kind: 'ask_human', questions: [] },
+    ];
+    for (const call of cheap) {
+      const d = await gate.request({
+        runId: 'r1',
+        stage: 'chunk',
+        requestId: `c-${call.kind}`,
+        toolName: 'X',
+        call,
+        ctx: CTX,
+      });
+      ok(d.allowed, `${call.kind} обязан пройти без ожидания оператора`);
+    }
+    strictEqual(gate.list().length, 0, 'ни один такой вызов не должен висеть в очереди');
   });
 });

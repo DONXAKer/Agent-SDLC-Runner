@@ -8,6 +8,8 @@
  * Здесь нет ни файловой системы, ни git — только правило. I/O живёт в `index.ts`.
  */
 
+import { normalizePlanPath } from '../../policy/paths.ts';
+
 export type BuildSystem = {
   /** Команда сборки относительно каталога модуля. */
   build: string;
@@ -140,14 +142,19 @@ const basename = (p: string): string => p.replace(/\\/g, '/').split('/').pop() ?
 export function scopeViolations(
   changed: readonly string[],
   allowed: readonly string[],
+  projectRoot: string,
 ): ScopeViolation[] {
-  const norm = (p: string): string => p.replace(/\\/g, '/').replace(/^\.\//, '');
-  const allow = new Set(allowed.map(norm));
+  // Нормализация — та же, что у PlanScope (`normalizePlanPath`), а не своя.
+  // Пока здесь стоял собственный `norm` (только слэши и `./`), план с абсолютным путём
+  // `D:/proj/src/a.ts` — а модели пишут такие регулярно, ради этого `normalizePlanPath`
+  // и написан — давал расхождение: PlanScope запись разрешал, а scope-гейт печатал
+  // «файл вне files_to_touch» на файле, который рантайм сам и разрешил править.
+  const allow = new Set(allowed.map((p) => normalizePlanPath(projectRoot, p)));
   const allowBase = new Set([...allow].map(basename));
 
   const out: ScopeViolation[] = [];
   for (const raw of changed) {
-    const f = norm(raw);
+    const f = normalizePlanPath(projectRoot, raw);
     if (f.startsWith('.sdlc/')) continue;
     if (allow.has(f)) continue;
     out.push({ path: f, sameName: allowBase.has(basename(f)) });

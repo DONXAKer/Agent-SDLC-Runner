@@ -11,6 +11,7 @@
  * себя.
  */
 
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,7 +19,9 @@ import { join } from 'node:path';
 import type { GateStatus } from '@sdlc-runner/shared';
 
 import { changedPaths, currentBranch, deletedPaths, git, hasCommits, isRepo, workingDiff } from '../git.ts';
+import { gateKey } from '../gatesFile.ts';
 import { runShell } from '../shell.ts';
+import type { InvariantViolation } from './logic.ts';
 import {
   detectBuildSystem,
   invariantViolations,
@@ -78,6 +81,23 @@ function resolveModule(ctx: GateContext): { dir: string; files: Set<string> } | 
 
 const JS_FILE = /\.(js|cjs|mjs)$/i;
 
+/** `node --check` одним процессом на файл, путь — аргументом, а не текстом команды. */
+function nodeCheck(
+  path: string,
+  signal?: AbortSignal,
+): Promise<{ code: number | null; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ['--check', path], {
+      windowsHide: true,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    const err: string[] = [];
+    child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
+    child.on('error', (e) => resolve({ code: null, stderr: e.message }));
+    child.on('close', (code) => resolve({ code, stderr: err.join('') }));
+  });
+}
+
 /**
  * Запасная проверка синтаксиса, когда полноценно собрать нечем.
  *
@@ -86,6 +106,8 @@ const JS_FILE = /\.(js|cjs|mjs)$/i;
  * загружается. ESM и JSX отсеиваются по фактическому тексту ошибки, а не грепом по
  * содержимому: `node --check` на `.js` с `import` возвращает 0 даже для битого файла,
  * на `.mjs` работает корректно, а греп на JSX ловил `</div>` в комментарии.
+ *
+ * Зелёного эта ветка не даёт НИКОГДА: синтаксис — не сборка.
  */
 async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome> {
   const changed = (await changedPaths(ctx.projectRoot, ctx.signal)).filter((f) => JS_FILE.test(f));
@@ -98,18 +120,20 @@ async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome
     };
   }
 
+  // Проверки независимы, поэтому идут разом: последовательный запуск поднимал шелл и
+  // процесс node на каждый файл (≈96 мс на файл, ~4 с на сорок) прямо на критическом
+  // пути оператора. Путь передаётся аргументом, а не вклеивается в строку команды.
+  const outcomes = await Promise.all(
+    changed
+      .filter((f) => existsSync(join(ctx.projectRoot, f)))
+      .map(async (f) => ({ f, r: await nodeCheck(join(ctx.projectRoot, f), ctx.signal) })),
+  );
+
   const bad: string[] = [];
   let checked = 0;
   let skipped = 0;
-  for (const f of changed) {
-    const p = join(ctx.projectRoot, f);
-    if (!existsSync(p)) continue;
-    const r = await runShell(`node --check "${p}"`, {
-      cwd: ctx.projectRoot,
-      timeoutMs: 30_000,
-      ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
-    });
-    if (r.exitCode === 0) {
+  for (const { f, r } of outcomes) {
+    if (r.code === 0) {
       checked++;
       continue;
     }
@@ -134,13 +158,17 @@ async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome
     };
   }
   if (checked > 0) {
+    // `⏭`, а не `✅`. Разбор нескольких `.js` парсером — это не сборка: правка со
+    // сломанным импортом или падающим require проходит `node --check` и получала зелёный
+    // обязательный гейт «Сборка». Гейт, который врёт, приучает игнорировать себя, поэтому
+    // здесь честный пропуск: он роняет вердикт, пока человек не подпишет неприменимость.
     return {
-      status: '✅',
+      status: '⏭',
       command: 'node --check',
       exitCode: 0,
       lastLine:
-        `node --check прошёл, проверено файлов: ${checked} (пропущено ESM/JSX: ${skipped}); ` +
-        `полная сборка не запускалась: ${why}`,
+        `СБОРКА НЕ ЗАПУСКАЛАСЬ (${why}). Проверен только синтаксис: файлов ${checked} ` +
+        `(пропущено ESM/JSX: ${skipped}). Ошибки связывания, типов и импортов не проверены.`,
     };
   }
   return {
@@ -284,7 +312,7 @@ const scopeGate: BuiltinGate = async (ctx) => {
     };
   }
 
-  const violations = scopeViolations(changed, ctx.planFiles);
+  const violations = scopeViolations(changed, ctx.planFiles, ctx.projectRoot);
   if (violations.length === 0) {
     return {
       status: '✅',
@@ -313,10 +341,35 @@ const scopeGate: BuiltinGate = async (ctx) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Анти-обход и секреты — один разбор diff'а, но две строки набора: «Анти-обход
- * тест-гейта» и «Секреты в diff» включаются независимо. Гейт фильтрует находки по своим
- * видам, иначе включённый «Секреты в diff» краснел бы от отключённого теста, и по
- * статусу нельзя было бы понять, что именно сломано.
+ * Разбор diff'а на один прогон гейтов.
+ *
+ * «Анти-обход тест-гейта» и «Секреты в diff» — две строки набора, включаемые независимо,
+ * но смотрят они в один и тот же diff. Пока каждая тянула его сама, при обоих включённых
+ * гейтах было десять вызовов git вместо пяти и два полных прохода регулярок — при том
+ * что комментарий рядом обещал «один разбор». Ключ кэша — корень проекта: прогон гейтов
+ * идёт последовательно и на неизменном дереве.
+ */
+const diffCache = new Map<string, InvariantViolation[]>();
+
+async function diffViolations(ctx: GateContext): Promise<InvariantViolation[]> {
+  const cached = diffCache.get(ctx.projectRoot);
+  if (cached !== undefined) return cached;
+
+  const diff = await workingDiff(ctx.projectRoot, [], ctx.signal);
+  const deleted = await deletedPaths(ctx.projectRoot, ctx.signal);
+  const violations = invariantViolations(diff, deleted);
+  diffCache.set(ctx.projectRoot, violations);
+  return violations;
+}
+
+/** Сбрасывается перед каждым прогоном: дерево между попытками меняется. */
+export function resetDiffCache(): void {
+  diffCache.clear();
+}
+
+/**
+ * Гейт фильтрует находки по своим видам, иначе включённый «Секреты в diff» краснел бы от
+ * отключённого теста, и по статусу нельзя было бы понять, что именно сломано.
  */
 function makeDiffGate(kinds: ReadonlySet<string>, what: string): BuiltinGate {
   return async (ctx) => {
@@ -328,9 +381,7 @@ function makeDiffGate(kinds: ReadonlySet<string>, what: string): BuiltinGate {
         lastLine: `${ctx.projectRoot} не git-репозиторий — ${what} по diff НЕ проверялся`,
       };
     }
-    const diff = await workingDiff(ctx.projectRoot, [], ctx.signal);
-    const deleted = await deletedPaths(ctx.projectRoot, ctx.signal);
-    const violations = invariantViolations(diff, deleted).filter((v) => kinds.has(v.kind));
+    const violations = (await diffViolations(ctx)).filter((v) => kinds.has(v.kind));
     if (violations.length === 0) {
       return { status: '✅', command: null, exitCode: 0, lastLine: `${what} — чисто` };
     }
@@ -414,7 +465,7 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
 ]);
 
 export function builtinFor(gateName: string): BuiltinGate | null {
-  return BUILTIN.get(gateName.trim().toLowerCase().replace(/ё/g, 'е')) ?? null;
+  return BUILTIN.get(gateKey(gateName)) ?? null;
 }
 
 /** Снимок грязного дерева перед этапом 5. */

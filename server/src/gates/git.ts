@@ -14,6 +14,11 @@ export interface GitResult {
   stderr: string;
 }
 
+/** Потолок на одну git-команду. Локальные и read-only, но дерево бывает огромным. */
+const GIT_TIMEOUT_MS = 120_000;
+/** Потолок на захват вывода: `git diff` по грязному дереву с CRLF-шумом уезжал в память целиком. */
+const GIT_MAX_OUTPUT = 8 * 1024 * 1024;
+
 export function git(args: string[], cwd: string, signal?: AbortSignal): Promise<GitResult> {
   return new Promise((resolve) => {
     // core.quotePath=false — иначе не-ASCII имена приходят экранированными в кавычках
@@ -23,12 +28,37 @@ export function git(args: string[], cwd: string, signal?: AbortSignal): Promise<
       windowsHide: true,
       signal,
     });
+
     const out: string[] = [];
     const err: string[] = [];
-    child.stdout.on('data', (d: Buffer) => out.push(d.toString('utf8')));
-    child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
-    const done = (code: number | null, extra?: string): void =>
-      resolve({ code, stdout: out.join(''), stderr: err.join('') + (extra ?? '') });
+    let size = 0;
+    let settled = false;
+    let timedOut = false;
+
+    // Свой таймаут: у встроенных гейтов его не было вовсе (`runOne` передаёт timeoutMs
+    // только в `runShell`), и git, вставший на `index.lock` или на огромном дереве,
+    // держал этап 6 без всякого предела.
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, GIT_TIMEOUT_MS);
+
+    const collect = (bucket: string[], d: Buffer): void => {
+      if (size >= GIT_MAX_OUTPUT) return;
+      const chunk = d.toString('utf8');
+      size += chunk.length;
+      bucket.push(chunk);
+    };
+    child.stdout.on('data', (d: Buffer) => collect(out, d));
+    child.stderr.on('data', (d: Buffer) => collect(err, d));
+
+    const done = (code: number | null, extra?: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const note = timedOut ? `\n[рантайм] git не уложился в ${GIT_TIMEOUT_MS} мс` : '';
+      resolve({ code, stdout: out.join(''), stderr: err.join('') + (extra ?? '') + note });
+    };
     child.on('error', (e) => done(null, e.message));
     child.on('close', (code) => done(code));
   });
@@ -61,21 +91,54 @@ function lines(text: string): string[] {
  * команды две.
  */
 export async function changedPaths(cwd: string, signal?: AbortSignal): Promise<string[]> {
-  const base = (await hasCommits(cwd)) ? ['diff', '--ignore-cr-at-eol', '--name-only', 'HEAD'] : [];
+  // Обе команды ограничены текущим каталогом (`-- .`) и печатают пути ОТНОСИТЕЛЬНО него.
+  // Без этого базы разъезжались: `git diff --name-only` печатает от корня репозитория,
+  // `ls-files --others` — от cwd, и в монорепо, где projectRoot это подкаталог, один и
+  // тот же файл приезжал как `server/src/a.ts` и как `src/a.ts`. Следствия были два:
+  // ложные «файлы вне плана» в scope-гейте и неработающее вычитание baseline, потому что
+  // `join(projectRoot, f)` давал несуществующий путь.
+  const base = (await hasCommits(cwd))
+    ? ['diff', '--ignore-cr-at-eol', '--name-only', '--relative', 'HEAD', '--', '.']
+    : [];
   const tracked = base.length > 0 ? await git(base, cwd, signal) : { code: 0, stdout: '', stderr: '' };
-  const untracked = await git(['ls-files', '--others', '--exclude-standard'], cwd, signal);
+  const untracked = await git(['ls-files', '--others', '--exclude-standard', '--', '.'], cwd, signal);
   return [...new Set([...lines(tracked.stdout), ...lines(untracked.stdout)])].sort();
 }
 
-/** Текст diff'а рабочего дерева — вход анти-обходного гейта и гейта секретов. */
+/**
+ * Текст diff'а рабочего дерева — вход анти-обходного гейта и гейта секретов.
+ *
+ * Неотслеживаемые файлы включаются в него отдельным проходом. `git diff HEAD` их не
+ * видит, и оба гейта были слепы ровно к тому случаю, который для них опаснее всего:
+ * новый файл `src/__tests__/skip.test.ts` с `describe.skip(` или новый `config/local.ts`
+ * с захардкоженным ключом давали «✅ чисто». Scope-гейт такой файл замечал (он смотрит
+ * `changedPaths`), а анти-обход и секреты — нет.
+ */
 export async function workingDiff(
   cwd: string,
   args: string[] = [],
   signal?: AbortSignal,
 ): Promise<string> {
   const head = (await hasCommits(cwd)) ? ['HEAD'] : [];
-  const r = await git(['diff', '--ignore-cr-at-eol', '-U0', ...head, ...args], cwd, signal);
-  return r.stdout;
+  const tracked = await git(
+    ['diff', '--ignore-cr-at-eol', '-U0', ...head, '--', '.', ...args],
+    cwd,
+    signal,
+  );
+
+  const untracked = await git(['ls-files', '--others', '--exclude-standard', '--', '.'], cwd, signal);
+  const parts = [tracked.stdout];
+  for (const file of lines(untracked.stdout)) {
+    // `--no-index` против пустоты даёт для нового файла обычный unified diff, который
+    // разбирается тем же кодом, что и остальное.
+    const d = await git(
+      ['diff', '--no-index', '-U0', '--', process.platform === 'win32' ? 'NUL' : '/dev/null', file],
+      cwd,
+      signal,
+    );
+    if (d.stdout.trim() !== '') parts.push(d.stdout);
+  }
+  return parts.join('\n');
 }
 
 export async function deletedPaths(cwd: string, signal?: AbortSignal): Promise<string[]> {

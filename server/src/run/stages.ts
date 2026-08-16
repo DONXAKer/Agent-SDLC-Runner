@@ -197,7 +197,22 @@ export const STAGES: readonly StageDef[] = [
     tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact'],
     subagents: [],
     produces: (c) => [c.paths.clarificationReport],
-    requires: [],
+    requires: [
+      // На полном контуре разведка обязана быть: без неё «открытых вопросов нет»
+      // означает лишь то, что их некому было найти. Пока предусловия не было, этап
+      // запускался сразу после первого, читал несуществующий отчёт как пустую строку и
+      // штатно «пропускался» — развилки не задавались никому. Мелкий контур разведку не
+      // пишет по построению, поэтому там проверка снимается явным ветвлением, как и на
+      // этапе 4.
+      {
+        describe: 'отчёт разведки на месте (либо мелкий контур)',
+        check: (c) =>
+          isSmallContour(c) || artifactExists(c.paths.explorationReport)
+            ? null
+            : `нет отчёта разведки ${c.paths.explorationReport}. На полном контуре ` +
+              `«открытых вопросов нет» без разведки означает, что искать их было некому.`,
+      },
+    ],
     protectedArtifacts: RUNTIME_PROTECTED,
     humanGate: null,
     // Условный шаг: нет развилок — нет шага и артефакта.

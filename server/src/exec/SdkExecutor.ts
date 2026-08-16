@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 
 import type { Usage } from '@sdlc-runner/shared';
-import { emptyUsage } from '@sdlc-runner/shared';
+import { describeCall, emptyUsage } from '@sdlc-runner/shared';
 
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
@@ -43,7 +43,7 @@ function sdlcMcpServer(hooks: ExecHooks) {
       const call = normalize('ask_human', args as unknown as Record<string, unknown>);
       // Вопрос человеку тоже проходит политику: этап, у которого AskHuman не в правах,
       // не должен получать работающий инструмент только потому, что он приехал по MCP.
-      const decision = await hooks.onToolRequest(call, { requestId: `ask:${randomUUID()}` });
+      const decision = await hooks.onToolRequest(call, { requestId: `ask:${randomUUID()}`, toolName: 'ask_human' });
       if (!decision.allowed) {
         return { content: [{ type: 'text' as const, text: decision.reason }], isError: true };
       }
@@ -61,7 +61,10 @@ function sdlcMcpServer(hooks: ExecHooks) {
       // Идентификатор уникален на вызов: фиксированный ключ `finalize:<файл>` при повторной
       // финализации того же артефакта затирал первую запись в очереди, и её промис не
       // резолвился никогда — этап висел вечно.
-      const decision = await hooks.onToolRequest(call, { requestId: `finalize:${randomUUID()}` });
+      const decision = await hooks.onToolRequest(call, {
+        requestId: `finalize:${randomUUID()}`,
+        toolName: 'finalize_artifact',
+      });
       const text = decision.allowed
         ? `Артефакт принят рантаймом: ${args.artifact}`
         : `Артефакт не принят: ${decision.reason}`;
@@ -157,7 +160,10 @@ export class SdkExecutor implements StageExecutor {
           gated.add(opts.toolUseID);
           const call = normalize(toolName, input);
           const started = Date.now();
-          const decision = await hooks.onToolRequest(call, { requestId: opts.toolUseID });
+          const decision = await hooks.onToolRequest(call, {
+            requestId: opts.toolUseID,
+            toolName,
+          });
 
           if (!decision.allowed) {
             hooks.onToolResult({
@@ -187,10 +193,12 @@ export class SdkExecutor implements StageExecutor {
               } else if (block.type === 'thinking') {
                 hooks.onThinking(block.thinking);
               } else if (block.type === 'tool_use') {
-                attempted.set(
-                  block.id,
-                  `${block.name}${'input' in block ? '' : ''}`.trim() || block.name,
-                );
+                // Описание вызова, а не одно его имя: это единственный след вызовов,
+                // исполненных мимо гейта, и «Write; Write; Bash» не говорит оператору
+                // ничего о том, что именно записалось. Прежнее выражение с тернарником,
+                // возвращавшим пустую строку в обеих ветках, было тождественно имени.
+                const input = 'input' in block ? (block.input as Record<string, unknown>) : {};
+                attempted.set(block.id, describeCall(normalize(block.name, input)));
               }
             }
             break;

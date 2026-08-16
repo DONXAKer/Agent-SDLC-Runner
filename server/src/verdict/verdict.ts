@@ -131,8 +131,30 @@ function decideAction(i: VerdictInput, passed: boolean): { action: VerdictAction
   return why.length > 0 ? { action: 'escalate', why } : { action: 'retry', why };
 }
 
+/**
+ * Отчёт, из которого не удалось прочитать ни одного факта.
+ *
+ * `passed` считается как «нет причин упасть», и пустой вход давал зелёный вердикт: у
+ * рецензента поехала форма (колонка названа `№` вместо `id`, таблица гейтов не
+ * распозналась), фактов ноль, причин ноль — «принято». Отсутствие доказательства не есть
+ * доказательство отсутствия, поэтому пустота ронять вердикт обязана.
+ */
+function evidenceProblem(i: VerdictInput): string | null {
+  if (i.claims.length > 0 || i.gates.length > 0) return null;
+  return (
+    'в отчёте приёмки не прочитан ни один гейт и ни один пункт приёмки — ' +
+    'форма отчёта не разобралась. Вердикт по пустому отчёту не считается: проверь, что ' +
+    'таблица пунктов имеет колонку «id», а таблица гейтов — колонки «Гейт» и «Статус».'
+  );
+}
+
 export function computeVerdict(i: VerdictInput): Verdict {
-  const reasons = [...statusReasons(i), ...nonStatusReasons(i)];
+  const evidence = evidenceProblem(i);
+  const reasons = [
+    ...(evidence === null ? [] : [evidence]),
+    ...statusReasons(i),
+    ...nonStatusReasons(i),
+  ];
   const passed = reasons.length === 0;
   const { action, why } = decideAction(i, passed);
   return { passed, action, reasons: [...reasons, ...why] };

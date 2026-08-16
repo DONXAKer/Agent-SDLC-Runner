@@ -47,11 +47,22 @@ function denied(ctx: PolicyContext, userPath: string, why: string): PolicyVerdic
  * Артефакты текущего витка — их пишет сам виток, и в `files_to_touch` они по методологии
  * не попадают. Каталог чужого витка сюда не входит: рантайм не должен позволять агенту
  * витка A править артефакты витка B.
+ *
+ * Набор гейтов проекта (`.sdlc/gates.md`) считается своим артефактом процесса по той же
+ * логике: методология велит дописывать в него строку долга на этапе 7, и `stages.ts`
+ * специально выводит его из-под защиты именно там. Пока исключение ограничивалось
+ * каталогом витка, это намерение обнулялось уровнем ниже — запись отклонялась как «не
+ * входит в files_to_touch», долг не заводился, а на следующем витке незакрытая строка
+ * роняла вердикт. Там, где правка набора нежелательна, он стоит в `protectedArtifacts`,
+ * и проверка выше отклонит её раньше.
  */
 function isOwnProcessArtifact(rel: string, ctx: PolicyContext): boolean {
   const ci = isWindowsStyle(ctx.projectRoot);
   const dir = `${ctx.sdlcDir}/`;
-  return pathsEqual(rel.slice(0, dir.length), dir, ci);
+  if (pathsEqual(rel.slice(0, dir.length), dir, ci)) return true;
+
+  const root = ctx.sdlcDir.split('/')[0] ?? '.sdlc';
+  return pathsEqual(rel, `${root}/gates.md`, ci);
 }
 
 function isProtected(rel: string, ctx: PolicyContext): boolean {

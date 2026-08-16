@@ -70,21 +70,52 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     // shell: true — команды в наборе пишутся для платформы оператора («./gradlew test»,
     // «npm test»), и подменять её собственным интерпретатором значило бы ломать половину
     // из них. Это осознанно: источник команды — файл человека, не модель.
-    const child = spawn(command, { cwd: opts.cwd, shell: true, windowsHide: true });
+    // detached на POSIX заводит собственную группу процессов — иначе снять дерево одним
+    // сигналом нельзя. На Windows группу заменяет `taskkill /T`.
+    const child = spawn(command, {
+      cwd: opts.cwd,
+      shell: true,
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+    });
 
     const out: string[] = [];
     const err: string[] = [];
     let timedOut = false;
     let settled = false;
 
+    /**
+     * Снимаем ДЕРЕВО процессов, а не только шелл.
+     *
+     * `shell: true` порождает `cmd.exe`/`sh`, а тест-раннер или сборщик живёт его
+     * потомком. `child.kill()` убивал только обёртку: внуки продолжали держать
+     * унаследованные stdout/stderr, событие `close` не приходило, и промис не резолвился
+     * никогда — проверено, висел и через 15 секунд после таймаута. Прогон гейтов вставал
+     * на этом месте бесконечно, и отмена не помогала, потому что делала тот же kill.
+     */
+    const killTree = (): void => {
+      if (child.pid === undefined) return;
+      if (process.platform === 'win32') {
+        // `taskkill /T` снимает всё поддерево по идентификатору родителя.
+        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+      } else {
+        // Отрицательный pid — сигнал всей группе процессов.
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          child.kill('SIGKILL');
+        }
+      }
+      // Страховка: если дерево всё же удержало пайпы, завершаем ожидание сами.
+      setTimeout(() => finish(null, '\n[рантайм] процесс снят принудительно'), 2_000).unref();
+    };
+
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
+      killTree();
     }, opts.timeoutMs);
 
-    const onAbort = (): void => {
-      child.kill();
-    };
+    const onAbort = (): void => killTree();
     opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     // Декодируем как UTF-8. Консоль Windows печатает в кодировке OEM, поэтому кириллица

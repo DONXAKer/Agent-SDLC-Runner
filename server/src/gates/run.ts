@@ -17,7 +17,7 @@ import type { GateRunResult, GateStatus } from '@sdlc-runner/shared';
 import type { GateContext } from './builtin/index.ts';
 import { builtinFor } from './builtin/index.ts';
 import type { GateRow, GatesFile } from './gatesFile.ts';
-import { gatesRunnableAtVerify, parseGates } from './gatesFile.ts';
+import { gateKey, gatesRunnableAtVerify, parseGates } from './gatesFile.ts';
 import { runShell } from './shell.ts';
 
 export function loadGates(gatesPath: string): GatesFile {
@@ -38,7 +38,9 @@ export interface RunGatesInput extends GateContext {
 async function runOne(row: GateRow, i: RunGatesInput): Promise<GateRunResult> {
   const started = Date.now();
 
-  const external = i.externalStatuses?.[row.name];
+  // Сопоставление по ключу, а не по точному имени: оператор пишет строку набора как
+  // человек, а совпадать она обязана с тем же ключом, по которому её ищет диспетчеризация.
+  const external = i.externalStatuses?.[gateKey(row.name)];
   if (external !== undefined) {
     return {
       name: row.name,

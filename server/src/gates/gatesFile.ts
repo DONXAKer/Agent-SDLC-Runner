@@ -9,6 +9,7 @@
  * колонки) и строг к смыслу: непонятое значение «Вкл» — это не «да».
  */
 
+import { hasPlaceholder, signatureProblem } from '../artifacts/artifact.ts';
 import { parseTables } from '../md/table.ts';
 
 const MINIMUM = [
@@ -53,9 +54,10 @@ export interface GatesFile {
 }
 
 /** `‹…›` формы — «не заполнено», а не значение. */
-const PLACEHOLDER = /[‹<][^›>]*[›>]/;
-const DATE = /\d{4}-\d{2}-\d{2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}/;
-const HAS_NAME = /\p{L}{2,}/u;
+// Плейсхолдер и подпись человека — общие определения на весь рантайм: пока копий было
+// четыре, они разошлись, и одна и та же ячейка считалась заполненной здесь и пустой в
+// разборе отчёта приёмки.
+const PLACEHOLDER = { test: (v: string): boolean => hasPlaceholder(v) };
 
 /** Строки таблиц секции `## <title>`: без шапки, без разделителя, без прозы. */
 function tableRows(text: string, title: string): string[][] {
@@ -69,12 +71,14 @@ function parseEnabled(cell: string): { enabled: boolean; minimum: boolean } {
   const v = cell.toLowerCase().replace(/ё/g, 'е').trim();
   if (PLACEHOLDER.test(cell)) return { enabled: false, minimum: false };
   const minimum = /минимум/.test(v);
-  // «да — минимум», «да». Всё прочее — не «да»: непонятое значение не открывает гейт.
+  // «да — минимум», «да», «да.», «да, минимум», «да (минимум)». Всё прочее — не «да»:
+  // непонятое значение не открывает гейт.
   //
   // Граница слова `\b` здесь не годится: в JS она считается по ASCII, и между «а» и
   // пробелом её нет — `/^да\b/` не совпадало ни с одной строкой набора, и вся пятёрка
-  // молча числилась выключенной. Отсюда явное перечисление того, чем «да» кончается.
-  const enabled = /^да(\s|[—–-]|$)/.test(v);
+  // молча числилась выключенной. Перечисляем окончания явно, включая знаки препинания:
+  // «да.» — обычная запись человека, а стоила она отказа стартовать весь виток.
+  const enabled = /^да([\s.,;:—–()-]|$)/.test(v);
   return { enabled, minimum };
 }
 
@@ -97,13 +101,22 @@ function parseReportsAt(cell: string): ReportsAt {
 export function parseCommand(cell: string): string | null {
   // «н/п — долг» и просто «н/п». `\b` после кириллицы не срабатывает — см. parseEnabled.
   if (/^\s*н\/п(\s|[—–-]|$)/i.test(cell)) return null;
-  if (PLACEHOLDER.test(cell) && !/`/.test(cell)) return null;
   const m = /`([^`]+)`/.exec(cell);
   if (m === null) return null;
+
   const cmd = m[1]!.trim();
-  // Одиночное слово в кавычках чаще имя файла или артефакта, чем команда. Но глагол
-  // с аргументами — команда. Различаем по наличию пробела, не угадывая дальше.
-  return cmd === '' ? null : cmd;
+  // Ячейка целиком в форме («‹чем; пути `.sdlc/**` исключены›») команды не содержит.
+  if (cmd === '' || hasPlaceholder(cell)) return null;
+
+  // Ячейка «Чем реализован» держит и команду, и прозу с процитированными именами:
+  // эталонный набор методологии пишет «скрипт сверки diff с `files_to_touch`», шаблон —
+  // «‹чем; пути `.sdlc/**` из сверки исключены›». Пока командой считался первый попавшийся
+  // текст в кавычках, рантайм запускал `files_to_touch`, получал «command not found» и
+  // красил обязательный scope-гейт в ❌ на каждом витке, ни разу не вызвав встроенную
+  // реализацию. Команда — это глагол с аргументами либо явный путь к исполняемому файлу;
+  // одиночное имя без пробела и без пути командой не считается.
+  const looksLikeCommand = /\s/.test(cmd) || /^[.~/]|[\\/]/.test(cmd);
+  return looksLikeCommand ? cmd : null;
 }
 
 export function parseGates(text: string): GatesFile {
@@ -136,8 +149,10 @@ export function parseGates(text: string): GatesFile {
     if (!/проверяет\s+руками|риск\s+принят/i.test(how)) {
       problems.push('не сказано, закрывается ручной проверкой или принятым риском');
     }
-    if (!DATE.test(date)) problems.push('нет даты');
-    if (!HAS_NAME.test(who) || PLACEHOLDER.test(who)) problems.push('нет имени');
+    // Подпись закрытия долга считается тем же предикатом, что и подпись решения человека
+    // в артефакте и подпись неприменимости в отчёте: планка у них обязана быть одна.
+    const signature = signatureProblem(`${who} ${date}`);
+    if (signature !== null) problems.push(signature);
     debt.push({
       name,
       where: cells[1] ?? '',
@@ -163,7 +178,7 @@ export function parseGates(text: string): GatesFile {
 export function minimumProblems(g: GatesFile): string[] {
   const out: string[] = [];
   for (const name of MINIMUM) {
-    const row = g.rows.find((r) => r.name.toLowerCase() === name.toLowerCase());
+    const row = g.rows.find((r) => gateKey(r.name) === gateKey(name));
     if (row === undefined) {
       out.push(`в наборе нет обязательной строки «${name}»`);
       continue;
@@ -175,6 +190,56 @@ export function minimumProblems(g: GatesFile): string[] {
       );
     }
   }
+  return out;
+}
+
+/**
+ * Ключ гейта: имя строки, приведённое к сравнимому виду.
+ *
+ * Одно правило на весь рантайм. Их было четыре в четырёх файлах (где-то регистр, где-то
+ * ещё и «ё», где-то точное совпадение), и строка, прошедшая проверку минимума, могла
+ * промахнуться мимо диспетчеризации: гейт получал `⏭` «исполнить нечем» и ронял вердикт
+ * по несуществующей причине.
+ */
+export function gateKey(name: string): string {
+  return name.replace(/`/g, '').trim().toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+}
+
+/**
+ * Всё, из-за чего набор нельзя считать сконфигурированным.
+ *
+ * Кроме минимальной пятёрки сюда входят две вещи, которые раньше проходили молча и
+ * стоили дороже: нераспознанная колонка «Где отчитывается» (гейт исчезал и из прогона,
+ * и из вердикта — виток зеленел с фактически отключённым гейтом минимума) и две строки
+ * с одинаковым именем (их статусы схлопывались в один, и `❌` одной затирался другой).
+ */
+export function configProblems(g: GatesFile): string[] {
+  const out = minimumProblems(g);
+
+  for (const row of g.rows) {
+    if (row.enabled && row.reportsAt === null) {
+      out.push(
+        `у включённого гейта «${row.name}» не распознана колонка «Где отчитывается»: ` +
+          `значение не похоже ни на «этап N», ни на «вне витка». Такой гейт не ` +
+          `прогоняется и не участвует в вердикте — это молчаливое отключение.`,
+      );
+    }
+  }
+
+  const seen = new Map<string, string>();
+  for (const row of g.rows) {
+    const key = gateKey(row.name);
+    const first = seen.get(key);
+    if (first !== undefined) {
+      out.push(
+        `в наборе две строки с одним именем: «${first}» и «${row.name}» — статусы таких ` +
+          `строк неразличимы, и падение одной скрывается зелёным другой`,
+      );
+      continue;
+    }
+    seen.set(key, row.name);
+  }
+
   return out;
 }
 

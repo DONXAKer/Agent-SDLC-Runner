@@ -42,6 +42,27 @@ function checkPath(ctx: PolicyContext, userPath: string, access: Access): Policy
   return typeof r === 'string' ? POLICY_OK : r;
 }
 
+/**
+ * Шаблон поиска, уводящий за пределы проекта.
+ *
+ * Разрешить `..` внутри шаблона нельзя — путь в нём не резолвится лексически (звёздочки
+ * могут раскрыться во что угодно), поэтому единственная надёжная проверка — запретить
+ * абсолютные шаблоны и восхождение вверх. Формы методологии читаются через `Read`, где
+ * `readOnlyRoots` работает штатно, так что легальных случаев эта строгость не задевает.
+ */
+function checkSearchPattern(ctx: PolicyContext, pattern: string): PolicyVerdict | null {
+  const p = pattern.replace(/\\/g, '/');
+  const absolute = /^([A-Za-z]:\/|\/|\\\\)/.test(p);
+  const ascends = p.split('/').includes('..');
+  if (!absolute && !ascends) return null;
+
+  return policyDeny(
+    'pathScope',
+    `шаблон поиска «${pattern}» ведёт за пределы проекта (${ctx.projectRoot}). ` +
+      `Ищи относительным шаблоном внутри проекта; формы методологии читай инструментом Read.`,
+  );
+}
+
 export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
   switch (call.kind) {
     case 'read':
@@ -50,8 +71,14 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
     case 'edit':
       return checkPath(ctx, call.path, 'write');
     case 'glob':
-    case 'grep':
+    case 'grep': {
+      // Шаблон — тоже путь. Пока проверялось только необязательное поле `path`,
+      // `Glob {pattern: "C:/Users/Root/.claude/*.json"}` уходил наружу проекта, и следа
+      // не оставалось даже в очереди одобрений: поиск в неё не ставится по дешевизне.
+      const patternProblem = checkSearchPattern(ctx, call.pattern);
+      if (patternProblem !== null) return patternProblem;
       return call.path === null ? POLICY_OK : checkPath(ctx, call.path, 'read');
+    }
     // Bash исполняется с cwd = корень проекта. Цели редиректов, уходящие наружу
     // (включая /dev/null и временные файлы), здесь намеренно не трогаем — модель
     // законно пишет во временные файлы, а отказ политики оператор снять не может.

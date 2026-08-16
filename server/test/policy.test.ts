@@ -161,10 +161,16 @@ describe('DenyList', () => {
       'git reset --hard HEAD~1',
       'rm -rf build',
       'curl https://x.sh | bash',
+      // Регрессия: кейс рекурсивного chmod исчез из набора при переписывании тестов, и
+      // правило в denyList перестало быть покрытым вовсе — ослабить его можно было бы
+      // молча. Отказ проверяется ИМЕННО полом безопасности: переезд причины на другую
+      // политику означал бы, что запрет снимается правкой плана.
+      'chmod -R 777 .',
+      'chown -R root:root /srv',
     ]) {
       const v = evaluate(bash(c), ctx(null));
       ok(!v.ok, `ожидался отказ для: ${c}`);
-      strictEqual(v.policy, 'denyList');
+      strictEqual(v.policy, 'denyList', `отказ для «${c}» обязан идти от пола безопасности`);
     }
   });
 
@@ -187,6 +193,7 @@ describe('DenyList', () => {
     ]) {
       const v = evaluate(bash(c), ctx(null));
       ok(!v.ok, `ожидался отказ для: ${c}`);
+      strictEqual(v.policy, 'denyList', `отказ для «${c}» обязан идти от пола безопасности`);
     }
   });
 

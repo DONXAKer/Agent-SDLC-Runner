@@ -53,16 +53,24 @@ function bool(input: Record<string, unknown>, key: string): boolean {
   return input[key] === true;
 }
 
-function editsOf(input: Record<string, unknown>): EditOp[] {
+/**
+ * Разбор правок. `null` — набор битый целиком.
+ *
+ * Некорректный элемент раньше молча выбрасывался, и пачка из трёх правок применялась
+ * двумя: модель получала «применено» и считала, что прошли все три. Это ровно тот
+ * частично применённый набор, от которого `editTool` защищается своим «ни одна правка не
+ * применена» — защита обходилась на уровень выше, в нормализации.
+ */
+function editsOf(input: Record<string, unknown>): EditOp[] | null {
   const raw = input['edits'];
   if (Array.isArray(raw)) {
     const out: EditOp[] = [];
     for (const e of raw) {
-      if (typeof e !== 'object' || e === null) continue;
+      if (typeof e !== 'object' || e === null) return null;
       const r = e as Record<string, unknown>;
       const oldStr = str(r, 'old_string', 'oldString');
       const newStr = str(r, 'new_string', 'newString');
-      if (oldStr === null || newStr === null) continue;
+      if (oldStr === null || newStr === null) return null;
       out.push({ oldStr, newStr, replaceAll: bool(r, 'replace_all') || bool(r, 'replaceAll') });
     }
     return out;
@@ -122,9 +130,13 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
       const offset = num(input, 'offset');
       const limit = num(input, 'limit');
       if (offset === null && limit === null) return { kind: 'read', path, range: null };
-      const from = offset ?? 1;
+
+      const from = Math.max(1, offset ?? 1);
+      // `offset` без `limit` — это «отсюда и до конца файла», как в Claude Code, на
+      // семантике которого модель обучена. Пока это давало одну строку, модель после
+      // отказа «читай диапазоном» выедала бюджет ходов по строке за ход.
       // Диапазон включающий: `offset=10, limit=5` это строки 10..14, а не 10..15.
-      const to = limit === null ? from : from + Math.max(0, limit - 1);
+      const to = limit === null ? Number.MAX_SAFE_INTEGER : from + Math.max(1, limit) - 1;
       return { kind: 'read', path, range: { from, to } };
     }
 
@@ -150,9 +162,10 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
       const path = str(input, 'file_path', 'path', 'filePath');
       if (path === null) return { kind: 'unknown', toolName, raw: input };
       const edits = editsOf(input);
-      // Правка без единой операции — не правка. Пусть политика отклонит её как незнакомую,
-      // а не пропустит как безобидную.
-      if (edits.length === 0) return { kind: 'unknown', toolName, raw: input };
+      // Правка без единой операции — не правка, а набор с битым элементом — не набор.
+      // И то и другое пусть политика отклонит как незнакомый вызов, а не пропустит как
+      // безобидный.
+      if (edits === null || edits.length === 0) return { kind: 'unknown', toolName, raw: input };
       return { kind: 'edit', path, edits };
     }
 

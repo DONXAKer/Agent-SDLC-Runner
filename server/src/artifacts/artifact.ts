@@ -18,8 +18,45 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-/** Плейсхолдер формы методологии: «‹что сюда вписать›». */
-const PLACEHOLDER = /‹[^›]*›/g;
+/**
+ * Плейсхолдер формы методологии: «‹что сюда вписать›».
+ *
+ * Угловые ASCII-скобки считаются наравне с типографскими: редактор без типографских
+ * кавычек превращает `‹…›` в `<…>` при первом же сохранении, и артефакт с незаполненной
+ * формой начинал считаться готовым здесь, оставаясь незаполненным для разбора набора
+ * гейтов и отчёта приёмки. Одно понятие — одно определение, отсюда экспорт.
+ */
+export const PLACEHOLDER_RE = /[‹<][^›<>]*[›>]/g;
+
+/** Есть ли в значении незаполненное место. Для одной ячейки, а не для файла целиком. */
+export function hasPlaceholder(value: string): boolean {
+  return new RegExp(PLACEHOLDER_RE.source).test(value);
+}
+
+/** Подпись человека: имя и дата в любом внятном написании. */
+const HAS_DATE = /\d{4}-\d{2}-\d{2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}/;
+const HAS_NAME = /\p{L}{2,}/u;
+
+/**
+ * Единственный предикат «это подпись живого человека» на весь рантайм.
+ *
+ * До этого копий было три, с разной планкой, и самая слабая (без даты) стояла ровно на
+ * пути, который делает красный вердикт зелёным — снятии `⏭` строкой неприменимости, —
+ * а самая строгая на путях, которые вердикт роняют. Один и тот же человек, подписавший
+ * одинаково, получал разные исходы.
+ */
+export function signatureProblem(value: string): string | null {
+  const v = value.trim();
+  if (v === '') return 'поле не заполнено';
+  if (hasPlaceholder(v)) return 'в поле осталась форма, а не подпись';
+  if (!HAS_NAME.test(v)) return 'нет имени утвердившего';
+  if (!HAS_DATE.test(v)) return 'нет даты';
+  return null;
+}
+
+export function isSignedByHuman(value: string): boolean {
+  return signatureProblem(value) === null;
+}
 
 export interface ArtifactState {
   path: string;
@@ -55,14 +92,14 @@ export function writeArtifact(path: string, text: string): void {
 }
 
 export function countPlaceholders(text: string): number {
-  const m = text.match(PLACEHOLDER);
+  const m = text.match(PLACEHOLDER_RE);
   return m === null ? 0 : m.length;
 }
 
 /** Позиции незаполненных мест — для подсветки в редакторе артефакта. */
 export function placeholderRanges(text: string): { start: number; end: number; text: string }[] {
   const out: { start: number; end: number; text: string }[] = [];
-  const re = new RegExp(PLACEHOLDER.source, 'g');
+  const re = new RegExp(PLACEHOLDER_RE.source, 'g');
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     out.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
@@ -117,16 +154,23 @@ function dropStruckThrough(s: string): string {
 
 const NEGATIVE = /(^|\s)(не\s|отклон|отказ|отверг|провал)/i;
 const PENDING = /(ожида|не\s*реш|tbd|todo|^[\s—–\-?.]*$|н\/п)/i;
-/** Подпись: имя и дата в любом внятном написании. */
-const HAS_DATE = /\d{4}-\d{2}-\d{2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}/;
-const HAS_NAME = /\p{L}{2,}/u;
+
+/**
+ * Вторая законная ветка формы журнала chunk'а: «использовано одобрение плана через
+ * ExitPlanMode этой сессии».
+ *
+ * Даты в ней нет по построению — решение принято в живой сессии и записано ссылкой на
+ * неё, а не подписью. Требование «имя И дата» без этого исключения блокировало этап 6
+ * на журнале, оформленном ровно так, как велит форма эталона.
+ */
+const SESSION_APPROVAL = /одобрени[ея]\s+плана\s+через\s+ExitPlanMode/i;
 
 export function readDecision(text: string, label: string): DecisionState {
   const m = fieldRegex(label).exec(text);
   if (m === null) return { state: 'missing' };
 
   const rawFull = (m[2] ?? '').trim();
-  if (rawFull === '' || rawFull.includes('‹')) {
+  if (rawFull === '' || hasPlaceholder(rawFull)) {
     return { state: 'placeholder', raw: rawFull, why: 'поле не заполнено' };
   }
 
@@ -140,7 +184,7 @@ export function readDecision(text: string, label: string): DecisionState {
   if (stripped.includes(' / ')) {
     const sides = stripped.split(' / ').map((s) => s.trim());
     const anyNegative = sides.some((s) => NEGATIVE.test(s));
-    const anySigned = sides.some((s) => HAS_DATE.test(s) && HAS_NAME.test(s));
+    const anySigned = sides.some((s) => isSignedByHuman(s) || SESSION_APPROVAL.test(s));
     if (anyNegative && !anySigned) return { state: 'declined', raw: rawFull };
     if (anyNegative && anySigned) {
       return {
@@ -152,15 +196,20 @@ export function readDecision(text: string, label: string): DecisionState {
   }
 
   if (NEGATIVE.test(stripped)) return { state: 'declined', raw: rawFull };
+
+  // Ссылка на одобрение живой сессии — законный вариант формы, и даты в нём нет.
+  if (SESSION_APPROVAL.test(stripped)) return { state: 'granted', raw: rawFull };
+
   if (PENDING.test(stripped)) {
     return { state: 'placeholder', raw: rawFull, why: 'решение отложено' };
   }
 
-  if (!HAS_NAME.test(stripped) || !HAS_DATE.test(stripped)) {
+  const problem = signatureProblem(stripped);
+  if (problem !== null) {
     return {
       state: 'placeholder',
       raw: rawFull,
-      why: 'нет имени и даты — методология требует записи «имя · дата», а не отметки',
+      why: `${problem} — методология требует записи «имя · дата», а не отметки`,
     };
   }
 

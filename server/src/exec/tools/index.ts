@@ -49,14 +49,48 @@ const SKIP_DIRS = new Set([
   '.idea',
 ]);
 
-function cap(text: string, limit: number): string {
-  if (text.length <= limit) return text;
-  // Обрезаем с конца: начало вывода почти всегда информативнее хвоста.
-  return `${text.slice(0, limit)}\n…[рантайм обрезал: показано ${limit} из ${text.length} символов]`;
+/**
+ * Обрезка результата по БАЙТАМ, а не по символам.
+ *
+ * Лимит называется `maxToolResultBytes` и меряет место в контексте модели. Пока резали
+ * по `length` (единицы UTF-16), 60 000 «символов» кириллицы означали ~120 000 байт —
+ * вдвое больше объявленного потолка, то есть ровно тот случай, ради предотвращения
+ * которого лимит и заведён.
+ */
+function cap(text: string, limitBytes: number): string {
+  const size = Buffer.byteLength(text, 'utf8');
+  if (size <= limitBytes) return text;
+
+  // Режем по границе символа: половина суррогатной пары в выводе — мусор.
+  const head = Buffer.from(text, 'utf8').subarray(0, limitBytes).toString('utf8');
+  const clean = head.endsWith('�') ? head.slice(0, -1) : head;
+  return `${clean}\n…[рантайм обрезал: показано ${limitBytes} из ${size} байт]`;
 }
 
 function rel(root: string, abs: string): string {
   return toPosix(relative(root, abs)) || toPosix(abs);
+}
+
+/** Замена первого вхождения ровно тем текстом, что передан: без раскрытия `$`-групп. */
+function replaceFirstLiteral(text: string, from: string, to: string): string {
+  const i = text.indexOf(from);
+  return i < 0 ? text : text.slice(0, i) + to + text.slice(i + from.length);
+}
+
+/**
+ * Ошибка файловой системы — это результат инструмента, а не крах этапа.
+ *
+ * `Read` каталога (`EISDIR`), запись под существующим файлом (`ENOTDIR`), отказ прав
+ * (`EACCES`) — обычные ошибки 4B-модели. Пока они летели наружу, этап падал целиком:
+ * терялись и финальный текст, и вся история сообщений, хотя модели достаточно было
+ * сказать «так нельзя».
+ */
+function guard(action: () => ToolOutcome): ToolOutcome {
+  try {
+    return action();
+  } catch (e) {
+    return { ok: false, text: `операция не удалась: ${(e as Error).message}` };
+  }
 }
 
 function readTool(call: NormalizedCall & { kind: 'read' }, ctx: ToolContext): ToolOutcome {
@@ -122,7 +156,13 @@ function editTool(call: NormalizedCall & { kind: 'edit' }, ctx: ToolContext): To
           `или укажи replace_all. Ни одна правка не применена.`,
       };
     }
-    text = e.replaceAll ? text.split(e.oldStr).join(e.newStr) : text.replace(e.oldStr, e.newStr);
+    // split/join, а не String.replace: у `replace` текст замены — не литерал, в нём
+    // `$&`, `$1`, `` $` `` раскрываются как подстановки. Правка new_string="'$1.99'"
+    // клала на диск "'.99'", отчитываясь при этом «применено». Один и тот же old/new
+    // давал разный результат в зависимости от replace_all — здесь ветки уравнены.
+    text = e.replaceAll
+      ? text.split(e.oldStr).join(e.newStr)
+      : replaceFirstLiteral(text, e.oldStr, e.newStr);
     applied.push(`${i + 1}: ${count} вхожд.`);
   }
 
@@ -150,10 +190,47 @@ async function globTool(
   return { ok: true, text: cap(found.sort().join('\n'), ctx.maxResultBytes) };
 }
 
+/**
+ * Потолок времени на поиск.
+ *
+ * Выражение приходит от модели, а движок регулярных выражений в JS не прерывается: на
+ * вложенном повторении вроде `(a+)+$` он уходит в экспоненциальный бэктрекинг и держит
+ * весь процесс — вместе с HTTP-ручкой отмены и WebSocket-потоком всех остальных витков.
+ * Прервать это можно только снаружи, поэтому обход сверяется с часами и с сигналом на
+ * каждом файле, а не «когда-нибудь».
+ */
+const GREP_BUDGET_MS = 20_000;
+
+/**
+ * Вложенное повторение — конструкция, дорогая по своей природе.
+ *
+ * Движок регулярных выражений в JS не прерывается: на `(a+)+$` он уходит в
+ * экспоненциальный бэктрекинг внутри ОДНОГО вызова `test`, и никакой таймаут между
+ * строками этого не остановит — процесс встаёт вместе с HTTP-ручкой отмены и потоком
+ * событий всех витков (измерено: 146 секунд на строке в 80 символов). Прерывать нечем,
+ * поэтому такие шаблоны не запускаются вовсе.
+ *
+ * Проверка эвристическая и намеренно грубая: ложный отказ стоит модели одной попытки с
+ * более простым шаблоном, ложный пропуск — всего сервиса.
+ */
+export function nestedQuantifier(pattern: string): boolean {
+  return /\([^()]*[+*}][^()]*\)\s*[+*{]/.test(pattern);
+}
+
 async function grepTool(
   call: NormalizedCall & { kind: 'grep' },
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
+  if (nestedQuantifier(call.pattern)) {
+    return {
+      ok: false,
+      text:
+        `шаблон «${call.pattern}» содержит вложенное повторение (группа с «+» или «*» под ` +
+        `ещё одним «+»/«*»). Такой поиск может выполняться экспоненциально долго и ` +
+        `остановить его нечем, поэтому он не запускается. Упрости выражение.`,
+    };
+  }
+
   let re: RegExp;
   try {
     re = new RegExp(call.pattern, 'i');
@@ -164,9 +241,25 @@ async function grepTool(
   const base = call.path === null ? ctx.projectRoot : resolveUserPath(ctx.projectRoot, call.path);
   const hits: string[] = [];
   const MAX_HITS = 200;
+  const deadline = Date.now() + GREP_BUDGET_MS;
+  let stopped: string | null = null;
+
+  const scan = (abs: string, content: string): void => {
+    const lines = content.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (hits.length >= MAX_HITS) return;
+      if ((i & 0xff) === 0 && Date.now() > deadline) {
+        stopped = 'выражение оказалось слишком дорогим';
+        return;
+      }
+      if (re.test(lines[i]!)) {
+        hits.push(`${rel(ctx.projectRoot, abs)}:${i + 1}: ${lines[i]!.trim().slice(0, 200)}`);
+      }
+    }
+  };
 
   const walk = async (dir: string): Promise<void> => {
-    if (hits.length >= MAX_HITS || ctx.signal.aborted) return;
+    if (hits.length >= MAX_HITS || stopped !== null) return;
     let entries: Dirent[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -174,7 +267,19 @@ async function grepTool(
       return;
     }
     for (const entry of entries) {
-      if (hits.length >= MAX_HITS) return;
+      if (hits.length >= MAX_HITS || stopped !== null) return;
+      // Отдаём управление циклу событий: обход синхронный, и без этой уступки отмена
+      // прогона и ответы по сокету ждали бы конца обхода.
+      await new Promise((r) => setImmediate(r));
+      if (ctx.signal.aborted) {
+        stopped = 'поиск прерван отменой прогона';
+        return;
+      }
+      if (Date.now() > deadline) {
+        stopped = 'поиск не уложился в отведённое время';
+        return;
+      }
+
       if (entry.isDirectory()) {
         if (SKIP_DIRS.has(entry.name)) continue;
         await walk(join(dir, entry.name));
@@ -192,26 +297,25 @@ async function grepTool(
       }
       // Нулевой байт — признак бинарного файла: искать в нём регулярным выражением нечего.
       if (content.includes(String.fromCharCode(0))) continue;
-      content.split(/\r?\n/).forEach((line, i) => {
-        if (hits.length >= MAX_HITS || !re.test(line)) return;
-        hits.push(`${rel(ctx.projectRoot, abs)}:${i + 1}: ${line.trim().slice(0, 200)}`);
-      });
+      scan(abs, content);
     }
   };
 
   try {
     if (statSync(base).isFile()) {
-      const content = readFileSync(base, 'utf8');
-      content.split(/\r?\n/).forEach((line, i) => {
-        if (hits.length < MAX_HITS && re.test(line)) {
-          hits.push(`${rel(ctx.projectRoot, base)}:${i + 1}: ${line.trim().slice(0, 200)}`);
-        }
-      });
+      scan(base, readFileSync(base, 'utf8'));
     } else {
       await walk(base);
     }
   } catch (e) {
     return { ok: false, text: `поиск не отработал: ${(e as Error).message}` };
+  }
+
+  if (stopped !== null && hits.length === 0) {
+    return {
+      ok: false,
+      text: `${stopped}. Сузь шаблон или задай path — вложенные повторения вида «(a+)+» дороги.`,
+    };
   }
 
   if (hits.length === 0) return { ok: true, text: 'совпадений нет' };
@@ -246,11 +350,11 @@ async function bashTool(
 export async function executeTool(call: NormalizedCall, ctx: ToolContext): Promise<ToolOutcome> {
   switch (call.kind) {
     case 'read':
-      return readTool(call, ctx);
+      return guard(() => readTool(call, ctx));
     case 'write':
-      return writeTool(call, ctx);
+      return guard(() => writeTool(call, ctx));
     case 'edit':
-      return editTool(call, ctx);
+      return guard(() => editTool(call, ctx));
     case 'glob':
       return globTool(call, ctx);
     case 'grep':
