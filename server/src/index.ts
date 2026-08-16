@@ -29,6 +29,7 @@ import { loadConfig, requireProject } from './config/load.ts';
 import { ProfileError, resolveStartableProfile } from './config/profiles.ts';
 import { Run } from './run/Run.ts';
 import { STAGES, isStageId, stageById } from './run/stages.ts';
+import { badSlug } from './validation.ts';
 
 const config = loadConfig();
 const bus = new EventBus();
@@ -90,21 +91,6 @@ const app = Fastify({ logger: { level: 'warn' } });
 await app.register(websocket);
 
 // ── валидация входа ────────────────────────────────────────────────────────
-
-/**
- * Slug становится именем каталога артефактов, поэтому он не может содержать
- * разделителей: `../../../Users/Root/.ssh` заставлял рантайм читать файлы вне проекта
- * и вклеивать их содержимое в промпт. Политика тут не помогает — читает сам рантайм.
- */
-const SLUG_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
-
-function badSlug(slug: string): string | null {
-  if (!SLUG_RE.test(slug)) {
-    return 'slug может содержать только латиницу, цифры, точку, дефис и подчёркивание (до 64 символов)';
-  }
-  if (slug === '.' || slug === '..' || slug.includes('..')) return 'slug не может содержать «..»';
-  return null;
-}
 
 function liveRun(id: string): LiveRun | null {
   return runs.get(id) ?? null;

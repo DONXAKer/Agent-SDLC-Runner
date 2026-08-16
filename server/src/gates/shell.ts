@@ -87,6 +87,10 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     };
     opts.signal?.addEventListener('abort', onAbort, { once: true });
 
+    // Декодируем как UTF-8. Консоль Windows печатает в кодировке OEM, поэтому кириллица
+    // в выводе команды приедет искажённой; угадывать кодировку по содержимому — хуже,
+    // чем показать искажение: вывод сборщиков и тест-раннеров на латинице, а молчаливая
+    // перекодировка ломала бы его.
     child.stdout.on('data', (d: Buffer) => out.push(d.toString('utf8')));
     child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
 
