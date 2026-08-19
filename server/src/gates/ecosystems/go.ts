@@ -11,6 +11,7 @@ export const go: Ecosystem = {
   // вообще разбирается».
   syntaxCheck: (file) => ({ cmd: 'gofmt', args: ['-e', file] }),
   lint: (files) => ({ cmd: 'golangci-lint', args: ['run', './...'], scope: 'module' }),
+  funcDecl: [/^\s*func\s+([A-Za-z_]\w*)/],
   disableMarkers: ['t.Skip(', 'testing.Short()'],
   testDecl: ['func Test'],
 };

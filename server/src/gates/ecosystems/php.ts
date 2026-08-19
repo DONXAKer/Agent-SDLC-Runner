@@ -12,6 +12,7 @@ export const php: Ecosystem = {
   codeExt: ['.php'],
   syntaxCheck: (file) => ({ cmd: 'php', args: ['-l', file] }),
   lint: (files) => ({ cmd: 'vendor/bin/phpcs', args: [...files], scope: 'files' }),
+  funcDecl: [/^\s*function\s+([A-Za-z_]\w*)/],
   disableMarkers: ['@group disabled', '$this->markTestSkipped('],
   testDecl: ['function test', '@test'],
 };

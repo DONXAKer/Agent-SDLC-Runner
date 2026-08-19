@@ -11,6 +11,7 @@ export const ruby: Ecosystem = {
   }),
   codeExt: ['.rb'],
   syntaxCheck: (file) => ({ cmd: 'ruby', args: ['-c', file] }),
+  funcDecl: [/^\s*def\s+([A-Za-z_]\w*)/],
   disableMarkers: ['xit ', 'xdescribe ', 'skip '],
   testDecl: ['it ', 'def test_'],
 };

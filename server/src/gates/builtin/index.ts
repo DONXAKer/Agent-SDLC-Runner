@@ -12,7 +12,14 @@
  */
 
 import { worstGateStatus } from '@sdlc-runner/shared';
-import { ORDER, detectBuildSystem, detectEcosystem, syntaxCheckerFor } from '../ecosystems/index.ts';
+import {
+  CODE_EXTENSIONS,
+  ORDER,
+  detectBuildSystem,
+  detectEcosystem,
+  syntaxCheckerFor,
+} from '../ecosystems/index.ts';
+import { addedFunctionNames, findDuplicates } from './duplicates.ts';
 import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
 import { spawn } from 'node:child_process';
@@ -27,6 +34,7 @@ import { gateKey } from '../gatesFile.ts';
 import { runShell } from '../shell.ts';
 import type { InvariantViolation } from './logic.ts';
 import {
+  diffLines,
   invariantViolations,
   moduleDirsFromPlan,
   normalizeModuleDir,
@@ -608,6 +616,98 @@ const lintGate: BuiltinGate = async (ctx) => {
   });
 };
 
+/** Потолки гейта дублей: он эвристический, и минуты на критическом пути не стоит. */
+const DUPLICATE_NAME_LIMIT = 30;
+const DUPLICATE_SCAN_LIMIT = 2000;
+
+/**
+ * Список исходников проекта с потолком по числу файлов.
+ *
+ * Обход останавливается по достижении лимита и пропускает каталоги зависимостей и истории:
+ * искать одноимённую функцию в `node_modules` бессмысленно, а времени это стоит больше,
+ * чем весь остальной гейт.
+ */
+function listSourceFiles(root: string, limit: number): string[] {
+  const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', 'vendor', '.sdlc', 'venv', '__pycache__']);
+  const out: string[] = [];
+
+  const walk = (rel: string): void => {
+    if (out.length >= limit) return;
+    let entries: string[];
+    try {
+      entries = readdirSync(rel === '' ? root : join(root, rel));
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      if (out.length >= limit) return;
+      if (SKIP.has(name) || name.startsWith('.')) continue;
+      const child = rel === '' ? name : `${rel}/${name}`;
+      let isDir = false;
+      try {
+        isDir = statSync(join(root, child)).isDirectory();
+      } catch {
+        continue;
+      }
+      if (isDir) walk(child);
+      else if (CODE_EXTENSIONS.has(child.slice(child.lastIndexOf('.')).toLowerCase())) {
+        out.push(child);
+      }
+    }
+  };
+
+  walk('');
+  return out;
+}
+
+/**
+ * Гейт дублей хелперов: «не написали ли мы то, что уже есть».
+ *
+ * В `MINIMUM` не входит: это эвристика, а не обязательная проверка. Исход `⏭` с вопросом
+ * человеку — находка требует его суждения, а не автоматического отказа.
+ *
+ * Потолок на объём обязателен: поиск по чужому репозиторию — это I/O на критическом пути
+ * этапа, а гейт, добавляющий минуты, выключат первым.
+ */
+const duplicatesGate: BuiltinGate = async (ctx) => {
+  const added = addedFunctionNames(diffLines(await workingDiff(ctx.projectRoot, [], ctx.signal)));
+  if (added.length === 0) {
+    return {
+      status: '✅',
+      command: null,
+      exitCode: null,
+      lastLine: 'новых функций в diff нет — дублировать нечего',
+    };
+  }
+
+  const files = listSourceFiles(ctx.projectRoot, DUPLICATE_SCAN_LIMIT);
+  const found = findDuplicates(added.slice(0, DUPLICATE_NAME_LIMIT), files, (f) =>
+    readIfExists(join(ctx.projectRoot, f)),
+  );
+
+  if (found.length === 0) {
+    return {
+      status: '✅',
+      command: null,
+      exitCode: null,
+      lastLine: `одноимённых объявлений не найдено (проверено имён: ${Math.min(added.length, DUPLICATE_NAME_LIMIT)})`,
+    };
+  }
+
+  return {
+    status: '⏭',
+    command: null,
+    exitCode: null,
+    lastLine: [
+      'похоже на переписанный хелпер — нужен ответ человека, а не правка кода:',
+      ...found.slice(0, 5).map(
+        (f) => `  «${f.name}» добавлена в ${f.addedIn}, одноимённое объявление уже есть в ${f.existsIn}`,
+      ),
+      'Если это разные вещи — подпишите строку неприменимости своим именем.',
+    ].join('\n'),
+  };
+};
+
 const scopeGate: BuiltinGate = async (ctx) => {
   if (!(await isRepo(ctx.projectRoot))) {
     return {
@@ -794,6 +894,7 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
   ['анти-обход тест-гейта', antiBypassGate],
   ['секреты в diff', secretsGate],
   ['линт экосистемы', lintGate],
+  ['дубли хелперов', duplicatesGate],
   ['проверка предусловий публикации', publishGate],
 ]);
 

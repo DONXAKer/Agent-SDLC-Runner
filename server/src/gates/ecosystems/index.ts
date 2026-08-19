@@ -75,6 +75,24 @@ export const TEST_DECLARATIONS: readonly string[] = [
 ];
 
 /**
+ * Имена функций, объявленных в строке. Пусто — объявления в строке нет.
+ *
+ * Формы берутся из реестра: закрытый список регулярок в гейте был бы четвёртым местом,
+ * куда надо не забыть дописать язык.
+ */
+export function declaredFunctionNames(line: string): string[] {
+  const out: string[] = [];
+  for (const eco of ORDER) {
+    for (const re of eco.funcDecl ?? []) {
+      const m = re.exec(line);
+      const name = m?.[1];
+      if (name !== undefined && !out.includes(name)) out.push(name);
+    }
+  }
+  return out;
+}
+
+/**
  * Экосистема, умеющая проверить синтаксис файла по его расширению. `null` — такой нет.
  *
  * Ищется по расширению, а не по манифестам каталога: запасная проверка синтаксиса

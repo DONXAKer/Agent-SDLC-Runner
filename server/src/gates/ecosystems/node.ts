@@ -38,6 +38,7 @@ export const node: Ecosystem = {
   // `builtin/index.ts`, а не здесь.
   syntaxCheck: (file) => ({ cmd: process.execPath, args: ['--check', file] }),
   lint: (files) => ({ cmd: 'npx', args: ['--no-install', 'eslint', ...files], scope: 'files' }),
+  funcDecl: [/^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$]\w*)/, /^\s*(?:export\s+)?const\s+([A-Za-z_$]\w*)\s*=\s*(?:async\s*)?\(/],
   disableMarkers: [
     'it.skip(',
     'describe.skip(',

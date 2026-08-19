@@ -18,6 +18,7 @@ export const python: Ecosystem = {
     args: ['-c', 'import ast,sys; ast.parse(open(sys.argv[1],encoding="utf-8").read(), sys.argv[1])', file],
   }),
   lint: (files) => ({ cmd: 'ruff', args: ['check', ...files], scope: 'files' }),
+  funcDecl: [/^\s*def\s+([A-Za-z_]\w*)/],
   disableMarkers: ['@pytest.mark.skip', '@unittest.skip', 'pytest.skip('],
   testDecl: ['def test_'],
 };

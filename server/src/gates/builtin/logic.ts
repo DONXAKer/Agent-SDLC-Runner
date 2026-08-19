@@ -184,7 +184,7 @@ const TEST_FILE =
 const SECRET =
   /BEGIN [A-Z ]*PRIVATE KEY|(api[_-]?key|apikey|secret|password|passwd|access[_-]?token)\s*[:=]\s*["'][A-Za-z0-9/+_.=-]{16,}/i;
 
-interface DiffLine {
+export interface DiffLine {
   file: string;
   text: string;
   added: boolean;
