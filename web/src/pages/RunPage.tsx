@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AskHumanDialog } from '../components/AskHumanDialog.tsx';
 import { CostBar } from '../components/CostBar.tsx';
 import { EventStream } from '../components/EventStream.tsx';
+import { AttemptsPanel } from '../components/AttemptsPanel.tsx';
 import { GatePanel } from '../components/GatePanel.tsx';
 import { PromptPane } from '../components/PromptPane.tsx';
 import { StageRail } from '../components/StageRail.tsx';
@@ -550,7 +551,18 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                   таблице, и читать их в обратном порядке — читать вывод раньше входа.
                   Условие по этапу то же, что у вердикта: гейты прогоняются на `verify` и
                   под лентой `plan` читались бы как «план провалил сборку». */}
-              {stage === 'verify' ? <GatePanel results={gateResults} aborted={detail.gatesAborted} /> : null}
+              {stage === 'verify' ? (
+                <GatePanel results={gateResults} aborted={detail.gatesAborted} />
+              ) : null}
+
+              {/* Попытки видны и на chunk, и на verify: чинят на первом, а решают по
+                  второму, и история нужна на обоих. */}
+              {stage === 'verify' || stage === 'chunk' ? (
+                <AttemptsPanel
+                  iterations={detail.iterations}
+                  attemptBudget={detail.attemptBudget}
+                />
+              ) : null}
 
               {detail.verdict !== null && stage === 'verify' ? (
                 <div

@@ -17,6 +17,7 @@ import type {
   RunStatus,
   StageId,
   Usage,
+  IterationSummary,
   RedCause,
   RedCauseKind,
   RunMetrics,
@@ -216,6 +217,8 @@ export class Run {
    * нужна именно между ними.
    */
   private failedClaimsByAttempt: string[][] = [];
+  /** История попыток для интерфейса — тот же набор фактов, что уходит в `iterations.md`. */
+  private readonly iterationLog: IterationSummary[] = [];
   private verdictCount = 0;
   private redCount = 0;
   private readonly redByCause = new Map<RedCauseKind, number>();
@@ -275,6 +278,11 @@ export class Run {
     };
   }
 
+  /** История попыток витка. */
+  get iterations(): IterationSummary[] {
+    return [...this.iterationLog];
+  }
+
   /** Прогон гейтов оборван отменой: набор в `gateResults` неполон. */
   get gatesAborted(): boolean {
     return this.lastGatesAborted;
@@ -306,6 +314,15 @@ export class Run {
         at: new Date(),
       });
       writeArtifact(this.paths.iterations, text);
+      this.iterationLog.push({
+        chunk: this.chunk,
+        attempt: this.attempt,
+        passed: verdict.passed,
+        action: verdict.action,
+        reasons: verdict.reasons,
+        closeness: this.closeness,
+        at: new Date().toISOString(),
+      });
       this.emit({
         type: 'artifact_written',
         runId: this.id,

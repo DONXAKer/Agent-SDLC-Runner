@@ -1,6 +1,8 @@
-import type { RunDetail, StageId } from '@sdlc-runner/shared';
+import type { FlowId, RunDetail, StageId } from '@sdlc-runner/shared';
 
-const FLOW_BADGE: Record<string, string> = {
+// Ключ — `FlowId`, а не строка: новый флоу должен ловиться сборкой, а не оставаться
+// без бейджа молча.
+const FLOW_BADGE: Record<FlowId, string> = {
   sdk: 'bg-violet-900/60 text-violet-200',
   loop: 'bg-teal-900/60 text-teal-200',
 };
@@ -57,10 +59,23 @@ export function StageRail({
               <span className="truncate text-[11px] text-neutral-500">{route.model}</span>
             </div>
 
+            {/* Причины показываются ВСЕ: «первая и (+2)» заставляла оператора чинить их по
+                одной, перезапуская сборку промпта после каждой, — а предусловия считаются
+                чтением файлов, и вторая причина видна ровно так же дёшево, как первая. */}
             {!ready ? (
-              <div className="mt-1 break-words pl-7 text-[11px] leading-4 text-neutral-500">
-                {s.blockers[0]}
-                {s.blockers.length > 1 ? ` (+${s.blockers.length - 1})` : ''}
+              <ul className="mt-1 space-y-0.5 break-words pl-7 text-[11px] leading-4 text-neutral-500">
+                {s.blockers.map((b, i) => (
+                  <li key={i}>— {b}</li>
+                ))}
+              </ul>
+            ) : null}
+
+            {/* У handoff'а два входа с разными предусловиями: штатная приёмка и объявленный
+                обрыв витка. Если штатный закрыт, а обрыв доступен — это и есть выход, и
+                молчать о нём значит прятать единственную открытую дверь. */}
+            {!ready && s.abortBlockers !== null && s.abortBlockers.length === 0 ? (
+              <div className="mt-1 pl-7 text-[11px] leading-4 text-amber-400">
+                доступен обрыв витка → handoff
               </div>
             ) : null}
           </button>

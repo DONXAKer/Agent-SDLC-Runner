@@ -21,6 +21,7 @@ import type {
   StageId,
   Usage,
   Verdict,
+  VerdictAction,
 } from './types.ts';
 
 export interface RouteInfo {
@@ -125,6 +126,21 @@ export interface RunMetrics {
   attemptsByChunk: { chunk: number; attempts: number }[];
 }
 
+/**
+ * Одна попытка витка так, как её видел рантайм. Тот же источник, что у `iterations.md`:
+ * второго описания истории попыток заводить нельзя, иначе они разойдутся.
+ */
+export interface IterationSummary {
+  chunk: number;
+  attempt: number;
+  passed: boolean;
+  action: VerdictAction;
+  reasons: string[];
+  /** Близость патча к предыдущей попытке. `null` — сравнивать было не с чем. */
+  closeness: number | null;
+  at: string;
+}
+
 export interface RunDetail extends RunSummary {
   projectRoot: string;
   routes: Record<StageId, RouteInfo>;
@@ -160,6 +176,8 @@ export interface RunDetail extends RunSummary {
   metrics: RunMetrics;
   /** Предложение поднять модель, когда один и тот же пункт не закрывается. */
   escalation: Escalation;
+  /** История попыток витка: попытка → вердикт → причины. */
+  iterations: IterationSummary[];
   // Историю событий здесь не отдаём: клиент получает её по WebSocket при подключении,
   // а дублирование гоняло по проводу полные тексты файлов впустую.
 }
