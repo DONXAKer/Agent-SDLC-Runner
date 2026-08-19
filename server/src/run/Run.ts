@@ -41,7 +41,7 @@ import { createProvider } from '../provider/registry.ts';
 import type { ExecHooks, StageExecutor, StageResult } from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
-import { configProblems, gateKey, parseGates } from '../gates/gatesFile.ts';
+import { configProblems, gateKey, parseGates, uncalibratedGates } from '../gates/gatesFile.ts';
 import { describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
 import { runGates } from '../gates/run.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
@@ -768,7 +768,19 @@ export class Run {
           ]
         : [];
 
-    const notes = [...disagreements, ...closenessNote];
+    // Пометка о некалиброванных гейтах: красный, полученный проверкой, чью способность
+    // ловить никто не подтверждал посевом, стоит читать с оговоркой. На `passed` это не
+    // влияет — иначе один флаг в наборе гейтов начал бы решать судьбу витка.
+    const uncalibrated = gates === null ? [] : uncalibratedGates(gates);
+    const calibrationNote =
+      !verdict.passed && uncalibrated.length > 0
+        ? [
+            `посевом не проверялись гейты: ${uncalibrated.join(', ')} — их способность ` +
+              'ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит',
+          ]
+        : [];
+
+    const notes = [...disagreements, ...closenessNote, ...calibrationNote];
     const withNotes: Verdict =
       notes.length === 0 ? verdict : { ...verdict, reasons: [...verdict.reasons, ...notes] };
 

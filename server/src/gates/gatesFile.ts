@@ -48,9 +48,30 @@ export interface DebtRow {
   why: string;
 }
 
+/**
+ * Запись калибровки: посев дефекта известного класса и то, поймал ли его гейт.
+ *
+ * Непойманный посев — дефект процесса, а не прогона, и знать об этом надо в момент, когда
+ * гейт даёт зелёный.
+ */
+export interface CalibrationRow {
+  /** Имя гейта как в наборе. Сопоставляется через `gateKey`. */
+  name: string;
+  date: string;
+  /** Класс посеянного дефекта — словами человека. */
+  defectClass: string;
+  /**
+   * Пойман ли посев. `null` — значение не разобрано: непонятое считается «не калиброван»,
+   * а не «калиброван». Строгость здесь та же, что и в остальном разборе набора.
+   */
+  caught: boolean | null;
+}
+
 export interface GatesFile {
   rows: GateRow[];
   debt: DebtRow[];
+  /** Таблица «Калибровка», если она есть. Пусто — посевом никто не проверялся. */
+  calibration: CalibrationRow[];
 }
 
 /** `‹…›` формы — «не заполнено», а не значение. */
@@ -148,6 +169,28 @@ export function parseGates(text: string): GatesFile {
     });
   }
 
+  const calibration: CalibrationRow[] = [];
+  for (const cells of tableRows(text, 'Калибровка')) {
+    const name = (cells[0] ?? '').replace(/`/g, '').trim();
+    if (name === '' || PLACEHOLDER.test(name)) continue;
+    const outcome = (cells[3] ?? '').toLowerCase().replace(/ё/g, 'е').trim();
+    // Окончания перечисляются явно: `\b` в JS не работает по кириллице, и на этом уже
+    // однажды молча выключилась вся обязательная пятёрка.
+    const caught = PLACEHOLDER.test(cells[3] ?? '')
+      ? null
+      : /^поймал|^пойман|^да(\s|[—–-]|$)/.test(outcome)
+        ? true
+        : /^не\s*поймал|^не\s*пойман|^нет(\s|[—–-]|$)|^пропустил/.test(outcome)
+          ? false
+          : null;
+    calibration.push({
+      name,
+      date: (cells[1] ?? '').trim(),
+      defectClass: (cells[2] ?? '').trim(),
+      caught,
+    });
+  }
+
   const debt: DebtRow[] = [];
   for (const cells of tableRows(text, 'Долг')) {
     const name = (cells[0] ?? '').replace(/`/g, '').trim();
@@ -176,7 +219,7 @@ export function parseGates(text: string): GatesFile {
     });
   }
 
-  return { rows, debt };
+  return { rows, debt, calibration };
 }
 
 /**
@@ -225,6 +268,22 @@ export function gateKey(name: string): string {
  * и из вердикта — виток зеленел с фактически отключённым гейтом минимума) и две строки
  * с одинаковым именем (их статусы схлопывались в один, и `❌` одной затирался другой).
  */
+/**
+ * Гейты, чья способность ловить НЕ подтверждена посевом.
+ *
+ * Возвращается для пометки в причинах вердикта, а не для отказа: некалиброванный гейт —
+ * это неизвестность, а не нарушение, и ронять по нему вердикт значило бы блокировать все
+ * проекты, где посев ещё не гоняли.
+ */
+export function uncalibratedGates(g: GatesFile): string[] {
+  const caught = new Set(
+    g.calibration.filter((c) => c.caught === true).map((c) => gateKey(c.name)),
+  );
+  return g.rows
+    .filter((r) => r.enabled && !caught.has(gateKey(r.name)))
+    .map((r) => r.name);
+}
+
 export function configProblems(g: GatesFile): string[] {
   const out = minimumProblems(g);
 
