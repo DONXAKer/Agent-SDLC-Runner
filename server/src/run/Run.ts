@@ -18,6 +18,7 @@ import type {
   StageId,
   Usage,
   Verdict,
+  VerdictInput,
 } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
@@ -40,6 +41,7 @@ import { configProblems, gateKey, parseGates } from '../gates/gatesFile.ts';
 import { snapshotBaseline } from '../gates/builtin/index.ts';
 import { runGates } from '../gates/run.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
+import { buildRetryBrief } from '../verdict/retryBrief.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
@@ -145,6 +147,16 @@ export class Run {
   /** Фактический прогон гейтов текущей попытки — источник статусов для вердикта. */
   private lastGateResults: GateRunResult[] = [];
   private lastGatesAborted = false;
+  /** Вход последнего посчитанного вердикта — из него собирается выжимка для ретрая. */
+  private lastVerdictInput: VerdictInput | null = null;
+  /**
+   * Выжимка причин прошлого красного, ждущая следующей попытки chunk'а.
+   *
+   * Живёт на chunk, а не на попытку: `resetAttemptState` обнуляет вердикт и итоги гейтов,
+   * поэтому собрать её ПОСЛЕ сброса уже не из чего — она собирается до него, в
+   * `nextAttempt`, и переживает сброс намеренно.
+   */
+  private carryForward: string | null = null;
   private verdict: Verdict | null = null;
   /** Отработал ли независимый рецензент на ТЕКУЩЕЙ попытке. */
   private reviewerRan = false;
@@ -250,6 +262,15 @@ export class Run {
    * стирает его улики.
    */
   nextAttempt(): number {
+    // Выжимка собирается ДО `resetAttemptState`: он обнуляет вердикт и итоги гейтов, то
+    // есть ровно то, из чего она состоит. Порядок здесь значим.
+    // Присваивается ВСЕГДА, в том числе `null`: если вердикт на этой попытке не считался,
+    // сказать про неё нечего, а оставленная от прошлой попытки выжимка поехала бы в промпт
+    // под заголовком «что не сошлось в прошлой попытке» — то есть как свежая.
+    this.carryForward =
+      this.lastVerdictInput === null
+        ? null
+        : buildRetryBrief(this.lastVerdictInput, this.lastGateResults);
     this.attempt += 1;
     this.resetAttemptState();
     return this.attempt;
@@ -259,6 +280,8 @@ export class Run {
   nextChunk(): number {
     this.chunk += 1;
     this.attempt = 1;
+    // Новый chunk — другая работа: причины красного по прошлому к нему не относятся.
+    this.carryForward = null;
     this.resetAttemptState();
     return this.chunk;
   }
@@ -274,6 +297,7 @@ export class Run {
     this.lastGateResults = [];
     this.lastGatesAborted = false;
     this.verdict = null;
+    this.lastVerdictInput = null;
     this.reviewerRan = false;
   }
 
@@ -368,6 +392,22 @@ export class Run {
    * отредактировать промпт до отправки — а значит, он должен увидеть его раньше.
    */
   preparePrompt(stage: StageId, opts: { requirement?: string; extra?: string } = {}): PreparedPrompt {
+    // Диагноз прошлой попытки попадает уже в собранный промпт, а не подклеивается позже:
+    // промпт уходит в шину и редактируется оператором, и всё, что уйдёт в модель, должно
+    // быть видно ему до запуска. Проверка на вхождение — от второго экземпляра, когда
+    // `runStage` уже подмешал тот же блок в `extra`.
+    if (
+      stage === 'chunk' &&
+      this.carryForward !== null &&
+      !(opts.extra ?? '').includes(this.carryForward)
+    ) {
+      const carried = this.carryForward;
+      opts = {
+        ...opts,
+        extra: opts.extra === undefined ? carried : `${opts.extra}\n\n${carried}`,
+      };
+    }
+
     const def = stageById(stage);
     const route = this.profile.routes[stage];
     const prompt = buildPrompt({
@@ -559,6 +599,7 @@ export class Run {
         : { ...verdict, reasons: [...verdict.reasons, ...disagreements] };
 
     this.verdict = withNotes;
+    this.lastVerdictInput = input;
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
     return withNotes;
   }
@@ -660,12 +701,25 @@ export class Run {
     // о правке, которой не делал. Блок фактов от прогона — не «дополнение промпта за
     // спиной»: без него этап 6 не исполняет порядок, ради которого он и устроен.
     let extra = opts.extra;
+    /** Что подклеил сам рантайм — только это дописывается к промпту, отредактированному
+     *  оператором. Раньше признак был выражен условием `stage === 'verify'` в месте
+     *  склейки, и второй источник фактов (диагноз ретрая) туда бы просто не попал. */
+    let appended: string | undefined;
+
     if (stage === 'verify') {
       const results = await this.runVerifyGates(this.aborter.signal);
       if (results.length > 0) {
-        const block = gateReportBlock(results);
-        extra = extra === undefined ? block : `${extra}\n\n${block}`;
+        appended = gateReportBlock(results);
+        extra = extra === undefined ? appended : `${extra}\n\n${appended}`;
       }
+    }
+
+    // Диагноз прошлой попытки — вход повторного chunk'а. Без него ретрай уходил тем же
+    // промптом, что и первая попытка: причины красного посчитаны, но до исполнителя не
+    // доезжали, и он заново угадывал, что именно не сошлось.
+    if (stage === 'chunk' && this.carryForward !== null) {
+      appended = this.carryForward;
+      extra = extra === undefined ? appended : `${extra}\n\n${appended}`;
     }
 
     // Промпт пересобирается, когда есть что подклеить: иначе правка оператора и факты
@@ -677,7 +731,7 @@ export class Run {
             ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
             ...(extra === undefined ? {} : { extra }),
           })
-        : withExtra(opts.prompt, stage === 'verify' ? extra : undefined);
+        : withExtra(opts.prompt, appended);
     if (opts.prompt !== undefined) {
       this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     }
