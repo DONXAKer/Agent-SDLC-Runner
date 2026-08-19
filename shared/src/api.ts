@@ -120,6 +120,20 @@ export interface ConfigInfo {
   projects: ProjectInfo[];
   models: { id: string; provider: string; model: string; rank: number }[];
   stages: { id: StageId; title: string; tools: readonly string[] }[];
+  /** Обзор каталогов доступен, только если на сервере задан `SDLC_BROWSE_ROOT`. */
+  browseEnabled: boolean;
+}
+
+export interface BrowseEntry {
+  name: string;
+  path: string;
+}
+
+export interface BrowseResult {
+  root: string;
+  path: string;
+  parent: string | null;
+  entries: BrowseEntry[];
 }
 
 export interface PromptResponse {

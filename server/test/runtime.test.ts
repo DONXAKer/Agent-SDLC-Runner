@@ -281,4 +281,19 @@ describe('проверка slug', () => {
   it('слишком длинный отклоняется', () => {
     ok(badSlug('a'.repeat(65)) !== null);
   });
+
+  // Slug — тоже имя файла (для проекта, добавленного через /api/projects: <slug>.local.json),
+  // а зарезервированные в Windows имена устройств валят запись на диске малопонятной
+  // ОС-ошибкой вместо аккуратного отказа валидации.
+  it('зарезервированные в Windows имена устройств отклоняются', () => {
+    for (const s of ['con', 'CON', 'Con', 'aux', 'nul', 'prn', 'com1', 'COM9', 'lpt1', 'nul.txt', 'con.local']) {
+      ok(badSlug(s) !== null, `slug «${s}» обязан быть отклонён`);
+    }
+  });
+
+  it('похожие, но легитимные имена не отклоняются', () => {
+    for (const s of ['console', 'connect', 'auxiliary', 'nullable', 'constant', 'comment']) {
+      strictEqual(badSlug(s), null, `slug «${s}» не должен отклоняться`);
+    }
+  });
 });

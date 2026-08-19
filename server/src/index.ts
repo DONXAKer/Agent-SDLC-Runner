@@ -25,14 +25,23 @@ import type {
 import { AskGate } from './approval/askGate.ts';
 import { ApprovalGate } from './approval/gate.ts';
 import { EventBus } from './bus.ts';
+import { createProject } from './config/createProject.ts';
 import { loadConfig, requireProject } from './config/load.ts';
 import { ProfileError, resolveStartableProfile } from './config/profiles.ts';
+import { listDir } from './fs/browse.ts';
 import { Run } from './run/Run.ts';
 import { STAGES, isStageId, stageById } from './run/stages.ts';
 import { badSlug } from './validation.ts';
 
 const config = loadConfig();
 const bus = new EventBus();
+
+/**
+ * Обзор каталогов из интерфейса сужен до одного дерева — на контейнерном развёртывании
+ * это то же самое, что смонтировано внутрь. Не задано — ручка просто выключена, а не
+ * открыта на всю файловую систему хоста по умолчанию.
+ */
+const browseRoot = process.env['SDLC_BROWSE_ROOT'];
 
 const gate = new ApprovalGate({
   onPending: (p) =>
@@ -117,7 +126,61 @@ app.get('/api/config', (): ConfigInfo => ({
   })),
   models: config.models.models,
   stages: STAGES.map((s) => ({ id: s.id, title: s.title, tools: s.tools })),
+  browseEnabled: browseRoot !== undefined,
 }));
+
+// ── обзор каталогов и добавление проекта ────────────────────────────────────
+
+app.get('/api/browse', (req, reply) => {
+  if (browseRoot === undefined) {
+    return reply.code(501).send({ error: 'обзор каталогов выключен: не задан SDLC_BROWSE_ROOT' });
+  }
+  // Fastify отдаёт массив для повторённого query-параметра (`?path=a&path=b`) —
+  // без этой проверки такой запрос падал внутри listDir сырым `p.replace is not
+  // a function` вместо внятной ошибки валидации.
+  const { path } = req.query as { path?: unknown };
+  if (path !== undefined && typeof path !== 'string') {
+    return reply.code(400).send({ error: 'параметр path должен быть одной строкой' });
+  }
+  try {
+    return listDir(browseRoot, path);
+  } catch (e) {
+    return reply.code(400).send({ error: (e as Error).message });
+  }
+});
+
+app.post('/api/projects', (req, reply) => {
+  // Та же граница, что у GET /api/browse: без SDLC_BROWSE_ROOT нет дерева, к которому
+  // можно сузить projectRoot, и ручка обязана быть выключена целиком, а не принимать
+  // произвольный путь с диска сервера.
+  if (browseRoot === undefined) {
+    return reply.code(501).send({ error: 'добавление проекта выключено: не задан SDLC_BROWSE_ROOT' });
+  }
+  const body = (req.body ?? {}) as { name?: string; projectRoot?: string };
+  if (typeof body.name !== 'string' || typeof body.projectRoot !== 'string') {
+    return reply.code(400).send({ error: 'нужны поля name и projectRoot' });
+  }
+  try {
+    const project = createProject(config, {
+      name: body.name,
+      projectRoot: body.projectRoot,
+      browseRoot,
+    });
+    return {
+      name: project.name,
+      projectRoot: project.projectRoot,
+      activeProfile: project.activeProfile,
+      maxBudgetUsd: project.maxBudgetUsd,
+      profiles: Object.entries(project.profiles).map(([name, def]) => ({
+        name,
+        label: def.label,
+        stages: def.stages,
+      })),
+    };
+  } catch (e) {
+    return reply.code(400).send({ error: (e as Error).message });
+  }
+});
 
 // ── прогоны ────────────────────────────────────────────────────────────────
 

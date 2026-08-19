@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { DirectoryBrowser } from './components/DirectoryBrowser.tsx';
 import { RunPage } from './pages/RunPage.tsx';
 import { api } from './lib/api.ts';
 import type { ConfigInfo, ProjectInfo } from '@sdlc-runner/shared';
@@ -11,6 +12,9 @@ export default function App(): JSX.Element {
   const [profile, setProfile] = useState('');
   const [slug, setSlug] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [browsing, setBrowsing] = useState(false);
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
 
   useEffect(() => {
     api
@@ -23,6 +27,22 @@ export default function App(): JSX.Element {
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  const addProject = async (): Promise<void> => {
+    if (pendingPath === null || newName.trim() === '') return;
+    setError(null);
+    try {
+      const p = await api.addProject(newName.trim(), pendingPath);
+      setPendingPath(null);
+      setNewName('');
+      // Ответ уже содержит весь новый проект — полный перезапрос /api/config не нужен.
+      setConfig((c) => (c === null ? c : { ...c, projects: [...c.projects, p] }));
+      setProject(p);
+      setProfile(p.activeProfile);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   if (runId !== null) return <RunPage runId={runId} onExit={() => setRunId(null)} />;
 
@@ -56,13 +76,28 @@ export default function App(): JSX.Element {
       ) : (
         <div className="space-y-4">
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">Проект</span>
+            <span className="mb-1 flex items-center justify-between text-xs uppercase tracking-wide text-neutral-500">
+              <span>Проект</span>
+              {config.browseEnabled ? (
+                <button
+                  type="button"
+                  onClick={() => setBrowsing(true)}
+                  className="normal-case text-emerald-500 hover:text-emerald-400"
+                >
+                  + добавить обзором каталогов
+                </button>
+              ) : null}
+            </span>
             <select
               value={project?.name ?? ''}
               onChange={(e) => {
                 const p = config.projects.find((x) => x.name === e.target.value) ?? null;
                 setProject(p);
                 setProfile(p?.activeProfile ?? '');
+                // Панель добавления проекта относится к обзору каталогов, а не к выбору
+                // из списка — оставленная висеть под уже другим проектом сбивает с толку.
+                setPendingPath(null);
+                setNewName('');
               }}
               className="w-full rounded border border-neutral-800 bg-neutral-950 px-2 py-2 text-sm"
             >
@@ -73,6 +108,50 @@ export default function App(): JSX.Element {
               ))}
             </select>
           </label>
+
+          {browsing ? (
+            <DirectoryBrowser
+              onClose={() => setBrowsing(false)}
+              onPick={(path) => {
+                setBrowsing(false);
+                setPendingPath(path);
+              }}
+            />
+          ) : null}
+
+          {pendingPath !== null ? (
+            <div className="rounded border border-neutral-800 p-3">
+              <div className="mb-2 truncate font-mono text-xs text-neutral-400">{pendingPath}</div>
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">
+                  Имя проекта
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="my-project"
+                    className="w-full rounded border border-neutral-800 bg-neutral-950 px-2 py-2 font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void addProject()}
+                    disabled={newName.trim() === ''}
+                    className="shrink-0 rounded bg-emerald-700 px-3 py-2 text-sm font-medium hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
+                  >
+                    Добавить
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingPath(null)}
+                    className="shrink-0 rounded border border-neutral-800 px-3 py-2 text-sm hover:border-neutral-600"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </label>
+            </div>
+          ) : null}
 
           <div>
             <span className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">

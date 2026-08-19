@@ -39,9 +39,39 @@ const LIMIT_DEFAULTS = {
   chatTimeoutMs: 600_000,
 };
 
+/**
+ * `skillsDir`/`agentsDir`/`methodologyDir` в `runner.json` — реальные пути на машине
+ * разработчика (сегодня это Windows), а не переносимый шаблон. На другой машине их
+ * переопределяют этими переменными окружения, не трогая закоммиченный файл.
+ */
+/** Пустая или чисто пробельная строка — тоже «не задано», не только `undefined`. */
+function nonBlank(v: string | undefined): string | undefined {
+  if (v === undefined) return undefined;
+  const trimmed = v.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+function pathOverrides(): Partial<RunnerConfig> {
+  const overrides: Partial<RunnerConfig> = {};
+  // Пустая/пробельная строка — тоже «не задано»: `SDLC_SKILLS_DIR=""` (или `" "`) в
+  // окружении иначе тихо затирает валидный путь из runner.json, и дальше `join('', ...)`
+  // резолвится от cwd процесса — ошибка идёт с сообщением про runner.json, а причина в env.
+  const skillsDir = nonBlank(process.env['SDLC_SKILLS_DIR']);
+  const agentsDir = nonBlank(process.env['SDLC_AGENTS_DIR']);
+  const methodologyDir = nonBlank(process.env['SDLC_METHODOLOGY_DIR']);
+  if (skillsDir !== undefined) overrides.skillsDir = skillsDir;
+  if (agentsDir !== undefined) overrides.agentsDir = agentsDir;
+  if (methodologyDir !== undefined) overrides.methodologyDir = methodologyDir;
+  return overrides;
+}
+
 export function loadConfig(dir: string = configDir()): LoadedConfig {
   const raw = readJson<RunnerConfig>(join(dir, 'runner.json'));
-  const runner: RunnerConfig = { ...raw, limits: { ...LIMIT_DEFAULTS, ...raw.limits } };
+  const runner: RunnerConfig = {
+    ...raw,
+    ...pathOverrides(),
+    limits: { ...LIMIT_DEFAULTS, ...raw.limits },
+  };
   const models = readJson<ModelsConfig>(join(dir, 'models.json'));
 
   const projectsDir = join(dir, 'projects');

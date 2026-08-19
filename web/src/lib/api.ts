@@ -1,4 +1,12 @@
-import type { ConfigInfo, Decision, PreparedPrompt, RunDetail, StageId } from '@sdlc-runner/shared';
+import type {
+  BrowseResult,
+  ConfigInfo,
+  Decision,
+  PreparedPrompt,
+  ProjectInfo,
+  RunDetail,
+  StageId,
+} from '@sdlc-runner/shared';
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -17,6 +25,14 @@ const post = (url: string, body?: unknown): Promise<Response> =>
 
 export const api = {
   config: (): Promise<ConfigInfo> => fetch('/api/config').then(json<ConfigInfo>),
+
+  browse: (path?: string): Promise<BrowseResult> =>
+    fetch(`/api/browse${path !== undefined ? `?path=${encodeURIComponent(path)}` : ''}`).then(
+      json<BrowseResult>,
+    ),
+
+  addProject: (name: string, projectRoot: string): Promise<ProjectInfo> =>
+    post('/api/projects', { name, projectRoot }).then(json<ProjectInfo>),
 
   createRun: (project: string, slug: string, profile?: string): Promise<{ runId: string }> =>
     post('/api/runs', { project, slug, profile }).then(json<{ runId: string }>),
