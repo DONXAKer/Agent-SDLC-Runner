@@ -395,6 +395,15 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
         <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs">профиль: {detail.profile}</span>
         <span className="text-xs text-neutral-500">
           chunk {detail.chunk} · попытка {detail.attempt} из {detail.attemptBudget}
+          {/* Близость к прошлой попытке — число, а не вывод: утверждение «diff почти тот
+              же» оператор должен иметь возможность проверить глазами. На первой попытке
+              сравнивать не с чем, и ноль там был бы ложью. */}
+          {detail.progressCloseness !== null ? (
+            <span className={detail.progressCloseness >= 0.9 ? ' text-amber-400' : ''}>
+              {' '}
+              · совпадение с прошлым патчем {Math.round(detail.progressCloseness * 100)}%
+            </span>
+          ) : null}
         </span>
 
         <div className="ml-auto flex items-center gap-4">

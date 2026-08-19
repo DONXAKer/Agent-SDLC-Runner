@@ -36,6 +36,7 @@ const LIMIT_DEFAULTS = {
   readRangeRequiredAboveBytes: 120_000,
   maxIterationsPerStage: 40,
   gateTimeoutMs: 900_000,
+  progressClosenessWarn: 0.9,
   chatTimeoutMs: 600_000,
 };
 

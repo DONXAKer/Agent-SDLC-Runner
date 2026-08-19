@@ -275,6 +275,7 @@ app.get('/api/runs/:id', async (req, reply) => {
     gatesAborted: run.gatesAborted,
     verdict: run.lastVerdict,
     redCause: run.lastRedCause,
+    progressCloseness: run.progressCloseness,
     // История событий здесь не отдаётся: клиент получает её по WebSocket при
     // подключении, а дублирование гоняло по проводу полные тексты файлов впустую.
   };

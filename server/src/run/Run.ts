@@ -42,6 +42,7 @@ import { configProblems, gateKey, parseGates } from '../gates/gatesFile.ts';
 import { snapshotBaseline } from '../gates/builtin/index.ts';
 import { runGates } from '../gates/run.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
+import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief } from '../verdict/retryBrief.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
@@ -162,6 +163,8 @@ export class Run {
   private verdict: Verdict | null = null;
   /** Куда возвращать виток по природе красного. На `passed` не влияет. */
   private redCause: RedCause | null = null;
+  /** Близость патча этой попытки к предыдущей. `null` — считать не из чего. */
+  private closeness: number | null = null;
   /** Отработал ли независимый рецензент на ТЕКУЩЕЙ попытке. */
   private reviewerRan = false;
   /** Разобранный набор гейтов: файл проекта, читать его на каждое обращение незачем. */
@@ -603,10 +606,24 @@ export class Run {
     // Расхождение отчёта с прогоном не роняет вердикт само по себе (в статус уже взят
     // худший из двух), но обязано быть видно: рецензент, переписывающий статусы, —
     // отдельный симптом, о котором оператор должен узнать.
+    // Близость называется фактом рядом с причинами — и ТОЛЬКО у красного: у зелёного
+    // вопроса «топчемся ли» нет. `passed` при этом не пересчитывается по длине `reasons`,
+    // иначе приписка сама делала бы вердикт красным.
+    const closenessNote =
+      !verdict.passed &&
+      this.closeness !== null &&
+      this.closeness >= this.config.runner.limits.progressClosenessWarn
+        ? [
+            `патч этой попытки совпадает с предыдущей на ${Math.round(this.closeness * 100)}% ` +
+              `по существу (порог ${Math.round(
+                this.config.runner.limits.progressClosenessWarn * 100,
+              )}%) — похоже на топтание на месте; решение о переходе принимает человек`,
+          ]
+        : [];
+
+    const notes = [...disagreements, ...closenessNote];
     const withNotes: Verdict =
-      disagreements.length === 0
-        ? verdict
-        : { ...verdict, reasons: [...verdict.reasons, ...disagreements] };
+      notes.length === 0 ? verdict : { ...verdict, reasons: [...verdict.reasons, ...notes] };
 
     this.verdict = withNotes;
     this.lastVerdictInput = input;
@@ -893,11 +910,21 @@ export class Run {
     // существует — он обязательное предусловие этапа 6. Пока сравнивались две прошлые,
     // одинаковые попытки 1 и 2 обнаруживались только на третьей: целая итерация бюджета
     // тратилась на заведомо известный факт.
+    this.closeness = null;
     if (this.attempt < 2) return false;
     const current = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt));
     const prev = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt - 1));
     if (!current.exists || !prev.exists) return false;
+
+    // Патчи читаются один раз на вердикт и здесь же обслуживают обе меры: они бывают
+    // сотнями килобайт, и второй проход по диску ради числа для интерфейса не нужен.
+    this.closeness = diffCloseness(prev.text, current.text);
     return current.text.trim() === prev.text.trim();
+  }
+
+  /** Близость патча к патчу прошлой попытки. `null` — первая попытка или сравнивать нечего. */
+  get progressCloseness(): number | null {
+    return this.closeness;
   }
 
   /** Сообщает о произведённых артефактах и о том, сколько мест в них осталось незаполненными. */
