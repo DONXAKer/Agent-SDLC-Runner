@@ -30,6 +30,7 @@ import { createProject } from './config/createProject.ts';
 import { loadConfig, requireProject } from './config/load.ts';
 import { ProfileError, resolveStartableProfile } from './config/profiles.ts';
 import { listDir } from './fs/browse.ts';
+import { readArtifact } from './artifacts/artifact.ts';
 import { Run } from './run/Run.ts';
 import { STAGES, isStageId, stageById } from './run/stages.ts';
 import { badSlug } from './validation.ts';
@@ -508,6 +509,41 @@ app.post('/api/runs/:id/auto-approve', async (req, reply) => {
           `Отказы политики продолжают действовать.`,
   });
   return { ok: true };
+});
+
+/**
+ * Патч попытки и разметка «в плане / вне плана».
+ *
+ * Отдельной ручкой, а не полем `RunDetail`: патч бывает в сотни килобайт, а состояние
+ * перезапрашивается на каждый записанный артефакт — гонять его туда-обратно незачем.
+ */
+app.get('/api/runs/:id/diff', (req, reply) => {
+  const { id } = req.params as { id: string };
+  const live = liveRun(id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+
+  const { run } = live;
+  const patch = readArtifact(run.paths.chunkDiff(run.chunk, run.attempt));
+  if (!patch.exists) {
+    return reply.code(404).send({ error: 'патч этой попытки ещё не собран' });
+  }
+
+  // Список файлов плана берётся тем же разбором, что и у политики: второй разбор плана в
+  // вебе разошёлся бы с тем, по которому реально отклоняются записи.
+  const planFiles = run.planFilesFor('verify') ?? [];
+  const files = [...new Set(
+    patch.text
+      .split(/\r?\n/)
+      .map((l) => /^\+\+\+ (?:b\/)?(.+)$/.exec(l)?.[1]?.trim())
+      .filter((f): f is string => f !== undefined && f !== '/dev/null'),
+  )];
+
+  return {
+    chunk: run.chunk,
+    attempt: run.attempt,
+    patch: patch.text,
+    files: files.map((f) => ({ path: f, inPlan: planFiles.includes(f) })),
+  };
 });
 
 app.post('/api/runs/:id/cancel', async (req, reply) => {

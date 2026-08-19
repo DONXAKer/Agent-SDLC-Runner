@@ -6,6 +6,7 @@ import type {
   PreparedPrompt,
   ProjectInfo,
   RunDetail,
+  RunDiff,
   RunSummary,
   StageId,
 } from '@sdlc-runner/shared';
@@ -127,6 +128,9 @@ export const api = {
    */
   autoApprove: (id: string, stage: StageId, rules: AutoApproveRules): Promise<unknown> =>
     post(`/api/runs/${id}/auto-approve`, { stage, rules }).then(json),
+
+  /** Патч текущей попытки. Отдельной ручкой: он бывает в сотни килобайт. */
+  diff: (id: string): Promise<RunDiff> => fetch(`/api/runs/${id}/diff`).then(json<RunDiff>),
 
   cancel: (id: string): Promise<unknown> => post(`/api/runs/${id}/cancel`).then(json),
 

@@ -182,6 +182,14 @@ export interface RunDetail extends RunSummary {
   // а дублирование гоняло по проводу полные тексты файлов впустую.
 }
 
+/** Патч попытки с разметкой «в плане / вне плана» — вход сводного просмотра. */
+export interface RunDiff {
+  chunk: number;
+  attempt: number;
+  patch: string;
+  files: { path: string; inPlan: boolean }[];
+}
+
 export interface ProjectInfo {
   name: string;
   projectRoot: string;

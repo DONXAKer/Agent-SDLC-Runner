@@ -5,6 +5,7 @@ import { CostBar } from '../components/CostBar.tsx';
 import { EventStream } from '../components/EventStream.tsx';
 import { AttemptsPanel } from '../components/AttemptsPanel.tsx';
 import { GatePanel } from '../components/GatePanel.tsx';
+import { RunDiffView } from '../components/RunDiffView.tsx';
 import { PromptPane } from '../components/PromptPane.tsx';
 import { StageRail } from '../components/StageRail.tsx';
 import { ToolApproval, type PendingCall } from '../components/ToolApproval.tsx';
@@ -574,6 +575,9 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
               {stage === 'verify' ? (
                 <GatePanel results={gateResults} aborted={detail.gatesAborted} />
               ) : null}
+
+              {/* Патч попытки — там же, где его чинят и где по нему судят. */}
+              {stage === 'verify' || stage === 'chunk' ? <RunDiffView runId={runId} /> : null}
 
               {/* Попытки видны и на chunk, и на verify: чинят на первом, а решают по
                   второму, и история нужна на обоих. */}
