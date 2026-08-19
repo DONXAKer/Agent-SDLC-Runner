@@ -5,11 +5,11 @@
  * чужие правки оператора.
  */
 
+import { detectBuildSystem } from '../src/gates/ecosystems/index.ts';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  detectBuildSystem,
   diffLines,
   invariantViolations,
   moduleDirFromPlan,

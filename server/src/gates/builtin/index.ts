@@ -11,6 +11,7 @@
  * себя.
  */
 
+import { detectBuildSystem, syntaxCheckerFor } from '../ecosystems/index.ts';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -23,7 +24,6 @@ import { gateKey } from '../gatesFile.ts';
 import { runShell } from '../shell.ts';
 import type { InvariantViolation } from './logic.ts';
 import {
-  detectBuildSystem,
   invariantViolations,
   moduleDirFromPlan,
   publishProblems,
@@ -87,18 +87,26 @@ const NODE_CHECK_PARALLEL = 8;
 const NODE_CHECK_TIMEOUT_MS = 10_000;
 
 /** `node --check` одним процессом на файл, путь — аргументом, а не текстом команды. */
-function nodeCheck(
-  path: string,
+/**
+ * Запуск проверки синтаксиса одним чекером экосистемы.
+ *
+ * `noTool` отделяет «интерпретатора нет на машине» от «файл не разбирается»: без этого
+ * отсутствие python на машине оператора выглядело бы как синтаксическая ошибка во всех
+ * его файлах — красный гейт по несуществующей причине.
+ */
+function runSyntaxCheck(
+  cmd: string,
+  args: readonly string[],
   signal?: AbortSignal,
-): Promise<{ code: number | null; stderr: string }> {
+): Promise<{ code: number | null; stderr: string; noTool: boolean }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--check', path], {
+    const child = spawn(cmd, [...args], {
       windowsHide: true,
       ...(signal === undefined ? {} : { signal }),
     });
     const err: string[] = [];
     let settled = false;
-    const done = (r: { code: number | null; stderr: string }): void => {
+    const done = (r: { code: number | null; stderr: string; noTool: boolean }): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -109,13 +117,23 @@ function nodeCheck(
     // диск), не закроется сам.
     const timer = setTimeout(() => {
       child.kill();
-      done({ code: null, stderr: `node --check не уложился в ${NODE_CHECK_TIMEOUT_MS} мс` });
+      done({
+        code: null,
+        stderr: `${cmd} не уложился в ${NODE_CHECK_TIMEOUT_MS} мс`,
+        noTool: false,
+      });
     }, NODE_CHECK_TIMEOUT_MS);
     timer.unref?.();
 
     child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
-    child.on('error', (e) => done({ code: null, stderr: e.message }));
-    child.on('close', (code) => done({ code, stderr: err.join('') }));
+    child.on('error', (e) =>
+      done({
+        code: null,
+        stderr: e.message,
+        noTool: (e as NodeJS.ErrnoException).code === 'ENOENT',
+      }),
+    );
+    child.on('close', (code) => done({ code, stderr: err.join(''), noTool: false }));
   });
 }
 
@@ -144,8 +162,18 @@ async function inBatches<T, R>(
  * Зелёного эта ветка не даёт НИКОГДА: синтаксис — не сборка.
  */
 async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome> {
-  const changed = (await changedPaths(ctx.projectRoot, ctx.signal)).filter((f) => JS_FILE.test(f));
-  if (changed.length === 0) {
+  // Файлы берутся все изменённые, а чекер подбирается по расширению из реестра экосистем:
+  // раньше здесь был жёсткий фильтр по `.js/.cjs/.mjs`, и правка на Python или Go молча
+  // не проверялась ничем, хотя дешёвая проверка для них существует.
+  const changed = await changedPaths(ctx.projectRoot, ctx.signal);
+  const targets = changed
+    .map((f) => ({ f, eco: syntaxCheckerFor(f) }))
+    .filter(
+      (t): t is { f: string; eco: NonNullable<ReturnType<typeof syntaxCheckerFor>> } =>
+        t.eco !== null && existsSync(join(ctx.projectRoot, t.f)),
+    );
+
+  if (targets.length === 0) {
     return {
       status: '⏭',
       command: null,
@@ -155,25 +183,38 @@ async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome
   }
 
   // Проверки независимы, поэтому идут пачками: последовательный запуск поднимал процесс
-  // node на каждый файл (≈96 мс на файл, ~4 с на сорок) прямо на критическом пути
-  // оператора, а разом — рождал по процессу на каждый изменённый файл, и на витке,
-  // затронувшем сотню, машина уходила в своп. Путь передаётся аргументом, а не
-  // вклеивается в строку команды.
-  const outcomes = await inBatches(
-    changed.filter((f) => existsSync(join(ctx.projectRoot, f))),
-    NODE_CHECK_PARALLEL,
-    async (f) => ({ f, r: await nodeCheck(join(ctx.projectRoot, f), ctx.signal) }),
-  );
+  // на каждый файл (≈96 мс на файл, ~4 с на сорок) прямо на критическом пути оператора, а
+  // разом — рождал по процессу на каждый изменённый файл, и на витке, затронувшем сотню,
+  // машина уходила в своп. Путь передаётся аргументом, а не вклеивается в строку команды.
+  const outcomes = await inBatches(targets, NODE_CHECK_PARALLEL, async (t) => {
+    const { cmd, args } = t.eco.syntaxCheck!(join(ctx.projectRoot, t.f));
+    return { ...t, cmd, r: await runSyntaxCheck(cmd, args, ctx.signal) };
+  });
 
   const bad: string[] = [];
+  const usedTools = new Set<string>();
+  const missingTools = new Set<string>();
   let checked = 0;
   let skipped = 0;
-  for (const { f, r } of outcomes) {
+
+  for (const { f, eco, cmd, r } of outcomes) {
+    if (r.noTool) {
+      // Инструмента нет на машине — это не приговор файлу. Считаем непроверенным.
+      missingTools.add(cmd);
+      skipped++;
+      continue;
+    }
     if (r.code === 0) {
+      usedTools.add(cmd);
       checked++;
       continue;
     }
+    // ESM и JSX отсеиваются по фактическому тексту ошибки, а не грепом по содержимому:
+    // `node --check` на `.js` с `import` возвращает 0 даже для битого файла, на `.mjs`
+    // работает корректно, а греп на JSX ловил `</div>` в комментарии. К другим
+    // экосистемам это не относится — проверка привязана к node.
     if (
+      eco.id === 'node' &&
       /Cannot use import statement outside a module|Unexpected token '(export|<)'|Unexpected token </.test(
         r.stderr,
       )
@@ -181,41 +222,53 @@ async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome
       skipped++;
       continue;
     }
+    usedTools.add(cmd);
     checked++;
     bad.push(`  ${f}: ${r.stderr.split(/\r?\n/).slice(0, 3).join(' ')}`);
   }
 
+  const tools = [...usedTools].join(', ');
+
   if (bad.length > 0) {
     return {
       status: '❌',
-      command: 'node --check',
+      command: tools,
       exitCode: 1,
       lastLine: `синтаксическая ошибка — файл не загрузится:\n${bad.join('\n')}`,
     };
   }
+
+  const missingNote =
+    missingTools.size === 0 ? '' : `; не установлено на машине: ${[...missingTools].join(', ')}`;
+
   if (checked > 0) {
-    // `⏭`, а не `✅`. Разбор нескольких `.js` парсером — это не сборка: правка со
-    // сломанным импортом или падающим require проходит `node --check` и получала зелёный
-    // обязательный гейт «Сборка». Гейт, который врёт, приучает игнорировать себя, поэтому
-    // здесь честный пропуск: он роняет вердикт, пока человек не подпишет неприменимость.
+    // `⏭`, а не `✅`. Разбор файлов парсером — это не сборка: правка со сломанным импортом
+    // или падающим require проходит проверку синтаксиса и получала зелёный обязательный
+    // гейт «Сборка». Гейт, который врёт, приучает игнорировать себя, поэтому здесь честный
+    // пропуск: он роняет вердикт, пока человек не подпишет неприменимость.
     return {
       status: '⏭',
-      command: 'node --check',
+      command: tools,
       exitCode: 0,
       lastLine:
         `СБОРКА НЕ ЗАПУСКАЛАСЬ (${why}). Проверен только синтаксис: файлов ${checked} ` +
-        `(пропущено ESM/JSX: ${skipped}). Ошибки связывания, типов и импортов не проверены.`,
+        `(не проверено: ${skipped}${missingNote}). Ошибки связывания, типов и импортов не проверены.`,
     };
   }
+
   return {
     status: '⏭',
     command: null,
     exitCode: null,
     lastLine:
-      `${why}; из ${changed.length} изменённых .js не проверен ни один ` +
-      `(пропущено ESM/JSX: ${skipped}). СИНТАКСИС НЕ ПРОВЕРЕН.`,
+      `${why}; из ${targets.length} изменённых файлов не проверен ни один ` +
+      `(не проверено: ${skipped}${missingNote}). СИНТАКСИС НЕ ПРОВЕРЕН.`,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Тесты
+// ---------------------------------------------------------------------------
 
 const buildGate: BuiltinGate = async (ctx) => {
   const mod = resolveModule(ctx);
@@ -228,11 +281,12 @@ const buildGate: BuiltinGate = async (ctx) => {
   );
   if (system === null) return syntaxOnly(ctx, 'build-система не обнаружена');
 
-  // Без node_modules npm-скрипт падает на отсутствующем vite/esbuild, и возврат на
-  // доработку отправил бы исполнителя чинить несуществующую поломку кода, спалив
-  // попытки. «Нечем собирать» — это не «код не собирается».
-  if (system.needsNodeModules && !existsSync(join(ctx.projectRoot, mod.dir, 'node_modules'))) {
-    return syntaxOnly(ctx, `в ${mod.dir} нет node_modules`);
+  // Без установленных зависимостей команда сборки падает на отсутствующем инструменте, и
+  // возврат на доработку отправил бы исполнителя чинить несуществующую поломку кода,
+  // спалив попытки. «Нечем собирать» — это не «код не собирается». Каталог зависимостей
+  // называет сама экосистема: `node_modules` было вшито сюда и делало проверку npm-only.
+  if (system.depsDir !== null && !existsSync(join(ctx.projectRoot, mod.dir, system.depsDir))) {
+    return syntaxOnly(ctx, `в ${mod.dir} нет ${system.depsDir}`);
   }
 
   const r = await runShell(system.build, {
@@ -250,10 +304,6 @@ const buildGate: BuiltinGate = async (ctx) => {
     lastLine: r.timedOut ? `сборка не уложилась в ${ctx.timeoutMs} мс` : r.lastLine,
   };
 };
-
-// ---------------------------------------------------------------------------
-// Тесты
-// ---------------------------------------------------------------------------
 
 const testGate: BuiltinGate = async (ctx) => {
   const mod = resolveModule(ctx);
@@ -275,7 +325,7 @@ const testGate: BuiltinGate = async (ctx) => {
         'только тестом, остаются неподтверждёнными.',
     };
   }
-  if (system.needsNodeModules && !existsSync(join(ctx.projectRoot, mod.dir, 'node_modules'))) {
+  if (system.depsDir !== null && !existsSync(join(ctx.projectRoot, mod.dir, system.depsDir))) {
     return {
       status: '⏭',
       command: system.test,

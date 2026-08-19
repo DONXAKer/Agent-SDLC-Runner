@@ -9,82 +9,13 @@
  */
 
 import { normalizePlanPath } from '../../policy/paths.ts';
-
-export type BuildSystem = {
-  /** Команда сборки относительно каталога модуля. */
-  build: string;
-  /** Команда прогона тестов. `null` — раннера у этой системы нет. */
-  test: string | null;
-  /** Нужны ли установленные зависимости, чтобы команда вообще имела смысл. */
-  needsNodeModules: boolean;
-};
-
-/**
- * Детект build-системы по составу каталога.
- *
- * `package.json` идёт ПЕРЕД `tsconfig.json`: собственный build-скрипт проекта — то, чем
- * он реально собирается (esbuild/vite/webpack), тогда как `npx tsc --noEmit` тянет tsc
- * из сети и падает, если его нет локально. tsc остаётся запасным вариантом для проектов
- * с tsconfig, но без build-скрипта.
- */
-export function detectBuildSystem(
-  files: ReadonlySet<string>,
-  packageJson: string | null,
-): BuildSystem | null {
-  const has = (f: string): boolean => files.has(f);
-
-  if (has('gradlew')) {
-    return {
-      build: 'sh ./gradlew compileJava compileTestJava --console=plain -q',
-      test: 'sh ./gradlew test --console=plain -q',
-      needsNodeModules: false,
-    };
-  }
-  if (has('build.gradle') || has('build.gradle.kts')) {
-    return {
-      build: 'gradle compileJava compileTestJava --console=plain -q',
-      test: 'gradle test --console=plain -q',
-      needsNodeModules: false,
-    };
-  }
-  if (has('pom.xml')) {
-    return { build: 'mvn -q -B test-compile', test: 'mvn -q -B test', needsNodeModules: false };
-  }
-  if (has('go.mod')) {
-    return { build: 'go build ./...', test: 'go test ./...', needsNodeModules: false };
-  }
-  if (has('Cargo.toml')) {
-    return { build: 'cargo check --all-targets', test: 'cargo test', needsNodeModules: false };
-  }
-  if (has('package.json')) {
-    const scripts = packageJson ?? '';
-    const hasBuild = /"build"\s*:/.test(scripts);
-    const hasTest = /"test"\s*:/.test(scripts);
-    if (hasBuild || hasTest || has('tsconfig.json')) {
-      return {
-        build: hasBuild
-          ? 'npm run build'
-          : has('tsconfig.json')
-            ? 'npx --no-install tsc --noEmit'
-            : 'npm run build --if-present',
-        test: hasTest ? 'npm test --silent' : null,
-        needsNodeModules: true,
-      };
-    }
-    return { build: 'npm run build --if-present', test: null, needsNodeModules: true };
-  }
-  if (has('tsconfig.json')) {
-    return { build: 'npx --no-install tsc --noEmit', test: null, needsNodeModules: true };
-  }
-  if (has('pyproject.toml') || has('setup.py') || has('pytest.ini') || has('setup.cfg')) {
-    return {
-      build: 'python3 -m compileall -q .',
-      test: 'python3 -m pytest -q',
-      needsNodeModules: false,
-    };
-  }
-  return null;
-}
+// Знание о языках живёт в реестре экосистем: добавление языка не должно требовать правки
+// этого файла. Здесь остаются только правила, одинаковые для всех языков.
+import {
+  CODE_EXTENSIONS,
+  DISABLE_MARKERS,
+  TEST_DECLARATIONS,
+} from '../ecosystems/index.ts';
 
 /**
  * Каталог сборки выводится ИЗ ПЛАНА, а не перебором подкаталогов по алфавиту.
@@ -171,8 +102,15 @@ export interface InvariantViolation {
   detail: string;
 }
 
-const CODE_EXT =
-  /\.(java|kt|kts|scala|groovy|ts|tsx|js|jsx|py|go|cs|rb|rs|php|swift)$/i;
+/**
+ * Расширение исходника проверяется по реестру, а не регуляркой: `\b` в JS не работает по
+ * кириллице, а закрытый список расширений в этом файле был четвёртым местом, куда надо
+ * было не забыть дописать новый язык.
+ */
+function isCode(file: string): boolean {
+  const dot = file.lastIndexOf('.');
+  return dot >= 0 && CODE_EXTENSIONS.has(file.slice(dot).toLowerCase());
+}
 
 /**
  * Проверки применяются только к некомментарным добавленным строкам: без этого гейт
@@ -181,10 +119,15 @@ const CODE_EXT =
  */
 const COMMENT = /^\+\s*(\/\/|#|\*|--|\/\*)/;
 
-const DISABLE_MARKERS =
-  /@Disabled|@Ignore|@pytest\.mark\.skip|\bit\.skip\(|\bdescribe\.skip\(|\bxit\(|\bxdescribe\(|\btest\.skip\(|\.only\(|t\.Skip\(|#\[ignore\]|@unittest\.skip/;
-
-const TEST_DECL = /@Test|def test_|func Test|\bit\(|\btest\(|\[Fact\]|\[Test\]/;
+/**
+ * Маркеры сравниваются подстрокой, а не регуляркой: они приходят из реестра как данные,
+ * и собирать из них регулярку значило бы экранировать `[`, `(` и `.` в каждой строке
+ * реестра — ровно тот класс ошибок, из-за которого вся обязательная пятёрка однажды молча
+ * числилась выключенной.
+ */
+function hasAny(text: string, needles: readonly string[]): boolean {
+  return needles.some((n) => text.includes(n));
+}
 
 const TEST_FILE =
   /(^|\/)(test|tests|spec)\/|[._-](test|spec)s?\.[a-z]+$|Tests?\.(java|kt|cs)$/i;
@@ -221,10 +164,10 @@ export function invariantViolations(
 ): InvariantViolation[] {
   const out: InvariantViolation[] = [];
   const all = diffLines(diff);
-  const code = all.filter((l) => CODE_EXT.test(l.file));
+  const code = all.filter((l) => isCode(l.file));
   const addedCode = code.filter((l) => l.added && !COMMENT.test(l.text));
 
-  const disabled = addedCode.filter((l) => DISABLE_MARKERS.test(l.text));
+  const disabled = addedCode.filter((l) => hasAny(l.text, DISABLE_MARKERS));
   if (disabled.length > 0) {
     out.push({
       kind: 'test-disabled',
@@ -244,9 +187,9 @@ export function invariantViolations(
 
   // Нетто-убыль деклараций: тесты не починили, а выкинули. Считаем только по коду и
   // только по некомментарным строкам — иначе закомментированный пример роняет гейт.
-  const added = addedCode.filter((l) => TEST_DECL.test(l.text)).length;
+  const added = addedCode.filter((l) => hasAny(l.text, TEST_DECLARATIONS)).length;
   const removed = code.filter(
-    (l) => !l.added && !l.text.startsWith('--') && TEST_DECL.test(l.text),
+    (l) => !l.added && !l.text.startsWith('--') && hasAny(l.text, TEST_DECLARATIONS),
   ).length;
   if (removed > added) {
     out.push({
