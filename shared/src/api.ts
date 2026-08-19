@@ -14,6 +14,7 @@ import type {
   PolicyVerdict,
   PreparedPrompt,
   Question,
+  RedCause,
   RunStatus,
   StageId,
   Usage,
@@ -118,6 +119,11 @@ export interface RunDetail extends RunSummary {
   gatesAborted: boolean;
   /** Вердикт последней попытки. `null` — не считался. */
   verdict: Verdict | null;
+  /**
+   * Природа красной причины и предложенный ход. `null` — вердикт зелёный или не считался.
+   * Предложение, а не переход: возврат на план ломает предусловия следующих этапов.
+   */
+  redCause: RedCause | null;
   // Историю событий здесь не отдаём: клиент получает её по WebSocket при подключении,
   // а дублирование гоняло по проводу полные тексты файлов впустую.
 }

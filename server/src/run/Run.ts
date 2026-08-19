@@ -17,6 +17,7 @@ import type {
   RunStatus,
   StageId,
   Usage,
+  RedCause,
   Verdict,
   VerdictInput,
 } from '@sdlc-runner/shared';
@@ -41,6 +42,7 @@ import { configProblems, gateKey, parseGates } from '../gates/gatesFile.ts';
 import { snapshotBaseline } from '../gates/builtin/index.ts';
 import { runGates } from '../gates/run.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
+import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief } from '../verdict/retryBrief.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
 import { buildPrompt } from '../prompt/build.ts';
@@ -158,6 +160,8 @@ export class Run {
    */
   private carryForward: string | null = null;
   private verdict: Verdict | null = null;
+  /** Куда возвращать виток по природе красного. На `passed` не влияет. */
+  private redCause: RedCause | null = null;
   /** Отработал ли независимый рецензент на ТЕКУЩЕЙ попытке. */
   private reviewerRan = false;
   /** Разобранный набор гейтов: файл проекта, читать его на каждое обращение незачем. */
@@ -197,6 +201,11 @@ export class Run {
 
   get lastVerdict(): Verdict | null {
     return this.verdict;
+  }
+
+  /** Природа красной причины и предложенный ход. `null` — вердикт зелёный или не считался. */
+  get lastRedCause(): RedCause | null {
+    return this.redCause;
   }
 
   /**
@@ -298,6 +307,7 @@ export class Run {
     this.lastGatesAborted = false;
     this.verdict = null;
     this.lastVerdictInput = null;
+    this.redCause = null;
     this.reviewerRan = false;
   }
 
@@ -600,6 +610,8 @@ export class Run {
 
     this.verdict = withNotes;
     this.lastVerdictInput = input;
+    // Классификация считается только по красному: у зелёного «куда возвращать» нет вопроса.
+    this.redCause = withNotes.passed ? null : classifyRedVerdict(input, disagreements);
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
     return withNotes;
   }

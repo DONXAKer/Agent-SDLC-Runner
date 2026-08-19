@@ -12,6 +12,7 @@ import type {
   Decision,
   PreparedPrompt,
   Question,
+  RedCause,
   RunDetail,
   StageId,
 } from '@sdlc-runner/shared';
@@ -19,6 +20,16 @@ import { describeCall } from '@sdlc-runner/shared';
 import { statusLabel, statusTone } from '../lib/runStatus.ts';
 import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
+
+/**
+ * Подпись предложенного хода. Классификация — это «куда возвращать», а не «что стало»:
+ * `passed` она не меняет ни в одной ветке.
+ */
+const SUGGEST_LABEL: Record<RedCause['suggest'], string> = {
+  'fix-in-chunk': 'чинить на этапе chunk — контекст у исполнителя есть',
+  'back-to-plan': 'назад на plan — правка вышла за границы files_to_touch',
+  'escalate-model': 'поднять модель — рецензент разошёлся с фактическим прогоном',
+};
 
 interface PendingAsk {
   requestId: string;
@@ -551,6 +562,18 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                       </li>
                     ))}
                   </ul>
+
+                  {/* Предложенный ход — подсказка оператору, а не переход: возврат на план
+                      ломает предусловия следующих этапов, и решает это человек. */}
+                  {detail.redCause !== null ? (
+                    <div className="mt-2 border-t border-red-900/60 pt-2 text-xs">
+                      <span className="text-neutral-400">Куда возвращать: </span>
+                      <span className="font-medium text-amber-300">
+                        {SUGGEST_LABEL[detail.redCause.suggest]}
+                      </span>
+                      <span className="text-neutral-500"> — решение за вами</span>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
