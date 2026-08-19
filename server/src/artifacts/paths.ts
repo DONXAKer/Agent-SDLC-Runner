@@ -27,6 +27,7 @@ export type ArtifactKey =
   | 'plan'
   | 'journal'
   | 'verification'
+  | 'iterations'
   | 'handoff';
 
 const ARTIFACT_KEYS: readonly string[] = [
@@ -37,6 +38,7 @@ const ARTIFACT_KEYS: readonly string[] = [
   'plan',
   'journal',
   'verification',
+  'iterations',
   'handoff',
 ];
 
@@ -65,6 +67,8 @@ export function artifactPathOf(
       return paths.chunkJournal(chunk);
     case 'verification':
       return paths.verificationReport(chunk, attempt);
+    case 'iterations':
+      return paths.iterations;
     case 'handoff':
       return paths.handoff;
   }
@@ -127,6 +131,14 @@ export class WitokPaths {
 
   /** Попытки не перезаписываются: сравнение двух подряд diff'ов — единственный
    *  механический детект отсутствия прогресса. */
+  /**
+   * Журнал итераций витка. Файл ОБЩИЙ на виток, а не на chunk: вопрос «сколько итераций
+   * съел виток» задаётся к витку целиком.
+   */
+  get iterations(): string {
+    return join(this.dir, 'iterations.md');
+  }
+
   chunkDiff(chunk: number, attempt: number): string {
     return this.file(`chunk-${chunk}-attempt-${attempt}-diff.patch`);
   }

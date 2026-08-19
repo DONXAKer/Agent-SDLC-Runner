@@ -46,6 +46,7 @@ import { collectVerdictInput } from '../verdict/collect.ts';
 import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief } from '../verdict/retryBrief.ts';
+import { appendIteration } from './iterationsLog.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
@@ -237,6 +238,45 @@ export class Run {
 
   get lastVerdict(): Verdict | null {
     return this.verdict;
+  }
+
+  /**
+   * Дописывает строку в журнал итераций витка.
+   *
+   * Дописыванием, а не перезаписью: попытки в этом коде не перезаписываются нигде — по той
+   * же причине, по которой не перезаписываются их патчи. Ошибка записи журнала не должна
+   * ронять этап: журнал — наблюдаемость, а не условие корректности.
+   */
+  private recordIteration(verdict: Verdict): void {
+    try {
+      const patch = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt));
+      const existing = readArtifact(this.paths.iterations);
+      const text = appendIteration(existing.exists ? existing.text : '', {
+        chunk: this.chunk,
+        attempt: this.attempt,
+        verdict,
+        gates: this.gateResultsForVerdict(),
+        patch: patch.exists ? patch.text : '',
+        closeness: this.closeness,
+        noProgress: verdict.reasons.some((r) => r.includes('один и тот же diff')),
+        at: new Date(),
+      });
+      writeArtifact(this.paths.iterations, text);
+      this.emit({
+        type: 'artifact_written',
+        runId: this.id,
+        stage: 'verify',
+        path: this.paths.iterations,
+        placeholders: 0,
+      });
+    } catch (e) {
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: 'verify',
+        message: `журнал итераций не записан: ${(e as Error).message}`,
+      });
+    }
   }
 
   /** Природа красной причины и предложенный ход. `null` — вердикт зелёный или не считался. */
@@ -672,6 +712,7 @@ export class Run {
 
     this.verdict = withNotes;
     this.lastVerdictInput = input;
+    this.recordIteration(withNotes);
     // Классификация считается только по красному: у зелёного «куда возвращать» нет вопроса.
     this.redCause = withNotes.passed ? null : classifyRedVerdict(input, disagreements);
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
