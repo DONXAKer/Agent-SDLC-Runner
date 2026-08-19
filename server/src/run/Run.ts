@@ -18,6 +18,8 @@ import type {
   StageId,
   Usage,
   RedCause,
+  RedCauseKind,
+  RunMetrics,
   Verdict,
   VerdictInput,
 } from '@sdlc-runner/shared';
@@ -47,6 +49,7 @@ import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief } from '../verdict/retryBrief.ts';
 import { appendIteration } from './iterationsLog.ts';
+import { postmortemBlock } from './postmortem.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
@@ -198,6 +201,16 @@ export class Run {
   private redCause: RedCause | null = null;
   /** Близость патча этой попытки к предыдущей. `null` — считать не из чего. */
   private closeness: number | null = null;
+  /**
+   * Числа витка. НЕ сбрасываются в `resetAttemptState`: там обнуляется состояние попытки,
+   * а метрики принадлежат витку — иначе «сколько итераций съел виток» опять станет
+   * невосстановимым.
+   */
+  private readonly stageStats = new Map<StageId, { runs: number; usage: Usage; durationMs: number }>();
+  private readonly attemptsByChunk = new Map<number, number>();
+  private verdictCount = 0;
+  private redCount = 0;
+  private readonly redByCause = new Map<RedCauseKind, number>();
   /** Отработал ли независимый рецензент на ТЕКУЩЕЙ попытке. */
   private reviewerRan = false;
   /** Разобранный набор гейтов: файл проекта, читать его на каждое обращение незачем. */
@@ -229,6 +242,29 @@ export class Run {
    */
   get gateResults(): GateRunResult[] {
     return this.gateResultsForVerdict();
+  }
+
+  /**
+   * Числа витка для интерфейса и пост-виток отчёта.
+   *
+   * Стоимость складывается так, чтобы `null` не превращался в ноль: `addUsage` уже
+   * распространяет `null`, и маршрут без стоимости остаётся «без стоимости», а не «$0».
+   */
+  get metrics(): RunMetrics {
+    return {
+      stages: [...this.stageStats.entries()].map(([stage, v]) => ({
+        stage,
+        runs: v.runs,
+        usage: v.usage,
+        durationMs: v.durationMs,
+      })),
+      verdicts: { total: this.verdictCount, red: this.redCount },
+      redByCause: [...this.redByCause.entries()].map(([kind, count]) => ({ kind, count })),
+      attemptsByChunk: [...this.attemptsByChunk.entries()].map(([chunk, attempts]) => ({
+        chunk,
+        attempts,
+      })),
+    };
   }
 
   /** Прогон гейтов оборван отменой: набор в `gateResults` неполон. */
@@ -715,6 +751,13 @@ export class Run {
     this.recordIteration(withNotes);
     // Классификация считается только по красному: у зелёного «куда возвращать» нет вопроса.
     this.redCause = withNotes.passed ? null : classifyRedVerdict(input, disagreements);
+
+    this.verdictCount += 1;
+    if (!withNotes.passed) this.redCount += 1;
+    if (this.redCause !== null) {
+      this.redByCause.set(this.redCause.kind, (this.redByCause.get(this.redCause.kind) ?? 0) + 1);
+    }
+    this.attemptsByChunk.set(this.chunk, Math.max(this.attemptsByChunk.get(this.chunk) ?? 0, this.attempt));
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
     return withNotes;
   }
@@ -804,6 +847,14 @@ export class Run {
     this.status = 'running';
     this.aborter = new AbortController();
 
+    // Метрики этапа копятся на витке: сколько раз он запускался, сколько это стоило и
+    // сколько занял. Время меряется здесь, а не по событиям шины: буфер шины вытесняет
+    // старое, и считать по нему длительность значило бы терять её на длинных витках.
+    const stageStartedAt = Date.now();
+    const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0 };
+    stat.runs += 1;
+    this.stageStats.set(stage, stat);
+
     if (stage === 'chunk') await this.ensureBaseline();
 
     // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он
@@ -835,6 +886,16 @@ export class Run {
     if (stage === 'chunk' && this.carryForward !== null) {
       appended = this.carryForward;
       extra = extra === undefined ? appended : `${extra}\n\n${appended}`;
+    }
+
+    // Пост-виток отчёт — вход этапа 7, тем же механизмом, что и итоги гейтов на этапе 6:
+    // модель переносит числа в артефакт, но не сочиняет их.
+    if (stage === 'handoff') {
+      const block = postmortemBlock(this.metrics);
+      if (block !== null) {
+        appended = block;
+        extra = extra === undefined ? block : `${extra}\n\n${block}`;
+      }
     }
 
     // Промпт пересобирается, когда есть что подклеить: иначе правка оператора и факты
@@ -920,6 +981,8 @@ export class Run {
       },
 
       onUsage: (usage) => {
+        const st = this.stageStats.get(stage);
+        if (st !== undefined) st.usage = addUsage(st.usage, usage);
         this.totalUsage = addUsage(this.totalUsage, usage);
         this.emit({ type: 'usage', runId: this.id, stage, usage, total: this.totalUsage });
       },
@@ -979,6 +1042,7 @@ export class Run {
       this.emit({ type: 'error', runId: this.id, stage, message });
       return { ok: false, finalText: '', usage: emptyUsage(), note: message };
     } finally {
+      stat.durationMs += Date.now() - stageStartedAt;
       this.aborter = null;
     }
   }

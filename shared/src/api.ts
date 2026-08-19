@@ -15,6 +15,7 @@ import type {
   PreparedPrompt,
   Question,
   RedCause,
+  RedCauseKind,
   RunStatus,
   StageId,
   Usage,
@@ -99,6 +100,30 @@ export interface PendingQuestions {
   questions: Question[];
 }
 
+/**
+ * Числа витка. Каждое подтверждается тем, что рантайм видел сам, — рассказ модели сюда не
+ * попадает. Без этих чисел «приемлемый срок итераций» неизмерим.
+ */
+export interface RunMetrics {
+  /** Расход по этапам: сколько раз этап запускался и сколько это стоило. */
+  stages: {
+    stage: StageId;
+    runs: number;
+    usage: Usage;
+    /** Суммарное время исполнения этапа, мс. */
+    durationMs: number;
+  }[];
+  /** Посчитанные вердикты: сколько всего и сколько из них красных. */
+  verdicts: { total: number; red: number };
+  /**
+   * Разбивка красных по классам причин. Пусто — классифицировать было нечего.
+   * Не «нет проблем»: это счётчик того, что классификатор смог назвать.
+   */
+  redByCause: { kind: RedCauseKind; count: number }[];
+  /** Попыток на chunk: ключ — номер chunk'а. */
+  attemptsByChunk: { chunk: number; attempts: number }[];
+}
+
 export interface RunDetail extends RunSummary {
   projectRoot: string;
   routes: Record<StageId, RouteInfo>;
@@ -130,6 +155,8 @@ export interface RunDetail extends RunSummary {
    * должен иметь возможность проверить глазами.
    */
   progressCloseness: number | null;
+  /** Числа витка — вход для ответа на вопрос «что съело итерации». */
+  metrics: RunMetrics;
   // Историю событий здесь не отдаём: клиент получает её по WebSocket при подключении,
   // а дублирование гоняло по проводу полные тексты файлов впустую.
 }
