@@ -13,11 +13,17 @@ export function PromptPane({
   prompt,
   blockers,
   busy,
+  busyReason,
   onRun,
 }: {
   prompt: PreparedPrompt | null;
   blockers: string[];
   busy: boolean;
+  /**
+   * Причина занятости, когда она НЕ в выбранном этапе, — например идёт другой этап.
+   * Без неё кнопка утверждала «Этап выполняется…» про этап, который не выполняется.
+   */
+  busyReason?: string;
   onRun: (edited: { system: string; user: string }) => void;
 }): JSX.Element {
   const [system, setSystem] = useState('');
@@ -117,7 +123,7 @@ export function PromptPane({
           onClick={() => onRun({ system, user })}
           className="rounded bg-emerald-700 px-4 py-2 text-sm font-medium hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
         >
-          {busy ? 'Этап выполняется…' : 'Запустить этап'}
+          {busy ? (busyReason ?? 'Этап выполняется…') : 'Запустить этап'}
         </button>
         {edited ? <span className="text-xs text-amber-400">промпт отредактирован</span> : null}
       </div>

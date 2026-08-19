@@ -1,29 +1,8 @@
 import type { Usage } from '@sdlc-runner/shared';
 
-function fmtTokens(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
-}
-
-/**
- * Ноль стоимости означает разное, и путать эти случаи нельзя: до первого вызова модели
- * тратить ещё нечего, а на локальном маршруте стоимости нет вовсе. Отличаем по тому,
- * были ли вообще токены.
- */
-function fmtCost(c: number | null, anyTokens: boolean): string {
-  if (c === null) return 'без стоимости';
-  if (!anyTokens) return '—';
-  if (c === 0) return '$0';
-  return `$${c.toFixed(4)}`;
-}
-
-function fmtDuration(ms: number): string {
-  if (ms < 1000) return `${ms} мс`;
-  const s = Math.round(ms / 1000);
-  return s < 60 ? `${s} с` : `${Math.floor(s / 60)} мин ${s % 60} с`;
-}
+import { fmtCost, fmtDuration, fmtTokens } from '../lib/format.ts';
 
 export function CostBar({ usage, budgetUsd }: { usage: Usage; budgetUsd: number }): JSX.Element {
-  const anyTokens = usage.inputTokens + usage.outputTokens > 0;
   const over = usage.costUsd !== null && usage.costUsd >= budgetUsd;
 
   return (
@@ -32,7 +11,7 @@ export function CostBar({ usage, budgetUsd }: { usage: Usage; budgetUsd: number 
       <span title="токены на выход">↓ {fmtTokens(usage.outputTokens)}</span>
       <span title="чтение кэша">кэш {fmtTokens(usage.cacheReadTokens)}</span>
       <span className={over ? 'font-medium text-red-400' : 'text-neutral-300'}>
-        {fmtCost(usage.costUsd, anyTokens)}
+        {fmtCost(usage)}
         {over ? ` / бюджет $${budgetUsd}` : ''}
       </span>
       <span>{fmtDuration(usage.durationMs)}</span>

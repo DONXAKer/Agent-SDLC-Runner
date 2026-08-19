@@ -272,6 +272,7 @@ app.get('/api/runs/:id', async (req, reply) => {
     pendingApprovals: gate.list().filter((p) => p.runId === id),
     pendingQuestions: askGate.list().filter((p) => p.runId === id),
     gateResults: run.gateResults,
+    gatesAborted: run.gatesAborted,
     verdict: run.lastVerdict,
     // История событий здесь не отдаётся: клиент получает её по WebSocket при
     // подключении, а дублирование гоняло по проводу полные тексты файлов впустую.

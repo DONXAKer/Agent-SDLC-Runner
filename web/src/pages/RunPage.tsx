@@ -1,13 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AskHumanDialog } from '../components/AskHumanDialog.tsx';
 import { CostBar } from '../components/CostBar.tsx';
 import { EventStream } from '../components/EventStream.tsx';
+import { GatePanel } from '../components/GatePanel.tsx';
 import { PromptPane } from '../components/PromptPane.tsx';
 import { StageRail } from '../components/StageRail.tsx';
 import { ToolApproval, type PendingCall } from '../components/ToolApproval.tsx';
 import { api } from '../lib/api.ts';
-import type { Decision, PreparedPrompt, Question, RunDetail, StageId } from '@sdlc-runner/shared';
+import type {
+  Decision,
+  PreparedPrompt,
+  Question,
+  RunDetail,
+  StageId,
+} from '@sdlc-runner/shared';
+import { describeCall } from '@sdlc-runner/shared';
+import { statusLabel, statusTone } from '../lib/runStatus.ts';
+import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
 
 interface PendingAsk {
@@ -24,13 +34,26 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
   const [decisionNote, setDecisionNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Отмена прогона спрашивается вторым кликом: бюджет уже потрачен, отменить отмену нельзя. */
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const { events, connected } = useRunSocket(runId);
 
+  /**
+   * Перечитать состояние витка.
+   *
+   * Счётчик поколений нужен потому, что триггеров стало пять и запросы уходят пачкой: без
+   * него просевший ответ перетирал более свежий, а из `detail` выводится «идёт ли этап» —
+   * то есть на мгновение разблокировался запуск посреди работающего этапа.
+   */
+  const refreshGen = useRef(0);
   const refresh = useCallback(() => {
+    const gen = ++refreshGen.current;
     api
       .run(runId)
-      .then(setDetail)
+      .then((d) => {
+        if (gen === refreshGen.current) setDetail(d);
+      })
       .catch((e: Error) => setError(e.message));
   }, [runId]);
 
@@ -40,7 +63,23 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
   useEffect(() => {
     const last = events[events.length - 1];
     if (last === undefined) return;
-    if (last.type === 'stage_done' || last.type === 'artifact_written') refresh();
+    // `gate_result` и `verdict` тоже перезапрашивают состояние: итоги гейтов и вердикт
+    // страница берёт с сервера, а не собирает из ленты, и без этого таблица гейтов
+    // обновлялась бы только по завершении этапа. `error` — чтобы шапка перестала считать
+    // этап выполняющимся: при аварийном выходе `stage_done` не приходит.
+    if (
+      // `stage_started` обязателен: без него страница не узнавала, что этап пошёл, и
+      // `detail.stage` оставался пустым ВСЮ его жизнь — кнопка отмены не появлялась вовсе,
+      // ни у запустившей вкладки, ни у соседней.
+      last.type === 'stage_started' ||
+      last.type === 'stage_done' ||
+      last.type === 'artifact_written' ||
+      last.type === 'gate_result' ||
+      last.type === 'verdict' ||
+      last.type === 'error'
+    ) {
+      refresh();
+    }
     // `error` разблокирует кнопки наравне с `stage_done`: этап, оборвавшийся до него
     // (нет ключа провайдера, нереализованный маршрут, падение исполнителя), оставлял
     // интерфейс навсегда «занятым» — запустить заново можно было только перезагрузив
@@ -111,6 +150,84 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     [events, stage],
   );
 
+  /**
+   * Итоги гейтов — только из ответа сервера.
+   *
+   * Собирать их из ленты событий нельзя: `gate_result` копится за все попытки витка, а
+   * рантайм на новой попытке свои итоги честно обнуляет (`resetAttemptState`) — клиент,
+   * реконструирующий таблицу из ленты, показывал бы зелёные гейты попытки, которая ещё не
+   * запускалась. Ровно этот дефект на сервере уже чинили. Свежесть даёт `refresh()` по
+   * событию `gate_result`: рантайм копит итоги по одному, поэтому перечитанный ответ
+   * действительно новее предыдущего.
+   */
+  const gateResults = detail?.gateResults ?? [];
+
+  /** Всё, что стоит и ждёт человека прямо сейчас, — вход для оповещений и счётчика. */
+  const waiting = useMemo(
+    () => [
+      ...asks.map((a) => ({
+        id: a.requestId,
+        text: a.questions[0]?.question ?? 'вопрос от агента',
+      })),
+      ...approvals.map((p) => ({ id: p.requestId, text: describeCall(p.call) })),
+    ],
+    [asks, approvals],
+  );
+
+  const alerts = useOperatorAlerts({
+    waiting,
+    label: detail === null ? 'Agent-SDLC' : `${detail.project} · ${detail.slug}`,
+  });
+
+  /**
+   * Этап выполняется прямо сейчас — по данным сервера, а не только по нашему клику.
+   *
+   * `busy` поднимался лишь тем, кто сам запустил этап, поэтому виток, открытый из списка
+   * посреди работающего `chunk`, показывал активную кнопку «Запустить этап»; клик уходил
+   * на сервер и возвращал 409, что читается как поломка, а не как «уже идёт».
+   */
+  const stageRunning = detail !== null && detail.stage !== null;
+  const uiBusy = busy || stageRunning;
+
+  /**
+   * Почему кнопка запуска заблокирована — если причина не в выбранном этапе.
+   *
+   * Выбор этапа ничем не ограничен, поэтому оператор свободно открывает вкладку `verify`
+   * во время идущего `chunk`. Надпись «Этап выполняется…» там утверждала про выбранный
+   * этап то, что верно про другой, и настоящую причину не называла.
+   */
+  const busyReason =
+    detail !== null && detail.stage !== null && detail.stage !== stage
+      ? `идёт этап ${detail.stage}`
+      : null;
+
+  /**
+   * Открытый виток встаёт туда, где он реально находится, а не на `intent`.
+   *
+   * `detail.stage` не пуст ровно тогда, когда этап крутится прямо сейчас, — а виток чаще
+   * всего открывают, когда он СТОИТ между этапами, и сид по одному этому полю не
+   * срабатывал именно в самом частом случае. Запасной признак — самый дальний этап без
+   * блокеров: до него виток уже дошёл. Флаг ставится только после фактического выбора,
+   * иначе этап, стартовавший через секунду после монтирования, тоже терялся.
+   */
+  const stageSeeded = useRef(false);
+  useEffect(() => {
+    if (stageSeeded.current || detail === null) return;
+    const runnable = [...detail.stages].reverse().find((s) => s.blockers.length === 0);
+    const seed = detail.stage ?? runnable?.id ?? null;
+    if (seed === null) return;
+    stageSeeded.current = true;
+    setStage(seed);
+  }, [detail]);
+
+  // Взведённое подтверждение отмены не должно пережить конец этапа: блок скрывается по
+  // `stageRunning`, состояние оставалось `true` под скрытым узлом, и на следующем этапе
+  // шапка сразу показывала «Да, отменить» — один клик обрывал только что стартовавший
+  // прогон без второго подтверждения.
+  useEffect(() => {
+    if (!stageRunning) setConfirmCancel(false);
+  }, [stageRunning]);
+
   const stageInfo = detail?.stages.find((s) => s.id === stage) ?? null;
   const blockers = stageInfo?.blockers ?? [];
   // Предусловия обрыва витка считаются отдельно от штатных: у handoff'а два входа, и
@@ -148,6 +265,27 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     try {
       await api.advance(runId, to);
       setPrompt(null);
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /**
+   * Отмена прогона: доходит до исполнителя, а не просто помечает виток отменённым.
+   *
+   * `busy` здесь НЕ снимается: `run.cancel()` только выставляет abort, а исполнитель
+   * доматывает текущий вызов, и всё это время сервер считает этап выполняющимся. Сняв
+   * блокировку по ответу ручки, страница предлагала запустить этап заново и получала 409
+   * «этап уже выполняется» — отмена выглядела сломанной. Разблокирует нас `stage_done`
+   * или `error`, то есть факт остановки. Артефакты на диске остаются: это остановка, а
+   * не откат.
+   */
+  const cancel = async (): Promise<void> => {
+    setError(null);
+    try {
+      await api.cancel(runId);
+      setConfirmCancel(false);
       refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -206,9 +344,19 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
   };
 
   if (detail === null) {
+    // Кнопка выхода нужна именно здесь: ветка стала достижимой (виток убрали в соседней
+    // вкладке, сервер перезапустился и потерял прогоны из памяти), а без неё со страницы
+    // «прогон не найден» не было выхода, кроме перезагрузки браузера.
     return (
       <div className="p-8 text-sm text-neutral-400">
-        {error ?? 'Загрузка витка…'}
+        <div className="mb-3 whitespace-pre-wrap">{error ?? 'Загрузка витка…'}</div>
+        <button
+          type="button"
+          onClick={onExit}
+          className="rounded border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800"
+        >
+          ← к списку витков
+        </button>
       </div>
     );
   }
@@ -226,6 +374,13 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
           <div className="text-xs text-neutral-500">{detail.projectRoot}</div>
         </div>
 
+        {/* Статус последнего этапа виден и здесь: пока он был только в списке витков,
+            отменённый и упавший прогон на этой странице выглядели как простаивающий. */}
+        <span
+          className={`rounded border px-2 py-0.5 text-xs ${statusTone(detail.status, detail.stage)}`}
+        >
+          {statusLabel(detail.status, detail.stage)}
+        </span>
         <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs">профиль: {detail.profile}</span>
         <span className="text-xs text-neutral-500">
           chunk {detail.chunk} · попытка {detail.attempt} из {detail.attemptBudget}
@@ -235,6 +390,62 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
           {/* Бюджет берётся из конфига проекта, а не из константы: до этого полоса
               сравнивала расход с чужим числом и краснела не тогда, когда надо. */}
           <CostBar usage={detail.usage} budgetUsd={detail.maxBudgetUsd} />
+
+          {/* При `denied` кнопки нет, и её отсутствие читалось как «уведомления включены»:
+              оператор полагался на них и пропускал ожидание. Говорим прямо. */}
+          {!alerts.supported || alerts.permission === 'denied' ? (
+            <span
+              className="text-xs text-neutral-500"
+              title="Разрешение выдаётся в настройках сайта в браузере — со страницы его не запросить повторно."
+            >
+              уведомления недоступны
+            </span>
+          ) : null}
+
+          {alerts.supported && alerts.permission === 'default' ? (
+            <button
+              type="button"
+              onClick={alerts.enable}
+              title="Сообщать в систему, когда виток встал и ждёт человека, пока вкладка не в фокусе"
+              className="text-xs text-neutral-400 hover:text-neutral-200"
+            >
+              Включить уведомления
+            </button>
+          ) : null}
+
+          {/* Кнопка есть ровно тогда, когда есть что обрывать — этап выполняется. По
+              статусу решать нельзя: `done` рантайм ставит в конце КАЖДОГО этапа, и виток
+              из семи этапов оставался бы без отмены после первого же успешного. Отмена
+              при простое тоже вредна: она пометила бы `cancelled` вполне рабочий виток. */}
+          {!stageRunning ? null : confirmCancel ? (
+            <span className="flex items-center gap-1.5 text-xs">
+              <span className="text-amber-300">Оборвать прогон?</span>
+              <button
+                type="button"
+                onClick={() => void cancel()}
+                className="rounded border border-red-800 px-2 py-0.5 text-red-300 hover:bg-red-950"
+              >
+                Да, отменить
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmCancel(false)}
+                className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-300 hover:bg-neutral-800"
+              >
+                Нет
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmCancel(true)}
+              title="Остановить исполнителя. Уже записанные артефакты остаются на диске — это остановка, а не откат."
+              className="rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 hover:border-red-800 hover:text-red-300"
+            >
+              Отменить прогон
+            </button>
+          )}
+
           <span className={connected ? 'text-xs text-emerald-500' : 'text-xs text-amber-500'}>
             {connected ? 'онлайн' : 'переподключение…'}
           </span>
@@ -279,7 +490,13 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 <label className="ml-auto flex items-center gap-1.5 text-xs text-neutral-400">
                   <input
                     type="checkbox"
-                    onChange={(e) => void api.autoApprove(runId, stage, e.target.checked)}
+                    onChange={(e) => {
+                      // С `.catch`: отказ сервера (прогон убран, перезапуск) оставлял
+                      // галочку стоять, и оператор уходил, считая одобрение автоматическим.
+                      void api
+                        .autoApprove(runId, stage, e.target.checked)
+                        .catch((err: Error) => setError(err.message));
+                    }}
                   />
                   одобрять всё на этапе
                 </label>
@@ -294,7 +511,13 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 />
               ) : null}
 
-              <PromptPane prompt={prompt} blockers={blockers} busy={busy} onRun={(p) => void run(p)} />
+              <PromptPane
+                prompt={prompt}
+                blockers={blockers}
+                busy={uiBusy}
+                {...(busyReason === null ? {} : { busyReason })}
+                onRun={(p) => void run(p)}
+              />
             </section>
 
             <section className="min-w-0">
@@ -302,6 +525,12 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
               <div className="max-h-[70vh] overflow-auto rounded border border-neutral-800 bg-neutral-950 p-3">
                 <EventStream events={stageEvents} />
               </div>
+
+              {/* Гейты стоят перед вердиктом и на экране: вердикт считается по этой
+                  таблице, и читать их в обратном порядке — читать вывод раньше входа.
+                  Условие по этапу то же, что у вердикта: гейты прогоняются на `verify` и
+                  под лентой `plan` читались бы как «план провалил сборку». */}
+              {stage === 'verify' ? <GatePanel results={gateResults} aborted={detail.gatesAborted} /> : null}
 
               {detail.verdict !== null && stage === 'verify' ? (
                 <div
@@ -364,7 +593,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 <button
                   type="button"
                   onClick={() => void advance('attempt')}
-                  disabled={busy}
+                  disabled={uiBusy}
                   className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 disabled:opacity-40"
                 >
                   Новая попытка ({detail.attempt} из {detail.attemptBudget})
@@ -372,7 +601,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 <button
                   type="button"
                   onClick={() => void advance('chunk')}
-                  disabled={busy}
+                  disabled={uiBusy}
                   className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 disabled:opacity-40"
                 >
                   Следующий chunk
@@ -380,7 +609,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 <button
                   type="button"
                   onClick={() => void abortWitok()}
-                  disabled={busy || abortBlockers.length > 0}
+                  disabled={uiBusy || abortBlockers.length > 0}
                   className="ml-auto rounded border border-amber-800 px-2 py-1 text-xs text-amber-300 hover:bg-amber-950 disabled:opacity-40"
                   title={
                     abortBlockers.length > 0

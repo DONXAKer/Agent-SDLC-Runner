@@ -5,6 +5,7 @@ import type {
   PreparedPrompt,
   ProjectInfo,
   RunDetail,
+  RunSummary,
   StageId,
 } from '@sdlc-runner/shared';
 
@@ -39,8 +40,12 @@ export const api = {
 
   run: (id: string): Promise<RunDetail> => fetch(`/api/runs/${id}`).then(json<RunDetail>),
 
-  runs: (): Promise<{ runId: string; slug: string; project: string; status: string }[]> =>
-    fetch('/api/runs').then((r) => json<{ runId: string; slug: string; project: string; status: string }[]>(r)),
+  /**
+   * Витки, живущие в памяти сервера. Своё описание формы здесь не держим: сервер отдаёт
+   * `RunSummary` целиком, а урезанный локальный тип скрывал от интерфейса и этап, и
+   * попытку, и расход — ровно то, ради чего список и нужен.
+   */
+  runs: (): Promise<RunSummary[]> => fetch('/api/runs').then(json<RunSummary[]>),
 
   preparePrompt: (
     id: string,
@@ -119,4 +124,12 @@ export const api = {
     post(`/api/runs/${id}/auto-approve`, { stage, on }).then(json),
 
   cancel: (id: string): Promise<unknown> => post(`/api/runs/${id}/cancel`).then(json),
+
+  /**
+   * Убрать виток из памяти сервера. Артефакты на диске остаются — уходит только живой
+   * объект прогона. Сервер отвечает 409, пока этап выполняется, поэтому кнопка в списке
+   * не может оборвать работающий виток мимо отмены.
+   */
+  forget: (id: string): Promise<unknown> =>
+    fetch(`/api/runs/${id}`, { method: 'DELETE' }).then(json),
 };

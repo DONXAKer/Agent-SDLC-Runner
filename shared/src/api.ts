@@ -14,6 +14,7 @@ import type {
   PolicyVerdict,
   PreparedPrompt,
   Question,
+  RunStatus,
   StageId,
   Usage,
   Verdict,
@@ -57,7 +58,13 @@ export interface RunSummary {
   slug: string;
   project: string;
   profile: string;
-  status: string;
+  /** Статус последнего ЭТАПА, а не витка — см. `RunStatus`. Типом, а не строкой: с голым
+   *  `string` фронт писал рукописные словари статусов, и сборка молчала об их неполноте. */
+  status: RunStatus;
+  /**
+   * Этап, выполняющийся ПРЯМО СЕЙЧАС. `null` — не «этап не начат», а «сейчас не выполняется
+   * ни один»: между этапами поле всегда пусто, включая виток, дошедший до `verify`.
+   */
   stage: StageId | null;
   chunk: number;
   attempt: number;
@@ -101,6 +108,14 @@ export interface RunDetail extends RunSummary {
   pendingQuestions: PendingQuestions[];
   /** Итоги последнего прогона гейтов. Пусто — этап 6 ещё не запускался. */
   gateResults: GateRunResult[];
+  /**
+   * Прогон гейтов оборван отменой, набор в `gateResults` неполон.
+   *
+   * Без этого флага частичный набор читался как полный: две зелёные строки вместо
+   * обязательной пятёрки выглядели как «всё пройдено» — ложный зелёный на той самой
+   * поверхности, которая от него сторожит.
+   */
+  gatesAborted: boolean;
   /** Вердикт последней попытки. `null` — не считался. */
   verdict: Verdict | null;
   // Историю событий здесь не отдаём: клиент получает её по WebSocket при подключении,

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { DirectoryBrowser } from './components/DirectoryBrowser.tsx';
+import { RunList } from './components/RunList.tsx';
 import { RunPage } from './pages/RunPage.tsx';
 import { api } from './lib/api.ts';
-import type { ConfigInfo, ProjectInfo } from '@sdlc-runner/shared';
+import type { ConfigInfo, ProjectInfo, RunSummary } from '@sdlc-runner/shared';
 
 export default function App(): JSX.Element {
   const [config, setConfig] = useState<ConfigInfo | null>(null);
@@ -15,6 +16,7 @@ export default function App(): JSX.Element {
   const [browsing, setBrowsing] = useState(false);
   const [pendingPath, setPendingPath] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+  const [runs, setRuns] = useState<RunSummary[] | null>(null);
 
   useEffect(() => {
     api
@@ -27,6 +29,31 @@ export default function App(): JSX.Element {
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  const refreshRuns = useCallback(() => {
+    // Ошибку здесь НЕ гасим: слот один на всё окно, и успешный фоновый список затирал
+    // отказ загрузки конфигурации — экран навсегда оставался «Загрузка конфигурации…» без
+    // причины. Гасит тот, кто начинает действие: см. `setError(null)` в обработчиках.
+    api.runs().then(setRuns).catch((e: Error) => setError(e.message));
+  }, []);
+
+  // Перезапрашивается и при возврате из витка: выход со страницы прогона — единственный
+  // момент, когда список заведомо устарел, а раньше возвращаться было попросту некуда.
+  useEffect(() => {
+    if (runId === null) refreshRuns();
+  }, [runId, refreshRuns]);
+
+  const forget = async (id: string): Promise<void> => {
+    setError(null);
+    try {
+      await api.forget(id);
+      refreshRuns();
+    } catch (e) {
+      // Сервер отказывает, пока этап выполняется, — причину показываем дословно, иначе
+      // кнопка выглядит сломанной.
+      setError((e as Error).message);
+    }
+  };
 
   const addProject = async (): Promise<void> => {
     if (pendingPath === null || newName.trim() === '') return;
@@ -75,6 +102,27 @@ export default function App(): JSX.Element {
         <div className="text-sm text-neutral-500">Загрузка конфигурации…</div>
       ) : (
         <div className="space-y-4">
+          {/* Условие видимости списка живёт здесь одно: пока оно было и внутри `RunList`,
+              и снаружи у разделителя, любое изменение правила рассинхронизировало бы их. */}
+          {runs !== null && runs.length > 0 ? (
+            <>
+              <RunList
+                runs={runs}
+                onOpen={setRunId}
+                onForget={(id) => void forget(id)}
+                onRefresh={() => {
+                  // Обновление по кнопке — действие человека, и оно вправе снять свою же
+                  // прошлую ошибку (например отказ «Убрать» с кодом 409).
+                  setError(null);
+                  refreshRuns();
+                }}
+              />
+              <div className="border-t border-neutral-800 pt-4 text-xs uppercase tracking-wide text-neutral-500">
+                Новый виток
+              </div>
+            </>
+          ) : null}
+
           <label className="block">
             <span className="mb-1 flex items-center justify-between text-xs uppercase tracking-wide text-neutral-500">
               <span>Проект</span>

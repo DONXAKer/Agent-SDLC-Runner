@@ -4,6 +4,10 @@ import type { RunEvent } from '@sdlc-runner/shared';
 // Описание вызова берётся из общего пакета: пока у интерфейса была своя копия, она
 // отставала от нормализатора, и новый вид вызова показывался как «неизвестный».
 import { describeCall } from '@sdlc-runner/shared';
+// Числа форматируются тем же модулем, что шапка витка и список: одна и та же длительность
+// не должна выглядеть как «92000 мс» здесь и «1 мин 32 с» в таблице гейтов ниже.
+import { fmtCost, fmtDuration, fmtTokens } from '../lib/format.ts';
+import { GATE_TONE } from '../lib/gateTone.ts';
 
 export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
   const end = useRef<HTMLDivElement>(null);
@@ -49,7 +53,7 @@ export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
           case 'tool_result':
             return (
               <div key={idx} className={e.ok ? 'text-neutral-500' : 'text-red-400'}>
-                {`  ${e.ok ? '·' : '✗'} ${e.summary} (${e.durationMs} мс)`}
+                {`  ${e.ok ? '·' : '✗'} ${e.summary} (${fmtDuration(e.durationMs)})`}
               </div>
             );
 
@@ -80,27 +84,23 @@ export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
           case 'usage':
             return (
               <div key={idx} className="text-neutral-600">
+                {/* Токены здесь ТОЧНЫЕ, без `fmtTokens`: лента — единственное место, где
+                    расход разбит по вызовам, и по ней сверяют перерасход с биллингом.
+                    Округление до `1.0K` делало 1000 и 1049 неразличимыми. */}
                 ↑{e.usage.inputTokens} ↓{e.usage.outputTokens}
-                {e.usage.costUsd === null ? '' : ` · $${e.usage.costUsd.toFixed(4)}`}
+                {/* Локальный маршрут без стоимости в ленте молчит: строка на каждый вызов
+                    и так плотная, а «без стоимости» повторённое сто раз — шум. */}
+                {e.usage.costUsd === null ? '' : ` · ${fmtCost(e.usage)}`}
               </div>
             );
 
           case 'gate_result':
             return (
-              <div
-                key={idx}
-                className={
-                  e.gate.status === '✅'
-                    ? 'text-emerald-400'
-                    : e.gate.status === '❌'
-                      ? 'text-red-400'
-                      : 'text-amber-400'
-                }
-              >
+              <div key={idx} className={GATE_TONE[e.gate.status]}>
                 {e.gate.status} {e.gate.name}
                 <span className="text-neutral-500">
                   {' '}
-                  · {e.gate.command ?? 'встроенная проверка'} · {e.gate.durationMs} мс
+                  · {e.gate.command ?? 'встроенная проверка'} · {fmtDuration(e.gate.durationMs)}
                 </span>
                 <div className="whitespace-pre-wrap pl-4 text-neutral-500">{e.gate.lastLine}</div>
               </div>
@@ -135,6 +135,16 @@ export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
               <div key={idx} className="text-neutral-500">
                 ≡ промпт собран ({e.prompt.system.length} + {e.prompt.user.length} симв.
                 {e.prompt.editedByOperator ? ', с правкой оператора' : ''})
+              </div>
+            );
+
+          // Отмена шлёт это событие сразу, а исполнитель может доматывать вызов ещё
+          // минуту. Без строки в ленте всё это время не происходило ничего видимого, и
+          // оператор не знал, дошла ли команда.
+          case 'run_finished':
+            return (
+              <div key={idx} className={e.ok ? 'text-emerald-400' : 'text-amber-400'}>
+                ◼ прогон завершён: {e.note}
               </div>
             );
 

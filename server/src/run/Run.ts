@@ -14,6 +14,7 @@ import type {
   GateStatus,
   PolicyContext,
   PreparedPrompt,
+  RunStatus,
   StageId,
   Usage,
   Verdict,
@@ -47,8 +48,6 @@ import {
   type PreconditionReport,
   type StageContext,
 } from './stages.ts';
-
-export type RunStatus = 'idle' | 'running' | 'awaiting' | 'done' | 'failed' | 'cancelled';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -145,6 +144,7 @@ export class Run {
   private aborter: AbortController | null = null;
   /** Фактический прогон гейтов текущей попытки — источник статусов для вердикта. */
   private lastGateResults: GateRunResult[] = [];
+  private lastGatesAborted = false;
   private verdict: Verdict | null = null;
   /** Отработал ли независимый рецензент на ТЕКУЩЕЙ попытке. */
   private reviewerRan = false;
@@ -166,9 +166,21 @@ export class Run {
     return { paths: this.paths, chunk: this.chunk, attempt: this.attempt };
   }
 
-  /** Итоги последнего прогона гейтов — для интерфейса. */
+  /**
+   * Итоги последнего прогона гейтов — для интерфейса.
+   *
+   * Отдаётся та же таблица, по которой считается вердикт: со статусами «не скриптовых»
+   * гейтов, пересчитанными по факту. Пока отдавался сырой `lastGateResults`, оператор
+   * видел «⏭ Ревью независимым агентом» прямо над зелёным вердиктом — гейт, сторожащий
+   * ложный зелёный, выглядел невыполненным на штатном витке.
+   */
   get gateResults(): GateRunResult[] {
-    return [...this.lastGateResults];
+    return this.gateResultsForVerdict();
+  }
+
+  /** Прогон гейтов оборван отменой: набор в `gateResults` неполон. */
+  get gatesAborted(): boolean {
+    return this.lastGatesAborted;
   }
 
   get lastVerdict(): Verdict | null {
@@ -260,6 +272,7 @@ export class Run {
    */
   private resetAttemptState(): void {
     this.lastGateResults = [];
+    this.lastGatesAborted = false;
     this.verdict = null;
     this.reviewerRan = false;
   }
@@ -429,6 +442,12 @@ export class Run {
     const gates = this.gatesFile;
     if (gates === null) return [];
 
+    // Итоги копятся по одному, а не присваиваются разом в конце: интерфейс перечитывает
+    // состояние по событию `gate_result`, и при позднем присваивании каждый такой запрос
+    // возвращал таблицу ПРЕДЫДУЩЕГО прогона — зелёную, пока текущий уже краснел.
+    this.lastGateResults = [];
+    this.lastGatesAborted = false;
+
     const results = await runGates({
       gates,
       projectRoot: this.project.projectRoot,
@@ -437,8 +456,16 @@ export class Run {
       timeoutMs: this.config.runner.limits.gateTimeoutMs,
       ...(signal === undefined ? {} : { signal }),
       externalStatuses: this.externalGateStatuses(),
-      onResult: (gate) => this.emit({ type: 'gate_result', runId: this.id, stage: 'verify', gate }),
+      onResult: (gate) => {
+        this.lastGateResults.push(gate);
+        this.emit({ type: 'gate_result', runId: this.id, stage: 'verify', gate });
+      },
     });
+
+    // Отмена прерывает цикл гейтов и возвращает то, что успело прогнаться. Без этой
+    // отметки частичный набор выглядел в интерфейсе полным: две зелёные строки читались
+    // как «весь набор пройден», хотя обязательная пятёрка не запускалась.
+    this.lastGatesAborted = signal?.aborted === true;
     this.lastGateResults = results;
     return results;
   }
@@ -580,6 +607,9 @@ export class Run {
     const blockers = this.blockers(stage, abortOpts, report);
     if (blockers.length > 0) {
       const message = blockers.join('\n');
+      // Статус обязан отразить неудачный вход в этап: пока он оставался от предыдущего,
+      // в списке витков заблокированный запуск выглядел как «этап пройден».
+      this.status = 'failed';
       this.emit({ type: 'error', runId: this.id, stage, message });
       return { ok: false, finalText: '', usage: emptyUsage(), note: message };
     }
