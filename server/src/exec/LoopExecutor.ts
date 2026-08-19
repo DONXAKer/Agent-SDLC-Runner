@@ -22,12 +22,18 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
+import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
 import type { ChatMessage, ChatProvider, ChatToolCall } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
-import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+import type {
+  ExecHooks,
+  ExecRequest,
+  StageExecutor,
+  StageResult,
+  SubagentDef,
+} from './StageExecutor.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
 import { specsFor } from './toolSpecs.ts';
 
@@ -48,6 +54,17 @@ export interface LoopOptions {
  * счётчик начинался с нуля, — лишний полный round-trip к серверу на каждом залипании.
  */
 const REPEAT_LIMIT = 3;
+
+/**
+ * Имена инструментов субагента приходят строками из его YAML-шапки — файл пишет человек.
+ * Незнакомое имя не превращается в право: оно просто не попадает в пересечение.
+ */
+const TOOL_NAMES: readonly string[] = [
+  'Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'AskHuman', 'FinalizeArtifact', 'Task',
+];
+function isToolName(v: string): v is ToolName {
+  return TOOL_NAMES.includes(v);
+}
 
 /** Инструмент есть, но исполнить его этот флоу не умеет: не успех и не крах этапа. */
 export class SubagentUnavailable extends Error {}
@@ -253,6 +270,60 @@ export class LoopExecutor implements StageExecutor {
     return text;
   }
 
+  /**
+   * Вложенный прогон субагента.
+   *
+   * Инструменты идут через ТЕ ЖЕ hooks, то есть через тот же гейт политики и то же
+   * одобрение оператора: право на `Task` не расширяет права этапа, и второго места,
+   * принимающего решение о доступе, здесь не появляется.
+   *
+   * Вложенность одноуровневая: субагенту субагенты не выдаются. Рекурсия означала бы
+   * неограниченную глубину прав и бюджета.
+   */
+  private async runSubagent(
+    req: ExecRequest,
+    hooks: ExecHooks,
+    def: SubagentDef,
+    task: string,
+    allowedTools: readonly ToolName[],
+  ): Promise<string> {
+    hooks.onWarn(
+      `запущен субагент «${def.name}»: инструменты ${allowedTools.join(', ') || '(нет)'} — ` +
+        'пересечение прав этапа и объявленных прав субагента',
+    );
+
+    const result = await this.run(
+      {
+        ...req,
+        prompt: {
+          presetNote: null,
+          // Тело агента — его системный промпт, задача приходит пользовательским
+          // сообщением. Рассказ вызывающего о своей работе сюда НЕ попадает: рецензент не
+          // должен получать версию автора.
+          system: def.prompt,
+          user: task,
+          tools: [],
+          editedByOperator: false,
+        },
+        // Модель субагента, если он её назвал: рецензент бывает сильнее исполнителя.
+        model: def.model ?? req.model,
+        allowedTools,
+        subagents: [],
+        // Свой потолок ходов: вложенный прогон не должен съесть бюджет этапа целиком.
+        maxTurns: Math.max(4, Math.floor(req.maxTurns / 2)),
+      },
+      hooks,
+    );
+
+    if (!result.ok) {
+      // Провал субагента не выдаётся за успех: иначе несостоявшееся ревью зажгло бы гейт.
+      throw new SubagentUnavailable(`субагент «${def.name}» не завершил работу: ${result.note}`);
+    }
+    return result.finalText === ''
+      ? `субагент «${def.name}» вернул пустой ответ`
+      : result.finalText;
+  }
+
   private async execute(
     call: NormalizedCall,
     req: ExecRequest,
@@ -273,16 +344,29 @@ export class LoopExecutor implements StageExecutor {
         return `артефакт заявлен готовым: ${call.artifact}`;
 
       case 'subagent': {
-        // Субагент во флоу `loop` — вложенный прогон того же цикла с урезанными правами.
-        // Его отсутствие не проглатывается: методология держит на субагентах ровно то,
-        // что нельзя доверить автору работы. Отдаётся ОШИБКОЙ, а не текстом: успешный
-        // исход здесь засчитывался как состоявшееся ревью и зажигал обязательный гейт
-        // на витке, где независимого рецензента не было вовсе.
-        const note =
-          `субагент «${call.agent}» во флоу loop не запускается. Этап 6 без независимого ` +
-          `рецензента неполон — гейт «Ревью независимым агентом» останется ⏭.`;
-        hooks.onWarn(note);
-        throw new SubagentUnavailable(note);
+        // Субагент — вложенный прогон ТОГО ЖЕ цикла с урезанными правами.
+        //
+        // Отсутствие субагента по-прежнему отдаётся ОШИБКОЙ, а не текстом: успешный исход
+        // здесь засчитывается как состоявшееся ревью и зажигает обязательный гейт, поэтому
+        // «сделал вид, что позвал» — это ложный зелёный на самом сторожевом месте.
+        const def = req.subagents.find((a) => a.name === call.agent);
+        if (def === undefined) {
+          const declared = req.subagents.map((a) => a.name).join(', ');
+          const note =
+            `субагент «${call.agent}» на этом этапе не объявлен` +
+            (declared === '' ? '' : ` (объявлены: ${declared})`) +
+            '. Вызвать можно только объявленного: права субагента заданы конструкцией.';
+          hooks.onWarn(note);
+          throw new SubagentUnavailable(note);
+        }
+
+        // Права — ПЕРЕСЕЧЕНИЕ прав этапа и объявленных прав субагента. Ни расширить права
+        // этапа вызовом субагента, ни выдать субагенту больше, чем он объявил, нельзя:
+        // «разведчик места правки не имеет инструментов записи» держится на этом.
+        const declaredTools = def.tools.filter((t): t is ToolName => isToolName(t));
+        const nested = req.allowedTools.filter((t) => declaredTools.includes(t));
+
+        return this.runSubagent(req, hooks, def, call.prompt, nested);
       }
 
       default: {
