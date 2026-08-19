@@ -63,7 +63,11 @@ export interface ModelsConfig {
 
 export interface ProfileDef {
   label: string;
-  stages: Record<StageId, string>;
+  /**
+   * Модель этапа. Список — ансамбль: несколько независимых прогонов одного этапа.
+   * Строка означает список из одного, поэтому существующие конфиги не меняются.
+   */
+  stages: Record<StageId, string | string[]>;
 }
 
 /**
@@ -115,5 +119,12 @@ export interface ResolvedRoute {
 export interface ResolvedProfile {
   name: string;
   label: string;
+  /**
+   * Основной маршрут этапа — первый из списка. От него зависят выбор исполнителя и
+   * событие `stage_started`, поэтому поле оставлено одиночным: переписывать всех
+   * потребителей ради ансамбля не нужно.
+   */
   routes: Record<StageId, ResolvedRoute>;
+  /** Все маршруты этапа. Для не-ансамблевых этапов — список из одного элемента. */
+  ensemble: Record<StageId, ResolvedRoute[]>;
 }

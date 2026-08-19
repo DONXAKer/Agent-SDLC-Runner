@@ -121,7 +121,10 @@ app.get('/api/config', (): ConfigInfo => ({
     profiles: Object.entries(p.profiles).map(([name, def]) => ({
       name,
       label: def.label,
-      stages: def.stages,
+      // Строка и список приводятся к одной форме здесь: интерфейсу незачем знать про две.
+      stages: Object.fromEntries(
+        Object.entries(def.stages).map(([stage, v]) => [stage, Array.isArray(v) ? v : [v]]),
+      ) as Record<StageId, string[]>,
     })),
   })),
   models: config.models.models,

@@ -34,7 +34,7 @@ import { columnIndex, parseTables } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import type { LoadedConfig } from '../config/load.ts';
-import type { ProjectConfig, ResolvedProfile } from '../config/schema.ts';
+import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/schema.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
 import { createProvider } from '../provider/registry.ts';
@@ -519,8 +519,8 @@ export class Run {
     };
   }
 
-  private executorFor(stage: StageId): StageExecutor {
-    const route = this.profile.routes[stage];
+  private executorFor(stage: StageId, forRoute?: ResolvedRoute): StageExecutor {
+    const route = forRoute ?? this.profile.routes[stage];
     if (route.flow === 'sdk') return new SdkExecutor();
 
     const limits = this.config.runner.limits;
@@ -1054,6 +1054,35 @@ export class Run {
         },
         hooks,
       );
+
+      // Ансамбль рецензентов: остальные маршруты этапа 6 прогоняются ПОСЛЕ основного, по
+      // тому же промпту и с теми же правами. Они пишут свои отчёты, а вердикт считается по
+      // худшему статусу — правило то же, что и везде: `✅` только если так сказали все.
+      // Прогоняются последовательно: рецензенты делят рабочее дерево и бюджет.
+      const extraRoutes = (this.profile.ensemble[stage] ?? []).slice(1);
+      for (const [i, other] of extraRoutes.entries()) {
+        if (this.aborter?.signal.aborted === true) break;
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage,
+          message: `ансамбль: дополнительный маршрут ${i + 2} — ${other.modelId}`,
+        });
+        await this.executorFor(stage, other).run(
+          {
+            prompt,
+            cwd: this.project.projectRoot,
+            model: other.model,
+            allowedTools: def.tools,
+            readOnlyDirs: this.readOnlyRoots,
+            subagents: agents,
+            maxTurns: this.config.runner.limits.maxIterationsPerStage,
+            maxBudgetUsd: this.project.maxBudgetUsd,
+            signal: this.aborter.signal,
+          },
+          hooks,
+        );
+      }
 
       this.reportArtifacts(stage);
 

@@ -169,7 +169,11 @@ export interface ProjectInfo {
   projectRoot: string;
   activeProfile: string;
   maxBudgetUsd: number;
-  profiles: { name: string; label: string; stages: Record<StageId, string> }[];
+  /**
+   * Модели профиля по этапам. Список — ансамбль: несколько независимых прогонов этапа.
+   * Строка в конфиге разворачивается в список из одного, поэтому здесь всегда список.
+   */
+  profiles: { name: string; label: string; stages: Record<StageId, string[]> }[];
 }
 
 export interface ConfigInfo {
