@@ -1,6 +1,8 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { ORDER } from '../gates/ecosystems/index.ts';
+import { normalizeModuleDir } from '../gates/builtin/logic.ts';
 import type { ModelsConfig, ProjectConfig, RunnerConfig } from './schema.ts';
 
 /** Ключи вида `"// заметка"` в JSON — комментарии для человека; рантайм их игнорирует. */
@@ -66,6 +68,54 @@ function pathOverrides(): Partial<RunnerConfig> {
   return overrides;
 }
 
+/**
+ * Проверка описания модулей проекта.
+ *
+ * JSON читается без схемы, поэтому опечатка в имени экосистемы или путь к несуществующему
+ * каталогу молча превратились бы в «детект не сработал» — то есть в гейт «Сборка»,
+ * проверяющий не тот модуль или не проверяющий ничего. Ошибка загрузки честнее: виток не
+ * стартует, и человек читает причину.
+ */
+function validateModules(p: ProjectConfig): void {
+  if (p.modules === undefined) return;
+  if (!Array.isArray(p.modules)) {
+    throw new Error(`проект «${p.name}»: поле modules должно быть списком`);
+  }
+
+  const known = ORDER.map((e) => e.id);
+  const seen = new Set<string>();
+
+  for (const m of p.modules) {
+    if (typeof m?.dir !== 'string' || m.dir.trim() === '') {
+      throw new Error(`проект «${p.name}»: у модуля не задан dir`);
+    }
+    const dir = normalizeModuleDir(m.dir);
+    if (seen.has(dir)) {
+      throw new Error(`проект «${p.name}»: модуль ${dir} описан дважды`);
+    }
+    seen.add(dir);
+
+    const full = dir === '.' ? p.projectRoot : join(p.projectRoot, dir);
+    if (!existsSync(full)) {
+      throw new Error(`проект «${p.name}»: каталог модуля ${dir} не существует (${full})`);
+    }
+    if (m.ecosystem !== undefined && !known.includes(m.ecosystem)) {
+      throw new Error(
+        `проект «${p.name}», модуль ${dir}: неизвестная экосистема «${m.ecosystem}». ` +
+          `Известные: ${known.join(', ')}`,
+      );
+    }
+    // Описание, которое не говорит НИЧЕГО, — это не описание: детект в таком случае и так
+    // отработает, а строка в конфиге создаёт ложное впечатление настройки.
+    if (m.ecosystem === undefined && m.build === undefined) {
+      throw new Error(
+        `проект «${p.name}», модуль ${dir}: нужно задать ecosystem или build — иначе ` +
+          `описание ничего не добавляет к автодетекту`,
+      );
+    }
+  }
+}
+
 export function loadConfig(dir: string = configDir()): LoadedConfig {
   const raw = readJson<RunnerConfig>(join(dir, 'runner.json'));
   const runner: RunnerConfig = {
@@ -87,6 +137,7 @@ export function loadConfig(dir: string = configDir()): LoadedConfig {
       if (typeof p.projectRoot !== 'string' || p.projectRoot === '') {
         throw new Error(`проект «${p.name}»: не задано поле projectRoot`);
       }
+      validateModules(p);
       projects.set(p.name, p);
     }
   }

@@ -11,7 +11,9 @@
  * себя.
  */
 
-import { detectBuildSystem, syntaxCheckerFor } from '../ecosystems/index.ts';
+import { ORDER, detectBuildSystem, syntaxCheckerFor } from '../ecosystems/index.ts';
+import type { BuildSystem } from '../ecosystems/index.ts';
+import type { ModuleProfile } from '../../config/schema.ts';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -26,12 +28,18 @@ import type { InvariantViolation } from './logic.ts';
 import {
   invariantViolations,
   moduleDirFromPlan,
+  normalizeModuleDir,
   publishProblems,
   scopeViolations,
 } from './logic.ts';
 
 export interface GateContext {
   projectRoot: string;
+  /**
+   * Модули, описанные человеком в конфиге проекта. Пусто — работает автодетект.
+   * Приоритет: команда из `.sdlc/gates.md` > это описание > детект.
+   */
+  modules?: readonly ModuleProfile[];
   /** `files_to_touch` одобренного плана — вход scope-гейта и детекта модуля. */
   planFiles: readonly string[];
   /** Снимок грязного дерева до этапа 5: путь → хеш. `null` — снимка нет. */
@@ -66,13 +74,49 @@ function readIfExists(path: string): string | null {
   }
 }
 
+/** Описание модуля из конфига проекта для этого каталога. `null` — не описан. */
+function declaredModule(ctx: GateContext, dir: string): ModuleProfile | null {
+  const want = normalizeModuleDir(dir);
+  return (ctx.modules ?? []).find((m) => normalizeModuleDir(m.dir) === want) ?? null;
+}
+
 function resolveModule(ctx: GateContext): { dir: string; files: Set<string> } | null {
   const dir = moduleDirFromPlan(ctx.planFiles, (d) => {
+    // Объявленный человеком модуль — модуль, даже если манифеста детект не знает: ради
+    // этого случая поле и заводилось.
+    if (declaredModule(ctx, d) !== null) return true;
     const files = dirEntries(ctx.projectRoot, d);
     return detectBuildSystem(files, readIfExists(join(ctx.projectRoot, d, 'package.json'))) !== null;
   });
   if (dir === null) return null;
   return { dir, files: dirEntries(ctx.projectRoot, dir) };
+}
+
+/**
+ * Команды модуля с фиксированным приоритетом источников: описание проекта > автодетект.
+ *
+ * Команда из `.sdlc/gates.md` сюда не доходит вовсе — она перехватывается раньше, в
+ * `runGates`: строка набора исполняется как есть, встроенная реализация тогда не
+ * вызывается. Продолжение уже действующего правила «проект, назвавший свою команду,
+ * знает про себя больше, чем детект».
+ */
+function resolveCommands(ctx: GateContext, dir: string, files: ReadonlySet<string>): BuildSystem | null {
+  const detected = detectBuildSystem(files, readIfExists(join(ctx.projectRoot, dir, 'package.json')));
+  const declared = declaredModule(ctx, dir);
+  if (declared === null) return detected;
+
+  const eco = declared.ecosystem === undefined
+    ? null
+    : (ORDER.find((e) => e.id === declared.ecosystem) ?? null);
+  const base = eco?.commands({ files, packageJson: readIfExists(join(ctx.projectRoot, dir, 'package.json')) }) ?? detected;
+
+  // `test: null` в описании — утверждение «раннера нет намеренно», и детект его не
+  // перекрывает. Поэтому проверяется наличие ключа, а не истинность значения.
+  const test = 'test' in declared ? (declared.test ?? null) : (base?.test ?? null);
+  const build = declared.build ?? base?.build;
+  if (build === undefined) return null;
+
+  return { build, test, depsDir: base?.depsDir ?? null };
 }
 
 // ---------------------------------------------------------------------------
@@ -275,10 +319,7 @@ const buildGate: BuiltinGate = async (ctx) => {
   if (mod === null) {
     return syntaxOnly(ctx, 'build-система не обнаружена');
   }
-  const system = detectBuildSystem(
-    mod.files,
-    readIfExists(join(ctx.projectRoot, mod.dir, 'package.json')),
-  );
+  const system = resolveCommands(ctx, mod.dir, mod.files);
   if (system === null) return syntaxOnly(ctx, 'build-система не обнаружена');
 
   // Без установленных зависимостей команда сборки падает на отсутствующем инструменте, и
@@ -307,10 +348,7 @@ const buildGate: BuiltinGate = async (ctx) => {
 
 const testGate: BuiltinGate = async (ctx) => {
   const mod = resolveModule(ctx);
-  const system =
-    mod === null
-      ? null
-      : detectBuildSystem(mod.files, readIfExists(join(ctx.projectRoot, mod.dir, 'package.json')));
+  const system = mod === null ? null : resolveCommands(ctx, mod.dir, mod.files);
 
   // «Раннера нет» и «тесты упали» — разные вещи, и различать их обязательно: первое
   // оставляет пункты приёмки, держащиеся на тесте, НЕПОДТВЕРЖДЁННЫМИ, второе означает

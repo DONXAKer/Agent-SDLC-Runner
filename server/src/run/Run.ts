@@ -507,6 +507,8 @@ export class Run {
       planFiles: this.planFilesFor('verify') ?? [],
       baseline: this.readBaseline(),
       timeoutMs: this.config.runner.limits.gateTimeoutMs,
+      // Описание модулей проекта: человек знает про свой моно-репо больше, чем детект.
+      ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
       ...(signal === undefined ? {} : { signal }),
       externalStatuses: this.externalGateStatuses(),
       onResult: (gate) => {

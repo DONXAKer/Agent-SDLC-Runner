@@ -24,6 +24,17 @@ import {
  * тогда как правки шли в `vscode-extension/` — и зеленел, не проверив ничего по существу.
  * Идём от первого файла плана вверх до первого каталога с манифестом.
  */
+/**
+ * Единая форма пути модуля: без ведущего `./`, без хвостового слэша, корень — `.`.
+ *
+ * Нужна и конфигу, и детекту: сравнивать «путь из JSON, написанный человеком» с «путь,
+ * выведенный из плана» по сырой строке значит промахиваться на `./web` против `web`.
+ */
+export function normalizeModuleDir(dir: string): string {
+  const trimmed = dir.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  return trimmed === '' || trimmed === '.' ? '.' : trimmed;
+}
+
 export function moduleDirFromPlan(
   planFiles: readonly string[],
   isModule: (dir: string) => boolean,

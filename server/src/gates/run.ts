@@ -107,6 +107,7 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
     planFiles: i.planFiles,
     baseline: i.baseline,
     timeoutMs: i.timeoutMs,
+    ...(i.modules === undefined ? {} : { modules: i.modules }),
     ...(i.signal === undefined ? {} : { signal: i.signal }),
   };
 
