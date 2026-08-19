@@ -12,7 +12,7 @@
  */
 
 import { worstGateStatus } from '@sdlc-runner/shared';
-import { ORDER, detectBuildSystem, syntaxCheckerFor } from '../ecosystems/index.ts';
+import { ORDER, detectBuildSystem, detectEcosystem, syntaxCheckerFor } from '../ecosystems/index.ts';
 import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
 import { spawn } from 'node:child_process';
@@ -81,6 +81,37 @@ function readIfExists(path: string): string | null {
 function declaredModule(ctx: GateContext, dir: string): ModuleProfile | null {
   const want = normalizeModuleDir(dir);
   return (ctx.modules ?? []).find((m) => normalizeModuleDir(m.dir) === want) ?? null;
+}
+
+/**
+ * Как рантайм видит сборку проекта — для промпта.
+ *
+ * Источник тот же, что у гейтов: описание модулей проекта, иначе автодетект. Второй детект
+ * на стороне сборки промпта означал бы два знания об одном, и однажды они разошлись бы —
+ * промпт обещал бы одну команду, а гейт прогонял другую.
+ */
+export function describeBuild(
+  ctx: GateContext,
+): { dir: string; label: string; build: string; test: string | null }[] {
+  const out: { dir: string; label: string; build: string; test: string | null }[] = [];
+  for (const mod of resolveModules(ctx)) {
+    const system = resolveCommands(ctx, mod.dir, mod.files);
+    if (system === null) continue;
+    const declaredId = declaredModule(ctx, mod.dir)?.ecosystem;
+    const eco =
+      declaredId === undefined
+        ? detectEcosystem(mod.files)
+        : (ORDER.find((e) => e.id === declaredId) ?? null);
+    out.push({
+      dir: mod.dir,
+      // Экосистема может не определиться, когда команда задана человеком напрямую: это не
+      // повод молчать про команду, но и выдумывать имя языка не надо.
+      label: eco?.label ?? 'команда задана в конфиге проекта',
+      build: system.build,
+      test: system.test,
+    });
+  }
+  return out;
 }
 
 /**

@@ -40,7 +40,7 @@ import type { ExecHooks, StageExecutor, StageResult } from '../exec/StageExecuto
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
 import { configProblems, gateKey, parseGates } from '../gates/gatesFile.ts';
-import { snapshotBaseline } from '../gates/builtin/index.ts';
+import { describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
 import { runGates } from '../gates/run.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
 import { diffCloseness } from './diffDistance.ts';
@@ -456,6 +456,13 @@ export class Run {
 
     const def = stageById(stage);
     const route = this.profile.routes[stage];
+    const ecosystem = describeBuild({
+      projectRoot: this.project.projectRoot,
+      planFiles: this.planFilesFor(stage) ?? [],
+      baseline: null,
+      timeoutMs: this.config.runner.limits.gateTimeoutMs,
+      ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
+    });
     const prompt = buildPrompt({
       runner: this.config.runner,
       stage: def,
@@ -465,6 +472,9 @@ export class Run {
       now: new Date(),
       ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
       ...(opts.extra === undefined ? {} : { extra: opts.extra }),
+      // Чем проект собирается — тем же источником, что у гейтов. Пусто (плана ещё нет,
+      // экосистема не определилась) — блок в промпте молчит, а не гадает.
+      ...(ecosystem.length === 0 ? {} : { ecosystem }),
     });
     this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     return prompt;
