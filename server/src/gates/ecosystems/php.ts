@@ -11,6 +11,7 @@ export const php: Ecosystem = {
   }),
   codeExt: ['.php'],
   syntaxCheck: (file) => ({ cmd: 'php', args: ['-l', file] }),
+  lint: (files) => ({ cmd: 'vendor/bin/phpcs', args: [...files], scope: 'files' }),
   disableMarkers: ['@group disabled', '$this->markTestSkipped('],
   testDecl: ['function test', '@test'],
 };

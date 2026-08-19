@@ -10,6 +10,7 @@ export const go: Ecosystem = {
   // проверял бы форматирование, а это другое утверждение — им нельзя подменять «файл
   // вообще разбирается».
   syntaxCheck: (file) => ({ cmd: 'gofmt', args: ['-e', file] }),
+  lint: (files) => ({ cmd: 'golangci-lint', args: ['run', './...'], scope: 'module' }),
   disableMarkers: ['t.Skip(', 'testing.Short()'],
   testDecl: ['func Test'],
 };

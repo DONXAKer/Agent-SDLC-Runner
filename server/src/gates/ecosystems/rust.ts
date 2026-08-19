@@ -6,6 +6,7 @@ export const cargo: Ecosystem = {
   manifests: ['Cargo.toml'],
   commands: () => ({ build: 'cargo check --all-targets', test: 'cargo test', depsDir: null }),
   codeExt: ['.rs'],
+  lint: () => ({ cmd: 'cargo', args: ['clippy', '--all-targets', '--', '-D', 'warnings'], scope: 'module' }),
   disableMarkers: ['#[ignore]'],
   testDecl: ['#[test]'],
 };

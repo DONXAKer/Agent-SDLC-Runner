@@ -507,6 +507,107 @@ function hashOf(path: string): string | null {
   }
 }
 
+/**
+ * Линт экосистемы: паттерны языка проверкой, а не надеждой на промпт.
+ *
+ * Три исхода различаются честно и по-разному:
+ * - линтера нет на машине (ENOENT) → `⏭` со словами «идиоматичность НЕ проверялась». `⏭`
+ *   роняет вердикт, пока человек не подпишет неприменимость, — это и есть нужное
+ *   поведение, а не досадный побочный эффект;
+ * - линтер отработал и нашёл нарушения → `❌` с хвостом вывода;
+ * - чисто → `✅`.
+ *
+ * Проверяются ТОЛЬКО изменённые файлы там, где инструмент это умеет: гейт на всём
+ * репозитории краснеет от чужого долга и обучает игнорировать себя. Где инструмент умеет
+ * лишь целиком, это сказано в выводе — чтобы «✅» не читалось как «изменения чисты».
+ */
+const lintGate: BuiltinGate = async (ctx) => {
+  const mods = resolveModules(ctx);
+  if (mods.length === 0) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: 'модуль не определён — ЛИНТ НЕ ЗАПУСКАЛСЯ, идиоматичность не проверялась',
+    };
+  }
+
+  const changed = await changedPaths(ctx.projectRoot, ctx.signal);
+
+  const parts = await forEachModule(ctx, mods, async (mod) => {
+    const declaredId = declaredModule(ctx, mod.dir)?.ecosystem;
+    const eco =
+      declaredId === undefined
+        ? detectEcosystem(mod.files)
+        : (ORDER.find((e) => e.id === declaredId) ?? null);
+
+    // Переопределение из конфига проекта сильнее пресета — тот же приоритет, что у сборки.
+    const override = declaredModule(ctx, mod.dir)?.lint;
+    if (override === undefined && eco?.lint === undefined) {
+      return {
+        status: '⏭' as const,
+        command: null,
+        exitCode: null,
+        lastLine: `для ${mod.dir} общепринятого линтера нет — идиоматичность НЕ проверялась`,
+      };
+    }
+
+    const inModule = changed
+      .filter((f) => mod.dir === '.' || f.startsWith(`${mod.dir}/`))
+      .map((f) => (mod.dir === '.' ? f : f.slice(mod.dir.length + 1)));
+    if (inModule.length === 0) {
+      return {
+        status: '⏭' as const,
+        command: null,
+        exitCode: null,
+        lastLine: `в ${mod.dir} изменённых файлов нет — линтовать нечего`,
+      };
+    }
+
+    const spec = override === undefined
+      ? eco?.lint?.(inModule)
+      : { cmd: override, args: [] as readonly string[], scope: 'module' as const };
+    if (spec === undefined) {
+      return {
+        status: '⏭' as const,
+        command: null,
+        exitCode: null,
+        lastLine: `для ${mod.dir} линтера нет — идиоматичность НЕ проверялась`,
+      };
+    }
+
+    const r = await runSyntaxCheck(spec.cmd, spec.args, ctx.signal);
+    const shown = `${spec.cmd} ${spec.args.join(' ')}`.trim();
+    if (r.noTool) {
+      return {
+        status: '⏭' as const,
+        command: shown,
+        exitCode: null,
+        lastLine: `линтер ${spec.cmd} не найден на машине — идиоматичность НЕ проверялась`,
+      };
+    }
+    const tail = r.stderr.split(/\r?\n/).filter((l) => l.trim() !== '').slice(-3).join(' ');
+    return {
+      status: r.code === 0 ? ('✅' as const) : ('❌' as const),
+      command: shown,
+      exitCode: r.code,
+      lastLine:
+        r.code === 0
+          ? `нарушений нет${spec.scope === 'module' ? ' (проверен весь модуль, не только изменённое)' : ''}`
+          : tail === ''
+            ? 'линтер сообщил о нарушениях, вывод пуст'
+            : tail,
+    };
+  });
+
+  return aggregate(parts, {
+    status: '⏭',
+    command: null,
+    exitCode: null,
+    lastLine: 'линтовать нечего',
+  });
+};
+
 const scopeGate: BuiltinGate = async (ctx) => {
   if (!(await isRepo(ctx.projectRoot))) {
     return {
@@ -692,6 +793,7 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
   ['scope: файлы вне плана', scopeGate],
   ['анти-обход тест-гейта', antiBypassGate],
   ['секреты в diff', secretsGate],
+  ['линт экосистемы', lintGate],
   ['проверка предусловий публикации', publishGate],
 ]);
 

@@ -59,6 +59,19 @@ export interface Ecosystem {
    * строку команды.
    */
   syntaxCheck?: (absFile: string) => { cmd: string; args: readonly string[] };
+  /**
+   * Линтер экосистемы. `undefined` — общепринятого нет, и выдумывать его не надо.
+   *
+   * `scope: 'files'` — инструмент принимает пути и проверяется только изменённое: гейт на
+   * всём репозитории краснеет от чужого долга и обучает игнорировать себя. `scope:
+   * 'module'` — инструмент умеет только целиком, и это должно быть сказано в выводе.
+   */
+  lint?: (changedFiles: readonly string[]) => {
+    cmd: string;
+    args: readonly string[];
+    scope: 'files' | 'module';
+  };
+
   /** Маркеры отключённого теста в добавленной строке diff. */
   disableMarkers: readonly string[];
   /** Признаки объявления теста — по ним считается, не удалили ли тесты. */

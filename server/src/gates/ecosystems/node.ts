@@ -37,6 +37,7 @@ export const node: Ecosystem = {
   // работает корректно — поэтому ESM и JSX отсеиваются по фактическому тексту ошибки в
   // `builtin/index.ts`, а не здесь.
   syntaxCheck: (file) => ({ cmd: process.execPath, args: ['--check', file] }),
+  lint: (files) => ({ cmd: 'npx', args: ['--no-install', 'eslint', ...files], scope: 'files' }),
   disableMarkers: [
     'it.skip(',
     'describe.skip(',
