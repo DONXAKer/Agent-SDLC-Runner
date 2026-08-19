@@ -28,6 +28,7 @@ export type ArtifactKey =
   | 'journal'
   | 'verification'
   | 'iterations'
+  | 'selfReview'
   | 'handoff';
 
 const ARTIFACT_KEYS: readonly string[] = [
@@ -39,6 +40,7 @@ const ARTIFACT_KEYS: readonly string[] = [
   'journal',
   'verification',
   'iterations',
+  'selfReview',
   'handoff',
 ];
 
@@ -69,6 +71,8 @@ export function artifactPathOf(
       return paths.verificationReport(chunk, attempt);
     case 'iterations':
       return paths.iterations;
+    case 'selfReview':
+      return paths.selfReview(chunk, attempt);
     case 'handoff':
       return paths.handoff;
   }
@@ -137,6 +141,16 @@ export class WitokPaths {
    */
   get iterations(): string {
     return join(this.dir, 'iterations.md');
+  }
+
+  /**
+   * Черновой самопросмотр попытки — артефакт ПОПЫТКИ, а не журнала chunk'а.
+   *
+   * Отдельным файлом намеренно: журнал chunk'а — улика этапа 5, и его защищают от
+   * переписывания на этапе 6. Самопросмотр же черновой и к вердикту отношения не имеет.
+   */
+  selfReview(chunk: number, attempt: number): string {
+    return join(this.dir, `self-review-${chunk}-attempt-${attempt}.md`);
   }
 
   chunkDiff(chunk: number, attempt: number): string {

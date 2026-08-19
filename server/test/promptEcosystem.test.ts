@@ -27,8 +27,10 @@ const root = mkdtempSync(join(tmpdir(), 'sdlc-eco-prompt-'));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const skillsDir = join(root, 'skills');
-mkdirSync(join(skillsDir, 'sdlc-chunk'), { recursive: true });
-writeFileSync(join(skillsDir, 'sdlc-chunk', 'SKILL.md'), '# Этап 5\nтело этапа\n');
+for (const skill of ['sdlc-chunk', 'sdlc-plan']) {
+  mkdirSync(join(skillsDir, skill), { recursive: true });
+  writeFileSync(join(skillsDir, skill, 'SKILL.md'), `# ${skill}\nтело этапа\n`);
+}
 
 const runner: RunnerConfig = {
   port: 8030,
@@ -59,6 +61,34 @@ function systemOf(ecosystem?: EcoLine[]): string {
     ...(ecosystem === undefined ? {} : { ecosystem }),
   }).system;
 }
+
+describe('самопросмотр на этапе 5', () => {
+  it('шаг объявлен на chunk и указывает свой артефакт', () => {
+    const s = systemOf();
+    ok(s.includes('просмотри СВОЙ diff'));
+    ok(s.includes('self-review-1-attempt-1.md'));
+  });
+
+  it('прямо сказано, что независимого рецензента он не заменяет', () => {
+    // Иначе дешёвый самопросмотр начнёт восприниматься как ревью, и «автор не рецензирует
+    // себя» превратится в формальность.
+    const s = systemOf();
+    ok(s.includes('НЕ заменяет независимого рецензента'));
+    ok(s.includes('в вердикт не'));
+  });
+
+  it('на других этапах шага нет', () => {
+    const other = buildPrompt({
+      runner,
+      stage: stageById('plan'),
+      ctx: { paths: new WitokPaths(root, 'demo'), chunk: 1, attempt: 1 },
+      flow: 'sdk',
+      slug: 'demo',
+      now: new Date('2026-01-01T00:00:00Z'),
+    }).system;
+    strictEqual(other.includes('просмотри СВОЙ diff'), false);
+  });
+});
 
 describe('языковой контекст в adapter-блоке', () => {
   it('без описания экосистемы блок молчит, а не гадает', () => {
