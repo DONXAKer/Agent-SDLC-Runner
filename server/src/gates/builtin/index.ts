@@ -11,6 +11,7 @@
  * себя.
  */
 
+import { worstGateStatus } from '@sdlc-runner/shared';
 import { ORDER, detectBuildSystem, syntaxCheckerFor } from '../ecosystems/index.ts';
 import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
@@ -27,7 +28,7 @@ import { runShell } from '../shell.ts';
 import type { InvariantViolation } from './logic.ts';
 import {
   invariantViolations,
-  moduleDirFromPlan,
+  moduleDirsFromPlan,
   normalizeModuleDir,
   publishProblems,
   scopeViolations,
@@ -40,6 +41,8 @@ export interface GateContext {
    * Приоритет: команда из `.sdlc/gates.md` > это описание > детект.
    */
   modules?: readonly ModuleProfile[];
+  /** Сколько модулей проверять одновременно. По умолчанию 1 — последовательно. */
+  moduleParallel?: number;
   /** `files_to_touch` одобренного плана — вход scope-гейта и детекта модуля. */
   planFiles: readonly string[];
   /** Снимок грязного дерева до этапа 5: путь → хеш. `null` — снимка нет. */
@@ -80,16 +83,65 @@ function declaredModule(ctx: GateContext, dir: string): ModuleProfile | null {
   return (ctx.modules ?? []).find((m) => normalizeModuleDir(m.dir) === want) ?? null;
 }
 
-function resolveModule(ctx: GateContext): { dir: string; files: Set<string> } | null {
-  const dir = moduleDirFromPlan(ctx.planFiles, (d) => {
+/**
+ * Проход по модулям. По умолчанию ПОСЛЕДОВАТЕЛЬНЫЙ.
+ *
+ * Довод из `runGates` («гейты делят рабочее дерево, git-индекс и память») параллельные
+ * сборки разных модулей не отменяет: gradle-демон и `npm ci` конкурируют за диск и память,
+ * а тесты могут делить порт или базу. Параллельность включается лимитом в конфиге и должна
+ * оправдываться замером, а не ощущением.
+ */
+async function forEachModule(
+  ctx: GateContext,
+  mods: readonly { dir: string; files: Set<string> }[],
+  run: (m: { dir: string; files: Set<string> }) => Promise<BuiltinOutcome>,
+): Promise<{ dir: string; outcome: BuiltinOutcome }[]> {
+  const width = Math.max(1, ctx.moduleParallel ?? 1);
+  return inBatches(mods, width, async (m) => ({ dir: m.dir, outcome: await run(m) }));
+}
+
+/** Все модули, затронутые планом. Пусто — собирать нечего. */
+function resolveModules(ctx: GateContext): { dir: string; files: Set<string> }[] {
+  const dirs = moduleDirsFromPlan(ctx.planFiles, (d) => {
     // Объявленный человеком модуль — модуль, даже если манифеста детект не знает: ради
     // этого случая поле и заводилось.
     if (declaredModule(ctx, d) !== null) return true;
     const files = dirEntries(ctx.projectRoot, d);
     return detectBuildSystem(files, readIfExists(join(ctx.projectRoot, d, 'package.json'))) !== null;
   });
-  if (dir === null) return null;
-  return { dir, files: dirEntries(ctx.projectRoot, dir) };
+  return dirs.map((dir) => ({ dir, files: dirEntries(ctx.projectRoot, dir) }));
+}
+
+/**
+ * Сводит исходы по модулям в один статус гейта по правилу «худший побеждает».
+ *
+ * `✅` только если проверены ВСЕ модули: гейт, зеленеющий по одному из двух затронутых, —
+ * ровно тот ложный зелёный, ради устранения которого прогон и разложен по модулям.
+ * Правило берётся из общего пакета, второй его копии здесь нет.
+ */
+function aggregate(
+  parts: readonly { dir: string; outcome: BuiltinOutcome }[],
+  fallback: BuiltinOutcome,
+): BuiltinOutcome {
+  if (parts.length === 0) return fallback;
+  if (parts.length === 1) {
+    const only = parts[0];
+    return only === undefined ? fallback : only.outcome;
+  }
+
+  const status = parts.reduce<GateStatus>((acc, p) => worstGateStatus(acc, p.outcome.status), '✅');
+  const failed = parts.filter((p) => p.outcome.status !== '✅');
+  return {
+    status,
+    // Команда у модулей разная, поэтому в поле — перечень: «Сборка ❌» без имени модуля
+    // в моно-репо не диагностична.
+    command: parts.map((p) => `${p.dir}: ${p.outcome.command ?? 'без команды'}`).join('; '),
+    exitCode: failed.find((p) => p.outcome.exitCode !== null)?.outcome.exitCode ?? null,
+    lastLine: [
+      `модулей проверено: ${parts.length}`,
+      ...parts.map((p) => `  ${p.outcome.status} ${p.dir}: ${p.outcome.lastLine}`),
+    ].join('\n'),
+  };
 }
 
 /**
@@ -314,13 +366,13 @@ async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome
 // Тесты
 // ---------------------------------------------------------------------------
 
-const buildGate: BuiltinGate = async (ctx) => {
-  const mod = resolveModule(ctx);
-  if (mod === null) {
-    return syntaxOnly(ctx, 'build-система не обнаружена');
-  }
+/** Сборка одного модуля. Агрегацию делает вызывающий. */
+async function buildOne(
+  ctx: GateContext,
+  mod: { dir: string; files: Set<string> },
+): Promise<BuiltinOutcome> {
   const system = resolveCommands(ctx, mod.dir, mod.files);
-  if (system === null) return syntaxOnly(ctx, 'build-система не обнаружена');
+  if (system === null) return syntaxOnly(ctx, `в ${mod.dir} build-система не обнаружена`);
 
   // Без установленных зависимостей команда сборки падает на отсутствующем инструменте, и
   // возврат на доработку отправил бы исполнителя чинить несуществующую поломку кода,
@@ -344,23 +396,34 @@ const buildGate: BuiltinGate = async (ctx) => {
     exitCode: r.exitCode,
     lastLine: r.timedOut ? `сборка не уложилась в ${ctx.timeoutMs} мс` : r.lastLine,
   };
+}
+
+const buildGate: BuiltinGate = async (ctx) => {
+  const mods = resolveModules(ctx);
+  if (mods.length === 0) return syntaxOnly(ctx, 'build-система не обнаружена');
+
+  const parts = await forEachModule(ctx, mods, (m) => buildOne(ctx, m));
+  return aggregate(parts, await syntaxOnly(ctx, 'build-система не обнаружена'));
 };
 
-const testGate: BuiltinGate = async (ctx) => {
-  const mod = resolveModule(ctx);
-  const system = mod === null ? null : resolveCommands(ctx, mod.dir, mod.files);
+/** Тесты одного модуля. Агрегацию делает вызывающий. */
+async function testOne(
+  ctx: GateContext,
+  mod: { dir: string; files: Set<string> },
+): Promise<BuiltinOutcome> {
+  const system = resolveCommands(ctx, mod.dir, mod.files);
 
   // «Раннера нет» и «тесты упали» — разные вещи, и различать их обязательно: первое
   // оставляет пункты приёмки, держащиеся на тесте, НЕПОДТВЕРЖДЁННЫМИ, второе означает
   // сломанный код.
-  if (mod === null || system === null || system.test === null) {
+  if (system === null || system.test === null) {
     return {
       status: '⏭',
       command: null,
       exitCode: null,
       lastLine:
-        'тест-раннер не обнаружен — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ. Пункты приёмки, проверяемые ' +
-        'только тестом, остаются неподтверждёнными.',
+        `в ${mod.dir} тест-раннер не обнаружен — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ. Пункты приёмки, ` +
+        'проверяемые только тестом, остаются неподтверждёнными.',
     };
   }
   if (system.depsDir !== null && !existsSync(join(ctx.projectRoot, mod.dir, system.depsDir))) {
@@ -368,7 +431,7 @@ const testGate: BuiltinGate = async (ctx) => {
       status: '⏭',
       command: system.test,
       exitCode: null,
-      lastLine: `в ${mod.dir} нет node_modules — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ (зависимости не установлены)`,
+      lastLine: `в ${mod.dir} нет ${system.depsDir} — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ (зависимости не установлены)`,
     };
   }
 
@@ -386,11 +449,23 @@ const testGate: BuiltinGate = async (ctx) => {
     exitCode: r.exitCode,
     lastLine: r.timedOut ? `тесты не уложились в ${ctx.timeoutMs} мс` : r.lastLine,
   };
-};
+}
 
-// ---------------------------------------------------------------------------
-// Scope: файлы вне плана
-// ---------------------------------------------------------------------------
+const testGate: BuiltinGate = async (ctx) => {
+  const mods = resolveModules(ctx);
+  const none: BuiltinOutcome = {
+    status: '⏭',
+    command: null,
+    exitCode: null,
+    lastLine:
+      'тест-раннер не обнаружен — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ. Пункты приёмки, проверяемые ' +
+      'только тестом, остаются неподтверждёнными.',
+  };
+  if (mods.length === 0) return none;
+
+  const parts = await forEachModule(ctx, mods, (m) => testOne(ctx, m));
+  return aggregate(parts, none);
+};
 
 function hashOf(path: string): string | null {
   try {

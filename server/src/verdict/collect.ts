@@ -13,6 +13,9 @@
  */
 
 import type { ClaimStatus, GateRunResult, GateStatus, VerdictInput } from '@sdlc-runner/shared';
+// Правило «худший статус побеждает» одно на всю кодовую базу: вторая его копия рядом
+// означала бы, что вердикт и гейты могут разойтись в том, что считать зелёным.
+import { worstGateStatus } from '@sdlc-runner/shared';
 
 import { hasPlaceholder, nameOnlyProblem } from '../artifacts/artifact.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
@@ -303,26 +306,6 @@ export interface CollectResult {
   disagreements: string[];
 }
 
-/**
- * Строгость статуса: чем больше число, тем хуже исход.
- *
- * `⏭` строже `✅`, потому что «не запускался» роняет вердикт, а `❌` строже всего.
- */
-const SEVERITY: Record<GateStatus, number> = { '✅': 0, '⏭': 1, '❌': 2 };
-
-/**
- * Итоговый статус гейта при расхождении отчёта и прогона.
- *
- * Берётся ХУДШИЙ, а не «прогон всегда прав». Правило «побеждает прогон» защищало от
- * рецензента, который перекрашивает красное в зелёное, но работало и в обратную сторону:
- * рецензент ставил `❌`, найдя расхождение, а фиктивный «прогон» гейта ревью (проверка
- * наличия файла субагента на диске) перебивал его зелёным — и виток уходил в коммит с
- * известным дефектом. Худший статус закрывает обе стороны сразу.
- */
-function worst(a: GateStatus, b: GateStatus): GateStatus {
-  return SEVERITY[a] >= SEVERITY[b] ? a : b;
-}
-
 export function collectVerdictInput(i: CollectInput): CollectResult {
   const facts = readReport(i.report);
   const expected = gatesExpectedInReport(i.gates);
@@ -357,7 +340,7 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       reported === '⏭' &&
       (i.runtimeAuthoritativeWhenGreen ?? []).includes(key);
 
-    const status = run === undefined ? reported : authoritative ? '✅' : worst(run.status, reported);
+    const status = run === undefined ? reported : authoritative ? '✅' : worstGateStatus(run.status, reported);
     if (run !== undefined && run.status !== reported) {
       disagreements.push(
         `гейт «${row.name}»: в отчёте ${reported}, фактический прогон дал ${run.status} — ` +

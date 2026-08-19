@@ -35,6 +35,44 @@ export function normalizeModuleDir(dir: string): string {
   return trimmed === '' || trimmed === '.' ? '.' : trimmed;
 }
 
+/**
+ * ВСЕ каталоги-модули, затронутые планом, в порядке первого появления.
+ *
+ * `moduleDirFromPlan` возвращал первый и на этом останавливался — в моно-репо это ложный
+ * зелёный по построению: план трогает `server/` и `web/`, гейт собирает `server/`, а
+ * отчёт этапа 6 пишет «Сборка ✅». Прошлое лечение (замена алфавитного перебора на первый
+ * модуль плана) было правильным, но неполным: случайный модуль заменили на первый, а не на
+ * все затронутые.
+ */
+export function moduleDirsFromPlan(
+  planFiles: readonly string[],
+  isModule: (dir: string) => boolean,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (dir: string): void => {
+    if (seen.has(dir)) return;
+    seen.add(dir);
+    out.push(dir);
+  };
+
+  for (const file of planFiles) {
+    let dir = parentOf(file);
+    while (dir !== null) {
+      if (isModule(dir)) {
+        add(dir);
+        break;
+      }
+      dir = parentOf(dir);
+    }
+  }
+
+  // Корень — запасной вариант, и только когда не нашлось ни одного модуля: иначе он
+  // добавлялся бы к каждому моно-репо вторым «модулем» и собирал бы всё дважды.
+  if (out.length === 0 && isModule('.')) add('.');
+  return out;
+}
+
 export function moduleDirFromPlan(
   planFiles: readonly string[],
   isModule: (dir: string) => boolean,
