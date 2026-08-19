@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { DirectoryBrowser } from './components/DirectoryBrowser.tsx';
+import { ProfileEditor } from './components/ProfileEditor.tsx';
 import { RunList } from './components/RunList.tsx';
 import { RunPage } from './pages/RunPage.tsx';
 import { api } from './lib/api.ts';
-import type { ConfigInfo, ProjectInfo, RunSummary } from '@sdlc-runner/shared';
+import type { ConfigInfo, ProjectInfo, RunSummary, StageId } from '@sdlc-runner/shared';
 
 export default function App(): JSX.Element {
   const [config, setConfig] = useState<ConfigInfo | null>(null);
@@ -17,6 +18,8 @@ export default function App(): JSX.Element {
   const [pendingPath, setPendingPath] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
+  /** Правка моделей на один виток: на диск не сохраняется. */
+  const [stageOverrides, setStageOverrides] = useState<Partial<Record<StageId, string>>>({});
 
   useEffect(() => {
     api
@@ -77,7 +80,7 @@ export default function App(): JSX.Element {
     if (project === null || slug.trim() === '') return;
     setError(null);
     try {
-      const r = await api.createRun(project.name, slug.trim(), profile);
+      const r = await api.createRun(project.name, slug.trim(), profile, stageOverrides);
       setRunId(r.runId);
     } catch (e) {
       setError((e as Error).message);
@@ -235,6 +238,14 @@ export default function App(): JSX.Element {
               пятёрку гейтов и выключателя не имеет.
             </p>
           </div>
+
+          {config.models.length > 0 ? (
+            <ProfileEditor
+              models={config.models}
+              stages={stageOverrides}
+              onChange={setStageOverrides}
+            />
+          ) : null}
 
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">

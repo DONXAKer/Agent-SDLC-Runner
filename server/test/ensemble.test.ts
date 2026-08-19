@@ -11,7 +11,12 @@ import { ok, strictEqual, throws } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { ModelsConfig, ProjectConfig } from '../src/config/schema.ts';
-import { checkReviewerRule, resolveProfile, resolveStartableProfile } from '../src/config/profiles.ts';
+import {
+  checkReviewerRule,
+  resolveAdHocProfile,
+  resolveProfile,
+  resolveStartableProfile,
+} from '../src/config/profiles.ts';
 
 const models: ModelsConfig = {
   providers: { p: { flow: 'loop', kind: 'openai-compat', baseUrl: 'http://x' } },
@@ -101,5 +106,36 @@ describe('правило рецензента на списках', () => {
         ),
       /рецензент этапа 6 не сильнее/,
     );
+  });
+});
+
+describe('правка профиля на один виток', () => {
+  it('переопределяет только названные этапы', () => {
+    const p = resolveAdHocProfile(project(allStages({})), models, { chunk: 'mid' }, 'x');
+    strictEqual(p.routes.chunk.modelId, 'mid');
+    // Остальные этапы берутся из базового профиля, а не обнуляются.
+    strictEqual(p.routes.intent.modelId, 'weak');
+  });
+
+  it('правило рецензента проверяется и для правки', () => {
+    throws(
+      () => resolveAdHocProfile(project(allStages({})), models, { chunk: 'strong' }, 'x'),
+      /рецензент этапа 6 не сильнее/,
+    );
+  });
+
+  it('в правке тоже можно задать ансамбль', () => {
+    const p = resolveAdHocProfile(
+      project(allStages({})),
+      models,
+      { verify: ['strong', 'mid'] },
+      'x',
+    );
+    strictEqual(p.ensemble.verify.length, 2);
+  });
+
+  it('название профиля говорит, что правка не сохранена', () => {
+    const p = resolveAdHocProfile(project(allStages({})), models, { chunk: 'mid' }, 'x');
+    ok(p.label.includes('не сохранена'));
   });
 });

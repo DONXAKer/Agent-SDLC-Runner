@@ -37,8 +37,22 @@ export const api = {
   addProject: (name: string, projectRoot: string): Promise<ProjectInfo> =>
     post('/api/projects', { name, projectRoot }).then(json<ProjectInfo>),
 
-  createRun: (project: string, slug: string, profile?: string): Promise<{ runId: string }> =>
-    post('/api/runs', { project, slug, profile }).then(json<{ runId: string }>),
+  /**
+   * `stages` — правка моделей на один виток. На диск не сохраняется: конфиг проекта правят
+   * и руками, и параллельно, и запись из интерфейса — отдельное решение.
+   */
+  createRun: (
+    project: string,
+    slug: string,
+    profile?: string,
+    stages?: Partial<Record<StageId, string>>,
+  ): Promise<{ runId: string }> =>
+    post('/api/runs', {
+      project,
+      slug,
+      profile,
+      ...(stages === undefined || Object.keys(stages).length === 0 ? {} : { stages }),
+    }).then(json<{ runId: string }>),
 
   run: (id: string): Promise<RunDetail> => fetch(`/api/runs/${id}`).then(json<RunDetail>),
 

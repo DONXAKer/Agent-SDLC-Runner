@@ -28,7 +28,7 @@ import { ApprovalGate } from './approval/gate.ts';
 import { EventBus } from './bus.ts';
 import { createProject } from './config/createProject.ts';
 import { loadConfig, requireProject } from './config/load.ts';
-import { ProfileError, resolveStartableProfile } from './config/profiles.ts';
+import { ProfileError, resolveAdHocProfile, resolveStartableProfile } from './config/profiles.ts';
 import { listDir } from './fs/browse.ts';
 import { readArtifact } from './artifacts/artifact.ts';
 import { Run } from './run/Run.ts';
@@ -190,7 +190,13 @@ app.post('/api/projects', (req, reply) => {
 // ── прогоны ────────────────────────────────────────────────────────────────
 
 app.post('/api/runs', async (req, reply) => {
-  const body = req.body as { project?: string; slug?: string; profile?: string };
+  const body = req.body as {
+    project?: string;
+    slug?: string;
+    profile?: string;
+    /** Правка профиля на один виток. На диск не сохраняется — см. `resolveAdHocProfile`. */
+    stages?: Record<string, string | string[]>;
+  };
   if (typeof body.project !== 'string' || typeof body.slug !== 'string') {
     return reply.code(400).send({ error: 'нужны поля project и slug' });
   }
@@ -202,7 +208,10 @@ app.post('/api/runs', async (req, reply) => {
     const project = requireProject(config, body.project);
     const profileName = body.profile ?? project.activeProfile;
     // Правило рецензента проверяется здесь: виток с ревью слабее исполнителя не стартует.
-    const profile = resolveStartableProfile(project, config.models, profileName);
+    const profile =
+      body.stages === undefined || Object.keys(body.stages).length === 0
+        ? resolveStartableProfile(project, config.models, profileName)
+        : resolveAdHocProfile(project, config.models, body.stages, profileName);
 
     const run = new Run({
       config,

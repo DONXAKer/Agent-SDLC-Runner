@@ -136,6 +136,36 @@ export function checkReviewerRule(profile: ResolvedProfile): string[] {
   ];
 }
 
+/**
+ * Профиль, собранный оператором на один виток и НИКУДА не сохраняемый.
+ *
+ * Судьба правки названа явно: она применяется к создаваемому прогону и на диск не
+ * попадает. Писать `config/projects/*.json` из интерфейса — отдельное решение с отдельными
+ * рисками (файл правят и руками, и параллельно), и молча делать это здесь нельзя.
+ */
+export function resolveAdHocProfile(
+  project: ProjectConfig,
+  models: ModelsConfig,
+  stages: Record<string, string | string[]>,
+  baseProfileName: string,
+): ResolvedProfile {
+  const base = project.profiles[baseProfileName];
+  const merged: ProjectConfig = {
+    ...project,
+    profiles: {
+      ...project.profiles,
+      __adhoc: {
+        label: `${base?.label ?? baseProfileName} (правка оператора, не сохранена)`,
+        stages: { ...(base?.stages ?? {}), ...stages } as Record<StageId, string | string[]>,
+      },
+    },
+  };
+  const profile = resolveProfile(merged, models, '__adhoc');
+  const problems = checkReviewerRule(profile);
+  if (problems.length > 0) throw new ProfileError(problems);
+  return profile;
+}
+
 /** Профиль, пригодный к старту витка, либо исключение с полным списком причин. */
 export function resolveStartableProfile(
   project: ProjectConfig,
