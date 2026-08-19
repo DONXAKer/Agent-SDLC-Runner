@@ -158,7 +158,8 @@ describe('гейт одобрений', () => {
 
   it('автоодобрение действует на этап и снимается вместе с ним', async () => {
     const { gate } = makeGate();
-    gate.setAutoApprove('r1', 'chunk', true);
+    // Тумблер «одобрять всё» заменён правилами: «всё» — это `rest`.
+    gate.setAutoApprove('r1', 'chunk', { planWrites: true, bash: true, rest: true });
     const d = await gate.request({
       runId: 'r1',
       stage: 'chunk',
@@ -171,12 +172,13 @@ describe('гейт одобрений', () => {
     strictEqual(d.allowed && d.by, 'auto');
 
     gate.clearAutoApprove('r1', 'chunk');
-    strictEqual(gate.isAutoApprove('r1', 'chunk'), false);
+    const after = gate.autoApproveRules('r1', 'chunk');
+    strictEqual(after.planWrites || after.bash || after.rest, false);
   });
 
   it('автоодобрение не снимает отказ политики', async () => {
     const { gate } = makeGate();
-    gate.setAutoApprove('r1', 'chunk', true);
+    gate.setAutoApprove('r1', 'chunk', { planWrites: true, bash: true, rest: true });
     const d = await gate.request({
       runId: 'r1',
       stage: 'chunk',

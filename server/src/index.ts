@@ -13,6 +13,7 @@ import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
 
 import type {
+  AutoApproveRules,
   ConfigInfo,
   Decision,
   PromptResponse,
@@ -477,20 +478,34 @@ app.post('/api/runs/:id/auto-approve', async (req, reply) => {
   const live = liveRun(id);
   if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
 
-  const body = req.body as { stage?: string; on?: boolean };
-  if (!isStageId(body.stage) || typeof body.on !== 'boolean') {
-    return reply.code(400).send({ error: 'нужны поля stage (известный этап) и on' });
+  const body = req.body as { stage?: string; rules?: Partial<AutoApproveRules> };
+  if (!isStageId(body.stage) || typeof body.rules !== 'object' || body.rules === null) {
+    return reply.code(400).send({ error: 'нужны поля stage (известный этап) и rules' });
   }
 
-  gate.setAutoApprove(id, body.stage, body.on);
+  // Каждое правило читается явно: отсутствующее поле — это «спрашивать», а не «разрешить».
+  const rules: AutoApproveRules = {
+    planWrites: body.rules.planWrites === true,
+    bash: body.rules.bash === true,
+    rest: body.rules.rest === true,
+  };
+  gate.setAutoApprove(id, body.stage, rules);
+
+  const on = [
+    rules.planWrites ? 'правки внутри files_to_touch' : null,
+    rules.bash ? 'команды оболочки' : null,
+    rules.rest ? 'всё остальное, включая запись вне плана' : null,
+  ].filter((v): v is string => v !== null);
+
   bus.emit({
     type: 'warning',
     runId: id,
     stage: body.stage,
-    message: body.on
-      ? `оператор включил автоодобрение на этапе ${body.stage} — дальнейшие вызовы этого этапа ` +
-        `идут без подтверждения. Отказы политики продолжают действовать.`
-      : `автоодобрение на этапе ${body.stage} выключено`,
+    message:
+      on.length === 0
+        ? `автоодобрение на этапе ${body.stage} выключено — спрашивается каждый вызов`
+        : `оператор включил автоодобрение на этапе ${body.stage}: ${on.join(', ')}. ` +
+          `Отказы политики продолжают действовать.`,
   });
   return { ok: true };
 });

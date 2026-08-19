@@ -1,4 +1,5 @@
 import type {
+  AutoApproveRules,
   BrowseResult,
   ConfigInfo,
   Decision,
@@ -120,8 +121,12 @@ export const api = {
   ): Promise<{ value: string }> =>
     post(`/api/runs/${id}/decision`, body).then((r) => json<{ value: string }>(r)),
 
-  autoApprove: (id: string, stage: StageId, on: boolean): Promise<unknown> =>
-    post(`/api/runs/${id}/auto-approve`, { stage, on }).then(json),
+  /**
+   * Правила автоодобрения на этап. Тумблер «одобрять всё» заменён ими: включавший его
+   * оператор соглашался в том числе на `Bash` и на запись вне плана.
+   */
+  autoApprove: (id: string, stage: StageId, rules: AutoApproveRules): Promise<unknown> =>
+    post(`/api/runs/${id}/auto-approve`, { stage, rules }).then(json),
 
   cancel: (id: string): Promise<unknown> => post(`/api/runs/${id}/cancel`).then(json),
 

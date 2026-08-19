@@ -124,6 +124,28 @@ export function policyDeny(policy: PolicyName, reason: string): PolicyVerdict {
   return { ok: false, policy, reason };
 }
 
+/**
+ * Правила автоодобрения на этап.
+ *
+ * Заменяют тумблер «одобрять всё»: он был единственным способом не сидеть над каждым
+ * вызовом, и включавший его оператор соглашался в том числе на `Bash` и на запись вне
+ * плана — то есть ровно на то, ради чего гейт и существует.
+ */
+export interface AutoApproveRules {
+  /** Правки, ВСЕ цели которых лежат в `files_to_touch` одобренного плана. */
+  planWrites: boolean;
+  /** Команды оболочки. Отдельно: их цели записи считает лексер, а не заявляет вызов. */
+  bash: boolean;
+  /** Всё остальное, включая запись вне плана. */
+  rest: boolean;
+}
+
+export const AUTO_APPROVE_OFF: AutoApproveRules = {
+  planWrites: false,
+  bash: false,
+  rest: false,
+};
+
 export interface PolicyContext {
   /** Абсолютный нормализованный корень целевого проекта. */
   projectRoot: string;

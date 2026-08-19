@@ -10,6 +10,7 @@ import { StageRail } from '../components/StageRail.tsx';
 import { ToolApproval, type PendingCall } from '../components/ToolApproval.tsx';
 import { api } from '../lib/api.ts';
 import type {
+  AutoApproveRules,
   Decision,
   PreparedPrompt,
   Question,
@@ -17,7 +18,7 @@ import type {
   RunDetail,
   StageId,
 } from '@sdlc-runner/shared';
-import { describeCall } from '@sdlc-runner/shared';
+import { AUTO_APPROVE_OFF, describeCall } from '@sdlc-runner/shared';
 import { statusLabel, statusTone } from '../lib/runStatus.ts';
 import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
@@ -48,6 +49,11 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
   const [error, setError] = useState<string | null>(null);
   /** Отмена прогона спрашивается вторым кликом: бюджет уже потрачен, отменить отмену нельзя. */
   const [confirmCancel, setConfirmCancel] = useState(false);
+  /**
+   * Правила автоодобрения. Живут до конца этапа: сервер снимает их в `finally` запуска, и
+   * обещать здесь большее (например «на весь виток») значило бы обещать не своё.
+   */
+  const [autoRules, setAutoRules] = useState<AutoApproveRules>(AUTO_APPROVE_OFF);
 
   const { events, connected } = useRunSocket(runId);
 
@@ -508,19 +514,33 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 >
                   Собрать промпт
                 </button>
-                <label className="ml-auto flex items-center gap-1.5 text-xs text-neutral-400">
-                  <input
-                    type="checkbox"
-                    onChange={(e) => {
-                      // С `.catch`: отказ сервера (прогон убран, перезапуск) оставлял
-                      // галочку стоять, и оператор уходил, считая одобрение автоматическим.
-                      void api
-                        .autoApprove(runId, stage, e.target.checked)
-                        .catch((err: Error) => setError(err.message));
-                    }}
-                  />
-                  одобрять всё на этапе
-                </label>
+                {/* Правила вместо одного тумблера: «одобрять всё» включало и `Bash`, и
+                    запись вне плана — то есть ровно то, ради чего гейт существует. */}
+                <span className="ml-auto flex items-center gap-3 text-xs text-neutral-400">
+                  <span className="text-neutral-500">одобрять без вопроса:</span>
+                  {(
+                    [
+                      ['planWrites', 'правки в files_to_touch'],
+                      ['bash', 'команды оболочки'],
+                      ['rest', 'остальное'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={autoRules[key]}
+                        onChange={(e) => {
+                          const next = { ...autoRules, [key]: e.target.checked };
+                          setAutoRules(next);
+                          void api
+                            .autoApprove(runId, stage, next)
+                            .catch((err: Error) => setError(err.message));
+                        }}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </span>
               </div>
 
               {stage === 'intent' ? (

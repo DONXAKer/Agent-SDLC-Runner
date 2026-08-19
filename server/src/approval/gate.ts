@@ -13,7 +13,11 @@
  * запись не произошла, а содержимое приватного ключа утекло и осело в истории событий.
  */
 
+import { AUTO_APPROVE_OFF } from '@sdlc-runner/shared';
+import type { AutoApproveRules } from '@sdlc-runner/shared';
+
 import { evaluate, writeTargetPaths, writeTargetsOf } from '../policy/index.ts';
+import { normalizePlanPath } from '../policy/paths.ts';
 import { normalize } from '../exec/normalize.ts';
 import type {
   Decision,
@@ -90,8 +94,8 @@ const NO_HUMAN_STEP = new Set(['read', 'glob', 'grep', 'ask_human']);
 
 export class ApprovalGate {
   private readonly waiting = new Map<string, Waiting>();
-  /** Этапы, для которых оператор включил автоодобрение. */
-  private readonly autoStages = new Set<string>();
+  /** Правила автоодобрения по этапам. Отсутствие записи означает «спрашивать всегда». */
+  private readonly autoRules = new Map<string, AutoApproveRules>();
   private readonly events: GateEvents;
 
   constructor(events: GateEvents) {
@@ -111,19 +115,49 @@ export class ApprovalGate {
     return `${runId}\u0000${requestId}`;
   }
 
-  setAutoApprove(runId: string, stage: StageId, on: boolean): void {
+  setAutoApprove(runId: string, stage: StageId, rules: AutoApproveRules): void {
     const k = this.stageKey(runId, stage);
-    if (on) this.autoStages.add(k);
-    else this.autoStages.delete(k);
+    if (rules.planWrites || rules.bash || rules.rest) this.autoRules.set(k, rules);
+    else this.autoRules.delete(k);
   }
 
-  isAutoApprove(runId: string, stage: StageId): boolean {
-    return this.autoStages.has(this.stageKey(runId, stage));
+  autoApproveRules(runId: string, stage: StageId): AutoApproveRules {
+    return this.autoRules.get(this.stageKey(runId, stage)) ?? AUTO_APPROVE_OFF;
+  }
+
+  /**
+   * Подпадает ли вызов под правило автоодобрения.
+   *
+   * Считается ПОСЛЕ политики и по нормализованному вызову: цели записи берутся из того же
+   * `writeTargetsOf`, которым пользуется политика, — второй способ определить «куда пишет
+   * вызов» разошёлся бы с первым, и разошёлся бы молча.
+   */
+  private matchesRule(
+    call: NormalizedCall,
+    ctx: PolicyContext,
+    rules: AutoApproveRules,
+  ): boolean {
+    if (call.kind === 'bash') return rules.bash;
+
+    // `writeTargetPaths` возвращает `null` для вызовов, которые вообще не пишут: такой
+    // вызов «внутри плана» не бывает, и правило про правки к нему не относится.
+    const targets = writeTargetPaths(call);
+    const planFiles = ctx.planFiles;
+    const insidePlan =
+      targets !== null &&
+      targets.length > 0 &&
+      planFiles !== null &&
+      targets.every((t) => planFiles.includes(normalizePlanPath(ctx.projectRoot, t)));
+
+    // Правка целиком внутри плана — единственный случай, который оператор соглашался
+    // пропускать осознанно. Хоть одна цель вне плана — это «остальное».
+    if (insidePlan) return rules.planWrites;
+    return rules.rest;
   }
 
   /** Автоодобрение действует на один этап и снимается при его завершении. */
   clearAutoApprove(runId: string, stage: StageId): void {
-    this.autoStages.delete(this.stageKey(runId, stage));
+    this.autoRules.delete(this.stageKey(runId, stage));
   }
 
   list(): PendingApproval[] {
@@ -167,7 +201,7 @@ export class ApprovalGate {
 
     const preview = buildPreview(args.call, args.ctx.projectRoot);
 
-    if (this.isAutoApprove(args.runId, args.stage)) {
+    if (this.matchesRule(args.call, args.ctx, this.autoApproveRules(args.runId, args.stage))) {
       const decision: Decision = { allowed: true, updatedInput: null, by: 'auto' };
       this.events.onPending(visible({ ...base, policy, preview, resolve: () => {} }));
       this.events.onResolved(info, decision);
@@ -260,8 +294,8 @@ export class ApprovalGate {
       this.events.onResolved({ runId: w.runId, stage: w.stage, requestId: w.requestId }, decision);
       w.resolve(decision);
     }
-    for (const k of [...this.autoStages]) {
-      if (k.startsWith(`${runId}:`)) this.autoStages.delete(k);
+    for (const k of [...this.autoRules.keys()]) {
+      if (k.startsWith(`${runId}:`)) this.autoRules.delete(k);
     }
   }
 }
