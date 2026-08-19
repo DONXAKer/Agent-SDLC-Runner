@@ -166,6 +166,34 @@ export class LoopExecutor implements StageExecutor {
 
       messages.push({ role: 'assistant', content: answer.text, toolCalls: answer.toolCalls });
 
+      // Несколько субагентов, заказанных ОДНИМ ходом, запускаются параллельно: они не
+      // делят состояние (у разведки этапа 2 второй агент выводит приёмочный лист вслепую,
+      // не видя работы первого), а последовательный запуск удлинял этап на время самого
+      // медленного из них подряд. Всё остальное по-прежнему строго последовательно:
+      // инструменты делят рабочее дерево, и порядок правок значим.
+      const parallelSubagents =
+        answer.toolCalls.length > 1 &&
+        answer.toolCalls.every((c) => normalize(c.name, c.arguments ?? {}).kind === 'subagent');
+
+      if (parallelSubagents) {
+        const results = await Promise.all(
+          answer.toolCalls.map((call) => this.handleCall(call, 0, req, hooks, toolCtx)),
+        );
+        answer.toolCalls.forEach((call, idx) => {
+          messages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            name: call.name,
+            content: results[idx] ?? '',
+          });
+        });
+        // Отпечаток берётся от последнего вызова хода: детект залипания считает ходы, а не
+        // отдельные ветки параллельного запуска.
+        lastFingerprint = callFingerprint(answer.toolCalls[answer.toolCalls.length - 1]!);
+        repeats = 0;
+        continue;
+      }
+
       for (const call of answer.toolCalls) {
         const fingerprint = callFingerprint(call);
         repeats = fingerprint === lastFingerprint ? repeats + 1 : 0;

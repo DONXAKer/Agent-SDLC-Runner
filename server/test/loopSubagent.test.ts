@@ -155,3 +155,58 @@ describe('субагент во флоу loop', () => {
     ok(seen.warns.some((w) => w.includes('запущен субагент')));
   });
 });
+
+describe('параллельный запуск субагентов', () => {
+  const second: SubagentDef = { ...reviewer, name: 'sdlc-claims', prompt: 'ТЫ СЛЕПОЙ ЛИСТ' };
+
+  it('два субагента одним ходом идут одновременно, а не подряд', async () => {
+    const seen = emptySeen();
+    const exec = new LoopExecutor({
+      provider: provider([
+        {
+          text: '',
+          toolCalls: [
+            { id: 'a', name: 'Task', arguments: { subagent_type: 'sdlc-reviewer', prompt: 'разведка' } },
+            { id: 'b', name: 'Task', arguments: { subagent_type: 'sdlc-claims', prompt: 'слепой лист' } },
+          ],
+        },
+        { text: 'ответ субагента' },
+        { text: 'этап завершён' },
+      ]),
+      maxResultBytes: 1000,
+      readRangeRequiredAboveBytes: 1000,
+      bashTimeoutMs: 1000,
+      temperature: null,
+    });
+
+    const r = await exec.run(request({ subagents: [reviewer, second] }), hooks(seen));
+    strictEqual(r.ok, true);
+    // Оба запущены: параллельность не должна проглатывать второй вызов.
+    strictEqual(seen.warns.filter((w: string) => w.includes('запущен субагент')).length, 2);
+  });
+
+  it('смешанный ход (субагент плюс обычный инструмент) идёт последовательно', async () => {
+    const seen = emptySeen();
+    const exec = new LoopExecutor({
+      provider: provider([
+        {
+          text: '',
+          toolCalls: [
+            { id: 'a', name: 'Task', arguments: { subagent_type: 'sdlc-reviewer', prompt: 'x' } },
+            { id: 'b', name: 'Read', arguments: { file_path: 'README.md' } },
+          ],
+        },
+        { text: 'ответ' },
+        { text: 'готово' },
+      ]),
+      maxResultBytes: 1000,
+      readRangeRequiredAboveBytes: 1000,
+      bashTimeoutMs: 1000,
+      temperature: null,
+    });
+
+    await exec.run(request(), hooks(seen));
+    // Инструменты делят рабочее дерево, и порядок правок значим: параллелить их нельзя.
+    ok(seen.calls.some((c) => c.kind === 'read'));
+  });
+});
