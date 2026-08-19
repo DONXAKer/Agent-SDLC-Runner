@@ -23,11 +23,12 @@ import type {
 } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
-import { statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 
 import { decisionValue, readArtifact, setDecision, writeArtifact } from '../artifacts/artifact.ts';
 import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { extractFilesToTouch } from '../artifacts/planFiles.ts';
+import { columnIndex, parseTables } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import type { LoadedConfig } from '../config/load.ts';
@@ -130,6 +131,37 @@ const REVIEWER_AGENTS: readonly string[] = ['sdlc-reviewer'];
 /** Гейт минимума, который рантайм не исполняет скриптом. */
 const REVIEW_GATE = 'Ревью независимым агентом';
 
+/**
+ * Восстанавливает номер последней попытки chunk'а из журнала на диске.
+ *
+ * Новый `Run` в памяти всегда стартовал с попытки 1, даже если на диске уже лежат
+ * артефакты попытки 3 — например, после рестарта сервера (виток живёт на диске, но
+ * счётчик попытки был только в памяти процесса). Предусловие этапа верификации требует
+ * `chunk-<N>-attempt-<K>-diff.patch` по ТЕКУЩЕМУ счётчику и падало «нет файла», хотя
+ * реальный файл существовал под другим номером — единственным обходом было вручную
+ * «прокликать» attempt 1→2→3 через кнопку «Новая попытка», рискуя случайно перезапустить
+ * дорогой этап вместо того, чтобы просто продолжить его просмотр.
+ */
+function restoreAttemptFromJournal(journalPath: string): number | null {
+  if (!existsSync(journalPath)) return null;
+  let text: string;
+  try {
+    text = readFileSync(journalPath, 'utf8');
+  } catch {
+    return null;
+  }
+  const table = parseTables(text).find((t) => t.section === 'Попытки');
+  if (table === undefined || table.rows.length === 0) return null;
+  const col = columnIndex(table.header, 'K');
+  if (col === -1) return null;
+  let max = 0;
+  for (const row of table.rows) {
+    const n = Number.parseInt(row[col] ?? '', 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return max > 0 ? max : null;
+}
+
 export class Run {
   readonly id = randomUUID();
   readonly project: ProjectConfig;
@@ -179,6 +211,7 @@ export class Run {
     this.askGate = o.askGate;
     this.emit = o.emit;
     this.paths = new WitokPaths(o.project.projectRoot, o.slug);
+    this.attempt = restoreAttemptFromJournal(this.paths.chunkJournal(this.chunk)) ?? this.attempt;
   }
 
   get ctx(): StageContext {

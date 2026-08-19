@@ -122,9 +122,22 @@ export function writeArtifact(path: string, text: string): void {
   writeFileSync(path, text, 'utf8');
 }
 
+/**
+ * Строка, начинающаяся с `>` (после пробелов) — markdown-цитата. Шапка каждого шаблона
+ * методологии оформлена такой цитатой и дословно объясняет конвенцию плейсхолдеров
+ * («Незаполненные места помечены `‹…›`») — этот пример сам по себе является валидной
+ * парой `‹…›` и раньше засчитывался как незаполненное поле в полностью готовом
+ * документе, блокируя старт этапа на собственной документации формы.
+ */
+function isBlockquoteLine(text: string, index: number): boolean {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  let i = lineStart;
+  while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i++;
+  return text[i] === '>';
+}
+
 export function countPlaceholders(text: string): number {
-  const m = text.match(PLACEHOLDER_RE);
-  return m === null ? 0 : m.length;
+  return placeholderRanges(text).length;
 }
 
 /** Позиции незаполненных мест — для подсветки в редакторе артефакта. */
@@ -133,7 +146,9 @@ export function placeholderRanges(text: string): { start: number; end: number; t
   const re = new RegExp(PLACEHOLDER_RE.source, 'g');
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    out.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+    if (!isBlockquoteLine(text, m.index)) {
+      out.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+    }
   }
   return out;
 }
@@ -183,7 +198,30 @@ function dropStruckThrough(s: string): string {
   return s.replace(/~~[^~]*~~/g, ' ');
 }
 
-const NEGATIVE = /(^|\s)(не\s|отклон|отказ|отверг|провал)/i;
+const NEGATIVE_TRIGGER = /(^|\s)(не\s+\S+|отклон\S*|отказ\S*|отверг\S*|провал\S*)/gi;
+/**
+ * Слова с отрицательным значением, которые в связке с «не» дают ДВОЙНОЕ отрицание —
+ * то есть положительный итог: «ни один claim не пропущен», «долг не забыт», «тест не
+ * сломан». Прежняя проверка ловила голое «не » где угодно в строке и читала такие
+ * согласия как отказ — обнаружено на записи «ни один claim не пропущен» вместо
+ * ожидаемого одобрения.
+ */
+const DOUBLE_NEGATIVE_SAFE_WORD =
+  /^(пропущен\w*|забыт\w*|потерян\w*|упущен\w*|усохл\w*|сломан\w*|нарушен\w*|утрачен\w*)/i;
+
+/** «Похоже на отказ» — с поправкой на двойное отрицание, см. DOUBLE_NEGATIVE_SAFE_WORD. */
+function looksDeclined(s: string): boolean {
+  const re = new RegExp(NEGATIVE_TRIGGER.source, NEGATIVE_TRIGGER.flags);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    const token = m[2] ?? '';
+    const neWord = /^не\s+(\S+)/i.exec(token);
+    if (neWord !== null && DOUBLE_NEGATIVE_SAFE_WORD.test(neWord[1] ?? '')) continue;
+    return true;
+  }
+  return false;
+}
+
 const PENDING = /(ожида|не\s*реш|tbd|todo|^[\s—–\-?.]*$|н\/п)/i;
 
 /**
@@ -214,7 +252,7 @@ export function readDecision(text: string, label: string): DecisionState {
   // решения нет. Раньше такая строка читалась как одобрение.
   if (stripped.includes(' / ')) {
     const sides = stripped.split(' / ').map((s) => s.trim());
-    const anyNegative = sides.some((s) => NEGATIVE.test(s));
+    const anyNegative = sides.some((s) => looksDeclined(s));
     const anySigned = sides.some((s) => isSignedByHuman(s) || SESSION_APPROVAL.test(s));
     if (anyNegative && !anySigned) return { state: 'declined', raw: rawFull };
     if (anyNegative && anySigned) {
@@ -226,7 +264,7 @@ export function readDecision(text: string, label: string): DecisionState {
     }
   }
 
-  if (NEGATIVE.test(stripped)) return { state: 'declined', raw: rawFull };
+  if (looksDeclined(stripped)) return { state: 'declined', raw: rawFull };
 
   if (PENDING.test(stripped)) {
     return { state: 'placeholder', raw: rawFull, why: 'решение отложено' };
