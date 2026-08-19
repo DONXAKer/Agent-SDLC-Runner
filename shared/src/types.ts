@@ -285,6 +285,15 @@ export type RedCauseKind =
   /** Инварианты, регрессии, расхождение diff с деревом, долг. */
   | 'integrity';
 
+/**
+ * Предложение поднять модель этапа chunk. Предложение, а не переход: смена модели посреди
+ * витка меняет стоимость и поведение, и решает это человек.
+ */
+export type Escalation =
+  | { kind: 'none'; why: string }
+  | { kind: 'suggest'; toModelId: string; toRank: number; claims: string[]; why: string }
+  | { kind: 'blocked'; claims: string[]; why: string };
+
 export interface RedCause {
   kind: RedCauseKind;
   /**

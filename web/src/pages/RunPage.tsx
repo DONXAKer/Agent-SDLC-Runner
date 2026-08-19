@@ -574,6 +574,28 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
 
                   {/* Предложенный ход — подсказка оператору, а не переход: возврат на план
                       ломает предусловия следующих этапов, и решает это человек. */}
+                  {/* Предложение поднять модель — тоже подсказка, а не переход: смена
+                      модели посреди витка меняет стоимость и поведение. */}
+                  {detail.escalation.kind !== 'none' ? (
+                    <div className="mt-2 border-t border-red-900/60 pt-2 text-xs">
+                      <span className="text-neutral-400">Модель: </span>
+                      <span
+                        className={
+                          detail.escalation.kind === 'suggest'
+                            ? 'font-medium text-amber-300'
+                            : 'text-neutral-400'
+                        }
+                      >
+                        {detail.escalation.kind === 'suggest'
+                          ? `поднять chunk до ${detail.escalation.toModelId}`
+                          : 'поднять нельзя'}
+                      </span>
+                      <div className="mt-0.5 whitespace-pre-wrap text-neutral-500">
+                        {detail.escalation.why}
+                      </div>
+                    </div>
+                  ) : null}
+
                   {detail.redCause !== null ? (
                     <div className="mt-2 border-t border-red-900/60 pt-2 text-xs">
                       <span className="text-neutral-400">Куда возвращать: </span>

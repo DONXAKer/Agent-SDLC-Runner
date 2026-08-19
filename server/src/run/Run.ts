@@ -50,6 +50,8 @@ import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief } from '../verdict/retryBrief.ts';
 import { appendIteration } from './iterationsLog.ts';
 import { postmortemBlock } from './postmortem.ts';
+import { suggestEscalation } from './escalation.ts';
+import type { Escalation } from './escalation.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
@@ -208,6 +210,12 @@ export class Run {
    */
   private readonly stageStats = new Map<StageId, { runs: number; usage: Usage; durationMs: number }>();
   private readonly attemptsByChunk = new Map<number, number>();
+  /**
+   * Проваленные пункты приёмки по попыткам текущего chunk'а — вход эскалации.
+   * Живёт на chunk: `resetAttemptState` обнуляет состояние ПОПЫТКИ, а история попыток
+   * нужна именно между ними.
+   */
+  private failedClaimsByAttempt: string[][] = [];
   private verdictCount = 0;
   private redCount = 0;
   private readonly redByCause = new Map<RedCauseKind, number>();
@@ -315,6 +323,23 @@ export class Run {
     }
   }
 
+  /**
+   * Предложение поднять модель chunk'а. Предложение, а не переход: смена модели посреди
+   * витка меняет стоимость и поведение, и решает это человек.
+   */
+  get escalation(): Escalation {
+    const chunk = this.profile.routes.chunk;
+    const verify = this.profile.routes.verify;
+    return suggestEscalation({
+      failedClaimsByAttempt: this.failedClaimsByAttempt,
+      chunkModelId: chunk.modelId,
+      chunkRank: chunk.rank,
+      verifyModelId: verify.modelId,
+      verifyRank: verify.rank,
+      models: this.config.models.models,
+    });
+  }
+
   /** Природа красной причины и предложенный ход. `null` — вердикт зелёный или не считался. */
   get lastRedCause(): RedCause | null {
     return this.redCause;
@@ -403,6 +428,7 @@ export class Run {
     this.attempt = 1;
     // Новый chunk — другая работа: причины красного по прошлому к нему не относятся.
     this.carryForward = null;
+    this.failedClaimsByAttempt = [];
     this.resetAttemptState();
     return this.chunk;
   }
@@ -758,6 +784,9 @@ export class Run {
       this.redByCause.set(this.redCause.kind, (this.redByCause.get(this.redCause.kind) ?? 0) + 1);
     }
     this.attemptsByChunk.set(this.chunk, Math.max(this.attemptsByChunk.get(this.chunk) ?? 0, this.attempt));
+    this.failedClaimsByAttempt.push(
+      input.claims.filter((c) => c.status !== '✅').map((c) => c.id),
+    );
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
     return withNotes;
   }

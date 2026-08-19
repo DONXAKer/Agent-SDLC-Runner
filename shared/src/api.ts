@@ -13,6 +13,7 @@ import type {
   NormalizedCall,
   PolicyVerdict,
   PreparedPrompt,
+  Escalation,
   Question,
   RedCause,
   RedCauseKind,
@@ -157,6 +158,8 @@ export interface RunDetail extends RunSummary {
   progressCloseness: number | null;
   /** Числа витка — вход для ответа на вопрос «что съело итерации». */
   metrics: RunMetrics;
+  /** Предложение поднять модель, когда один и тот же пункт не закрывается. */
+  escalation: Escalation;
   // Историю событий здесь не отдаём: клиент получает её по WebSocket при подключении,
   // а дублирование гоняло по проводу полные тексты файлов впустую.
 }
