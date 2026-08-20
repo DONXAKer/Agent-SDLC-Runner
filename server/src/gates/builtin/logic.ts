@@ -13,8 +13,8 @@ import { normalizePlanPath } from '../../policy/paths.ts';
 // этого файла. Здесь остаются только правила, одинаковые для всех языков.
 import {
   CODE_EXTENSIONS,
-  DISABLE_MARKERS,
-  TEST_DECLARATIONS,
+  disableMarkersFor,
+  testDeclarationsFor,
 } from '../ecosystems/index.ts';
 
 /**
@@ -71,20 +71,6 @@ export function moduleDirsFromPlan(
   // добавлялся бы к каждому моно-репо вторым «модулем» и собирал бы всё дважды.
   if (out.length === 0 && isModule('.')) add('.');
   return out;
-}
-
-export function moduleDirFromPlan(
-  planFiles: readonly string[],
-  isModule: (dir: string) => boolean,
-): string | null {
-  for (const file of planFiles) {
-    let dir = parentOf(file);
-    while (dir !== null) {
-      if (isModule(dir)) return dir;
-      dir = parentOf(dir);
-    }
-  }
-  return isModule('.') ? '.' : null;
 }
 
 /**
@@ -173,12 +159,33 @@ const COMMENT = /^\+\s*(\/\/|#|\*|--|\/\*)/;
  * и собирать из них регулярку значило бы экранировать `[`, `(` и `.` в каждой строке
  * реестра — ровно тот класс ошибок, из-за которого вся обязательная пятёрка однажды молча
  * числилась выключенной.
+ *
+ * Но подстрока обязана начинаться с ГРАНИЦЫ слова: без неё маркер `it ` находился внутри
+ * `submit(`, `limit `, `unit `, а `skip ` — внутри `let skip = …`, и обязательный гейт
+ * краснел на обычном коде. Граница считается по ASCII, и этого достаточно: маркеры —
+ * лексемы языков программирования, кириллицы в них нет.
  */
+const WORD_CHAR = /[A-Za-z0-9_$]/;
+
 function hasAny(text: string, needles: readonly string[]): boolean {
-  return needles.some((n) => text.includes(n));
+  return needles.some((n) => {
+    if (n === '') return false;
+    for (let at = text.indexOf(n); at >= 0; at = text.indexOf(n, at + 1)) {
+      const before = at === 0 ? '' : text[at - 1]!;
+      const startsWithWord = WORD_CHAR.test(n[0]!);
+      if (!startsWithWord || before === '' || !WORD_CHAR.test(before)) return true;
+    }
+    return false;
+  });
 }
 
-const TEST_FILE =
+/**
+ * Признак тестового файла — ОДИН на кодовую базу.
+ *
+ * Экспортируется, потому что вторая копия у гейта дублей уже разошлась с этой: там был
+ * потерян хвост `Tests?\.(java|kt|cs)$`, и `FooTest.java` считался продакшн-кодом.
+ */
+export const TEST_FILE =
   /(^|\/)(test|tests|spec)\/|[._-](test|spec)s?\.[a-z]+$|Tests?\.(java|kt|cs)$/i;
 
 const SECRET =
@@ -216,7 +223,7 @@ export function invariantViolations(
   const code = all.filter((l) => isCode(l.file));
   const addedCode = code.filter((l) => l.added && !COMMENT.test(l.text));
 
-  const disabled = addedCode.filter((l) => hasAny(l.text, DISABLE_MARKERS));
+  const disabled = addedCode.filter((l) => hasAny(l.text, disableMarkersFor(l.file)));
   if (disabled.length > 0) {
     out.push({
       kind: 'test-disabled',
@@ -236,9 +243,9 @@ export function invariantViolations(
 
   // Нетто-убыль деклараций: тесты не починили, а выкинули. Считаем только по коду и
   // только по некомментарным строкам — иначе закомментированный пример роняет гейт.
-  const added = addedCode.filter((l) => hasAny(l.text, TEST_DECLARATIONS)).length;
+  const added = addedCode.filter((l) => hasAny(l.text, testDeclarationsFor(l.file))).length;
   const removed = code.filter(
-    (l) => !l.added && !l.text.startsWith('--') && hasAny(l.text, TEST_DECLARATIONS),
+    (l) => !l.added && !l.text.startsWith('--') && hasAny(l.text, testDeclarationsFor(l.file)),
   ).length;
   if (removed > added) {
     out.push({

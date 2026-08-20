@@ -5,7 +5,11 @@ export const php: Ecosystem = {
   label: 'PHP',
   manifests: ['composer.json'],
   commands: () => ({
-    build: 'composer validate --no-check-publish -q',
+    // `composer validate` проверяет корректность composer.json, а НЕ код: гейт «Сборка»
+    // зеленел на проекте с не разбирающимся `.php`. Компиляции у PHP нет, поэтому шага
+    // сборки нет — и гейт уходит на `php -l` по изменённым файлам, который хотя бы
+    // проверяет то, ради чего его зовут.
+    build: null,
     test: 'vendor/bin/phpunit',
     depsDir: 'vendor',
   }),

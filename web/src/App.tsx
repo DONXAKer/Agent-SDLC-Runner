@@ -34,9 +34,9 @@ export default function App(): JSX.Element {
   }, []);
 
   const refreshRuns = useCallback(() => {
-    // Ошибку здесь НЕ гасим: слот один на всё окно, и успешный фоновый список затирал
-    // отказ загрузки конфигурации — экран навсегда оставался «Загрузка конфигурации…» без
-    // причины. Гасит тот, кто начинает действие: см. `setError(null)` в обработчиках.
+    // Ошибку здесь НЕ гасим: слот один на всё окно, и успешный фоновый список затёр бы
+    // отказ загрузки конфигурации — экран остался бы «Загрузка конфигурации…» без причины.
+    // Гасит тот, кто начинает действие: см. `setError(null)` в обработчиках.
     api.runs().then(setRuns).catch((e: Error) => setError(e.message));
   }, []);
 
@@ -222,9 +222,12 @@ export default function App(): JSX.Element {
                 >
                   <div className="font-medium">{p.label}</div>
                   <div className="mt-1 space-y-0.5 font-mono text-[11px] text-neutral-500">
+                    {/* `m` — список маршрутов (ансамбль). Как есть его рендерить нельзя:
+                        React склеивает элементы массива без разделителя, и две модели
+                        выглядели одной выдуманной — `claude-sdk:opusclaude-sdk:sonnet`. */}
                     {Object.entries(p.stages).map(([s, m]) => (
                       <div key={s}>
-                        {s.padEnd(8, ' ')} {m}
+                        {s.padEnd(8, ' ')} {m.join(' + ')}
                       </div>
                     ))}
                   </div>
@@ -242,6 +245,7 @@ export default function App(): JSX.Element {
           {config.models.length > 0 ? (
             <ProfileEditor
               models={config.models}
+              base={project?.profiles.find((p) => p.name === profile)?.stages ?? ({} as Record<StageId, string[]>)}
               stages={stageOverrides}
               onChange={setStageOverrides}
             />

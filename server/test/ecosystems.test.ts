@@ -12,9 +12,9 @@ import { describe, it } from 'node:test';
 
 import {
   CODE_EXTENSIONS,
-  DISABLE_MARKERS,
+  disableMarkersFor,
   ORDER,
-  TEST_DECLARATIONS,
+  testDeclarationsFor,
   detectBuildSystem,
   detectEcosystem,
   syntaxCheckerFor,
@@ -38,13 +38,34 @@ describe('реестр экосистем', () => {
     }
   });
 
-  it('у каждой экосистемы есть команда сборки хотя бы на своём манифесте', () => {
+  it('команда сборки либо настоящая, либо честно отсутствует', () => {
     for (const eco of ORDER) {
       const first = eco.manifests[0] ?? '';
       const cmds = eco.commands({ files: set(first), packageJson: null });
       ok(cmds !== null, `${eco.id}: команд нет`);
-      ok(cmds.build.trim() !== '', `${eco.id}: пустая команда сборки`);
+      // `null` — легальный ответ для языка без компиляции, а вот пустая или
+      // ничего-не-делающая строка нет: она дала бы `✅` обязательному гейту, не проверив
+      // ни строки (так было у Ruby с `ruby -e "true"`).
+      if (cmds.build !== null) ok(cmds.build.trim() !== '', `${eco.id}: пустая команда сборки`);
     }
+  });
+
+  it('языки без компиляции не выдумывают себе шаг сборки', () => {
+    // Гейт «Сборка» тогда уходит на пофайловую проверку синтаксиса — она хотя бы
+    // проверяет код, в отличие от `composer validate`, смотревшего на composer.json.
+    strictEqual(detectBuildSystem(set('Gemfile'), null)?.build, null);
+    strictEqual(detectBuildSystem(set('composer.json'), null)?.build, null);
+    ok(syntaxCheckerFor('app/a.rb') !== null, 'у ruby обязана остаться проверка синтаксиса');
+    ok(syntaxCheckerFor('app/a.php') !== null, 'у php обязана остаться проверка синтаксиса');
+  });
+
+  it('node --check не зовётся на TypeScript, который он не разбирает', () => {
+    // Проверено прогоном: `node --check` на `const NAME: string = "ок"` возвращает 1 с
+    // `Missing initializer in const declaration` и в CJS, и в ESM — то есть объявлял
+    // битым любой исправный `.ts`.
+    strictEqual(syntaxCheckerFor('src/a.ts'), null);
+    strictEqual(syntaxCheckerFor('src/a.tsx'), null);
+    strictEqual(syntaxCheckerFor('src/a.mjs')?.id, 'node');
   });
 
   it('идентификаторы экосистем уникальны', () => {
@@ -55,7 +76,7 @@ describe('реестр экосистем', () => {
   it('обёртка gradlew выигрывает у обычного gradle', () => {
     const s = detectBuildSystem(set('gradlew', 'build.gradle'), null);
     ok(s !== null);
-    ok(s.build.includes('./gradlew'));
+    ok(s.build?.includes('./gradlew'));
   });
 
   it('package.json выигрывает у tsconfig.json', () => {
@@ -116,10 +137,24 @@ describe('реестр экосистем', () => {
     );
   });
 
-  it('сводные справочники непусты и собраны без дублей', () => {
+  it('маркеры берутся по языку файла и собраны без дублей', () => {
     ok(CODE_EXTENSIONS.has('.py') && CODE_EXTENSIONS.has('.java') && CODE_EXTENSIONS.has('.ts'));
-    strictEqual(new Set(DISABLE_MARKERS).size, DISABLE_MARKERS.length);
-    strictEqual(new Set(TEST_DECLARATIONS).size, TEST_DECLARATIONS.length);
-    ok(DISABLE_MARKERS.includes('@Disabled') && DISABLE_MARKERS.includes('@pytest.mark.skip'));
+
+    const py = disableMarkersFor('a/test_x.py');
+    const java = disableMarkersFor('src/XTest.java');
+    strictEqual(new Set(py).size, py.length);
+    ok(py.includes('@pytest.mark.skip'), 'python не знает своего маркера');
+    ok(java.includes('@Disabled'), 'java не знает своего маркера');
+
+    // Главное: маркеры НЕ текут между языками. Пока они склеивались по всем экосистемам,
+    // ruby-шные `it `/`skip ` роняли обязательный гейт на любом TypeScript-витке.
+    strictEqual(java.includes('@pytest.mark.skip'), false);
+    strictEqual(
+      disableMarkersFor('src/a.ts').some((m) => m.includes('pytest')),
+      false,
+    );
+    // Неизвестное расширение — молчание, а не красный по чужому языку.
+    strictEqual(disableMarkersFor('README.md').length, 0);
+    strictEqual(testDeclarationsFor('README.md').length, 0);
   });
 });

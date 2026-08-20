@@ -5,15 +5,19 @@ import type { IterationSummary } from '@sdlc-runner/shared';
  *
  * До неё «сколько раз мы уже пробовали и на чём именно сгорело» существовало только в
  * хронологической ленте, а лента вытесняется буфером шины и сбрасывается при
- * переподключении сокета. Здесь тот же набор фактов, что рантайм пишет в `iterations.md`:
- * второго описания истории попыток нет, поэтому таблица и файл не могут разойтись.
+ * переподключении сокета. Источник этой таблицы — сам `iterations.md` на диске: сервер
+ * читает его тем же парсером, которым пишет. Второго описания истории попыток нет,
+ * поэтому таблица и файл не расходятся — в том числе после перезапуска сервиса.
  */
 export function AttemptsPanel({
   iterations,
   attemptBudget,
+  closenessWarn,
 }: {
   iterations: IterationSummary[];
   attemptBudget: number;
+  /** Порог топтания из конфига раннера — не литерал: число настраивается. */
+  closenessWarn: number;
 }): JSX.Element | null {
   if (iterations.length === 0) return null;
 
@@ -25,8 +29,9 @@ export function AttemptsPanel({
       <div className="flex flex-wrap items-center gap-3 border-b border-neutral-800 px-3 py-2 text-xs">
         <span className="font-medium">Попытки</span>
         <span className="text-neutral-500">всего вердиктов: {iterations.length}</span>
-        {/* Близость к потолку попыток названа заранее: узнать о ней в момент, когда
-            бюджет уже исчерпан, поздно — виток к этому времени встал. */}
+        {/* Предупреждение появляется, когда попытка достигла потолка: она ещё доступна,
+            но следующей не будет. «Заранее» это назвать нельзя, и текст обещает ровно то,
+            что делает условие. */}
         {nearBudget ? (
           <span className="text-amber-400">
             бюджет попыток исчерпан ({last?.attempt} из {attemptBudget})
@@ -48,7 +53,7 @@ export function AttemptsPanel({
               {/* Совпадение с прошлым патчем — сигнал топтания, но не приговор: решение о
                   переходе принимает человек. */}
               {it.closeness !== null ? (
-                <span className={it.closeness >= 0.9 ? 'text-amber-400' : 'text-neutral-500'}>
+                <span className={it.closeness >= closenessWarn ? 'text-amber-400' : 'text-neutral-500'}>
                   совпадение {Math.round(it.closeness * 100)}%
                 </span>
               ) : null}

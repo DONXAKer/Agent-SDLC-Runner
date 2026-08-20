@@ -15,7 +15,7 @@
 import type { ClaimStatus, GateRunResult, GateStatus, VerdictInput } from '@sdlc-runner/shared';
 // Правило «худший статус побеждает» одно на всю кодовую базу: вторая его копия рядом
 // означала бы, что вердикт и гейты могут разойтись в том, что считать зелёным.
-import { worstGateStatus } from '@sdlc-runner/shared';
+import { worstClaimStatus, worstGateStatus } from '@sdlc-runner/shared';
 
 import { hasPlaceholder, nameOnlyProblem } from '../artifacts/artifact.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
@@ -293,8 +293,17 @@ export interface CollectInput {
    * побеждает: рецензент, нашедший дефект, — не тот источник, который стоит переспоривать.
    */
   runtimeAuthoritativeWhenGreen?: readonly string[];
-  /** Текст `verification-report-<N>-attempt-<K>.md`. Пусто — отчёта нет. */
-  report: string;
+  /**
+   * Отчёты приёмки этой попытки — по одному на маршрут ансамбля.
+   *
+   * Список, а не строка: маршрутов этапа 6 может быть несколько, и раньше все они писали
+   * в один файл, а вердикт читал его один раз — то есть побеждал последний записавший, и
+   * слабый рецензент стирал `❌` сильного. Свод по худшему статусу здесь и делает «`✅`
+   * только если так сказали все» свойством вердикта, а не примечанием в исполнителе.
+   *
+   * Пустой список либо пустые тексты — отчёта нет.
+   */
+  reports: readonly string[];
   attempt: number;
   attemptBudget: number;
   noProgress: boolean;
@@ -306,8 +315,67 @@ export interface CollectResult {
   disagreements: string[];
 }
 
+/**
+ * Свод фактов нескольких отчётов приёмки в один — по худшему статусу.
+ *
+ * Правило то же, что и везде: `✅` только если так сказали ВСЕ рецензенты. Поэтому
+ * статусы берутся худшие, а списки найденного (сломанные инварианты, регрессии,
+ * нетронутые пути плана) объединяются: дефект, увиденный одним, остаётся дефектом,
+ * сколько бы других его ни пропустило.
+ *
+ * `inapplicable` — исключение из объединения: подпись под неприменимостью снимает `⏭`,
+ * то есть ослабляет вердикт. Её достаточно от одного рецензента только потому, что сама
+ * строка неприменимости подписана ИМЕНЕМ человека, а не мнением модели.
+ */
+function mergeFacts(list: readonly ReportFacts[]): ReportFacts {
+  const first = list[0];
+  if (first === undefined) return readReport('');
+  if (list.length === 1) return first;
+
+  const gateStatuses = new Map<string, GateStatus>();
+  const inapplicable = new Map<string, string>();
+  const claims = new Map<string, ClaimStatus>();
+  const claimOrder: string[] = [];
+  let confirmedReviewFindings = 0;
+  const brokenInvariants = new Set<string>();
+  const regressions = new Set<string>();
+  const plannedPathsUntouched = new Set<string>();
+  let diffMatchesTree = true;
+
+  for (const f of list) {
+    for (const [key, status] of f.gateStatuses) {
+      const prev = gateStatuses.get(key);
+      gateStatuses.set(key, prev === undefined ? status : worstGateStatus(prev, status));
+    }
+    for (const [key, who] of f.inapplicable) if (!inapplicable.has(key)) inapplicable.set(key, who);
+    for (const c of f.claims) {
+      const prev = claims.get(c.id);
+      if (prev === undefined) claimOrder.push(c.id);
+      claims.set(c.id, prev === undefined ? c.status : worstClaimStatus(prev, c.status));
+    }
+    // Находки ревью суммируются, а не берутся максимумом: два рецензента, нашедшие по
+    // одному подтверждённому дефекту, нашли два дефекта.
+    confirmedReviewFindings += f.confirmedReviewFindings;
+    for (const x of f.brokenInvariants) brokenInvariants.add(x);
+    for (const x of f.regressions) regressions.add(x);
+    for (const x of f.plannedPathsUntouched) plannedPathsUntouched.add(x);
+    if (!f.diffMatchesTree) diffMatchesTree = false;
+  }
+
+  return {
+    gateStatuses,
+    inapplicable,
+    claims: claimOrder.map((id) => ({ id, status: claims.get(id) ?? '❌' })),
+    confirmedReviewFindings,
+    brokenInvariants: [...brokenInvariants],
+    regressions: [...regressions],
+    plannedPathsUntouched: [...plannedPathsUntouched],
+    diffMatchesTree,
+  };
+}
+
 export function collectVerdictInput(i: CollectInput): CollectResult {
-  const facts = readReport(i.report);
+  const facts = mergeFacts(i.reports.map(readReport));
   const expected = gatesExpectedInReport(i.gates);
   const byRun = new Map(i.gateResults.map((r) => [gateKey(r.name), r]));
 
@@ -341,13 +409,15 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       (i.runtimeAuthoritativeWhenGreen ?? []).includes(key);
 
     const status = run === undefined ? reported : authoritative ? '✅' : worstGateStatus(run.status, reported);
-    if (run !== undefined && run.status !== reported) {
+    // `authoritative` — ШТАТНЫЙ, ожидаемый случай, а не спор источников: прогон гейтов
+    // идёт ДО ревью, поэтому «не запускался» в отчёте слабой модели — норма, а не признак
+    // того, что рецензент переписывает статусы. Пока он попадал сюда, классификатор
+    // причин красного видел непустой `disagreements` и объявлял «отчёт рецензента разошёлся
+    // с фактическим прогоном» на самом частом сценарии — сигнал недоверия на ровном месте.
+    if (run !== undefined && run.status !== reported && !authoritative) {
       disagreements.push(
         `гейт «${row.name}»: в отчёте ${reported}, фактический прогон дал ${run.status} — ` +
-          (authoritative
-            ? `в вердикт идёт статус прогона (${status}): «не запускался» опровергается ` +
-              `фактом запуска, а не наоборот`
-            : `в вердикт идёт худший из двух (${status})`),
+          `в вердикт идёт худший из двух (${status})`,
       );
     }
     gates.push({

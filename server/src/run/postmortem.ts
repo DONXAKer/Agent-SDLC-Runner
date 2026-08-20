@@ -10,20 +10,12 @@
  */
 
 import type { RunMetrics, Usage } from '@sdlc-runner/shared';
+import { formatCost, formatDuration } from '@sdlc-runner/shared';
 
-/** Формат стоимости повторяет правило интерфейса: ноль без токенов — это «нечего», а не «$0». */
-function cost(u: Usage): string {
-  if (u.costUsd === null) return 'без стоимости (локальный маршрут)';
-  const tokens = u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheWriteTokens;
-  if (u.costUsd === 0 && tokens === 0) return '—';
-  return `$${u.costUsd.toFixed(4)}`;
-}
-
-function duration(ms: number): string {
-  if (ms < 1000) return `${ms} мс`;
-  const s = Math.round(ms / 1000);
-  return s < 60 ? `${s} с` : `${Math.floor(s / 60)} мин ${s % 60} с`;
-}
+// Форматы берутся из общего пакета: копия здесь уже разошлась с интерфейсом — при
+// нулевой стоимости и ненулевых токенах шапка печатала `$0`, а этот отчёт `$0.0000`.
+const cost = (u: Usage): string => formatCost(u, 'без стоимости (локальный маршрут)');
+const duration = formatDuration;
 
 /**
  * `null` — витку нечего рассказать: ни одного прогона этапа не было. Пустая секция хуже

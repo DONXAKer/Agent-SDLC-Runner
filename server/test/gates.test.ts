@@ -11,8 +11,8 @@ import { describe, it } from 'node:test';
 
 import {
   diffLines,
+  moduleDirsFromPlan,
   invariantViolations,
-  moduleDirFromPlan,
   publishProblems,
   scopeViolations,
 } from '../src/gates/builtin/logic.ts';
@@ -24,7 +24,7 @@ const ROOT = 'D:/work/proj';
 
 describe('детект build-системы', () => {
   it('gradle wrapper предпочитается системному gradle', () => {
-    strictEqual(detectBuildSystem(set('gradlew', 'build.gradle'), null)?.build.includes('./gradlew'), true);
+    strictEqual(detectBuildSystem(set('gradlew', 'build.gradle'), null)?.build?.includes('./gradlew'), true);
   });
 
   // Регрессия: `npx tsc --noEmit` тянет tsc из сети и падает, если его нет локально,
@@ -52,23 +52,28 @@ describe('детект build-системы', () => {
 describe('каталог модуля выводится из плана', () => {
   const isModule = (d: string): boolean => d === 'vscode-extension' || d === 'frontend';
 
+  // Проверки те же, что охраняли снятый `moduleDirFromPlan`: он вернул одиночный модуль и
+  // был ложным зелёным в моно-репо по построению, но выстраданные им регрессии остаются.
+  const first = (plan: string[], mod: (d: string) => boolean): string | null =>
+    moduleDirsFromPlan(plan, mod)[0] ?? null;
+
   // Регрессия: перебор подкаталогов по алфавиту брал frontend/, тогда как правки шли
   // в vscode-extension/ — гейт зеленел, не проверив ничего по существу.
   it('берётся модуль правки, а не первый по алфавиту', () => {
-    strictEqual(moduleDirFromPlan(['vscode-extension/src/a.ts'], isModule), 'vscode-extension');
+    strictEqual(first(['vscode-extension/src/a.ts'], isModule), 'vscode-extension');
   });
 
   it('поднимается вверх до ближайшего манифеста', () => {
-    strictEqual(moduleDirFromPlan(['vscode-extension/src/deep/b.ts'], isModule), 'vscode-extension');
+    strictEqual(first(['vscode-extension/src/deep/b.ts'], isModule), 'vscode-extension');
   });
 
   it('корень берётся, только если модуля по плану не нашлось', () => {
-    strictEqual(moduleDirFromPlan(['docs/x.md'], (d) => d === '.'), '.');
-    strictEqual(moduleDirFromPlan(['docs/x.md'], () => false), null);
+    strictEqual(first(['docs/x.md'], (d) => d === '.'), '.');
+    strictEqual(first(['docs/x.md'], () => false), null);
   });
 
   it('windows-разделители в плане не мешают', () => {
-    strictEqual(moduleDirFromPlan(['vscode-extension\\src\\a.ts'], isModule), 'vscode-extension');
+    strictEqual(first(['vscode-extension\\src\\a.ts'], isModule), 'vscode-extension');
   });
 });
 

@@ -39,7 +39,12 @@ import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/sc
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
 import { createProvider } from '../provider/registry.ts';
-import type { ExecHooks, StageExecutor, StageResult } from '../exec/StageExecutor.ts';
+import type {
+  ExecHooks,
+  StageExecutor,
+  StageResult,
+  SubagentDef,
+} from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
 import { configProblems, gateKey, parseGates, uncalibratedGates } from '../gates/gatesFile.ts';
@@ -49,7 +54,7 @@ import { collectVerdictInput } from '../verdict/collect.ts';
 import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief } from '../verdict/retryBrief.ts';
-import { appendIteration } from './iterationsLog.ts';
+import { appendIteration, parseIterations } from './iterationsLog.ts';
 import { postmortemBlock } from './postmortem.ts';
 import { suggestEscalation } from './escalation.ts';
 import type { Escalation } from './escalation.ts';
@@ -60,6 +65,7 @@ import {
   stageById,
   type PreconditionReport,
   type StageContext,
+  type StageDef,
 } from './stages.ts';
 
 export interface RunOptions {
@@ -220,6 +226,16 @@ export class Run {
   /** История попыток для интерфейса — тот же набор фактов, что уходит в `iterations.md`. */
   private readonly iterationLog: IterationSummary[] = [];
   private verdictCount = 0;
+  /**
+   * `chunk:attempt`, для которых статистика вердикта уже учтена. `null` — ещё нет.
+   *
+   * Повторный запуск этапа 6 на той же попытке — обычное действие оператора (например
+   * после правки набора гейтов). Без этой отметки он дописывал вторую строку в журнал
+   * итераций про ту же попытку, дублировал проваленные пункты приёмки, и эскалация
+   * «второй red на том же пункте» срабатывала по ОДНОМУ фактическому провалу, предлагая
+   * поднять модель без основания.
+   */
+  private verdictCountedFor: string | null = null;
   private redCount = 0;
   private readonly redByCause = new Map<RedCauseKind, number>();
   /** Отработал ли независимый рецензент на ТЕКУЩЕЙ попытке. */
@@ -278,9 +294,20 @@ export class Run {
     };
   }
 
-  /** История попыток витка. */
+  /**
+   * История попыток витка — ИЗ ФАЙЛА на диске, а не из памяти процесса.
+   *
+   * Накопитель в памяти был вторым описанием той же истории и гарантированно расходился с
+   * файлом: номер попытки виток восстанавливает с диска, а историю не восстанавливал, и
+   * после перезапуска сервиса страница показывала «попытка 3» над пустой панелью, хотя
+   * `iterations.md` содержал все три строки. Одна истина — файл; память остаётся только
+   * запасным вариантом на случай, когда записать журнал не удалось.
+   */
   get iterations(): IterationSummary[] {
-    return [...this.iterationLog];
+    const a = readArtifact(this.paths.iterations);
+    if (!a.exists) return [...this.iterationLog];
+    const fromDisk = parseIterations(a.text);
+    return fromDisk.length >= this.iterationLog.length ? fromDisk : [...this.iterationLog];
   }
 
   /** Прогон гейтов оборван отменой: набор в `gateResults` неполон. */
@@ -299,7 +326,7 @@ export class Run {
    * же причине, по которой не перезаписываются их патчи. Ошибка записи журнала не должна
    * ронять этап: журнал — наблюдаемость, а не условие корректности.
    */
-  private recordIteration(verdict: Verdict): void {
+  private recordIteration(verdict: Verdict, noProgress: boolean): void {
     try {
       const patch = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt));
       const existing = readArtifact(this.paths.iterations);
@@ -310,7 +337,10 @@ export class Run {
         gates: this.gateResultsForVerdict(),
         patch: patch.exists ? patch.text : '',
         closeness: this.closeness,
-        noProgress: verdict.reasons.some((r) => r.includes('один и тот же diff')),
+        // Флагом, а не грепом по тексту причины: формулировка в `verdict.ts` — текст для
+        // человека, и любая её правка (перенос слова, «diff» → «патч») молча выключала бы
+        // признак топтания в журнале. Ровно от этого написан соседний `classify.ts`.
+        noProgress,
         at: new Date(),
       });
       writeArtifact(this.paths.iterations, text);
@@ -345,8 +375,14 @@ export class Run {
    * витка меняет стоимость и поведение, и решает это человек.
    */
   get escalation(): Escalation {
-    const chunk = this.profile.routes.chunk;
-    const verify = this.profile.routes.verify;
+    // КРАЙНИЕ значения ансамбля, ровно как в `checkReviewerRule`: сильнейший исполнитель
+    // против слабейшего рецензента. Пока брался первый маршрут, предложение «поднять chunk
+    // до X, правило рецензента сохраняется» приводило к профилю, который сам же
+    // `resolveStartableProfile` отказывался стартовать — совет, ломающий запуск.
+    const chunkRoutes = this.profile.ensemble.chunk ?? [this.profile.routes.chunk];
+    const verifyRoutes = this.profile.ensemble.verify ?? [this.profile.routes.verify];
+    const chunk = chunkRoutes.reduce((a, b) => (a.rank >= b.rank ? a : b), this.profile.routes.chunk);
+    const verify = verifyRoutes.reduce((a, b) => (a.rank <= b.rank ? a : b), this.profile.routes.verify);
     return suggestEscalation({
       failedClaimsByAttempt: this.failedClaimsByAttempt,
       chunkModelId: chunk.modelId,
@@ -436,6 +472,7 @@ export class Run {
         : buildRetryBrief(this.lastVerdictInput, this.lastGateResults);
     this.attempt += 1;
     this.resetAttemptState();
+    this.notePeakAttempt();
     return this.attempt;
   }
 
@@ -447,7 +484,23 @@ export class Run {
     this.carryForward = null;
     this.failedClaimsByAttempt = [];
     this.resetAttemptState();
+    this.notePeakAttempt();
     return this.chunk;
+  }
+
+  /**
+   * Отмечает достигнутый номер попытки для метрик.
+   *
+   * Зовётся при СМЕНЕ попытки, а не при расчёте вердикта: пока счёт вёлся только внутри
+   * `computeStageVerdict`, попытки, оборванные на этапе 5 или отменённые до verify, в
+   * метрики и в пост-виток отчёт не попадали вовсе — то есть отчёт «что съело итерации»
+   * занижал ровно то число, ради которого его и завели.
+   */
+  private notePeakAttempt(): void {
+    this.attemptsByChunk.set(
+      this.chunk,
+      Math.max(this.attemptsByChunk.get(this.chunk) ?? 0, this.attempt),
+    );
   }
 
   /**
@@ -464,6 +517,13 @@ export class Run {
     this.lastVerdictInput = null;
     this.redCause = null;
     this.reviewerRan = false;
+    // Близость к прошлому патчу — свойство ПОПЫТКИ. Пока её тут не было, шапка новой
+    // попытки до самого вердикта показывала совпадение от предыдущей, то есть янтарным
+    // предупреждала о топтании там, где ещё ничего не сделано.
+    this.closeness = null;
+    // Вердикт этой попытки ещё не считался — счётчики статистики не должны его удвоить
+    // при повторном запуске verify (правка набора гейтов и второй прогон — обычное дело).
+    this.verdictCountedFor = null;
   }
 
   /** Набор гейтов проекта. `null` — файла нет. */
@@ -534,6 +594,81 @@ export class Run {
       readOnlyRoots: this.readOnlyRoots,
       allowedTools: def.tools,
     };
+  }
+
+  /**
+   * Дополнительные маршруты ансамбля рецензентов. Только этап 6 и только он.
+   *
+   * Ансамбль на пишущем этапе — это второй исполнитель, который правит те же файлы поверх
+   * готового патча первого: улика попытки становится смесью двух авторов, а детект
+   * отсутствия прогресса сравнивает патчи, собранные разным числом рук. Поэтому ограничение
+   * стоит здесь, в рантайме, а не держится на том, что так никто не сконфигурирует.
+   *
+   * Каждый маршрут пишет в канонический путь отчёта (его называет промпт этапа), а рантайм
+   * сразу переносит написанное в путь маршрута. Так вердикт получает ВСЕ мнения, а не
+   * последнее записанное, и при этом ни промпт, ни имя основного артефакта не меняются.
+   */
+  private async runEnsembleReviewers(
+    prompt: PreparedPrompt,
+    def: StageDef,
+    agents: readonly SubagentDef[],
+    hooks: ExecHooks,
+  ): Promise<void> {
+    const extraRoutes = (this.profile.ensemble.verify ?? []).slice(1);
+    const aborter = this.aborter;
+    if (extraRoutes.length === 0 || aborter === null) return;
+
+    const canonical = this.paths.verificationReport(this.chunk, this.attempt, 0);
+    const primary = readArtifact(canonical).text;
+
+    for (const [i, other] of extraRoutes.entries()) {
+      if (this.aborter?.signal.aborted === true) break;
+      const route = i + 1;
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: 'verify',
+        message: `ансамбль: дополнительный маршрут ${route + 1} — ${other.modelId}`,
+      });
+
+      // Канонический файл убирается, чтобы следующий рецензент не дописывал в чужой отчёт
+      // и не выдавал его за свой.
+      writeArtifact(canonical, '');
+      try {
+        await this.executorFor('verify', other).run(
+          {
+            prompt,
+            cwd: this.project.projectRoot,
+            model: other.model,
+            allowedTools: def.tools,
+            readOnlyDirs: this.readOnlyRoots,
+            subagents: agents,
+            maxTurns: this.config.runner.limits.maxIterationsPerStage,
+            maxBudgetUsd: this.project.maxBudgetUsd,
+            spentUsdBefore: this.totalUsage.costUsd ?? 0,
+            signal: aborter.signal,
+          },
+          hooks,
+        );
+      } catch (e) {
+        // Падение ДОПОЛНИТЕЛЬНОГО рецензента не отменяет вердикт по уже готовым отчётам:
+        // пока оно улетало в общий catch этапа, работа основного маршрута выбрасывалась
+        // целиком и оператор возвращался к попытке с нуля.
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage: 'verify',
+          message:
+            `ансамбль: маршрут ${route + 1} (${other.modelId}) не отработал: ` +
+            `${(e as Error).message}. Вердикт считается по отчётам остальных.`,
+        });
+      }
+      writeArtifact(this.paths.verificationReport(this.chunk, this.attempt, route), readArtifact(canonical).text);
+    }
+
+    // Канонический путь возвращается основному маршруту: его читают скиллы `/sdlc-*`,
+    // предусловия этапов и витки, начатые в терминале.
+    writeArtifact(canonical, primary);
   }
 
   private executorFor(stage: StageId, forRoute?: ResolvedRoute): StageExecutor {
@@ -749,7 +884,14 @@ export class Run {
     const gates = this.gatesFile;
     if (gates === null) return null;
 
-    const report = readArtifact(this.paths.verificationReport(this.chunk, this.attempt));
+    // Отчёты ВСЕХ маршрутов ансамбля, а не один канонический: свод по худшему статусу
+    // делает «`✅` только если так сказали все» свойством вердикта. Раньше все рецензенты
+    // писали в один файл, и в вердикт попадало мнение записавшего последним.
+    const routeCount = Math.max(1, (this.profile.ensemble.verify ?? []).length);
+    const reports = Array.from({ length: routeCount }, (_, r) =>
+      readArtifact(this.paths.verificationReport(this.chunk, this.attempt, r)).text,
+    ).filter((t) => t.trim() !== '');
+
     const { input, disagreements } = collectVerdictInput({
       gates,
       // Статусы гейтов, которые рантайм не исполняет скриптом, пересчитываются здесь:
@@ -760,7 +902,7 @@ export class Run {
       // в отчёте не может опровергнуть состоявшийся вызов субагента. Красный отчёта при
       // этом всё равно побеждает — см. `collectVerdictInput`.
       runtimeAuthoritativeWhenGreen: [gateKey(REVIEW_GATE)],
-      report: report.text,
+      reports,
       attempt: this.attempt,
       attemptBudget: this.attemptBudget,
       noProgress,
@@ -788,9 +930,14 @@ export class Run {
     // Пометка о некалиброванных гейтах: красный, полученный проверкой, чью способность
     // ловить никто не подтверждал посевом, стоит читать с оговоркой. На `passed` это не
     // влияет — иначе один флаг в наборе гейтов начал бы решать судьбу витка.
-    const uncalibrated = gates === null ? [] : uncalibratedGates(gates);
+    // Показывается при ЛЮБОМ исходе, а не только при красном: текст говорит «„зелёный“ от
+    // них слабее, чем выглядит», то есть адресован ровно тому случаю, когда вердикт
+    // зелёный и человек собирается принимать работу. Условие `!passed` выключало
+    // предупреждение в единственной ситуации, ради которой оно написано.
+    // Ветка `gates === null` тут мёртвая — до неё функция уже вышла.
+    const uncalibrated = uncalibratedGates(gates);
     const calibrationNote =
-      !verdict.passed && uncalibrated.length > 0
+      uncalibrated.length > 0
         ? [
             `посевом не проверялись гейты: ${uncalibrated.join(', ')} — их способность ` +
               'ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит',
@@ -803,19 +950,25 @@ export class Run {
 
     this.verdict = withNotes;
     this.lastVerdictInput = input;
-    this.recordIteration(withNotes);
     // Классификация считается только по красному: у зелёного «куда возвращать» нет вопроса.
     this.redCause = withNotes.passed ? null : classifyRedVerdict(input, disagreements);
 
-    this.verdictCount += 1;
-    if (!withNotes.passed) this.redCount += 1;
-    if (this.redCause !== null) {
-      this.redByCause.set(this.redCause.kind, (this.redByCause.get(this.redCause.kind) ?? 0) + 1);
+    // Статистика попытки учитывается РОВНО ОДИН РАЗ. Пересчёт вердикта на той же попытке
+    // (оператор поправил набор гейтов и запустил verify снова) обязан обновить сам
+    // вердикт, но не удваивать историю: иначе одна неудача выглядит как две.
+    const key = `${this.chunk}:${this.attempt}`;
+    if (this.verdictCountedFor !== key) {
+      this.verdictCountedFor = key;
+      this.recordIteration(withNotes, noProgress);
+      this.verdictCount += 1;
+      if (!withNotes.passed) this.redCount += 1;
+      if (this.redCause !== null) {
+        this.redByCause.set(this.redCause.kind, (this.redByCause.get(this.redCause.kind) ?? 0) + 1);
+      }
+      this.failedClaimsByAttempt.push(
+        input.claims.filter((c) => c.status !== '✅').map((c) => c.id),
+      );
     }
-    this.attemptsByChunk.set(this.chunk, Math.max(this.attemptsByChunk.get(this.chunk) ?? 0, this.attempt));
-    this.failedClaimsByAttempt.push(
-      input.claims.filter((c) => c.status !== '✅').map((c) => c.id),
-    );
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
     return withNotes;
   }
@@ -996,7 +1149,14 @@ export class Run {
             toolName: meta.toolName,
             rawInput: meta.rawInput,
             call,
-            ctx,
+            // Права вызывающего СУЖАЮТ права этапа, но никогда их не расширяют:
+            // пересечение, а не подстановка. Вложенный субагент не может получить больше
+            // этапа, а объявленный без права записи разведчик не получает `Write` только
+            // потому, что модель его назвала.
+            ctx: {
+              ...ctx,
+              allowedTools: ctx.allowedTools.filter((t) => meta.callerTools.includes(t)),
+            },
           });
           // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
           // рантайм прочитал с диска. Подстрока «reviewer» в имени этой планкой не
@@ -1067,39 +1227,13 @@ export class Run {
           subagents: agents,
           maxTurns: this.config.runner.limits.maxIterationsPerStage,
           maxBudgetUsd: this.project.maxBudgetUsd,
+          spentUsdBefore: this.totalUsage.costUsd ?? 0,
           signal: this.aborter.signal,
         },
         hooks,
       );
 
-      // Ансамбль рецензентов: остальные маршруты этапа 6 прогоняются ПОСЛЕ основного, по
-      // тому же промпту и с теми же правами. Они пишут свои отчёты, а вердикт считается по
-      // худшему статусу — правило то же, что и везде: `✅` только если так сказали все.
-      // Прогоняются последовательно: рецензенты делят рабочее дерево и бюджет.
-      const extraRoutes = (this.profile.ensemble[stage] ?? []).slice(1);
-      for (const [i, other] of extraRoutes.entries()) {
-        if (this.aborter?.signal.aborted === true) break;
-        this.emit({
-          type: 'warning',
-          runId: this.id,
-          stage,
-          message: `ансамбль: дополнительный маршрут ${i + 2} — ${other.modelId}`,
-        });
-        await this.executorFor(stage, other).run(
-          {
-            prompt,
-            cwd: this.project.projectRoot,
-            model: other.model,
-            allowedTools: def.tools,
-            readOnlyDirs: this.readOnlyRoots,
-            subagents: agents,
-            maxTurns: this.config.runner.limits.maxIterationsPerStage,
-            maxBudgetUsd: this.project.maxBudgetUsd,
-            signal: this.aborter.signal,
-          },
-          hooks,
-        );
-      }
+      if (stage === 'verify') await this.runEnsembleReviewers(prompt, def, agents, hooks);
 
       this.reportArtifacts(stage);
 

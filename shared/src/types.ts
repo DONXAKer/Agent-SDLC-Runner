@@ -265,6 +265,19 @@ const GATE_SEVERITY: Record<GateStatus, number> = { '✅': 0, '⏭': 1, '❌': 2
 export function worstGateStatus(a: GateStatus, b: GateStatus): GateStatus {
   return GATE_SEVERITY[a] >= GATE_SEVERITY[b] ? a : b;
 }
+
+/**
+ * Строгость статуса пункта приёмки. `⚠` хуже `✅`, `❌` хуже всего.
+ *
+ * Нужен там же, где и `worstGateStatus`: когда один и тот же пункт оценили несколько
+ * рецензентов ансамбля, в вердикт идёт худшая из оценок — иначе достаточно одного слабого
+ * рецензента, чтобы зелёный перебил найденный дефект.
+ */
+const CLAIM_SEVERITY: Record<ClaimStatus, number> = { '✅': 0, '⚠': 1, '❌': 2 };
+
+export function worstClaimStatus(a: ClaimStatus, b: ClaimStatus): ClaimStatus {
+  return CLAIM_SEVERITY[a] >= CLAIM_SEVERITY[b] ? a : b;
+}
 export type VerdictAction = 'continue' | 'retry' | 'escalate';
 
 export interface VerdictInput {
@@ -405,3 +418,34 @@ export type RunEvent =
   | { type: 'error'; runId: string; stage: StageId | null; message: string };
 
 export type EventSink = (e: RunEvent) => void;
+
+/**
+ * Форматирование стоимости прогона — ОДНО на все поверхности.
+ *
+ * Ноль стоимости означает разное, и путать эти случаи нельзя: до первого вызова модели
+ * тратить ещё нечего, а на локальном маршруте стоимости нет вовсе. «Ещё нечего» — это
+ * ноль ПРИ полном отсутствии токенов, включая кэшевые.
+ *
+ * Живёт в общем пакете, потому что одну и ту же цифру показывают и интерфейс, и пост-виток
+ * отчёт в `handoff.md`. Пока копия форматтера лежала в `run/postmortem.ts`, они уже
+ * разошлись: при нулевой стоимости и ненулевых токенах шапка печатала `$0`, а артефакт —
+ * `$0.0000`.
+ *
+ * `noCost` — как назвать отсутствие стоимости: в интерфейсе коротко, в артефакте
+ * развёрнуто. Это единственное, чем поверхности вправе отличаться.
+ */
+export function formatCost(usage: Usage, noCost = 'без стоимости'): string {
+  if (usage.costUsd === null) return noCost;
+  const tokens =
+    usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+  if (usage.costUsd === 0 && tokens === 0) return '—';
+  if (usage.costUsd === 0) return '$0';
+  return `$${usage.costUsd.toFixed(4)}`;
+}
+
+/** Длительность в человеческом виде. Одна копия — по той же причине, что и `formatCost`. */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} мс`;
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s} с` : `${Math.floor(s / 60)} мин ${s % 60} с`;
+}

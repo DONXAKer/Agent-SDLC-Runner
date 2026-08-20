@@ -64,15 +64,38 @@ export function detectBuildSystem(
 /** Расширения исходников всех известных экосистем — для гейтов, отличающих код от прочего. */
 export const CODE_EXTENSIONS: ReadonlySet<string> = new Set(ORDER.flatMap((e) => e.codeExt));
 
-/** Маркеры отключённого теста, собранные по всем экосистемам. */
-export const DISABLE_MARKERS: readonly string[] = [
-  ...new Set(ORDER.flatMap((e) => e.disableMarkers)),
-];
+/**
+ * Экосистемы, которым принадлежит файл — по расширению. Пусто — язык неизвестен.
+ *
+ * Список, а не одна: `.js` знает и node, и ничего больше, но `.h` принадлежит сразу
+ * нескольким, и сужать до первой попавшейся было бы враньём.
+ */
+function ecosystemsOf(file: string): readonly Ecosystem[] {
+  const dot = file.lastIndexOf('.');
+  if (dot < 0) return [];
+  const ext = file.slice(dot).toLowerCase();
+  return ORDER.filter((e) => e.codeExt.includes(ext));
+}
 
-/** Признаки объявления теста, собранные по всем экосистемам. */
-export const TEST_DECLARATIONS: readonly string[] = [
-  ...new Set(ORDER.flatMap((e) => e.testDecl)),
-];
+/**
+ * Маркеры отключённого теста для КОНКРЕТНОГО файла — по его языку.
+ *
+ * Раньше здесь склеивались маркеры всех экосистем сразу и сравнивались подстрокой с любой
+ * строкой любого файла. Ruby приносил `'it '`, `'skip '`, `'xit '`, PHP — `'function test'`,
+ * и обычная TypeScript-строка `let skip = shouldSkip(x)` роняла обязательный гейт
+ * «Анти-обход тест-гейта», а удаление строк со словами `limit`/`unit`/`submit` читалось как
+ * «тесты выкинули». Зелёный вердикт был недостижим на любом обычном витке.
+ *
+ * Для файла неизвестного языка маркеров нет: молчание честнее, чем красный по чужому языку.
+ */
+export function disableMarkersFor(file: string): readonly string[] {
+  return [...new Set(ecosystemsOf(file).flatMap((e) => e.disableMarkers))];
+}
+
+/** Признаки объявления теста для конкретного файла — по его языку. См. `disableMarkersFor`. */
+export function testDeclarationsFor(file: string): readonly string[] {
+  return [...new Set(ecosystemsOf(file).flatMap((e) => e.testDecl))];
+}
 
 /**
  * Имена функций, объявленных в строке. Пусто — объявления в строке нет.
@@ -102,5 +125,9 @@ export function syntaxCheckerFor(file: string): Ecosystem | null {
   const dot = file.lastIndexOf('.');
   if (dot < 0) return null;
   const ext = file.slice(dot).toLowerCase();
-  return ORDER.find((e) => e.syntaxCheck !== undefined && e.codeExt.includes(ext)) ?? null;
+  return (
+    ORDER.find(
+      (e) => e.syntaxCheck !== undefined && (e.syntaxCheckExt ?? e.codeExt).includes(ext),
+    ) ?? null
+  );
 }

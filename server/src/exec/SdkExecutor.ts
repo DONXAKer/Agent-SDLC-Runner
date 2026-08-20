@@ -115,7 +115,9 @@ export class SdkExecutor implements StageExecutor {
         {
           description: a.description,
           prompt: a.prompt,
-          ...(a.tools.length > 0 ? { tools: a.tools } : {}),
+          // `tools: null` — строки в файле агента нет, и поле не выставляется: SDK сам
+          // трактует его отсутствие как «наследует права вызывающего».
+          ...(a.tools !== null && a.tools.length > 0 ? { tools: a.tools } : {}),
           ...(a.model === null ? {} : { model: a.model }),
         },
       ]),
@@ -154,6 +156,9 @@ export class SdkExecutor implements StageExecutor {
             requestId: opts.toolUseID,
             toolName,
             rawInput: input as Record<string, unknown>,
+            // Во флоу `sdk` вложенные прогоны крутит сам SDK, и своего списка прав у
+            // вызова здесь нет — правами вызывающего остаются права этапа.
+            callerTools: req.allowedTools,
           });
 
           if (!decision.allowed) {

@@ -37,6 +37,11 @@ export const node: Ecosystem = {
   // работает корректно — поэтому ESM и JSX отсеиваются по фактическому тексту ошибки в
   // `builtin/index.ts`, а не здесь.
   syntaxCheck: (file) => ({ cmd: process.execPath, args: ['--check', file] }),
+  // `node --check` разбирает только настоящий JavaScript. `.ts`/`.tsx` он не понимает
+  // вовсе (аннотация типа даёт `Missing initializer in const declaration` и в CJS, и в
+  // ESM — проверено прогоном), а `.jsx` спотыкается о разметку. Для TypeScript дешёвой
+  // проверки синтаксиса у нас нет, и притворяться, что есть, значит красить исправный код.
+  syntaxCheckExt: ['.js', '.mjs', '.cjs'],
   lint: (files) => ({ cmd: 'npx', args: ['--no-install', 'eslint', ...files], scope: 'files' }),
   funcDecl: [/^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$]\w*)/, /^\s*(?:export\s+)?const\s+([A-Za-z_$]\w*)\s*=\s*(?:async\s*)?\(/],
   disableMarkers: [

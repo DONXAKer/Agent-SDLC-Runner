@@ -15,7 +15,18 @@
  * которой не перезаписываются их патчи: стёртая улика не восстанавливается.
  */
 
-import type { GateRunResult, Verdict } from '@sdlc-runner/shared';
+import type {
+  GateRunResult,
+  IterationSummary,
+  Verdict,
+  VerdictAction,
+} from '@sdlc-runner/shared';
+
+import { columnIndex, parseTables } from '../md/table.ts';
+
+// Разбор патча общий на кодовую базу: свой считал строку кода, начинающуюся с `++`,
+// заголовком файла — журнал печатал «Файлов: 2» для патча одного файла.
+import { patchSize } from '../diff/parse.ts';
 
 export interface IterationRecord {
   chunk: number;
@@ -47,21 +58,6 @@ const HEADER = [
 /** Ячейка таблицы: перевод строки и вертикальная черта ломают разметку. */
 function cell(v: string): string {
   return v.split('\n').join(' ').split('|').join('\\|').trim();
-}
-
-/** Размер патча: сколько файлов тронуто и сколько строк изменено. */
-function patchSize(patch: string): { files: number; lines: number } {
-  const files = new Set<string>();
-  let lines = 0;
-  for (const line of patch.split(/\r?\n/)) {
-    const m = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
-    if (m !== null) {
-      files.add((m[1] ?? '').trim());
-      continue;
-    }
-    if (/^[+-]/.test(line) && !/^(\+\+\+|---)/.test(line)) lines++;
-  }
-  return { files: files.size, lines };
 }
 
 /** Одна строка журнала. Возвращается без завершающего перевода строки. */
@@ -104,4 +100,61 @@ export function iterationRow(r: IterationRecord): string {
 export function appendIteration(existing: string, r: IterationRecord): string {
   const base = existing.trim() === '' ? HEADER : existing.replace(/\s+$/, '');
   return `${base}\n${iterationRow(r)}\n`;
+}
+
+/**
+ * Читает журнал с диска обратно в историю попыток.
+ *
+ * Нужен, потому что журнал — ЕДИНСТВЕННАЯ истина об истории попыток. Пока панель попыток
+ * питалась только накопителем в памяти, виток, открытый после перезапуска сервиса
+ * (сценарий, который методология объявляет поддержанным), показывал «попытка 3» и пустую
+ * панель: номер попытки восстанавливался с диска, а история — нет.
+ *
+ * Разбор нестрогий: строка, которую не удалось прочитать, пропускается. Журнал —
+ * наблюдаемость, и битая строка не должна ронять открытие витка.
+ */
+export function parseIterations(text: string): IterationSummary[] {
+  const table = parseTables(text).find((t) => columnIndex(t.header, 'Chunk') !== -1);
+  if (table === undefined) return [];
+
+  const idx = {
+    at: columnIndex(table.header, 'Когда'),
+    chunk: columnIndex(table.header, 'Chunk'),
+    attempt: columnIndex(table.header, 'Попытка'),
+    outcome: columnIndex(table.header, 'Исход'),
+    closeness: columnIndex(table.header, 'Совпадение с прошлым'),
+    reasons: columnIndex(table.header, 'Причины'),
+  };
+  if (Object.values(idx).some((i) => i === -1)) return [];
+
+  const out: IterationSummary[] = [];
+  for (const row of table.rows) {
+    const chunk = Number.parseInt(row[idx.chunk] ?? '', 10);
+    const attempt = Number.parseInt(row[idx.attempt] ?? '', 10);
+    if (!Number.isFinite(chunk) || !Number.isFinite(attempt)) continue;
+
+    const outcome = (row[idx.outcome] ?? '').trim();
+    const passed = outcome.startsWith('✅');
+    // Действие берётся из той же ячейки, куда его пишет `iterationRow`. Неузнанное —
+    // `retry`: это самый безобидный исход, и выдумывать `continue` за журнал нельзя.
+    const rawAction = outcome.replace(/^[✅❌]\s*/, '').trim();
+    const action: VerdictAction =
+      rawAction === 'continue' || rawAction === 'escalate' ? rawAction : passed ? 'continue' : 'retry';
+
+    const rawCloseness = (row[idx.closeness] ?? '').trim();
+    const pct = /^(\d+)%$/.exec(rawCloseness);
+    const closeness = pct === null ? null : Number(pct[1]) / 100;
+
+    const rawReasons = (row[idx.reasons] ?? '').trim();
+    out.push({
+      chunk,
+      attempt,
+      passed,
+      action,
+      reasons: rawReasons === '' || rawReasons === '—' ? [] : rawReasons.split('; '),
+      closeness,
+      at: (row[idx.at] ?? '').trim().replace(' ', 'T'),
+    });
+  }
+  return out;
 }

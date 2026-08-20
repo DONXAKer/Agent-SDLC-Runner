@@ -42,9 +42,14 @@ export function parseAgentFile(text: string): Omit<SubagentDef, 'name'> & { name
     name: field('name'),
     description: field('description') ?? '',
     prompt: body,
+    // `null` — строки `tools:` в файле НЕТ. У Claude Code это означает «наследует права
+    // вызывающего», и подменять её пустым списком нельзя: субагент молча оставался без
+    // единого инструмента, не мог прочитать ни diff, ни код — и всё равно завершался
+    // «успешно», зажигая гейт «Ревью независимым агентом». Пустой список означает ровно
+    // «инструментов нет» и остаётся отличим от отсутствия поля.
     tools:
       toolsRaw === null
-        ? []
+        ? null
         : toolsRaw
             .replace(/^\[|\]$/g, '')
             .split(',')

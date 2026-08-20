@@ -30,6 +30,9 @@ import { createProject } from './config/createProject.ts';
 import { loadConfig, requireProject } from './config/load.ts';
 import { ProfileError, resolveAdHocProfile, resolveStartableProfile } from './config/profiles.ts';
 import { listDir } from './fs/browse.ts';
+import { parseDiff } from './diff/parse.ts';
+import { scopeViolations } from './gates/builtin/logic.ts';
+import { normalizePlanPath } from './policy/paths.ts';
 import { readArtifact } from './artifacts/artifact.ts';
 import { Run } from './run/Run.ts';
 import { STAGES, isStageId, stageById } from './run/stages.ts';
@@ -179,7 +182,12 @@ app.post('/api/projects', (req, reply) => {
       profiles: Object.entries(project.profiles).map(([name, def]) => ({
         name,
         label: def.label,
-        stages: def.stages,
+        // Та же нормализация формы, что и в GET /api/config. Без неё ответ этой ручки
+        // уходил прямо в состояние интерфейса, и один массив профилей содержал записи
+        // двух форм: строка и список. Компилятор молчал — хендлер без generic'а.
+        stages: Object.fromEntries(
+          Object.entries(def.stages).map(([stage, v]) => [stage, Array.isArray(v) ? v : [v]]),
+        ) as Record<StageId, string[]>,
       })),
     };
   } catch (e) {
@@ -290,6 +298,7 @@ app.get('/api/runs/:id', async (req, reply) => {
     verdict: run.lastVerdict,
     redCause: run.lastRedCause,
     progressCloseness: run.progressCloseness,
+    progressClosenessWarn: config.runner.limits.progressClosenessWarn,
     metrics: run.metrics,
     escalation: run.escalation,
     iterations: run.iterations,
@@ -537,21 +546,26 @@ app.get('/api/runs/:id/diff', (req, reply) => {
     return reply.code(404).send({ error: 'патч этой попытки ещё не собран' });
   }
 
-  // Список файлов плана берётся тем же разбором, что и у политики: второй разбор плана в
-  // вебе разошёлся бы с тем, по которому реально отклоняются записи.
+  // «Вне плана» считается ТЕМ ЖЕ правилом, что и у политики, а не похожим на него.
+  // Сырое `planFiles.includes(f)` расходилось с ней на первом же плане, где модель
+  // написала `./src/a.ts` или абсолютный путь: политика запись разрешала, scope-гейт был
+  // зелёным, а просмотр красил файл жёлтым с подписью «запись туда отклоняется политикой»
+  // — и оператор шёл чинить несуществующее нарушение. `scopeViolations` нормализует обе
+  // стороны через `normalizePlanPath`, ровно как `policy/planScope.ts`.
   const planFiles = run.planFilesFor('verify') ?? [];
-  const files = [...new Set(
-    patch.text
-      .split(/\r?\n/)
-      .map((l) => /^\+\+\+ (?:b\/)?(.+)$/.exec(l)?.[1]?.trim())
-      .filter((f): f is string => f !== undefined && f !== '/dev/null'),
-  )];
+  const files = parseDiff(patch.text).files;
+  const outside = new Set(
+    scopeViolations(files, planFiles, run.project.projectRoot).map((v) => v.path),
+  );
 
   return {
     chunk: run.chunk,
     attempt: run.attempt,
     patch: patch.text,
-    files: files.map((f) => ({ path: f, inPlan: planFiles.includes(f) })),
+    files: files.map((f) => ({
+      path: f,
+      inPlan: !outside.has(normalizePlanPath(run.project.projectRoot, f)),
+    })),
   };
 });
 
@@ -563,7 +577,10 @@ app.post('/api/runs/:id/cancel', async (req, reply) => {
   // Отмена доходит до исполнителя: без этого SDK продолжал крутиться, тратя бюджет и
   // создавая новые запросы на одобрение на «отменённом» прогоне.
   live.run.cancel('прогон отменён оператором');
-  bus.emit({ type: 'run_finished', runId: id, ok: false, note: 'отменён оператором' });
+  // `run_finished` здесь НЕ шлётся: отмена — это запрос остановки, а не её факт. Лента
+  // печатала «◼ прогон завершён» в тот момент, когда шапка той же страницы честно
+  // показывала «останавливается…», и оператор уходил, считая виток остановленным, пока
+  // исполнитель ещё работал и тратил бюджет. Конец приходит своим `stage_done`/`error`.
   return { ok: true };
 });
 

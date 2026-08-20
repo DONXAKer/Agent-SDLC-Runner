@@ -17,11 +17,20 @@ import { STAGE_ORDER } from '@sdlc-runner/shared';
 export function ProfileEditor({
   models,
   stages,
+  base,
   onChange,
 }: {
   models: ConfigInfo['models'];
   /** Текущий выбор: этап → модель. Пусто — берётся профиль как есть. */
   stages: Partial<Record<StageId, string>>;
+  /**
+   * Модели выбранного профиля — то, что действует на нетронутых этапах.
+   *
+   * Без них правило рецензента считалось только когда оператор трогал ОБА этапа, то есть
+   * молчало в самом частом случае: подняли один `chunk` до уровня базового `verify` —
+   * клиент ничего не сказал, а сервер отказал в старте.
+   */
+  base: Record<StageId, string[]>;
   onChange: (next: Partial<Record<StageId, string>>) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -29,12 +38,20 @@ export function ProfileEditor({
   const rankOf = (id: string | undefined): number | null =>
     models.find((m) => m.id === id)?.rank ?? null;
 
-  const chunkRank = rankOf(stages.chunk);
-  const verifyRank = rankOf(stages.verify);
-  // Правило проверяется, только когда оператор тронул оба этапа: иначе сравнивать не с чем,
-  // и красная надпись про непроверенное — это ложная тревога.
-  const ruleBroken =
-    chunkRank !== null && verifyRank !== null && verifyRank <= chunkRank;
+  // Эффективная модель этапа: правка оператора, иначе то, что стоит в профиле.
+  // Крайние значения ансамбля, как в `checkReviewerRule` на сервере: сильнейший
+  // исполнитель против слабейшего рецензента.
+  const effectiveRank = (stage: StageId, pick: (a: number, b: number) => number): number | null => {
+    const override = rankOf(stages[stage]);
+    if (override !== null) return override;
+    const ranks = (base[stage] ?? []).map((id: string) => rankOf(id)).filter((r): r is number => r !== null);
+    return ranks.length === 0 ? null : ranks.reduce(pick);
+  };
+
+  const chunkRank = effectiveRank('chunk', Math.max);
+  const verifyRank = effectiveRank('verify', Math.min);
+  // Сравнивать нечего только когда ранг не известен ни из правки, ни из профиля.
+  const ruleBroken = chunkRank !== null && verifyRank !== null && verifyRank <= chunkRank;
 
   return (
     <div className="rounded border border-neutral-800 p-3">

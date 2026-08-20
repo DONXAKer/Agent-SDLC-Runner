@@ -54,7 +54,18 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
    * Правила автоодобрения. Живут до конца этапа: сервер снимает их в `finally` запуска, и
    * обещать здесь большее (например «на весь виток») значило бы обещать не своё.
    */
-  const [autoRules, setAutoRules] = useState<AutoApproveRules>(AUTO_APPROVE_OFF);
+  /**
+   * Правила автоодобрения ПО ЭТАПАМ — так же, как их хранит сервер.
+   *
+   * Один общий стейт на страницу переносил галочки на следующий этап: оператор включал на
+   * `chunk` в том числе `bash` и «остальное», переключался на `plan`, ставил одну галочку —
+   * и на сервер уходили все три флага уже для нового этапа. Сервер вдобавок снимает правила
+   * по завершении этапа (`clearAutoApprove`), так что общий стейт врал и в обратную сторону.
+   */
+  const [autoRulesByStage, setAutoRulesByStage] = useState<
+    Partial<Record<StageId, AutoApproveRules>>
+  >({});
+  const autoRules = autoRulesByStage[stage] ?? AUTO_APPROVE_OFF;
 
   const { events, connected } = useRunSocket(runId);
 
@@ -104,6 +115,16 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     // интерфейс навсегда «занятым» — запустить заново можно было только перезагрузив
     // страницу, хотя сам прогон уже стоял.
     if (last.type === 'stage_done' || last.type === 'error') setBusy(false);
+    // Сервер снимает правила автоодобрения в `finally` этапа — снимаем и здесь, иначе
+    // галочки остаются взведёнными и обещают автоодобрение, которого больше нет.
+    if (last.type === 'stage_done' || last.type === 'error') {
+      const done = last.stage;
+      if (done !== null) {
+        setAutoRulesByStage((prev) =>
+          prev[done] === undefined ? prev : { ...prev, [done]: AUTO_APPROVE_OFF },
+        );
+      }
+    }
     if (last.type === 'error') setError(last.message);
   }, [events, refresh]);
 
@@ -407,7 +428,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
               же» оператор должен иметь возможность проверить глазами. На первой попытке
               сравнивать не с чем, и ноль там был бы ложью. */}
           {detail.progressCloseness !== null ? (
-            <span className={detail.progressCloseness >= 0.9 ? ' text-amber-400' : ''}>
+            <span className={detail.progressCloseness >= detail.progressClosenessWarn ? ' text-amber-400' : ''}>
               {' '}
               · совпадение с прошлым патчем {Math.round(detail.progressCloseness * 100)}%
             </span>
@@ -532,7 +553,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                         checked={autoRules[key]}
                         onChange={(e) => {
                           const next = { ...autoRules, [key]: e.target.checked };
-                          setAutoRules(next);
+                          setAutoRulesByStage((prev) => ({ ...prev, [stage]: next }));
                           void api
                             .autoApprove(runId, stage, next)
                             .catch((err: Error) => setError(err.message));
@@ -585,6 +606,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 <AttemptsPanel
                   iterations={detail.iterations}
                   attemptBudget={detail.attemptBudget}
+              closenessWarn={detail.progressClosenessWarn}
                 />
               ) : null}
 

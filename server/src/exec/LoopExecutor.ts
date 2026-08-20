@@ -35,7 +35,7 @@ import type {
   SubagentDef,
 } from './StageExecutor.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
-import { specsFor } from './toolSpecs.ts';
+import { TOOL_SPECS, specsFor } from './toolSpecs.ts';
 
 export interface LoopOptions {
   provider: ChatProvider;
@@ -59,11 +59,12 @@ const REPEAT_LIMIT = 3;
  * Имена инструментов субагента приходят строками из его YAML-шапки — файл пишет человек.
  * Незнакомое имя не превращается в право: оно просто не попадает в пересечение.
  */
-const TOOL_NAMES: readonly string[] = [
-  'Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'AskHuman', 'FinalizeArtifact', 'Task',
-];
+// Реестр `TOOL_SPECS` типизирован как `Record<ToolName, ToolSpec>`, и его полноту следит
+// компилятор. Рукописный список рядом был бы вторым знанием об одном: забытое в нём имя
+// молча выпадало бы из пересечения прав, и субагент терял бы объявленное право без
+// единого сообщения. `hasOwn`, а не `in`: объектный словарь отвечает `true` на `toString`.
 function isToolName(v: string): v is ToolName {
-  return TOOL_NAMES.includes(v);
+  return Object.hasOwn(TOOL_SPECS, v);
 }
 
 /** Инструмент есть, но исполнить его этот флоу не умеет: не успех и не крах этапа. */
@@ -130,7 +131,9 @@ export class LoopExecutor implements StageExecutor {
 
       // Бюджет прогона действует на обоих флоу. Проверяется ПОСЛЕ хода, а не до: цена
       // хода известна только по факту, и обрывать этап на непревышенном бюджете нельзя.
-      const spent = usage.costUsd;
+      // Считается вместе с уже потраченным вне этого вызова: маршруты ансамбля и вложенные
+      // субагенты делят ОДИН потолок витка, а не получают по своему.
+      const spent = usage.costUsd === null ? null : usage.costUsd + (req.spentUsdBefore ?? 0);
       if (req.maxBudgetUsd !== null && spent !== null && spent >= req.maxBudgetUsd) {
         const note = `бюджет прогона исчерпан: $${spent.toFixed(4)} из $${req.maxBudgetUsd}`;
         hooks.onWarn(note);
@@ -176,8 +179,23 @@ export class LoopExecutor implements StageExecutor {
         answer.toolCalls.every((c) => normalize(c.name, c.arguments ?? {}).kind === 'subagent');
 
       if (parallelSubagents) {
+        // Отпечаток хода целиком, а не последнего вызова: пока `repeats` здесь обнулялся
+        // безусловно, модель, повторяющая одну и ту же пару `Task`, крутилась до
+        // `maxTurns`, и каждый ход стоил двух полных вложенных прогонов.
+        const turnFingerprint = answer.toolCalls.map(callFingerprint).join(' ');
+        repeats = turnFingerprint === lastFingerprint ? repeats + 1 : 0;
+        lastFingerprint = turnFingerprint;
+        if (repeats + 1 >= REPEAT_LIMIT) {
+          const note =
+            `цикл остановлен: ход из ${answer.toolCalls.length} субагентов повторён ` +
+            `${repeats + 1} раза подряд с теми же аргументами — прогресса нет`;
+          hooks.onWarn(note);
+          return { ok: false, finalText, usage, note };
+        }
+
+        const spentNow = (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0);
         const results = await Promise.all(
-          answer.toolCalls.map((call) => this.handleCall(call, 0, req, hooks, toolCtx)),
+          answer.toolCalls.map((call) => this.handleCall(call, 0, req, hooks, toolCtx, spentNow)),
         );
         answer.toolCalls.forEach((call, idx) => {
           messages.push({
@@ -187,10 +205,6 @@ export class LoopExecutor implements StageExecutor {
             content: results[idx] ?? '',
           });
         });
-        // Отпечаток берётся от последнего вызова хода: детект залипания считает ходы, а не
-        // отдельные ветки параллельного запуска.
-        lastFingerprint = callFingerprint(answer.toolCalls[answer.toolCalls.length - 1]!);
-        repeats = 0;
         continue;
       }
 
@@ -207,7 +221,14 @@ export class LoopExecutor implements StageExecutor {
           return { ok: false, finalText, usage, note };
         }
 
-        const result = await this.handleCall(call, repeats, req, hooks, toolCtx);
+        const result = await this.handleCall(
+          call,
+          repeats,
+          req,
+          hooks,
+          toolCtx,
+          (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0),
+        );
         messages.push({
           role: 'tool',
           toolCallId: call.id,
@@ -231,6 +252,8 @@ export class LoopExecutor implements StageExecutor {
     req: ExecRequest,
     hooks: ExecHooks,
     toolCtx: ToolContext,
+    /** Уже потрачено на витке к моменту вызова — передаётся вложенному прогону субагента. */
+    spentUsd: number,
   ): Promise<string> {
     const started = Date.now();
     const requestId = `loop:${randomUUID()}`;
@@ -257,6 +280,9 @@ export class LoopExecutor implements StageExecutor {
       requestId,
       toolName: call.name,
       rawInput: call.arguments,
+      // Права текущего вызывающего, а не этапа: во вложенном прогоне субагента здесь
+      // уже суженный список, и политика решает по нему.
+      callerTools: req.allowedTools,
     });
     if (!decision.allowed) {
       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
@@ -274,7 +300,7 @@ export class LoopExecutor implements StageExecutor {
 
     let text: string;
     try {
-      text = await this.execute(effective, req, hooks, toolCtx);
+      text = await this.execute(effective, req, hooks, toolCtx, spentUsd);
     } catch (e) {
       // Инструмент, который не может отработать, отчитывается ОШИБКОЙ — иначе «ok» на
       // заглушке становится доказательством того, чего не было (гейт ревью зеленел от
@@ -314,6 +340,7 @@ export class LoopExecutor implements StageExecutor {
     def: SubagentDef,
     task: string,
     allowedTools: readonly ToolName[],
+    spentUsd: number,
   ): Promise<string> {
     hooks.onWarn(
       `запущен субагент «${def.name}»: инструменты ${allowedTools.join(', ') || '(нет)'} — ` +
@@ -339,6 +366,9 @@ export class LoopExecutor implements StageExecutor {
         subagents: [],
         // Свой потолок ходов: вложенный прогон не должен съесть бюджет этапа целиком.
         maxTurns: Math.max(4, Math.floor(req.maxTurns / 2)),
+        // Бюджет ОБЩИЙ с родителем: свой полный потолок у каждого субагента означал бы,
+        // что объявленный лимит витка умножается на число вложенных прогонов.
+        spentUsdBefore: spentUsd,
       },
       hooks,
     );
@@ -357,6 +387,8 @@ export class LoopExecutor implements StageExecutor {
     req: ExecRequest,
     hooks: ExecHooks,
     toolCtx: ToolContext,
+    /** Уже потрачено на витке — вложенный прогон субагента делит потолок с родителем. */
+    spentUsd: number,
   ): Promise<string> {
     switch (call.kind) {
       case 'ask_human': {
@@ -389,12 +421,29 @@ export class LoopExecutor implements StageExecutor {
         }
 
         // Права — ПЕРЕСЕЧЕНИЕ прав этапа и объявленных прав субагента. Ни расширить права
-        // этапа вызовом субагента, ни выдать субагенту больше, чем он объявил, нельзя:
-        // «разведчик места правки не имеет инструментов записи» держится на этом.
-        const declaredTools = def.tools.filter((t): t is ToolName => isToolName(t));
-        const nested = req.allowedTools.filter((t) => declaredTools.includes(t));
+        // этапа вызовом субагента, ни выдать субагенту больше, чем он объявил, нельзя;
+        // это пересечение доезжает до политики через `callerTools` в `onToolRequest` —
+        // на списке инструментов для модели оно бы держалось только на её послушании.
+        // `tools: null` — строки в файле нет, то есть агент наследует права этапа.
+        const declaredTools =
+          def.tools === null ? null : def.tools.filter((t): t is ToolName => isToolName(t));
+        const nested =
+          declaredTools === null
+            ? req.allowedTools
+            : req.allowedTools.filter((t) => declaredTools.includes(t));
 
-        return this.runSubagent(req, hooks, def, call.prompt, nested);
+        // Прогон без единого инструмента — не ревью. Раньше он завершался «успешно» и
+        // зажигал гейт «Ревью независимым агентом» отчётом, сочинённым вслепую.
+        if (nested.length === 0) {
+          const note =
+            `субагент «${def.name}» не получил ни одного инструмента: пересечение прав ` +
+            `этапа (${req.allowedTools.join(', ') || '—'}) и объявленных им ` +
+            `(${(declaredTools ?? []).join(', ') || '—'}) пусто. Прогон вслепую ревью не является.`;
+          hooks.onWarn(note);
+          throw new SubagentUnavailable(note);
+        }
+
+        return this.runSubagent(req, hooks, def, call.prompt, nested, spentUsd);
       }
 
       default: {

@@ -5,7 +5,10 @@ export const ruby: Ecosystem = {
   label: 'Ruby',
   manifests: ['Gemfile', 'Rakefile', '.rspec'],
   commands: (env) => ({
-    build: 'ruby -e "true"',
+    // Шага сборки у Ruby нет. Прежняя `ruby -e "true"` не собирала ничего, а вдобавок
+    // отклонялась полом безопасности как однострочник интерпретатора — обязательный гейт
+    // «Сборка» был выключен навсегда. `null` уводит его на `ruby -c` по изменённым файлам.
+    build: null,
     test: env.files.has('.rspec') || env.files.has('Gemfile') ? 'bundle exec rspec' : null,
     depsDir: null,
   }),

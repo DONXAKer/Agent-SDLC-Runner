@@ -15,6 +15,9 @@
 
 import { declaredFunctionNames } from '../ecosystems/index.ts';
 import type { DiffLine } from './logic.ts';
+// Признак тестового файла берётся из общего места: копия здесь уже теряла хвост для
+// JVM и .NET, и гейт рапортовал о дублях на тестовых хелперах.
+import { TEST_FILE } from './logic.ts';
 
 /**
  * Слишком общие имена: одноимённость таких ничего не значит, а шум они дают на каждом
@@ -30,7 +33,7 @@ const TOO_COMMON = new Set([
 const MIN_NAME = 4;
 
 function isTestFile(file: string): boolean {
-  return /(^|\/)(test|tests|spec)\/|[._-](test|spec)s?\.[a-z]+$/i.test(file);
+  return TEST_FILE.test(file);
 }
 
 /** Имена функций, ДОБАВЛЕННЫХ этим diff'ом, вместе с файлом, где они появились. */

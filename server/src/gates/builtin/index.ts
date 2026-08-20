@@ -24,7 +24,7 @@ import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { GateStatus } from '@sdlc-runner/shared';
@@ -100,8 +100,8 @@ function declaredModule(ctx: GateContext, dir: string): ModuleProfile | null {
  */
 export function describeBuild(
   ctx: GateContext,
-): { dir: string; label: string; build: string; test: string | null }[] {
-  const out: { dir: string; label: string; build: string; test: string | null }[] = [];
+): { dir: string; label: string; build: string | null; test: string | null }[] {
+  const out: { dir: string; label: string; build: string | null; test: string | null }[] = [];
   for (const mod of resolveModules(ctx)) {
     const system = resolveCommands(ctx, mod.dir, mod.files);
     if (system === null) continue;
@@ -229,19 +229,36 @@ const NODE_CHECK_TIMEOUT_MS = 10_000;
  * отсутствие python на машине оператора выглядело бы как синтаксическая ошибка во всех
  * его файлах — красный гейт по несуществующей причине.
  */
+interface ProcOutcome {
+  code: number | null;
+  /** stderr и stdout вместе: линтеры пишут находки то туда, то сюда. */
+  output: string;
+  noTool: boolean;
+  /** Отмена оператором или свой таймаут — НЕ вывод проверки. */
+  aborted: boolean;
+  timedOut: boolean;
+}
+
 function runSyntaxCheck(
   cmd: string,
   args: readonly string[],
-  signal?: AbortSignal,
-): Promise<{ code: number | null; stderr: string; noTool: boolean }> {
+  opts: { signal?: AbortSignal; cwd?: string; timeoutMs?: number } = {},
+): Promise<ProcOutcome> {
+  const limit = opts.timeoutMs ?? NODE_CHECK_TIMEOUT_MS;
   return new Promise((resolve) => {
     const child = spawn(cmd, [...args], {
       windowsHide: true,
-      ...(signal === undefined ? {} : { signal }),
+      // Каталог модуля, а не каталог серверного процесса. Без `cwd` линтер целевого
+      // проекта стартовал в репозитории самого раннера: относительная команда
+      // (`vendor/bin/phpcs`) не находилась, а `golangci-lint run ./...` честно проверял
+      // ЧУЖОЙ проект и возвращал 0 — зелёный гейт про непроверенный код.
+      ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }),
+      ...(opts.signal === undefined ? {} : { signal: opts.signal }),
     });
-    const err: string[] = [];
+    const out: string[] = [];
     let settled = false;
-    const done = (r: { code: number | null; stderr: string; noTool: boolean }): void => {
+    let timedOut = false;
+    const done = (r: ProcOutcome): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -251,24 +268,39 @@ function runSyntaxCheck(
     // собственного лимита нет, а процесс, севший на блокировке файла (антивирус, сетевой
     // диск), не закроется сам.
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill();
       done({
         code: null,
-        stderr: `${cmd} не уложился в ${NODE_CHECK_TIMEOUT_MS} мс`,
+        output: `${cmd} не уложился в ${limit} мс`,
         noTool: false,
+        aborted: false,
+        timedOut: true,
       });
-    }, NODE_CHECK_TIMEOUT_MS);
+    }, limit);
     timer.unref?.();
 
-    child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
-    child.on('error', (e) =>
+    child.stderr.on('data', (d: Buffer) => out.push(d.toString('utf8')));
+    // stdout читается наравне со stderr: eslint, ruff и golangci-lint печатают находки
+    // именно туда, и без него гейт краснел с формулировкой «линтер сообщил о нарушениях»
+    // и пустым выводом — оператор видел красный и не знал, что чинить.
+    child.stdout.on('data', (d: Buffer) => out.push(d.toString('utf8')));
+    child.on('error', (e) => {
+      // Отмена приходит сюда же, что и настоящая ошибка запуска. Без разделения нажатая
+      // оператором отмена превращалась в «синтаксическая ошибка — файл не загрузится» на
+      // файлах, которые никто не дочитал.
+      const aborted = (e as NodeJS.ErrnoException).name === 'AbortError';
       done({
         code: null,
-        stderr: e.message,
+        output: e.message,
         noTool: (e as NodeJS.ErrnoException).code === 'ENOENT',
-      }),
+        aborted,
+        timedOut: false,
+      });
+    });
+    child.on('close', (code) =>
+      done({ code, output: out.join(''), noTool: false, aborted: false, timedOut }),
     );
-    child.on('close', (code) => done({ code, stderr: err.join(''), noTool: false }));
   });
 }
 
@@ -323,7 +355,14 @@ async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome
   // машина уходила в своп. Путь передаётся аргументом, а не вклеивается в строку команды.
   const outcomes = await inBatches(targets, NODE_CHECK_PARALLEL, async (t) => {
     const { cmd, args } = t.eco.syntaxCheck!(join(ctx.projectRoot, t.f));
-    return { ...t, cmd, r: await runSyntaxCheck(cmd, args, ctx.signal) };
+    return {
+      ...t,
+      cmd,
+      r: await runSyntaxCheck(cmd, args, {
+        ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+        cwd: ctx.projectRoot,
+      }),
+    };
   });
 
   const bad: string[] = [];
@@ -344,14 +383,23 @@ async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome
       checked++;
       continue;
     }
-    // ESM и JSX отсеиваются по фактическому тексту ошибки, а не грепом по содержимому:
+    // Отмена оператором и свой таймаут — не приговор файлу, а отсутствие проверки. Пока
+    // они попадали сюда наравне с ненулевым кодом, нажатая «отмена» рисовала красный гейт
+    // с формулировкой «синтаксическая ошибка — файл не загрузится» на непрочитанном файле.
+    if (r.aborted || r.timedOut) {
+      skipped++;
+      continue;
+    }
+    // ESM отсеивается по фактическому тексту ошибки, а не грепом по содержимому:
     // `node --check` на `.js` с `import` возвращает 0 даже для битого файла, на `.mjs`
     // работает корректно, а греп на JSX ловил `</div>` в комментарии. К другим
     // экосистемам это не относится — проверка привязана к node.
+    // TypeScript сюда больше не доходит: `syntaxCheckExt` в реестре не отдаёт `.ts`
+    // чекеру, который его не разбирает.
     if (
       eco.id === 'node' &&
       /Cannot use import statement outside a module|Unexpected token '(export|<)'|Unexpected token </.test(
-        r.stderr,
+        r.output,
       )
     ) {
       skipped++;
@@ -359,7 +407,7 @@ async function syntaxOnly(ctx: GateContext, why: string): Promise<BuiltinOutcome
     }
     usedTools.add(cmd);
     checked++;
-    bad.push(`  ${f}: ${r.stderr.split(/\r?\n/).slice(0, 3).join(' ')}`);
+    bad.push(`  ${f}: ${r.output.split(/\r?\n/).slice(0, 3).join(' ')}`);
   }
 
   const tools = [...usedTools].join(', ');
@@ -412,6 +460,11 @@ async function buildOne(
 ): Promise<BuiltinOutcome> {
   const system = resolveCommands(ctx, mod.dir, mod.files);
   if (system === null) return syntaxOnly(ctx, `в ${mod.dir} build-система не обнаружена`);
+  // Экосистема без шага сборки (Ruby, PHP) — не повод рапортовать зелёным: проверяем то,
+  // что проверить можно, — синтаксис изменённых файлов.
+  if (system.build === null) {
+    return syntaxOnly(ctx, `у ${mod.dir} шага сборки нет — язык без компиляции`);
+  }
 
   // Без установленных зависимостей команда сборки падает на отсутствующем инструменте, и
   // возврат на доработку отправил бы исполнителя чинить несуществующую поломку кода,
@@ -560,8 +613,18 @@ const lintGate: BuiltinGate = async (ctx) => {
       };
     }
 
+    // Только исходники ЭТОГО языка: линтер, получивший `README.md`, `composer.json` или
+    // собственный бинарь из `vendor/bin`, падает с ненулевым кодом, и обязательный гейт
+    // краснеет по причине, к коду отношения не имеющей. Когда язык модуля неизвестен,
+    // фильтровать нечем — тогда идут все изменённые.
+    const codeExt = eco?.codeExt;
     const inModule = changed
       .filter((f) => mod.dir === '.' || f.startsWith(`${mod.dir}/`))
+      .filter((f) => {
+        if (codeExt === undefined) return true;
+        const dot = f.lastIndexOf('.');
+        return dot >= 0 && codeExt.includes(f.slice(dot).toLowerCase());
+      })
       .map((f) => (mod.dir === '.' ? f : f.slice(mod.dir.length + 1)));
     if (inModule.length === 0) {
       return {
@@ -572,9 +635,32 @@ const lintGate: BuiltinGate = async (ctx) => {
       };
     }
 
-    const spec = override === undefined
-      ? eco?.lint?.(inModule)
-      : { cmd: override, args: [] as readonly string[], scope: 'module' as const };
+    const cwd = join(ctx.projectRoot, mod.dir);
+
+    // Команда из конфига — через шелл, ровно как `build` и `test` того же конфига. Пока
+    // она уходила в `spawn` целой строкой, любая настоящая команда с пробелом
+    // (`npm run lint`, `ruff check .`) давала ENOENT и вечное «⏭ линтер не найден на
+    // машине»: сообщение отправляло чинить установку инструмента, который не запускали.
+    if (override !== undefined) {
+      const r = await runShell(override, {
+        cwd,
+        timeoutMs: ctx.timeoutMs,
+        ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+      });
+      if (r.denied !== null) {
+        return { status: '⏭' as const, command: override, exitCode: null, lastLine: r.lastLine };
+      }
+      return {
+        status: r.exitCode === 0 ? ('✅' as const) : ('❌' as const),
+        command: override,
+        exitCode: r.exitCode,
+        lastLine: r.timedOut
+          ? `линт не уложился в ${ctx.timeoutMs} мс — идиоматичность НЕ проверялась`
+          : `${mod.dir}: ${r.lastLine}`,
+      };
+    }
+
+    const spec = eco?.lint?.(inModule);
     if (spec === undefined) {
       return {
         status: '⏭' as const,
@@ -584,7 +670,14 @@ const lintGate: BuiltinGate = async (ctx) => {
       };
     }
 
-    const r = await runSyntaxCheck(spec.cmd, spec.args, ctx.signal);
+    const r = await runSyntaxCheck(spec.cmd, spec.args, {
+      ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+      // Каталог модуля: пути линтеру даны относительно него, и стартовать он обязан там же.
+      cwd,
+      // Потолок этапа, а не десять секунд от `node --check`: линтер целого модуля
+      // (`golangci-lint`, `cargo clippy`) в них не укладывается и краснел как «не успел».
+      timeoutMs: ctx.timeoutMs,
+    });
     const shown = `${spec.cmd} ${spec.args.join(' ')}`.trim();
     if (r.noTool) {
       return {
@@ -594,7 +687,23 @@ const lintGate: BuiltinGate = async (ctx) => {
         lastLine: `линтер ${spec.cmd} не найден на машине — идиоматичность НЕ проверялась`,
       };
     }
-    const tail = r.stderr.split(/\r?\n/).filter((l) => l.trim() !== '').slice(-3).join(' ');
+    // Отмена и таймаут — отсутствие проверки, а не нарушение: красный по ним обвинял бы
+    // код в том, чего никто не читал.
+    if (r.aborted || r.timedOut) {
+      return {
+        status: '⏭' as const,
+        command: shown,
+        exitCode: null,
+        lastLine: r.aborted
+          ? `линт прерван отменой — идиоматичность НЕ проверялась`
+          : `линт не уложился в ${ctx.timeoutMs} мс — идиоматичность НЕ проверялась`,
+      };
+    }
+    const tail = r.output
+      .split(/\r?\n/)
+      .filter((l) => l.trim() !== '')
+      .slice(-3)
+      .join(' ');
     return {
       status: r.code === 0 ? ('✅' as const) : ('❌' as const),
       command: shown,
@@ -627,12 +736,27 @@ const DUPLICATE_SCAN_LIMIT = 2000;
  * искать одноимённую функцию в `node_modules` бессмысленно, а времени это стоит больше,
  * чем весь остальной гейт.
  */
-function listSourceFiles(root: string, limit: number): string[] {
+function listSourceFiles(
+  root: string,
+  limit: number,
+  signal?: AbortSignal,
+): { files: string[]; truncated: boolean } {
   const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', 'vendor', '.sdlc', 'venv', '__pycache__']);
   const out: string[] = [];
+  let truncated = false;
 
-  const walk = (rel: string): void => {
-    if (out.length >= limit) return;
+  // Глубина обхода ограничена, а симлинки на каталоги не разворачиваются: `statSync` идёт
+  // ПО ссылке, и каталожный цикл через симлинк уводил обход в бесконечную рекурсию —
+  // потолок в 2000 его не останавливал, потому что считает только файлы.
+  const MAX_DEPTH = 12;
+
+  // Через функцию, а не полем: сигнал меняется ПО ХОДУ обхода, а сужение типа по первой
+  // проверке заставляло компилятор считать вторую невозможной.
+  const cancelled = (): boolean => signal !== undefined && signal.aborted;
+
+  const walk = (rel: string, depth: number): void => {
+    if (out.length >= limit || depth > MAX_DEPTH) return;
+    if (cancelled()) return;
     let entries: string[];
     try {
       entries = readdirSync(rel === '' ? root : join(root, rel));
@@ -640,24 +764,32 @@ function listSourceFiles(root: string, limit: number): string[] {
       return;
     }
     for (const name of entries) {
-      if (out.length >= limit) return;
+      if (out.length >= limit) {
+        truncated = true;
+        return;
+      }
+      if (cancelled()) return;
       if (SKIP.has(name) || name.startsWith('.')) continue;
       const child = rel === '' ? name : `${rel}/${name}`;
       let isDir = false;
       try {
-        isDir = statSync(join(root, child)).isDirectory();
+        const st = statSync(join(root, child), { throwIfNoEntry: false });
+        if (st === undefined) continue;
+        // `lstat` отдельно: симлинк на каталог пропускаем целиком.
+        if (st.isDirectory() && lstatSync(join(root, child)).isSymbolicLink()) continue;
+        isDir = st.isDirectory();
       } catch {
         continue;
       }
-      if (isDir) walk(child);
+      if (isDir) walk(child, depth + 1);
       else if (CODE_EXTENSIONS.has(child.slice(child.lastIndexOf('.')).toLowerCase())) {
         out.push(child);
       }
     }
   };
 
-  walk('');
-  return out;
+  walk('', 0);
+  return { files: out, truncated };
 }
 
 /**
@@ -670,6 +802,26 @@ function listSourceFiles(root: string, limit: number): string[] {
  * этапа, а гейт, добавляющий минуты, выключат первым.
  */
 const duplicatesGate: BuiltinGate = async (ctx) => {
+  // Без git diff получить нечем, и «пустой diff» тут означает «мы ничего не смотрели», а
+  // не «дублей нет». Пока проверки не было, гейт печатал зелёное «дублировать нечего» и
+  // вне репозитория, и на уже отменённом прогоне — отчитывался о проверке, которой не было.
+  if (!(await isRepo(ctx.projectRoot))) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: `${ctx.projectRoot} не git-репозиторий — дубли хелперов НЕ проверялись`,
+    };
+  }
+  if (ctx.signal?.aborted === true) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: 'прогон отменён — дубли хелперов НЕ проверялись',
+    };
+  }
+
   const added = addedFunctionNames(diffLines(await workingDiff(ctx.projectRoot, [], ctx.signal)));
   if (added.length === 0) {
     return {
@@ -680,17 +832,28 @@ const duplicatesGate: BuiltinGate = async (ctx) => {
     };
   }
 
-  const files = listSourceFiles(ctx.projectRoot, DUPLICATE_SCAN_LIMIT);
+  const { files, truncated } = listSourceFiles(ctx.projectRoot, DUPLICATE_SCAN_LIMIT, ctx.signal);
+  const checkedNames = Math.min(added.length, DUPLICATE_NAME_LIMIT);
   const found = findDuplicates(added.slice(0, DUPLICATE_NAME_LIMIT), files, (f) =>
     readIfExists(join(ctx.projectRoot, f)),
   );
 
   if (found.length === 0) {
+    // Обрезанный обход и обрезанный список имён называются вслух: «не найдено» после
+    // осмотра половины дерева — не то же самое, что «не найдено».
+    const caveats = [
+      truncated ? `осмотрены не все файлы (потолок ${DUPLICATE_SCAN_LIMIT})` : null,
+      added.length > DUPLICATE_NAME_LIMIT
+        ? `проверены не все имена: ${checkedNames} из ${added.length}`
+        : null,
+    ].filter((c): c is string => c !== null);
     return {
       status: '✅',
       command: null,
       exitCode: null,
-      lastLine: `одноимённых объявлений не найдено (проверено имён: ${Math.min(added.length, DUPLICATE_NAME_LIMIT)})`,
+      lastLine:
+        `одноимённых объявлений не найдено (проверено имён: ${checkedNames})` +
+        (caveats.length === 0 ? '' : ` — ${caveats.join('; ')}`),
     };
   }
 

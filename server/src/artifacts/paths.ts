@@ -161,8 +161,17 @@ export class WitokPaths {
     return this.file(`chunk-${chunk}-attempt-${attempt}-tests.txt`);
   }
 
-  verificationReport(chunk: number, attempt: number): string {
-    return this.file(`verification-report-${chunk}-attempt-${attempt}.md`);
+  /**
+   * Отчёт приёмки. `route` — номер маршрута ансамбля рецензентов, 0 — основной.
+   *
+   * Измерение маршрута обязательно: без него все рецензенты ансамбля писали в один файл,
+   * вердикт читал его один раз, и в вердикт попадало мнение того, кто дописал последним —
+   * слабый рецензент со своим `✅` стирал `❌` сильного. Имя основного маршрута оставлено
+   * прежним: его читают скиллы `/sdlc-*` и витки, начатые в терминале.
+   */
+  verificationReport(chunk: number, attempt: number, route = 0): string {
+    const suffix = route === 0 ? '' : `-r${route}`;
+    return this.file(`verification-report-${chunk}-attempt-${attempt}${suffix}.md`);
   }
 
   /**
