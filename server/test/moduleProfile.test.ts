@@ -6,7 +6,7 @@
  * виток, а не превращаться в «детект почему-то не сработал».
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,7 +20,7 @@ import type { ModuleProfile } from '../src/config/schema.ts';
 
 /** Целевой проект: моно-репо с двумя модулями, ни один из которых не npm. */
 function project(): string {
-  const root = mkdtempSync(join(tmpdir(), 'sdlc-mod-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-mod-')));
   mkdirSync(join(root, 'api'), { recursive: true });
   mkdirSync(join(root, 'web'), { recursive: true });
   writeFileSync(join(root, 'web', 'package.json'), '{"scripts":{"build":"vite build"}}');
@@ -42,7 +42,7 @@ function ctx(root: string, planFiles: string[], modules?: ModuleProfile[]): Gate
 
 /** Конфиг на диске: минимальный набор файлов, который читает `loadConfig`. */
 function configDir(modules: unknown): string {
-  const dir = mkdtempSync(join(tmpdir(), 'sdlc-cfg-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-cfg-')));
   const root = project();
   writeFileSync(join(dir, 'runner.json'), JSON.stringify({ operator: 'тест', limits: {} }));
   writeFileSync(join(dir, 'models.json'), JSON.stringify({ providers: {}, models: [] }));

@@ -6,7 +6,7 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -20,7 +20,7 @@ import { loadSubagents, parseAgentFile } from '../src/exec/subagents.ts';
 import { runShell } from '../src/gates/shell.ts';
 import { badSlug } from '../src/validation.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-runtime-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-runtime-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const ctx = (over: Partial<PolicyContext> = {}): PolicyContext => ({

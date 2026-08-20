@@ -9,7 +9,7 @@
  */
 
 import { ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -28,7 +28,7 @@ import { configProblems, openDebt, parseCommand, parseGates } from '../src/gates
 import { evaluate, writeTargetPaths, writeTargetsOf } from '../src/policy/index.ts';
 import { collectVerdictInput, readReport } from '../src/verdict/collect.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-fixes2-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-fixes2-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const ctx = (over: Partial<PolicyContext> = {}): PolicyContext => ({

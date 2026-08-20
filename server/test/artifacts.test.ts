@@ -1,5 +1,5 @@
 import { ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -16,7 +16,7 @@ import {
 import { WitokPaths } from '../src/artifacts/paths.ts';
 import { checkPreconditions, stageById } from '../src/run/stages.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-test-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-test-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const paths = new WitokPaths(root, 'demo');

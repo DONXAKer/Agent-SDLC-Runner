@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,7 +24,7 @@ import type { ModuleProfile } from '../src/config/schema.ts';
  * это верное поведение, но проверять на нём нечего.
  */
 function repo(): string {
-  const root = mkdtempSync(join(tmpdir(), 'sdlc-lint-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-lint-')));
   mkdirSync(join(root, 'api'), { recursive: true });
   writeFileSync(join(root, 'api', 'main.go'), 'package main\n');
   execFileSync('git', ['init', '-q'], { cwd: root });

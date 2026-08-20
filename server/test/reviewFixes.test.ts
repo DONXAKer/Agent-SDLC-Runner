@@ -7,7 +7,7 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -28,7 +28,7 @@ import { toolCallFromText } from '../src/provider/OpenAiCompatProvider.ts';
 import { readReport } from '../src/verdict/collect.ts';
 import { computeVerdict } from '../src/verdict/verdict.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-fixes-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-fixes-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const ctx = (over: Partial<PolicyContext> = {}): PolicyContext => ({

@@ -10,7 +10,7 @@
  * свод отдельно покрыт в `reviewFixes3.test.ts`, а расходились они как раз на путях.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -123,7 +123,7 @@ function profile(verifyRoutes: ResolvedRoute[]): ResolvedProfile {
  * ровно так их и оставляет прогон этапа 6.
  */
 function makeRun(reports: string[]): Run {
-  const root = mkdtempSync(join(tmpdir(), 'sdlc-ens-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-ens-')));
   roots.push(root);
   mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
   writeFileSync(join(root, '.sdlc', 'gates.md'), GATES);

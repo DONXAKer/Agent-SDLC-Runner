@@ -7,7 +7,7 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -21,7 +21,7 @@ import { executeTool, type ToolContext } from '../src/exec/tools/index.ts';
 import type { ChatProvider, ChatRequest, ChatTurn } from '../src/provider/ChatProvider.ts';
 import { toolCallFromText } from '../src/provider/OpenAiCompatProvider.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-loop-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-loop-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const ctx: ToolContext = {

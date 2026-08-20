@@ -6,7 +6,7 @@
  * не «нашлись оба модуля», а «зелёный не выдаётся, пока не проверены все».
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,7 +20,7 @@ import type { ModuleProfile } from '../src/config/schema.ts';
 
 /** Моно-репо из двух модулей: оба объявлены явно, командой управляет тест. */
 function monorepo(): string {
-  const root = mkdtempSync(join(tmpdir(), 'sdlc-multi-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-multi-')));
   for (const dir of ['api', 'web']) {
     mkdirSync(join(root, dir), { recursive: true });
   }

@@ -8,7 +8,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -31,7 +31,7 @@ function ctx(root: string, over: Partial<GateContext> = {}): GateContext {
 
 /** Настоящий git-репозиторий с одним модулем: гейты берут список изменений из git. */
 function repo(): string {
-  const root = mkdtempSync(join(tmpdir(), 'sdlc-honesty-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-honesty-')));
   mkdirSync(join(root, 'api'), { recursive: true });
   writeFileSync(join(root, 'api', 'go.mod'), 'module x\n');
   writeFileSync(join(root, 'api', 'main.go'), 'package main\n\nfunc Работа() {}\n');
@@ -47,7 +47,7 @@ describe('гейт дублей не выдаёт непроверенное з�
   it('вне git-репозитория — ⏭, а не зелёное «дублировать нечего»', async () => {
     // Diff берётся из git. Без репозитория он пуст, и прежний гейт печатал `✅` —
     // отчитывался о проверке, которой не было.
-    const bare = mkdtempSync(join(tmpdir(), 'sdlc-nogit-'));
+    const bare = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-nogit-')));
     const r = await dup!(ctx(bare));
     strictEqual(r.status, '⏭');
     match(r.lastLine, /не git-репозиторий/);
@@ -71,7 +71,7 @@ describe('гейт сборки: языки без компиляции', () => 
     // Прежняя `ruby -e "true"` ничего не собирала, а вдобавок отклонялась полом
     // безопасности как однострочник интерпретатора — обязательный гейт был выключен
     // навсегда. Теперь шага сборки честно нет, и гейт уходит на проверку синтаксиса.
-    const root = mkdtempSync(join(tmpdir(), 'sdlc-ruby-'));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-ruby-')));
     mkdirSync(join(root, 'app'), { recursive: true });
     writeFileSync(join(root, 'app', 'Gemfile'), "source 'https://rubygems.org'\n");
     writeFileSync(join(root, 'app', 'thing.rb'), 'def x\nend\n');
@@ -84,7 +84,7 @@ describe('гейт сборки: языки без компиляции', () => 
   });
 
   it('PHP не выдаёт проверку composer.json за проверку кода', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'sdlc-php-'));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-php-')));
     mkdirSync(join(root, 'api'), { recursive: true });
     writeFileSync(join(root, 'api', 'composer.json'), '{"name":"x/y"}\n');
     writeFileSync(join(root, 'api', 'a.php'), '<?php function f() {}\n');

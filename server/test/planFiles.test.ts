@@ -1,7 +1,18 @@
 import { deepStrictEqual } from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync} from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+/**
+ * Эталон методологии — чужой каталог на машине оператора (`methodologyDir`/`skillsDir` из
+ * конфига), и на другой машине его просто нет. Такие кейсы ПРОПУСКАЮТСЯ с названной
+ * причиной, а не остаются вечно красными: набор, красный по умолчанию, приучает себя
+ * игнорировать, и настоящая регрессия в нём не видна. Там, где эталон есть, они работают
+ * как раньше. Герметичный двойник для сборки промпта — `promptEcosystem.test.ts`.
+ */
+function нетЭталона(dir: string): string | false {
+  return existsSync(dir) ? false : `нет эталона методологии на этой машине: ${dir}`;
+}
+
 
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
 import { loadConfig } from '../src/config/load.ts';
@@ -59,7 +70,7 @@ describe('files_to_touch', () => {
     deepStrictEqual(extractFilesToTouch(plan), []);
   });
 
-  it('живой пример методологии разбирается целиком', () => {
+  it('живой пример методологии разбирается целиком', { skip: нетЭталона(loadConfig().runner.methodologyDir) }, () => {
     const cfg = loadConfig();
     const example = join(cfg.runner.methodologyDir, 'example', 'plan.md');
     const files = extractFilesToTouch(readFileSync(example, 'utf8'));

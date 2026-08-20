@@ -11,7 +11,7 @@
  * потратит итерацию на починку несуществующей поломки.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,7 +23,7 @@ import type { RunnerConfig } from '../src/config/schema.ts';
 import { buildPrompt } from '../src/prompt/build.ts';
 import { stageById } from '../src/run/stages.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-eco-prompt-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-eco-prompt-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const skillsDir = join(root, 'skills');

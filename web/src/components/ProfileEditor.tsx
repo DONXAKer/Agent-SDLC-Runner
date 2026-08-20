@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
 import type { ConfigInfo, StageId } from '@sdlc-runner/shared';
+
+import { evaluateReviewerRule } from '../lib/reviewerRule.ts';
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 
 /**
@@ -35,23 +37,9 @@ export function ProfileEditor({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
 
-  const rankOf = (id: string | undefined): number | null =>
-    models.find((m) => m.id === id)?.rank ?? null;
-
-  // Эффективная модель этапа: правка оператора, иначе то, что стоит в профиле.
-  // Крайние значения ансамбля, как в `checkReviewerRule` на сервере: сильнейший
-  // исполнитель против слабейшего рецензента.
-  const effectiveRank = (stage: StageId, pick: (a: number, b: number) => number): number | null => {
-    const override = rankOf(stages[stage]);
-    if (override !== null) return override;
-    const ranks = (base[stage] ?? []).map((id: string) => rankOf(id)).filter((r): r is number => r !== null);
-    return ranks.length === 0 ? null : ranks.reduce(pick);
-  };
-
-  const chunkRank = effectiveRank('chunk', Math.max);
-  const verifyRank = effectiveRank('verify', Math.min);
-  // Сравнивать нечего только когда ранг не известен ни из правки, ни из профиля.
-  const ruleBroken = chunkRank !== null && verifyRank !== null && verifyRank <= chunkRank;
+  // Правило считается чистой функцией из `lib/reviewerRule.ts`: внутри компонента его
+  // нечем было проверить, и оно уже расходилось с серверным.
+  const { chunkRank, verifyRank, broken: ruleBroken } = evaluateReviewerRule({ models, stages, base });
 
   return (
     <div className="rounded border border-neutral-800 p-3">
