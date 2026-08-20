@@ -624,6 +624,17 @@ if (existsSync(webDist)) {
   await app.register(fastifyStatic, { root: webDist });
 }
 
-await app.listen({ port: config.runner.port, host: '127.0.0.1' });
+/**
+ * Адрес прослушивания. По умолчанию — только петля: аутентификации у сервиса нет, и
+ * доступный из сети Agent-SDLC Runner означает чужой доступ к правке файлов проекта и к
+ * запуску команд оболочки.
+ *
+ * `SDLC_HOST=0.0.0.0` нужен ровно для контейнера: там петля видна только изнутри, и
+ * порт, проброшенный на хост, всё равно никуда не ведёт. Границей в этом случае служит
+ * публикация порта (`127.0.0.1:8030:8030` в compose), а не адрес внутри контейнера.
+ */
+const host = process.env['SDLC_HOST'] ?? '127.0.0.1';
+
+await app.listen({ port: config.runner.port, host });
 // eslint-disable-next-line no-console
-console.log(`Agent-SDLC Runner: http://127.0.0.1:${config.runner.port}`);
+console.log(`Agent-SDLC Runner: http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${config.runner.port}`);

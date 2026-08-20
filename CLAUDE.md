@@ -13,10 +13,18 @@ npm install
 npm run dev            # сервер :8030 + UI :5130 — только под bash (в строке скрипта `&`)
 npm run dev:server     # под PowerShell запускай два окна: dev:server и dev:web
 npm run dev:web
-npm run build          # tsc server + vite build web
+npm run build          # typecheck server + vite build web (статику раздаёт сервер)
 npm test               # node --test: server (472) + web (15), ~1.5 с
 npm run typecheck      # tsc --noEmit по server и web
+
+docker compose up -d   # прод: см. Dockerfile, .env.example
 ```
+
+Прод исполняет **TypeScript напрямую**, как и dev: пакет `shared` экспортирует сырой `.ts`,
+то есть Node всё равно снимает типы на лету, и собранный `dist` был бы вторым рантаймом с
+собственным поведением. Поэтому `server build` — это `tsc --noEmit`, а собирается только
+`web`: его статику раздаёт сам сервер. Адрес прослушивания задаётся `SDLC_HOST`
+(по умолчанию петля; в контейнере `0.0.0.0`, границей служит публикация порта).
 
 Один файл тестов и один кейс (из каталога `server/`):
 
