@@ -43,15 +43,32 @@ const LIMIT_DEFAULTS = {
 };
 
 /**
- * `skillsDir`/`agentsDir`/`methodologyDir` в `runner.json` — реальные пути на машине
- * разработчика (сегодня это Windows), а не переносимый шаблон. На другой машине их
- * переопределяют этими переменными окружения, не трогая закоммиченный файл.
+ * `skillsDir`/`agentsDir`/`methodologyDir`/`port` в `runner.json` — реальные значения на
+ * машине разработчика (сегодня пути — Windows), а не переносимый шаблон. На другой машине
+ * их переопределяют этими переменными окружения, не трогая закоммиченный файл.
  */
 /** Пустая или чисто пробельная строка — тоже «не задано», не только `undefined`. */
 function nonBlank(v: string | undefined): string | undefined {
   if (v === undefined) return undefined;
   const trimmed = v.trim();
   return trimmed === '' ? undefined : trimmed;
+}
+
+/**
+ * `SDLC_PORT` в `docker-compose.yml` — это только внешний маппинг хост-порта, внутрь
+ * контейнера он не пробрасывается (комментарий в `.env.example`: «Внутри контейнера
+ * всегда 8030»), так что там это переопределение бездействует и ничего не ломает. При
+ * прямом запуске раннера (без Docker) та же переменная даёт сменить слушающий порт, не
+ * трогая закоммиченный `runner.json`.
+ */
+function portOverride(): number | undefined {
+  const raw = nonBlank(process.env['SDLC_PORT']);
+  if (raw === undefined) return undefined;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new Error(`SDLC_PORT «${raw}» — не похоже на номер порта`);
+  }
+  return port;
 }
 
 function pathOverrides(): Partial<RunnerConfig> {
@@ -65,6 +82,8 @@ function pathOverrides(): Partial<RunnerConfig> {
   if (skillsDir !== undefined) overrides.skillsDir = skillsDir;
   if (agentsDir !== undefined) overrides.agentsDir = agentsDir;
   if (methodologyDir !== undefined) overrides.methodologyDir = methodologyDir;
+  const port = portOverride();
+  if (port !== undefined) overrides.port = port;
   return overrides;
 }
 

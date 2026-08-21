@@ -67,6 +67,12 @@ services:
       SDLC_SKILLS_DIR: /methodology/implementations/claude-code/skills
       SDLC_AGENTS_DIR: /methodology/implementations/claude-code/agents
 
+      # Адрес локального сервера моделей — свой на каждой машине (см. extra_hosts ниже).
+      # Пусто здесь и в `.env` — не переопределяет: остаётся baseUrl из config/models.json.
+      OLLAMA_BASE_URL: '${OLLAMA_BASE_URL:-}'
+      VLLM_BASE_URL: '${VLLM_BASE_URL:-}'
+      LMSTUDIO_BASE_URL: '${LMSTUDIO_BASE_URL:-}'
+
     volumes:
       # Целевые проекты. Артефакты витка пишутся в `.sdlc/<slug>/` ВНУТРИ проекта, поэтому
       # том обязан быть на запись: состояние витка живёт на диске проекта, не в контейнере.
@@ -92,7 +98,8 @@ services:
     # Локальные модели (Ollama, vLLM, LM Studio) слушают на ХОСТЕ, а `localhost` внутри
     # контейнера — это сам контейнер. Без этой записи флоу `loop` упирается в ECONNREFUSED,
     # и выглядит это как «модель не отвечает», а не как «мы стучимся не туда».
-    # В `config/models.json` baseUrl тогда пишется как `http://host.docker.internal:11434`.
+    # `host.docker.internal` тогда прописывается в `OLLAMA_BASE_URL`/`VLLM_BASE_URL`/
+    # `LMSTUDIO_BASE_URL` выше (через `.env`) — не правкой `config/models.json`.
     #
     # На macOS и Windows Docker Desktop даёт это имя сам; строка нужна для Linux.
     extra_hosts:
