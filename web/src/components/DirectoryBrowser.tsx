@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../lib/api.ts';
+import { PANEL_TONE } from '../lib/tones.ts';
 import type { BrowseResult } from '@sdlc-runner/shared';
 
 interface Props {
@@ -44,7 +45,7 @@ export function DirectoryBrowser({ onPick, onClose }: Props): JSX.Element {
         </div>
 
         {error !== null ? (
-          <div className="mb-3 rounded border border-red-800 bg-red-950/30 p-2 text-xs text-red-200">
+          <div className={`mb-3 rounded border p-2 text-xs text-red-200 ${PANEL_TONE.fail}`}>
             {error}
           </div>
         ) : null}

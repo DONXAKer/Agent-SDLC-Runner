@@ -9,20 +9,25 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { RunDetail, RunEvent } from '@sdlc-runner/shared';
+import type { PendingApproval, RunDetail, RunEvent } from '@sdlc-runner/shared';
 
-import { splitPatchByFile, orderFiles } from '../src/lib/diffStats.ts';
+import { orderFiles, splitPatchBlocks } from '../src/lib/diffStats.ts';
 import { groupEvents } from '../src/lib/eventGroups.ts';
 import { mergePending } from '../src/lib/pending.ts';
 import { readLS, writeLS } from '../src/lib/persist.ts';
 import { gateSummary, promptSummary } from '../src/lib/summaries.ts';
-import { PANEL_TONE, diffLineTone, verdictTone } from '../src/lib/tones.ts';
+import { PANEL_TONE, diffLineTone, verdictTextTone, verdictTone } from '../src/lib/tones.ts';
 
 // ---------------------------------------------------------------------------
-// Конструкторы событий: тесту важны type/requestId/статусы, остальное — заглушки.
+// Конструкторы событий: типизированы честно, без `as unknown as` — рефакторинг формы
+// события в shared обязан заваливать сборку теста, а не оставлять его молча зелёным.
 // ---------------------------------------------------------------------------
 
-function req(requestId: string, over: Record<string, unknown> = {}): RunEvent {
+type ToolRequestEvent = Extract<RunEvent, { type: 'tool_request' }>;
+type ToolResolvedEvent = Extract<RunEvent, { type: 'tool_resolved' }>;
+type ToolResultEvent = Extract<RunEvent, { type: 'tool_result' }>;
+
+function req(requestId: string, over: Partial<ToolRequestEvent> = {}): ToolRequestEvent {
   return {
     type: 'tool_request',
     runId: 'r',
@@ -35,20 +40,22 @@ function req(requestId: string, over: Record<string, unknown> = {}): RunEvent {
     preview: null,
     writeTargets: null,
     ...over,
-  } as unknown as RunEvent;
+  };
 }
 
-function resolved(requestId: string, allowed: boolean): RunEvent {
+function resolved(requestId: string, allowed: boolean): ToolResolvedEvent {
   return {
     type: 'tool_resolved',
     runId: 'r',
     stage: 'chunk',
     requestId,
-    decision: allowed ? { allowed: true, updatedInput: null, by: 'operator' } : { allowed: false, reason: 'нет', by: 'operator' },
-  } as unknown as RunEvent;
+    decision: allowed
+      ? { allowed: true, updatedInput: null, by: 'operator' }
+      : { allowed: false, reason: 'нет', by: 'operator' },
+  };
 }
 
-function result(requestId: string, okFlag: boolean): RunEvent {
+function result(requestId: string, okFlag: boolean): ToolResultEvent {
   return {
     type: 'tool_result',
     runId: 'r',
@@ -57,10 +64,25 @@ function result(requestId: string, okFlag: boolean): RunEvent {
     ok: okFlag,
     summary: 'итог',
     durationMs: 5,
-  } as unknown as RunEvent;
+  };
 }
 
-const text: RunEvent = { type: 'assistant_text', runId: 'r', stage: 'chunk', text: 'привет' } as RunEvent;
+function pendingApproval(requestId: string, over: Partial<PendingApproval> = {}): PendingApproval {
+  return {
+    runId: 'r',
+    stage: 'chunk',
+    requestId,
+    toolName: 'Write',
+    rawInput: {},
+    call: { kind: 'write', path: 'a.ts', content: '' },
+    policy: { ok: true },
+    preview: null,
+    writeTargets: null,
+    ...over,
+  };
+}
+
+const text: RunEvent = { type: 'assistant_text', runId: 'r', stage: 'chunk', text: 'привет' };
 
 describe('группировка троек вызова инструмента', () => {
   it('тройка схлопывается в один элемент со статусом ok', () => {
@@ -92,6 +114,16 @@ describe('группировка троек вызова инструмента'
     strictEqual(failed.status, 'failed');
   });
 
+  it('отклонённый вызов остаётся denied и при синтетическом tool_result от loop-флоу', () => {
+    // LoopExecutor эмитит tool_resolved(denied) И tool_result(ok:false) на один отказ —
+    // исполнитель обязан вернуть модели хоть какой-то результат. `denied` не должен
+    // проигрывать более позднему `result`.
+    const items = groupEvents([req('d'), resolved('d', false), result('d', false)]);
+    const g = items[0];
+    if (g?.kind !== 'tool') throw new Error('ожидалась группа');
+    strictEqual(g.status, 'denied');
+  });
+
   it('осиротевшие resolved/result без своего request не теряются', () => {
     // Буфер шины вытесняет с начала: request мог уйти, а решение и результат остаться.
     const items = groupEvents([resolved('gone', true), result('gone', true)]);
@@ -112,21 +144,13 @@ describe('очередь решений mergePending', () => {
     ({ pendingApprovals: [], pendingQuestions: [], ...over }) as unknown as RunDetail;
 
   it('дубль из detail и ленты не двоится', () => {
-    const detail = detailWith({
-      pendingApprovals: [
-        { requestId: 'a', rawInput: {}, call: { kind: 'write', path: 'a.ts' }, policy: { ok: true }, preview: null },
-      ] as unknown as RunDetail['pendingApprovals'],
-    });
+    const detail = detailWith({ pendingApprovals: [pendingApproval('a')] });
     const { approvals } = mergePending(detail, [req('a')]);
     strictEqual(approvals.length, 1);
   });
 
   it('tool_resolved убирает одобрение, даже если сервер его ещё перечисляет', () => {
-    const detail = detailWith({
-      pendingApprovals: [
-        { requestId: 'a', rawInput: {}, call: { kind: 'write', path: 'a.ts' }, policy: { ok: true }, preview: null },
-      ] as unknown as RunDetail['pendingApprovals'],
-    });
+    const detail = detailWith({ pendingApprovals: [pendingApproval('a')] });
     const { approvals } = mergePending(detail, [req('a'), resolved('a', true)]);
     strictEqual(approvals.length, 0);
   });
@@ -145,11 +169,7 @@ describe('очередь решений mergePending', () => {
 });
 
 describe('сводки', () => {
-  it('несобранный промпт называется прямо', () => {
-    strictEqual(promptSummary(null, false), 'промпт не собран');
-  });
-
-  it('оценка токенов помечена как приблизительная, правка — отдельно', () => {
+  it('промпт показывается в тех же символах, что и строка ленты — не в отдельной оценке токенов', () => {
     const prompt = {
       presetNote: null,
       system: 'x'.repeat(4000),
@@ -158,8 +178,7 @@ describe('сводки', () => {
       editedByOperator: false,
     };
     const plain = promptSummary(prompt, false);
-    ok(plain.includes('~'), 'оценка без «~» обещает точность, которой нет');
-    ok(plain.includes('2.0K'), plain);
+    ok(plain.includes('4000 + 4000 симв.'), plain);
     ok(!plain.includes('изменён'), 'правки не было');
     ok(promptSummary(prompt, true).includes('изменён вручную'));
   });
@@ -184,7 +203,7 @@ describe('сводки', () => {
   });
 });
 
-describe('разбор патча по файлам', () => {
+describe('разбор патча по файлам (клиент режет текст, не пути и не счётчики)', () => {
   const patch = [
     'diff --git a/src/a.ts b/src/a.ts',
     'index 111..222 100644',
@@ -194,45 +213,55 @@ describe('разбор патча по файлам', () => {
     '-старое',
     '+новое',
     '+ещё строка',
-    'diff --git a/with space.md b/with space.md',
-    '--- a/with space.md',
-    '+++ b/with space.md',
+    'diff --git a/b.ts b/b.ts',
+    '--- a/b.ts',
+    '+++ b/b.ts',
     '@@ -1 +1 @@',
     '-x',
     '+y',
   ].join('\n');
 
-  it('файлы режутся по заголовкам, +/− считаются без +++/---', () => {
-    const files = splitPatchByFile(patch);
-    strictEqual(files.length, 2);
-    strictEqual(files[0]?.path, 'src/a.ts');
-    strictEqual(files[0]?.adds, 2);
-    strictEqual(files[0]?.dels, 1);
-    // Путь с пробелом: git не квотит пробелы в заголовке, ленивая a-сторона обязана
-    // отрезаться по первому « b/».
-    strictEqual(files[1]?.path, 'with space.md');
-    strictEqual(files[1]?.adds, 1);
-    ok(files[0]!.text.startsWith('diff --git'), 'текст файла включает заголовок');
+  it('блоки режутся по строке «diff --git », по числу файлов', () => {
+    const blocks = splitPatchBlocks(patch);
+    strictEqual(blocks.length, 2);
+    ok(blocks[0]!.startsWith('diff --git a/src/a.ts'));
+    ok(blocks[1]!.startsWith('diff --git a/b.ts'));
   });
 
-  it('квотированный путь берётся из b/-стороны без кавычек', () => {
-    const files = splitPatchByFile('diff --git "a/п.md" "b/п.md"\n--- "a/п.md"\n+++ "b/п.md"\n+z');
-    strictEqual(files[0]?.path, 'п.md');
-    strictEqual(files[0]?.adds, 1);
+  it('добавленная строка «+diff --git …» в теле не режет блок — начинается не с «diff --git »', () => {
+    const withBodyLookalike = [
+      'diff --git a/doc.md b/doc.md',
+      '--- a/doc.md',
+      '+++ b/doc.md',
+      '@@ -1 +1,2 @@',
+      ' x',
+      '+diff --git a/f b/f',
+    ].join('\n');
+    strictEqual(splitPatchBlocks(withBodyLookalike).length, 1);
   });
 
   it('пустой патч — пустой список', () => {
-    deepStrictEqual(splitPatchByFile(''), []);
+    deepStrictEqual(splitPatchBlocks(''), []);
   });
 
-  it('orderFiles поднимает файлы вне плана наверх, незнакомые считает вне плана', () => {
-    const parsed = splitPatchByFile(patch);
-    const ordered = orderFiles(parsed, [{ path: 'src/a.ts', inPlan: true }]);
+  it('orderFiles сопоставляет серверный список с блоками позиционно и поднимает вне плана наверх', () => {
+    const files = [
+      { path: 'src/a.ts', inPlan: true, adds: 2, dels: 1 },
+      { path: 'b.ts', inPlan: false, adds: 1, dels: 1 },
+    ];
+    const ordered = orderFiles(files, patch);
     strictEqual(ordered.length, 2);
-    // «with space.md» сервер не перечислил — по худшему случаю он вне плана и первый.
-    strictEqual(ordered[0]?.path, 'with space.md');
+    strictEqual(ordered[0]?.path, 'b.ts');
     strictEqual(ordered[0]?.inPlan, false);
+    ok(ordered[0]!.text.startsWith('diff --git a/b.ts'));
+    strictEqual(ordered[1]?.path, 'src/a.ts');
     strictEqual(ordered[1]?.inPlan, true);
+    strictEqual(ordered[1]?.adds, 2);
+  });
+
+  it('файл без своего блока (расхождение с сервером) получает пустой текст, а не падает', () => {
+    const ordered = orderFiles([{ path: 'src/a.ts', inPlan: true, adds: 2, dels: 1 }], '');
+    strictEqual(ordered[0]?.text, '');
   });
 });
 
@@ -286,9 +315,11 @@ describe('общие тона', () => {
     strictEqual(new Set(tones).size, tones.length, 'два статуса панели красятся одинаково');
   });
 
-  it('вердикт красится из той же карты, что и панели', () => {
+  it('вердикт красится из той же карты, что и панели, текст — отдельным, но общим правилом', () => {
     strictEqual(verdictTone(true), PANEL_TONE.ok);
     strictEqual(verdictTone(false), PANEL_TONE.fail);
+    strictEqual(verdictTextTone(true), 'text-emerald-300');
+    strictEqual(verdictTextTone(false), 'text-red-300');
   });
 
   it('заголовки diff не красятся как изменённые строки', () => {

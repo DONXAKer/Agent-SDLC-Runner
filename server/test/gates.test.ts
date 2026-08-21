@@ -107,7 +107,16 @@ describe('scope: файлы вне плана', () => {
 });
 
 describe('анти-обход тест-гейта', () => {
-  const diff = (body: string): string => `diff --git a/x b/x\n+++ b/src/FooTest.java\n${body}`;
+  // Настоящая граница тела hunk'а — счётчики `@@ -a,b +c,d @@`, а не факт присутствия
+  // `+++`-строки: `diffLines` разбирает патч так же, как весь остальной unified diff в
+  // кодовой базе (`server/src/diff/parse.ts`), и без честного заголовка тело для нашего
+  // разбора не начинается вовсе — счёт строится по самому body.
+  const diff = (body: string): string => {
+    const lines = body.split('\n').filter((l) => l !== '');
+    const dels = lines.filter((l) => l.startsWith('-')).length;
+    const adds = lines.filter((l) => l.startsWith('+')).length;
+    return `diff --git a/x b/x\n+++ b/src/FooTest.java\n@@ -1,${dels} +1,${adds} @@\n${body}`;
+  };
 
   it('добавленное отключение теста ловится', () => {
     const v = invariantViolations(diff('+    @Disabled("чиню позже")\n'), []);
@@ -133,7 +142,8 @@ describe('анти-обход тест-гейта', () => {
   });
 
   it('секрет в diff ловится в любом файле, не только в коде', () => {
-    const d = 'diff --git a/x b/x\n+++ b/deploy/config.yaml\n+  api_key: "sk-abcdefghijklmnop1234"\n';
+    const d =
+      'diff --git a/x b/x\n+++ b/deploy/config.yaml\n@@ -1,0 +1,1 @@\n+  api_key: "sk-abcdefghijklmnop1234"\n';
     strictEqual(invariantViolations(d, [])[0]?.kind, 'secret-in-diff');
   });
 

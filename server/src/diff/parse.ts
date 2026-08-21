@@ -119,3 +119,25 @@ export function patchSize(patch: string): { files: number; lines: number } {
   }
   return { files: files.length, lines };
 }
+
+/**
+ * Добавленные/удалённые строки на файл — тем же разбором, что и всё остальное здесь.
+ *
+ * Существует для сводного просмотра патча: до неё клиент считал +/− своей копией по
+ * префиксу `+++`/`---`, ровно тем эвристическим способом, который эта функция и заменяет.
+ */
+export function fileStats(patch: string): { path: string; adds: number; dels: number }[] {
+  const { hunks, files } = parseDiff(patch);
+  const counts = new Map<string, { adds: number; dels: number }>();
+  for (const f of files) counts.set(f, { adds: 0, dels: 0 });
+  for (const h of hunks) {
+    const c = counts.get(h.file);
+    if (c === undefined) continue;
+    for (const l of h.lines) {
+      const head = l[0] ?? ' ';
+      if (head === '+') c.adds++;
+      else if (head === '-') c.dels++;
+    }
+  }
+  return files.map((path) => ({ path, ...(counts.get(path) ?? { adds: 0, dels: 0 }) }));
+}

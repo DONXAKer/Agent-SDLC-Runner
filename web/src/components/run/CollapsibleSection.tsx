@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { readLS, writeLS } from '../../lib/persist.ts';
@@ -10,6 +10,14 @@ import { readLS, writeLS } from '../../lib/persist.ts';
  * побеждает; без него открытость выводится из режима (компакт → свёрнуто). Так
  * переключение режима меняет всё, чего оператор не трогал руками, и не трогает то, что
  * он выставил сам. `defaultOpen` позволяет секции не прятать красное даже в компакте.
+ *
+ * `alert` — это НЕ то же самое, что `defaultOpen`: он не просто меняет исходное значение
+ * до первого клика, а перекрывает даже СОХРАНЁННЫЙ выбор «свёрнуто». Без этого оператор,
+ * однажды свернувший зелёные гейты или пустую очередь решений, навсегда терял таблицу
+ * упавшего гейта или карточку ждущего одобрения за той же самой свёрнутой строкой на
+ * следующем витке — комментарий «красное не прячем» был бы неправдой. Разворот при alert
+ * не пишется в localStorage: закрыть можно на сессию, но новый alert (переход false→true,
+ * например свежий ❌ после перезагрузки) снова раскрывает секцию.
  */
 export function CollapsibleSection({
   id,
@@ -18,6 +26,7 @@ export function CollapsibleSection({
   compact,
   defaultOpen,
   forceOpen = false,
+  alert = false,
   children,
 }: {
   /** Ключ в localStorage — общий на все витки: сворачивают тип секции, а не экземпляр. */
@@ -30,6 +39,8 @@ export function CollapsibleSection({
   defaultOpen?: boolean;
   /** Секцию нельзя свернуть — например очередь решений в компакте. */
   forceOpen?: boolean;
+  /** Секция сейчас показывает что-то, что нельзя молча прятать (красный статус, ожидание). */
+  alert?: boolean;
   children: ReactNode;
 }): JSX.Element {
   const [choice, setChoice] = useState<'open' | 'closed' | null>(() => {
@@ -37,12 +48,30 @@ export function CollapsibleSection({
     return v === 'open' || v === 'closed' ? v : null;
   });
 
-  const open = forceOpen || (choice !== null ? choice === 'open' : (defaultOpen ?? !compact));
+  // Закрытие под alert — только на сессию, в памяти компонента, а не в localStorage.
+  const [sessionOverride, setSessionOverride] = useState<'open' | 'closed' | null>(null);
+  const wasAlert = useRef(alert);
+  useEffect(() => {
+    if (alert && !wasAlert.current) setSessionOverride(null);
+    wasAlert.current = alert;
+  }, [alert]);
+
+  const open = forceOpen
+    ? true
+    : alert
+      ? (sessionOverride ?? 'open') === 'open'
+      : choice !== null
+        ? choice === 'open'
+        : (defaultOpen ?? !compact);
 
   const toggle = (): void => {
     const next = open ? 'closed' : 'open';
-    setChoice(next);
-    writeLS(`section.${id}`, next);
+    if (alert) {
+      setSessionOverride(next);
+    } else {
+      setChoice(next);
+      writeLS(`section.${id}`, next);
+    }
   };
 
   return (

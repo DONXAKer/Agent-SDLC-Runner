@@ -11,9 +11,9 @@ import { describe, it } from 'node:test';
 
 import { worstClaimStatus, worstGateStatus } from '@sdlc-runner/shared';
 
-import { parseDiff, patchSize } from '../src/diff/parse.ts';
+import { fileStats, parseDiff, patchSize } from '../src/diff/parse.ts';
 import { diffCloseness } from '../src/run/diffDistance.ts';
-import { invariantViolations } from '../src/gates/builtin/logic.ts';
+import { diffLines, invariantViolations } from '../src/gates/builtin/logic.ts';
 import { disableMarkersFor, syntaxCheckerFor, testDeclarationsFor } from '../src/gates/ecosystems/index.ts';
 import { parseAgentFile } from '../src/exec/subagents.ts';
 import { parseIterations } from '../src/run/iterationsLog.ts';
@@ -62,6 +62,56 @@ describe('разбор unified diff: содержимое строки не за
       '',
     ].join('\n');
     strictEqual(parseDiff(p).hunks.length, 2);
+  });
+});
+
+describe('fileStats: счётчики на файл — тем же разбором, что и весь остальной diff', () => {
+  it('adds/dels не путают строку кода, начинающуюся с ++/--, с заголовком', () => {
+    // Регрессия: клиент раньше считал эти же +N/−M своей копией по префиксу и терял обе
+    // строки. Здесь единственный источник счётчиков — сервер, разбором по счётчикам hunk'а.
+    const patch = [
+      'diff --git a/src/a.ts b/src/a.ts',
+      '--- a/src/a.ts',
+      '+++ b/src/a.ts',
+      '@@ -1,2 +1,2 @@',
+      ' const x = 1;',
+      '+++i;',
+      '-- было',
+      '',
+    ].join('\n');
+    deepStrictEqual(fileStats(patch), [{ path: 'src/a.ts', adds: 1, dels: 1 }]);
+  });
+
+  it('несколько файлов в одном патче считаются раздельно', () => {
+    const patch = [
+      'diff --git a/a.ts b/a.ts',
+      '--- a/a.ts',
+      '+++ b/a.ts',
+      '@@ -1 +1,2 @@',
+      ' x',
+      '+y',
+      'diff --git a/b.ts b/b.ts',
+      '--- a/b.ts',
+      '+++ b/b.ts',
+      '@@ -1,2 +1 @@',
+      ' x',
+      '-y',
+      '',
+    ].join('\n');
+    deepStrictEqual(fileStats(patch), [
+      { path: 'a.ts', adds: 1, dels: 0 },
+      { path: 'b.ts', adds: 0, dels: 1 },
+    ]);
+  });
+});
+
+describe('diffLines: строка тела с ведущим тире не читается как заголовок', () => {
+  it('удалённая строка, чьё содержимое само начинается с «-», остаётся видимой', () => {
+    // Раньше `diffLines` отличала заголовок от тела тем же префиксным способом, что и
+    // все прежние копии разбора diff: удалённая строка «-1» превращается в diff-строку
+    // «--1» и совпадает с `^(---|diff |...)`-фильтром — терялась целиком.
+    const diff = ['--- a/src/a.ts', '+++ b/src/a.ts', '@@ -1,1 +0,0 @@', '--1', ''].join('\n');
+    deepStrictEqual(diffLines(diff), [{ file: 'src/a.ts', text: '--1', added: false }]);
   });
 });
 

@@ -21,6 +21,7 @@ import type {
   StageId,
 } from '@sdlc-runner/shared';
 import { AUTO_APPROVE_OFF, describeCall } from '@sdlc-runner/shared';
+import { groupEvents } from '../lib/eventGroups.ts';
 import { mergePending } from '../lib/pending.ts';
 import { PANEL_TONE } from '../lib/tones.ts';
 import { useCompactMode } from '../lib/useCompactMode.ts';
@@ -124,6 +125,13 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     () => events.filter((e) => !('stage' in e) || e.stage === stage || e.stage === null),
     [events, stage],
   );
+
+  // Строк в ленте после схлопывания троек tool_request→resolved→result меньше, чем сырых
+  // событий: сводка «N событий» обязана называть то же число, что видно после разворота.
+  const stageEventItems = useMemo(() => groupEvents(stageEvents), [stageEvents]);
+  // warning тонет в свёрнутой ленте так же, как гейт или очередь решений: держим секцию
+  // на виду, пока в текущей ленте есть хоть один непоказанный предупреждающий сигнал.
+  const hasWarning = stageEvents.some((e) => e.type === 'warning');
 
   /**
    * Итоги гейтов — только из ответа сервера.
@@ -341,7 +349,11 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     );
   }
 
-  const decision = stageInfo?.decision ?? null;
+  // «Ждёт приёмки» — это слот decision И то, что он ещё не записан: decision сам по себе
+  // статичен (метаданные этапа), decisionRecorded читает артефакт тем же разбором, что и
+  // предусловие следующего этапа.
+  const decision =
+    stageInfo?.decision != null && !stageInfo.decisionRecorded ? stageInfo.decision : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -404,7 +416,14 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 id="events"
                 title="Лента событий"
                 compact={compact}
-                summary={<span className="text-neutral-500">{stageEvents.length} событий</span>}
+                defaultOpen={!compact || hasWarning}
+                alert={hasWarning}
+                summary={
+                  <>
+                    <span className="text-neutral-500">{stageEventItems.length} строк</span>
+                    {hasWarning ? <span className="ml-2 text-amber-400">· есть предупреждение</span> : null}
+                  </>
+                }
               >
                 <div className="max-h-[70vh] overflow-auto bg-neutral-950 p-3">
                   <EventStream events={stageEvents} />
@@ -457,6 +476,8 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
             uiBusy={uiBusy}
             abortBlockers={abortBlockers}
             decision={decision}
+            decisionNote={decisionNote}
+            onDecisionNoteChange={setDecisionNote}
             onAdvance={(to) => void advance(to)}
             onAbort={() => void abortWitok()}
             onDecide={(granted) => void decide(granted)}

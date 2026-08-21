@@ -33,6 +33,8 @@ export function AttemptsPanel({
       id="attempts"
       title="Попытки"
       compact={compact}
+      defaultOpen={!compact || nearBudget}
+      alert={nearBudget}
       summary={
         <>
           <span className="text-neutral-500">всего вердиктов: {iterations.length}</span>

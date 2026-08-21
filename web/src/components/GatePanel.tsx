@@ -28,15 +28,20 @@ export function GatePanel({
   if (results.length === 0) return null;
 
   const counts = gateSummary(results);
-  const hasFail = results.some((r) => r.status === '❌');
+  // ⏭ тоже роняет вердикт методологии (не только ❌) — прятать «не запускался» за
+  // сохранённым закрытием секции так же неверно, как прятать явный провал.
+  const hasProblem = results.some((r) => r.status === '❌' || r.status === '⏭');
 
   return (
     <CollapsibleSection
       id="gates"
       title="Гейты последнего прогона"
       compact={compact}
-      // Красное не прячем: упавший гейт держит таблицу раскрытой и в компакте.
-      defaultOpen={!compact || hasFail}
+      defaultOpen={!compact || hasProblem}
+      // alert перекрывает и сохранённый в localStorage выбор «свёрнуто» — иначе оператор,
+      // однажды закрывший зелёные гейты, навсегда терял таблицу упавшего гейта следующего
+      // прогона за той же свёрнутой строкой.
+      alert={hasProblem}
       summary={
         <>
           {counts.map((c) => (

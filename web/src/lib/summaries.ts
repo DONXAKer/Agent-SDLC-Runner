@@ -1,18 +1,23 @@
 import type { GateRunResult, GateStatus, PreparedPrompt } from '@sdlc-runner/shared';
 
-import { fmtTokens } from './format.ts';
 import { GATE_TONE } from './gateTone.ts';
 
 /**
  * Строка-сводка промпта для свёрнутого вида.
  *
- * Токены — оценка по длине (~4 символа на токен), и подпись честно говорит «~»:
- * настоящего токенизатора на клиенте нет, а обещать точность, которой нет, нельзя.
+ * Счёт в символах, тем же форматом, что и строка ленты («N + M симв.» у `prompt_prepared`
+ * в EventStream) — раньше здесь была оценка в токенах по длине (~4 символа/токен), и один
+ * и тот же промпт показывал два разных числа на двух поверхностях. Настоящих токенов до
+ * вызова не существует (это не оценка, а измерение постфактум) — то, что показывает
+ * `usage` после прогона, законно другое число, а не третий формат того же самого.
+ *
+ * Вызывающая сторона отвечает за случай `prompt === null` сама (см. `PromptPane`, где
+ * несобранный промпт — отдельный ранний return, а не состояние свёрнутой сводки).
  */
-export function promptSummary(prompt: PreparedPrompt | null, edited: boolean): string {
-  if (prompt === null) return 'промпт не собран';
-  const approx = Math.round((prompt.system.length + prompt.user.length) / 4);
-  return `собран · ~${fmtTokens(approx)} токенов${edited ? ' · изменён вручную' : ''}`;
+export function promptSummary(prompt: PreparedPrompt, edited: boolean): string {
+  return `собран · ${prompt.system.length} + ${prompt.user.length} симв.${
+    edited ? ' · изменён вручную' : ''
+  }`;
 }
 
 /**

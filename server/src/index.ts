@@ -30,10 +30,11 @@ import { createProject } from './config/createProject.ts';
 import { loadConfig, requireProject } from './config/load.ts';
 import { ProfileError, resolveAdHocProfile, resolveStartableProfile } from './config/profiles.ts';
 import { listDir } from './fs/browse.ts';
-import { parseDiff } from './diff/parse.ts';
+import { fileStats, parseDiff } from './diff/parse.ts';
 import { scopeViolations } from './gates/builtin/logic.ts';
 import { normalizePlanPath } from './policy/paths.ts';
-import { readArtifact } from './artifacts/artifact.ts';
+import { readArtifact, readDecision } from './artifacts/artifact.ts';
+import { artifactPathOf } from './artifacts/paths.ts';
 import { Run } from './run/Run.ts';
 import { STAGES, isStageId, stageById } from './run/stages.ts';
 import { badSlug } from './validation.ts';
@@ -290,6 +291,17 @@ app.get('/api/runs/:id', async (req, reply) => {
       abortBlockers: s.id === 'handoff' ? run.blockers(s.id, { abortHandoff: true }) : null,
       produces: s.produces(run.ctx),
       decision: s.humanGate,
+      // Тем же разбором, что и предусловие следующего этапа (`granted()` в stages.ts):
+      // «записано» — это `readDecision(...).state === 'granted'`, а не факт, что поле
+      // вообще существует в шаблоне.
+      decisionRecorded:
+        s.humanGate === null
+          ? false
+          : (() => {
+              const path = artifactPathOf(run.paths, s.humanGate.artifact, run.chunk, run.attempt);
+              const a = readArtifact(path);
+              return a.exists && readDecision(a.text, s.humanGate.label).state === 'granted';
+            })(),
     })),
     pendingApprovals: gate.list().filter((p) => p.runId === id),
     pendingQuestions: askGate.list().filter((p) => p.runId === id),
@@ -557,6 +569,10 @@ app.get('/api/runs/:id/diff', (req, reply) => {
   const outside = new Set(
     scopeViolations(files, planFiles, run.project.projectRoot).map((v) => v.path),
   );
+  // Счётчики строк — тем же разбором, что и список файлов: клиент раньше считал их сам по
+  // тексту патча регуляркой на `+++`/`---`, и это тот же класс дефекта, что уже чинили
+  // здесь для списка файлов.
+  const stats = new Map(fileStats(patch.text).map((s) => [s.path, s]));
 
   return {
     chunk: run.chunk,
@@ -565,6 +581,8 @@ app.get('/api/runs/:id/diff', (req, reply) => {
     files: files.map((f) => ({
       path: f,
       inPlan: !outside.has(normalizePlanPath(run.project.projectRoot, f)),
+      adds: stats.get(f)?.adds ?? 0,
+      dels: stats.get(f)?.dels ?? 0,
     })),
   };
 });

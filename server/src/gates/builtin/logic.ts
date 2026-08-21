@@ -8,6 +8,7 @@
  * Здесь нет ни файловой системы, ни git — только правило. I/O живёт в `index.ts`.
  */
 
+import { parseDiff } from '../../diff/parse.ts';
 import { normalizePlanPath } from '../../policy/paths.ts';
 // Знание о языках живёт в реестре экосистем: добавление языка не должно требовать правки
 // этого файла. Здесь остаются только правила, одинаковые для всех языков.
@@ -197,19 +198,24 @@ export interface DiffLine {
   added: boolean;
 }
 
-/** Разбор unified diff в строки с именем файла — только то, что нужно проверкам. */
+/**
+ * Разбор unified diff в строки с именем файла — только то, что нужно проверкам.
+ *
+ * Раньше отличал заголовок от тела по префиксу `+++`/`---`, и на этом ломался: удалённая
+ * строка кода вида `--verbose` в diff'е выглядит как `---verbose` и молча терялась —
+ * ровно тот дефект, ради устранения которого написан `diff/parse.ts` («один разбор на всю
+ * кодовую базу»). Здесь используется он: границы тела считаются по счётчикам `@@`, а не
+ * по содержимому строки.
+ */
 export function diffLines(diff: string): DiffLine[] {
+  const { hunks } = parseDiff(diff);
   const out: DiffLine[] = [];
-  let file = '';
-  for (const line of diff.split(/\r?\n/)) {
-    const m = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
-    if (m !== null) {
-      file = m[1]!.trim();
-      continue;
+  for (const h of hunks) {
+    for (const line of h.lines) {
+      const head = line[0] ?? ' ';
+      if (head === '+') out.push({ file: h.file, text: line, added: true });
+      else if (head === '-') out.push({ file: h.file, text: line, added: false });
     }
-    if (/^(---|diff |index |@@|new file|deleted file|similarity|rename)/.test(line)) continue;
-    if (line.startsWith('+')) out.push({ file, text: line, added: true });
-    else if (line.startsWith('-')) out.push({ file, text: line, added: false });
   }
   return out;
 }
@@ -244,8 +250,12 @@ export function invariantViolations(
   // Нетто-убыль деклараций: тесты не починили, а выкинули. Считаем только по коду и
   // только по некомментарным строкам — иначе закомментированный пример роняет гейт.
   const added = addedCode.filter((l) => hasAny(l.text, testDeclarationsFor(l.file))).length;
+  // Раньше здесь ещё стоял `!l.text.startsWith('--')` — защита от заголовков, протекавших
+  // в `diffLines` через её старую эвристику. `diffLines` больше не эвристика: hunk-строка
+  // не может быть заголовком по построению, а фильтр вдобавок ошибочно вычёркивал
+  // настоящую удалённую строку, чьё содержимое само начиналось с «-».
   const removed = code.filter(
-    (l) => !l.added && !l.text.startsWith('--') && hasAny(l.text, testDeclarationsFor(l.file)),
+    (l) => !l.added && hasAny(l.text, testDeclarationsFor(l.file)),
   ).length;
   if (removed > added) {
     out.push({

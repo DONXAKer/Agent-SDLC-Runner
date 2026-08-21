@@ -51,14 +51,19 @@ export function PromptPane({
 
   const edited = system !== prompt.system || user !== prompt.user;
 
+  // Вне свёрнутой секции: пометка о скрытом системном пресете обязательна (см. doc-
+  // комментарий файла), и прятать её за клик в компакте значило бы показывать «полный»
+  // промпт, который на самом деле неполон, — ровно тот ложный зелёный, ради устранения
+  // которого этот блок и существует.
+  const presetNoteBlock =
+    prompt.presetNote !== null ? (
+      <div className="rounded border border-neutral-700 bg-neutral-900/70 p-3 text-xs text-neutral-400">
+        {prompt.presetNote}
+      </div>
+    ) : null;
+
   const body = (
     <div className="space-y-3">
-      {prompt.presetNote !== null ? (
-        <div className="rounded border border-neutral-700 bg-neutral-900/70 p-3 text-xs text-neutral-400">
-          {prompt.presetNote}
-        </div>
-      ) : null}
-
       {blockers.length > 0 ? (
         <div className={`rounded border p-3 text-sm ${PANEL_TONE.fail}`}>
           <div className="mb-1 font-medium text-red-300">Этап не начинается:</div>
@@ -143,6 +148,7 @@ export function PromptPane({
   if (!compact) {
     return (
       <div>
+        {presetNoteBlock}
         {body}
         {runRow}
       </div>
@@ -151,10 +157,13 @@ export function PromptPane({
 
   return (
     <div>
+      {presetNoteBlock}
       <CollapsibleSection
         id="prompt"
         title="Промпт"
         compact={compact}
+        defaultOpen={!compact || blockers.length > 0}
+        alert={blockers.length > 0}
         summary={
           <>
             {promptSummary(prompt, edited)}

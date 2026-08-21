@@ -55,6 +55,15 @@ export interface StageInfo {
    * записанным в артефакт, поэтому кнопка обязана быть там же, где этап.
    */
   decision: { artifact: string; label: string } | null;
+  /**
+   * Записано ли решение из `decision` прямо сейчас — тем же разбором артефакта, которым
+   * его читает предусловие следующего этапа (`readDecision`).
+   *
+   * `decision` описывает СЛОТ, а не текущее его состояние: он не становится `null` после
+   * записи. Без этого поля клиент не мог отличить «ждём приёмки» от «уже приняли», и
+   * очередь решений навсегда числила пройденные этапы ждущими.
+   */
+  decisionRecorded: boolean;
 }
 
 export interface RunSummary {
@@ -196,7 +205,7 @@ export interface RunDiff {
   chunk: number;
   attempt: number;
   patch: string;
-  files: { path: string; inPlan: boolean }[];
+  files: { path: string; inPlan: boolean; adds: number; dels: number }[];
 }
 
 export interface ProjectInfo {

@@ -48,16 +48,20 @@ export function groupEvents(events: RunEvent[]): EventItem[] {
     if (e.type === 'tool_request') {
       const resolved = resolvedBy.get(e.requestId);
       const result = resultBy.get(e.requestId);
+      // `denied` проверяется раньше `result`: в loop-флоу отклонённый вызов получает и
+      // `tool_resolved(denied)`, и синтетический `tool_result(ok:false, summary=reason)`
+      // — исполнитель обязан вернуть модели хоть какой-то результат на отклонённый вызов.
+      // Если решать по `result` первым, отказ неотличим от настоящего падения инструмента.
       const status: ToolCallStatus =
-        result !== undefined
-          ? result.ok
-            ? 'ok'
-            : 'failed'
-          : resolved !== undefined
-            ? resolved.decision.allowed
+        resolved !== undefined && !resolved.decision.allowed
+          ? 'denied'
+          : result !== undefined
+            ? result.ok
+              ? 'ok'
+              : 'failed'
+            : resolved !== undefined
               ? 'running'
-              : 'denied'
-            : 'pending';
+              : 'pending';
       out.push({
         kind: 'tool',
         request: e,

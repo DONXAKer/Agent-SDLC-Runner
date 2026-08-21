@@ -1,10 +1,24 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 
 import type { RunDiff } from '@sdlc-runner/shared';
 
 import { api } from '../lib/api.ts';
-import { orderFiles, splitPatchByFile } from '../lib/diffStats.ts';
+import { orderFiles } from '../lib/diffStats.ts';
 import { diffLineTone } from '../lib/tones.ts';
+import { useToggleSet } from '../lib/useToggleSet.ts';
+
+/** Построчная раскраска текста патча — общая для компактного и полного вида. */
+function PatchText({ text }: { text: string }): JSX.Element {
+  return (
+    <pre className="max-h-[50vh] overflow-auto px-3 py-2 font-mono text-[11px] leading-4">
+      {text.split('\n').map((line, i) => (
+        <div key={i} className={diffLineTone(line)}>
+          {line === '' ? ' ' : line}
+        </div>
+      ))}
+    </pre>
+  );
+}
 
 /**
  * Сводный просмотр патча попытки.
@@ -19,13 +33,23 @@ import { diffLineTone } from '../lib/tones.ts';
  *
  * В компактном режиме — список файлов со счётчиками, diff файла раскрывается по клику;
  * файлы вне плана подняты наверх.
+ *
+ * `memo`: страница перерисовывается на каждое событие сокета, а раскрашенный патч в сотни
+ * килобайт — тысячи div-узлов; без него они пересобирались бы на событие, не имеющее к
+ * этой панели отношения.
  */
-export function RunDiffView({ runId, compact }: { runId: string; compact: boolean }): JSX.Element {
+export const RunDiffView = memo(function RunDiffView({
+  runId,
+  compact,
+}: {
+  runId: string;
+  compact: boolean;
+}): JSX.Element {
   const [diff, setDiff] = useState<RunDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // Раскрытые файлы компактного списка — без localStorage: патч живёт одну попытку.
-  const [openFiles, setOpenFiles] = useState<ReadonlySet<string>>(new Set());
+  const [openFiles, toggleFile] = useToggleSet();
 
   const load = (): void => {
     setLoading(true);
@@ -38,19 +62,12 @@ export function RunDiffView({ runId, compact }: { runId: string; compact: boolea
   };
 
   const outside = diff?.files.filter((f) => !f.inPlan) ?? [];
+  // Только для компакта: в полном режиме byFile не рендерится, и резать патч на блоки —
+  // выброшенная работа на каждой загрузке/обновлении диффа.
   const byFile = useMemo(
-    () => (diff === null ? [] : orderFiles(splitPatchByFile(diff.patch), diff.files)),
-    [diff],
+    () => (diff === null || !compact ? [] : orderFiles(diff.files, diff.patch)),
+    [diff, compact],
   );
-
-  const toggleFile = (path: string): void => {
-    setOpenFiles((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  };
 
   return (
     <div className="mt-3 rounded border border-neutral-800">
@@ -97,15 +114,7 @@ export function RunDiffView({ runId, compact }: { runId: string; compact: boolea
                 <span className="ml-auto shrink-0 text-emerald-400">+{f.adds}</span>
                 <span className="shrink-0 text-red-400">−{f.dels}</span>
               </button>
-              {openFiles.has(f.path) ? (
-                <pre className="max-h-[50vh] overflow-auto border-t border-neutral-900 px-3 py-2 font-mono text-[11px] leading-4">
-                  {f.text.split('\n').map((line, i) => (
-                    <div key={i} className={diffLineTone(line)}>
-                      {line === '' ? ' ' : line}
-                    </div>
-                  ))}
-                </pre>
-              ) : null}
+              {openFiles.has(f.path) ? <PatchText text={f.text} /> : null}
             </li>
           ))}
         </ul>
@@ -123,15 +132,9 @@ export function RunDiffView({ runId, compact }: { runId: string; compact: boolea
             </ul>
           </div>
 
-          <pre className="max-h-[50vh] overflow-auto px-3 py-2 font-mono text-[11px] leading-4">
-            {diff.patch.split('\n').map((line, i) => (
-              <div key={i} className={diffLineTone(line)}>
-                {line === '' ? ' ' : line}
-              </div>
-            ))}
-          </pre>
+          <PatchText text={diff.patch} />
         </>
       ) : null}
     </div>
   );
-}
+});

@@ -1,6 +1,6 @@
 import type { Escalation, RedCause, Verdict } from '@sdlc-runner/shared';
 
-import { verdictTone } from '../../lib/tones.ts';
+import { verdictTextTone, verdictTone } from '../../lib/tones.ts';
 
 /**
  * Подпись предложенного хода. Классификация — это «куда возвращать», а не «что стало»:
@@ -24,7 +24,7 @@ export function VerdictCard({
 }): JSX.Element {
   return (
     <div className={`mt-3 rounded border p-3 text-sm ${verdictTone(verdict.passed)}`}>
-      <div className="mb-1 font-medium">
+      <div className={`mb-1 font-medium ${verdictTextTone(verdict.passed)}`}>
         Вердикт: {verdict.passed ? 'passed' : 'не пройден'} · {verdict.action}
       </div>
       <ul className="space-y-0.5 text-xs text-neutral-300">

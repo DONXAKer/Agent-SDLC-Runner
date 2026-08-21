@@ -5,6 +5,7 @@ import { DiffView } from './DiffView.tsx';
 // Тип живёт в lib, а не здесь: его использует чистая `mergePending`, которую тесты
 // исполняют Node'ом напрямую, а `.tsx` Node без сборки не читает.
 import type { PendingCall } from '../lib/pending.ts';
+import { PANEL_TONE } from '../lib/tones.ts';
 
 export type { PendingCall };
 
@@ -51,7 +52,7 @@ export function ToolApproval({
       </div>
 
       {blocked && !pending.policy.ok ? (
-        <div className="mb-3 rounded border border-red-800 bg-red-950/40 p-3 text-sm">
+        <div className={`mb-3 rounded border p-3 text-sm ${PANEL_TONE.fail}`}>
           <div className="mb-1 font-medium text-red-300">
             Отклонено политикой — {POLICY_LABEL[pending.policy.policy] ?? pending.policy.policy}
           </div>

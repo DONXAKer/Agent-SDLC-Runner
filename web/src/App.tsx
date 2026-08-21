@@ -5,6 +5,7 @@ import { ProfileEditor } from './components/ProfileEditor.tsx';
 import { RunList } from './components/RunList.tsx';
 import { RunPage } from './pages/RunPage.tsx';
 import { api } from './lib/api.ts';
+import { PANEL_TONE } from './lib/tones.ts';
 import type { ConfigInfo, ProjectInfo, RunSummary, StageId } from '@sdlc-runner/shared';
 
 export default function App(): JSX.Element {
@@ -96,7 +97,7 @@ export default function App(): JSX.Element {
       </p>
 
       {error !== null ? (
-        <div className="mb-4 whitespace-pre-wrap rounded border border-red-800 bg-red-950/30 p-3 text-sm text-red-200">
+        <div className={`mb-4 whitespace-pre-wrap rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
           {error}
         </div>
       ) : null}

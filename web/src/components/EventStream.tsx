@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import type { RunEvent } from '@sdlc-runner/shared';
 // Описание вызова берётся из общего пакета: пока у интерфейса была своя копия, она
@@ -9,7 +9,8 @@ import { describeCall } from '@sdlc-runner/shared';
 import { fmtCost, fmtDuration } from '../lib/format.ts';
 import { GATE_TONE } from '../lib/gateTone.ts';
 import { groupEvents, type EventItem } from '../lib/eventGroups.ts';
-import { verdictTone } from '../lib/tones.ts';
+import { verdictTextTone, verdictTone } from '../lib/tones.ts';
+import { useToggleSet } from '../lib/useToggleSet.ts';
 
 /**
  * Вызов инструмента одной строкой: запрос, решение и результат вместе.
@@ -35,7 +36,13 @@ function ToolLine({
     ) : status === 'failed' ? (
       <span className="text-red-400"> ✗ {result!.summary}</span>
     ) : status === 'denied' ? (
-      <span className="text-red-400"> ✗ {resolved!.decision.allowed ? '' : resolved!.decision.reason}</span>
+      // `denied` в eventGroups.ts достижим только когда resolved.decision.allowed === false
+      // — ветки «allowed → пусто» здесь не бывает, показывать нечего кроме причины.
+      // Проверка `!allowed` вместо `!` — она же и сужает тип `Decision` до варианта с `reason`.
+      <span className="text-red-400">
+        {' '}
+        ✗ {resolved !== undefined && !resolved.decision.allowed ? resolved.decision.reason : ''}
+      </span>
     ) : status === 'running' ? (
       <span className="text-neutral-500"> ⋯</span>
     ) : (
@@ -86,16 +93,9 @@ function PlainEvent({ e }: { e: RunEvent }): JSX.Element | null {
     case 'thinking':
       return <div className="whitespace-pre-wrap italic text-neutral-500">{e.text}</div>;
 
-    // Осиротевшие события вызова — их `tool_request` вытеснен из буфера шины. Не теряются:
-    // строка без запроса лучше, чем молча пропавшее решение.
-    case 'tool_request':
-      return (
-        <div className={e.policy.ok ? 'text-sky-400' : 'text-red-400'}>
-          → {describeCall(e.call)}
-          {!e.policy.ok ? ` — отклонено политикой (${e.policy.policy})` : ''}
-        </div>
-      );
-
+    // `tool_request` сюда не попадает: `groupEvents` заворачивает КАЖДЫЙ запрос в
+    // группу `kind: 'tool'` (множество `requests` строится из тех же событий) — здесь
+    // случай не нужен. Осиротевшими бывают только их `resolved`/`result` — см. ниже.
     case 'tool_resolved':
       return (
         <div className="text-neutral-500">
@@ -158,9 +158,7 @@ function PlainEvent({ e }: { e: RunEvent }): JSX.Element | null {
     case 'verdict':
       return (
         <div
-          className={`mt-2 rounded border p-2 ${verdictTone(e.verdict.passed)} ${
-            e.verdict.passed ? 'text-emerald-300' : 'text-red-300'
-          }`}
+          className={`mt-2 rounded border p-2 ${verdictTone(e.verdict.passed)} ${verdictTextTone(e.verdict.passed)}`}
         >
           <div className="font-medium">
             вердикт: passed={String(e.verdict.passed)} · {e.verdict.action}
@@ -211,15 +209,7 @@ export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
 
   const items = useMemo(() => groupEvents(events), [events]);
   // Раскрытые группы — по requestId и без localStorage: лента живая, помнить нечего.
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (id: string): void => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const [expanded, toggle] = useToggleSet();
 
   return (
     <div className="space-y-1.5 font-mono text-xs leading-5">
