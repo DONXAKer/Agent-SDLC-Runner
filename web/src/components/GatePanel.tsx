@@ -2,6 +2,9 @@ import type { GateRunResult } from '@sdlc-runner/shared';
 
 import { fmtDuration } from '../lib/format.ts';
 import { GATE_TONE } from '../lib/gateTone.ts';
+import { gateSummary } from '../lib/summaries.ts';
+import { PANEL_TONE } from '../lib/tones.ts';
+import { CollapsibleSection } from './run/CollapsibleSection.tsx';
 
 /**
  * Сводка по гейтам последнего прогона.
@@ -15,34 +18,41 @@ import { GATE_TONE } from '../lib/gateTone.ts';
 export function GatePanel({
   results,
   aborted,
+  compact,
 }: {
   results: GateRunResult[];
   /** Прогон оборван отменой — показанный набор неполон. */
   aborted: boolean;
+  compact: boolean;
 }): JSX.Element | null {
   if (results.length === 0) return null;
 
-  // Счётчики строятся по ключам общей карты, а не тремя `filter` по литералам: иначе
-  // новый статус не попал бы ни в один счётчик, и сумма молча разошлась бы с «всего».
-  const counts = (Object.keys(GATE_TONE) as (keyof typeof GATE_TONE)[]).map((status) => ({
-    status,
-    n: results.filter((r) => r.status === status).length,
-  }));
+  const counts = gateSummary(results);
+  const hasFail = results.some((r) => r.status === '❌');
 
   return (
-    <div className="mt-3 rounded border border-neutral-800">
-      <div className="flex flex-wrap items-center gap-3 border-b border-neutral-800 px-3 py-2 text-xs">
-        <span className="font-medium">Гейты последнего прогона</span>
-        {counts.map((c) => (
-          <span key={c.status} className={GATE_TONE[c.status]}>
-            {c.status} {c.n}
-          </span>
-        ))}
-        <span className="ml-auto text-neutral-500">всего {results.length}</span>
-      </div>
-
+    <CollapsibleSection
+      id="gates"
+      title="Гейты последнего прогона"
+      compact={compact}
+      // Красное не прячем: упавший гейт держит таблицу раскрытой и в компакте.
+      defaultOpen={!compact || hasFail}
+      summary={
+        <>
+          {counts.map((c) => (
+            <span key={c.status} className={`mr-2 ${GATE_TONE[c.status]}`}>
+              {c.status} {c.n}
+            </span>
+          ))}
+          <span className="text-neutral-500">всего {results.length}</span>
+          {/* Отметка обрыва видна и в свёрнутой строке: без неё свёрнутая сводка с
+              зелёными счётчиками читалась бы как полный прогон. */}
+          {aborted ? <span className="ml-2 text-amber-300">· оборван</span> : null}
+        </>
+      }
+    >
       {aborted ? (
-        <div className="border-b border-amber-900 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
+        <div className={`border-b px-3 py-2 text-xs text-amber-300 ${PANEL_TONE.warn}`}>
           Прогон оборван отменой: набор неполон, оставшиеся гейты не запускались. Считать эту
           сводку зелёной нельзя.
         </div>
@@ -84,6 +94,6 @@ export function GatePanel({
           </div>
         ))}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 }

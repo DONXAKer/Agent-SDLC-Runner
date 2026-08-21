@@ -1,43 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { AskHumanDialog } from '../components/AskHumanDialog.tsx';
-import { CostBar } from '../components/CostBar.tsx';
 import { EventStream } from '../components/EventStream.tsx';
 import { AttemptsPanel } from '../components/AttemptsPanel.tsx';
 import { GatePanel } from '../components/GatePanel.tsx';
 import { RunDiffView } from '../components/RunDiffView.tsx';
-import { PromptPane } from '../components/PromptPane.tsx';
 import { StageRail } from '../components/StageRail.tsx';
-import { ToolApproval, type PendingCall } from '../components/ToolApproval.tsx';
+import { AdvanceBar } from '../components/run/AdvanceBar.tsx';
+import { CollapsibleSection } from '../components/run/CollapsibleSection.tsx';
+import { DecisionQueue } from '../components/run/DecisionQueue.tsx';
+import { PromptColumn } from '../components/run/PromptColumn.tsx';
+import { RunHeader } from '../components/run/RunHeader.tsx';
+import { StageArtifacts } from '../components/run/StageArtifacts.tsx';
+import { VerdictCard } from '../components/run/VerdictCard.tsx';
 import { api } from '../lib/api.ts';
 import type {
   AutoApproveRules,
   Decision,
   PreparedPrompt,
-  Question,
-  RedCause,
   RunDetail,
   StageId,
 } from '@sdlc-runner/shared';
 import { AUTO_APPROVE_OFF, describeCall } from '@sdlc-runner/shared';
-import { statusLabel, statusTone } from '../lib/runStatus.ts';
+import { mergePending } from '../lib/pending.ts';
+import { PANEL_TONE } from '../lib/tones.ts';
+import { useCompactMode } from '../lib/useCompactMode.ts';
 import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
-
-/**
- * Подпись предложенного хода. Классификация — это «куда возвращать», а не «что стало»:
- * `passed` она не меняет ни в одной ветке.
- */
-const SUGGEST_LABEL: Record<RedCause['suggest'], string> = {
-  'fix-in-chunk': 'чинить на этапе chunk — контекст у исполнителя есть',
-  'back-to-plan': 'назад на plan — правка вышла за границы files_to_touch',
-  'escalate-model': 'поднять модель — рецензент разошёлся с фактическим прогоном',
-};
-
-interface PendingAsk {
-  requestId: string;
-  questions: Question[];
-}
 
 export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }): JSX.Element {
   const [detail, setDetail] = useState<RunDetail | null>(null);
@@ -50,6 +38,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
   const [error, setError] = useState<string | null>(null);
   /** Отмена прогона спрашивается вторым кликом: бюджет уже потрачен, отменить отмену нельзя. */
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const { compact, toggle: toggleCompact } = useCompactMode();
   /**
    * Правила автоодобрения. Живут до конца этапа: сервер снимает их в `finally` запуска, и
    * обещать здесь большее (например «на весь виток») значило бы обещать не своё.
@@ -128,62 +117,8 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     if (last.type === 'error') setError(last.message);
   }, [events, refresh]);
 
-  /**
-   * Что ещё ждёт ответа.
-   *
-   * Источник — ответ сервера (`detail.pendingApprovals` / `pendingQuestions`), а лента
-   * событий только дополняет его свежими запросами, о которых сервер ещё не спрашивали.
-   * Пока очередь выводилась ИСКЛЮЧИТЕЛЬНО из ленты, она теряла запросы: буфер шины
-   * ограничен объёмом и вытесняет с начала, а при переподключении сокета лента
-   * сбрасывается — карточка одобрения исчезала, промис на сервере не резолвился ничем,
-   * и этап вставал навсегда, хотя `GET /api/runs/:id` этот запрос честно перечислял.
-   */
-  const { approvals, asks } = useMemo(() => {
-    const resolved = new Set<string>();
-    const answered = new Set<string>();
-    for (const e of events) {
-      if (e.type === 'tool_resolved') resolved.add(e.requestId);
-      if (e.type === 'tool_result') answered.add(e.requestId);
-    }
-
-    const approvals = new Map<string, PendingCall>();
-    const asks = new Map<string, PendingAsk>();
-
-    for (const p of detail?.pendingApprovals ?? []) {
-      approvals.set(p.requestId, {
-        requestId: p.requestId,
-        rawInput: p.rawInput,
-        call: p.call,
-        policy: p.policy,
-        preview: p.preview,
-      });
-    }
-    for (const q of detail?.pendingQuestions ?? []) {
-      asks.set(q.requestId, { requestId: q.requestId, questions: q.questions });
-    }
-
-    for (const e of events) {
-      if (e.type !== 'tool_request') continue;
-      if (e.call.kind === 'ask_human') {
-        if (!answered.has(e.requestId)) {
-          asks.set(e.requestId, { requestId: e.requestId, questions: e.call.questions });
-        }
-      } else if (!resolved.has(e.requestId)) {
-        approvals.set(e.requestId, {
-          requestId: e.requestId,
-          rawInput: e.rawInput,
-          call: e.call,
-          policy: e.policy,
-          preview: e.preview,
-        });
-      }
-    }
-
-    for (const id of resolved) approvals.delete(id);
-    for (const id of answered) asks.delete(id);
-
-    return { approvals: [...approvals.values()], asks: [...asks.values()] };
-  }, [events, detail]);
+  // Логика очереди — в чистой `mergePending`: её проверяют тесты, компонент только рендерит.
+  const { approvals, asks } = useMemo(() => mergePending(detail, events), [events, detail]);
 
   const stageEvents = useMemo(
     () => events.filter((e) => !('stage' in e) || e.stage === stage || e.stage === null),
@@ -383,6 +318,11 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     void api.answerQuestions(runId, requestId, answers).catch((e: Error) => setError(e.message));
   };
 
+  const setAutoRules = (next: AutoApproveRules): void => {
+    setAutoRulesByStage((prev) => ({ ...prev, [stage]: next }));
+    void api.autoApprove(runId, stage, next).catch((err: Error) => setError(err.message));
+  };
+
   if (detail === null) {
     // Кнопка выхода нужна именно здесь: ветка стала достижимой (виток убрали в соседней
     // вкладке, сервер перезапустился и потерял прогоны из памяти), а без неё со страницы
@@ -401,204 +341,88 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     );
   }
 
+  const decision = stageInfo?.decision ?? null;
+
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-4 border-b border-neutral-800 px-4 py-2.5">
-        <button type="button" onClick={onExit} className="text-sm text-neutral-400 hover:text-neutral-200">
-          ←
-        </button>
-        <div>
-          <div className="text-sm font-medium">
-            {detail.project} · <span className="font-mono">{detail.slug}</span>
-          </div>
-          <div className="text-xs text-neutral-500">{detail.projectRoot}</div>
-        </div>
-
-        {/* Статус последнего этапа виден и здесь: пока он был только в списке витков,
-            отменённый и упавший прогон на этой странице выглядели как простаивающий. */}
-        <span
-          className={`rounded border px-2 py-0.5 text-xs ${statusTone(detail.status, detail.stage)}`}
-        >
-          {statusLabel(detail.status, detail.stage)}
-        </span>
-        <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs">профиль: {detail.profile}</span>
-        <span className="text-xs text-neutral-500">
-          chunk {detail.chunk} · попытка {detail.attempt} из {detail.attemptBudget}
-          {/* Близость к прошлой попытке — число, а не вывод: утверждение «diff почти тот
-              же» оператор должен иметь возможность проверить глазами. На первой попытке
-              сравнивать не с чем, и ноль там был бы ложью. */}
-          {detail.progressCloseness !== null ? (
-            <span className={detail.progressCloseness >= detail.progressClosenessWarn ? ' text-amber-400' : ''}>
-              {' '}
-              · совпадение с прошлым патчем {Math.round(detail.progressCloseness * 100)}%
-            </span>
-          ) : null}
-        </span>
-
-        <div className="ml-auto flex items-center gap-4">
-          {/* Бюджет берётся из конфига проекта, а не из константы: до этого полоса
-              сравнивала расход с чужим числом и краснела не тогда, когда надо. */}
-          <CostBar usage={detail.usage} budgetUsd={detail.maxBudgetUsd} />
-
-          {/* При `denied` кнопки нет, и её отсутствие читалось как «уведомления включены»:
-              оператор полагался на них и пропускал ожидание. Говорим прямо. */}
-          {!alerts.supported || alerts.permission === 'denied' ? (
-            <span
-              className="text-xs text-neutral-500"
-              title="Разрешение выдаётся в настройках сайта в браузере — со страницы его не запросить повторно."
-            >
-              уведомления недоступны
-            </span>
-          ) : null}
-
-          {alerts.supported && alerts.permission === 'default' ? (
-            <button
-              type="button"
-              onClick={alerts.enable}
-              title="Сообщать в систему, когда виток встал и ждёт человека, пока вкладка не в фокусе"
-              className="text-xs text-neutral-400 hover:text-neutral-200"
-            >
-              Включить уведомления
-            </button>
-          ) : null}
-
-          {/* Кнопка есть ровно тогда, когда есть что обрывать — этап выполняется. По
-              статусу решать нельзя: `done` рантайм ставит в конце КАЖДОГО этапа, и виток
-              из семи этапов оставался бы без отмены после первого же успешного. Отмена
-              при простое тоже вредна: она пометила бы `cancelled` вполне рабочий виток. */}
-          {!stageRunning ? null : confirmCancel ? (
-            <span className="flex items-center gap-1.5 text-xs">
-              <span className="text-amber-300">Оборвать прогон?</span>
-              <button
-                type="button"
-                onClick={() => void cancel()}
-                className="rounded border border-red-800 px-2 py-0.5 text-red-300 hover:bg-red-950"
-              >
-                Да, отменить
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmCancel(false)}
-                className="rounded border border-neutral-700 px-2 py-0.5 text-neutral-300 hover:bg-neutral-800"
-              >
-                Нет
-              </button>
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmCancel(true)}
-              title="Остановить исполнителя. Уже записанные артефакты остаются на диске — это остановка, а не откат."
-              className="rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 hover:border-red-800 hover:text-red-300"
-            >
-              Отменить прогон
-            </button>
-          )}
-
-          <span className={connected ? 'text-xs text-emerald-500' : 'text-xs text-amber-500'}>
-            {connected ? 'онлайн' : 'переподключение…'}
-          </span>
-        </div>
-      </header>
+      <RunHeader
+        detail={detail}
+        connected={connected}
+        alerts={alerts}
+        stageRunning={stageRunning}
+        confirmCancel={confirmCancel}
+        onConfirmCancel={setConfirmCancel}
+        onCancel={() => void cancel()}
+        onExit={onExit}
+        compact={compact}
+        onToggleCompact={toggleCompact}
+      />
 
       <div className="flex min-h-0 flex-1">
         <StageRail run={detail} selected={stage} onSelect={setStage} />
 
         <main className="min-w-0 flex-1 overflow-auto p-4">
           {error !== null ? (
-            <div className="mb-3 rounded border border-red-800 bg-red-950/30 p-3 text-sm text-red-200">
+            <div className={`mb-3 rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
               {error}
             </div>
           ) : null}
 
-          {asks.map((a) => (
-            <div key={a.requestId} className="mb-4">
-              <AskHumanDialog requestId={a.requestId} questions={a.questions} onAnswer={answer} />
-            </div>
-          ))}
-
-          {approvals.map((p) => (
-            <div key={p.requestId} className="mb-4">
-              <ToolApproval pending={p} onResolve={resolveApproval} />
-            </div>
-          ))}
+          <DecisionQueue
+            asks={asks}
+            approvals={approvals}
+            decision={decision}
+            decisionNote={decisionNote}
+            onNoteChange={setDecisionNote}
+            onDecide={(granted) => void decide(granted)}
+            onAnswer={answer}
+            onResolve={resolveApproval}
+            compact={compact}
+          />
 
           {/* minmax(0,1fr) вместо 1fr: иначе длинные пути в артефактах распирают колонку
               и правая половина уезжает за экран. */}
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <section className="min-w-0">
-              <div className="mb-2 flex items-center gap-2">
-                <h2 className="text-sm font-medium">Запрос к модели</h2>
-                <button
-                  type="button"
-                  onClick={() => void build()}
-                  className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800"
-                >
-                  Собрать промпт
-                </button>
-                {/* Правила вместо одного тумблера: «одобрять всё» включало и `Bash`, и
-                    запись вне плана — то есть ровно то, ради чего гейт существует. */}
-                <span className="ml-auto flex items-center gap-3 text-xs text-neutral-400">
-                  <span className="text-neutral-500">одобрять без вопроса:</span>
-                  {(
-                    [
-                      ['planWrites', 'правки в files_to_touch'],
-                      ['bash', 'команды оболочки'],
-                      ['rest', 'остальное'],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <label key={key} className="flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        checked={autoRules[key]}
-                        onChange={(e) => {
-                          const next = { ...autoRules, [key]: e.target.checked };
-                          setAutoRulesByStage((prev) => ({ ...prev, [stage]: next }));
-                          void api
-                            .autoApprove(runId, stage, next)
-                            .catch((err: Error) => setError(err.message));
-                        }}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </span>
-              </div>
-
-              {stage === 'intent' ? (
-                <textarea
-                  value={requirement}
-                  onChange={(e) => setRequirement(e.target.value)}
-                  placeholder="Задача от человека — что нужно сделать в этом витке"
-                  className="mb-3 h-24 w-full rounded border border-neutral-800 bg-neutral-950 p-2 text-sm"
-                />
-              ) : null}
-
-              <PromptPane
-                prompt={prompt}
-                blockers={blockers}
-                busy={uiBusy}
-                {...(busyReason === null ? {} : { busyReason })}
-                onRun={(p) => void run(p)}
-              />
-            </section>
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <PromptColumn
+              stage={stage}
+              prompt={prompt}
+              blockers={blockers}
+              uiBusy={uiBusy}
+              busyReason={busyReason}
+              autoRules={autoRules}
+              onAutoRulesChange={setAutoRules}
+              requirement={requirement}
+              onRequirementChange={setRequirement}
+              onBuild={() => void build()}
+              onRun={(p) => void run(p)}
+              compact={compact}
+            />
 
             <section className="min-w-0">
               <h2 className="mb-2 text-sm font-medium">Ход этапа</h2>
-              <div className="max-h-[70vh] overflow-auto rounded border border-neutral-800 bg-neutral-950 p-3">
-                <EventStream events={stageEvents} />
-              </div>
+              <CollapsibleSection
+                id="events"
+                title="Лента событий"
+                compact={compact}
+                summary={<span className="text-neutral-500">{stageEvents.length} событий</span>}
+              >
+                <div className="max-h-[70vh] overflow-auto bg-neutral-950 p-3">
+                  <EventStream events={stageEvents} />
+                </div>
+              </CollapsibleSection>
 
               {/* Гейты стоят перед вердиктом и на экране: вердикт считается по этой
                   таблице, и читать их в обратном порядке — читать вывод раньше входа.
                   Условие по этапу то же, что у вердикта: гейты прогоняются на `verify` и
                   под лентой `plan` читались бы как «план провалил сборку». */}
               {stage === 'verify' ? (
-                <GatePanel results={gateResults} aborted={detail.gatesAborted} />
+                <GatePanel results={gateResults} aborted={detail.gatesAborted} compact={compact} />
               ) : null}
 
               {/* Патч попытки — там же, где его чинят и где по нему судят. */}
-              {stage === 'verify' || stage === 'chunk' ? <RunDiffView runId={runId} /> : null}
+              {stage === 'verify' || stage === 'chunk' ? (
+                <RunDiffView runId={runId} compact={compact} />
+              ) : null}
 
               {/* Попытки видны и на chunk, и на verify: чинят на первом, а решают по
                   второму, и история нужна на обоих. */}
@@ -606,149 +430,37 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 <AttemptsPanel
                   iterations={detail.iterations}
                   attemptBudget={detail.attemptBudget}
-              closenessWarn={detail.progressClosenessWarn}
+                  closenessWarn={detail.progressClosenessWarn}
+                  compact={compact}
                 />
               ) : null}
 
+              {/* Вердикт не сворачивается ни в одном режиме: это главный вход решения
+                  оператора, и прятать его — прятать сам смысл этапа 6. */}
               {detail.verdict !== null && stage === 'verify' ? (
-                <div
-                  className={`mt-3 rounded border p-3 text-sm ${
-                    detail.verdict.passed
-                      ? 'border-emerald-800 bg-emerald-950/30'
-                      : 'border-red-900 bg-red-950/30'
-                  }`}
-                >
-                  <div className="mb-1 font-medium">
-                    Вердикт: {detail.verdict.passed ? 'passed' : 'не пройден'} ·{' '}
-                    {detail.verdict.action}
-                  </div>
-                  <ul className="space-y-0.5 text-xs text-neutral-300">
-                    {detail.verdict.reasons.map((r, i) => (
-                      <li key={i} className="whitespace-pre-wrap break-words">
-                        — {r}
-                      </li>
-                    ))}
-                  </ul>
-
-                  {/* Предложенный ход — подсказка оператору, а не переход: возврат на план
-                      ломает предусловия следующих этапов, и решает это человек. */}
-                  {/* Предложение поднять модель — тоже подсказка, а не переход: смена
-                      модели посреди витка меняет стоимость и поведение. */}
-                  {detail.escalation.kind !== 'none' ? (
-                    <div className="mt-2 border-t border-red-900/60 pt-2 text-xs">
-                      <span className="text-neutral-400">Модель: </span>
-                      <span
-                        className={
-                          detail.escalation.kind === 'suggest'
-                            ? 'font-medium text-amber-300'
-                            : 'text-neutral-400'
-                        }
-                      >
-                        {detail.escalation.kind === 'suggest'
-                          ? `поднять chunk до ${detail.escalation.toModelId}`
-                          : 'поднять нельзя'}
-                      </span>
-                      <div className="mt-0.5 whitespace-pre-wrap text-neutral-500">
-                        {detail.escalation.why}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {detail.redCause !== null ? (
-                    <div className="mt-2 border-t border-red-900/60 pt-2 text-xs">
-                      <span className="text-neutral-400">Куда возвращать: </span>
-                      <span className="font-medium text-amber-300">
-                        {SUGGEST_LABEL[detail.redCause.suggest]}
-                      </span>
-                      <span className="text-neutral-500"> — решение за вами</span>
-                    </div>
-                  ) : null}
-                </div>
+                <VerdictCard
+                  verdict={detail.verdict}
+                  escalation={detail.escalation}
+                  redCause={detail.redCause}
+                />
               ) : null}
 
-              {stageInfo?.decision != null ? (
-                <div className="mt-3 rounded border border-neutral-800 p-3">
-                  <div className="mb-2 text-xs text-neutral-400">
-                    Решение человека на этом этапе: <b>{stageInfo.decision.label}</b>. Пока оно не
-                    записано в артефакт, следующий этап не начинается — молчание одобрением не
-                    считается. Отказ методология требует записывать тем же полем.
-                  </div>
-                  <input
-                    value={decisionNote}
-                    onChange={(e) => setDecisionNote(e.target.value)}
-                    placeholder="Что именно решено — сохранится в артефакте рядом с подписью"
-                    className="mb-2 w-full rounded border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void decide(true)}
-                      className="rounded border border-emerald-700 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-950"
-                    >
-                      Одобрить — записать в {stageInfo.decision.artifact}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void decide(false)}
-                      className="rounded border border-red-800 px-2 py-1 text-xs text-red-300 hover:bg-red-950"
-                    >
-                      Отклонить
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Выход из красного вердикта: новая попытка, следующий chunk или обрыв витка.
-                  Без этих трёх кнопок интерфейс не имел ни одного легального продолжения. */}
-              <div className="mt-3 flex flex-wrap items-center gap-2 rounded border border-neutral-800 p-3">
-                <span className="text-xs text-neutral-400">Продвинуть виток:</span>
-                <button
-                  type="button"
-                  onClick={() => void advance('attempt')}
-                  disabled={uiBusy}
-                  className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 disabled:opacity-40"
-                >
-                  Новая попытка ({detail.attempt} из {detail.attemptBudget})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void advance('chunk')}
-                  disabled={uiBusy}
-                  className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 disabled:opacity-40"
-                >
-                  Следующий chunk
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void abortWitok()}
-                  disabled={uiBusy || abortBlockers.length > 0}
-                  className="ml-auto rounded border border-amber-800 px-2 py-1 text-xs text-amber-300 hover:bg-amber-950 disabled:opacity-40"
-                  title={
-                    abortBlockers.length > 0
-                      ? `Обрыв невозможен: ${abortBlockers.join('; ')}`
-                      : 'Оформить передачу без зелёного вердикта: запись о том, почему виток брошен'
-                  }
-                >
-                  Обрыв витка → handoff
-                </button>
-              </div>
-
-              {stageInfo !== null && stageInfo.produces.length > 0 ? (
-                <div className="mt-3">
-                  <h3 className="mb-1 text-xs uppercase tracking-wide text-neutral-500">
-                    Артефакты этапа
-                  </h3>
-                  <ul className="space-y-0.5 font-mono text-xs text-neutral-400">
-                    {stageInfo.produces.map((p) => (
-                      <li key={p} className="break-all">
-                        {p}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+              {stageInfo !== null ? <StageArtifacts produces={stageInfo.produces} /> : null}
             </section>
           </div>
+
+          {/* Sticky-панель — последним ребёнком прокручиваемого main, вне грида колонок:
+              кнопки продвижения и приёмки видны без прокрутки в любом режиме. */}
+          <AdvanceBar
+            attempt={detail.attempt}
+            attemptBudget={detail.attemptBudget}
+            uiBusy={uiBusy}
+            abortBlockers={abortBlockers}
+            decision={decision}
+            onAdvance={(to) => void advance(to)}
+            onAbort={() => void abortWitok()}
+            onDecide={(granted) => void decide(granted)}
+          />
         </main>
       </div>
     </div>

@@ -1,22 +1,12 @@
 import { useState } from 'react';
 
-import type { Decision, DiffPreview, NormalizedCall, PolicyVerdict } from '@sdlc-runner/shared';
+import type { Decision, NormalizedCall } from '@sdlc-runner/shared';
 import { DiffView } from './DiffView.tsx';
+// Тип живёт в lib, а не здесь: его использует чистая `mergePending`, которую тесты
+// исполняют Node'ом напрямую, а `.tsx` Node без сборки не читает.
+import type { PendingCall } from '../lib/pending.ts';
 
-export interface PendingCall {
-  requestId: string;
-  /**
-   * Аргументы инструмента в его собственной форме — то, что правит оператор.
-   *
-   * Не `call`: исполнителю уходит `updatedInput` дословно, в форме инструмента
-   * (`file_path`, `old_string`), а нормализованная форма (`path`, `oldStr`) на входе
-   * инструмента не значит ничего — правка молча теряла содержимое.
-   */
-  rawInput: Record<string, unknown>;
-  call: NormalizedCall;
-  policy: PolicyVerdict;
-  preview: DiffPreview | null;
-}
+export type { PendingCall };
 
 function title(call: NormalizedCall): string {
   switch (call.kind) {

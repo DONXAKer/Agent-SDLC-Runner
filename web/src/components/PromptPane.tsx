@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react';
 
 import type { PreparedPrompt } from '@sdlc-runner/shared';
 
+import { promptSummary } from '../lib/summaries.ts';
+import { PANEL_TONE } from '../lib/tones.ts';
+import { CollapsibleSection } from './run/CollapsibleSection.tsx';
+
 /**
  * Полный промпт с правкой перед отправкой.
  *
@@ -15,6 +19,7 @@ export function PromptPane({
   busy,
   busyReason,
   onRun,
+  compact,
 }: {
   prompt: PreparedPrompt | null;
   blockers: string[];
@@ -25,6 +30,7 @@ export function PromptPane({
    */
   busyReason?: string;
   onRun: (edited: { system: string; user: string }) => void;
+  compact: boolean;
 }): JSX.Element {
   const [system, setSystem] = useState('');
   const [user, setUser] = useState('');
@@ -45,7 +51,7 @@ export function PromptPane({
 
   const edited = system !== prompt.system || user !== prompt.user;
 
-  return (
+  const body = (
     <div className="space-y-3">
       {prompt.presetNote !== null ? (
         <div className="rounded border border-neutral-700 bg-neutral-900/70 p-3 text-xs text-neutral-400">
@@ -54,7 +60,7 @@ export function PromptPane({
       ) : null}
 
       {blockers.length > 0 ? (
-        <div className="rounded border border-red-800 bg-red-950/30 p-3 text-sm">
+        <div className={`rounded border p-3 text-sm ${PANEL_TONE.fail}`}>
           <div className="mb-1 font-medium text-red-300">Этап не начинается:</div>
           <ul className="list-disc space-y-0.5 pl-5 text-red-200/90">
             {blockers.map((b) => (
@@ -115,18 +121,55 @@ export function PromptPane({
           </div>
         ) : null}
       </div>
+    </div>
+  );
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          disabled={busy || blockers.length > 0}
-          onClick={() => onRun({ system, user })}
-          className="rounded bg-emerald-700 px-4 py-2 text-sm font-medium hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-        >
-          {busy ? (busyReason ?? 'Этап выполняется…') : 'Запустить этап'}
-        </button>
-        {edited ? <span className="text-xs text-amber-400">промпт отредактирован</span> : null}
+  // Кнопка запуска видна в обоих режимах и в любом состоянии секции: свёрнутый промпт не
+  // должен прятать единственное действие колонки.
+  const runRow = (
+    <div className="mt-3 flex items-center gap-3">
+      <button
+        type="button"
+        disabled={busy || blockers.length > 0}
+        onClick={() => onRun({ system, user })}
+        className="rounded bg-emerald-700 px-4 py-2 text-sm font-medium hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+      >
+        {busy ? (busyReason ?? 'Этап выполняется…') : 'Запустить этап'}
+      </button>
+      {edited ? <span className="text-xs text-amber-400">промпт отредактирован</span> : null}
+    </div>
+  );
+
+  if (!compact) {
+    return (
+      <div>
+        {body}
+        {runRow}
       </div>
+    );
+  }
+
+  return (
+    <div>
+      <CollapsibleSection
+        id="prompt"
+        title="Промпт"
+        compact={compact}
+        summary={
+          <>
+            {promptSummary(prompt, edited)}
+            {/* Блокеры этапа нельзя спрятать за свёрнутой секцией: свёрнутая строка
+                обязана называть, что этап не начнётся, — иначе серая кнопка запуска
+                выглядит поломкой, а не следствием предусловий. */}
+            {blockers.length > 0 ? (
+              <span className="ml-2 text-red-400">блокеров: {blockers.length}</span>
+            ) : null}
+          </>
+        }
+      >
+        <div className="p-3">{body}</div>
+      </CollapsibleSection>
+      {runRow}
     </div>
   );
 }

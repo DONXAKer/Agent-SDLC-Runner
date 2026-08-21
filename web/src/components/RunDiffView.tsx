@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { RunDiff } from '@sdlc-runner/shared';
 
 import { api } from '../lib/api.ts';
+import { orderFiles, splitPatchByFile } from '../lib/diffStats.ts';
+import { diffLineTone } from '../lib/tones.ts';
 
 /**
  * Сводный просмотр патча попытки.
@@ -14,11 +16,16 @@ import { api } from '../lib/api.ts';
  *
  * Патч грузится по кнопке, а не вместе с состоянием витка: он бывает в сотни килобайт, а
  * состояние перезапрашивается на каждый записанный артефакт.
+ *
+ * В компактном режиме — список файлов со счётчиками, diff файла раскрывается по клику;
+ * файлы вне плана подняты наверх.
  */
-export function RunDiffView({ runId }: { runId: string }): JSX.Element {
+export function RunDiffView({ runId, compact }: { runId: string; compact: boolean }): JSX.Element {
   const [diff, setDiff] = useState<RunDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Раскрытые файлы компактного списка — без localStorage: патч живёт одну попытку.
+  const [openFiles, setOpenFiles] = useState<ReadonlySet<string>>(new Set());
 
   const load = (): void => {
     setLoading(true);
@@ -31,6 +38,19 @@ export function RunDiffView({ runId }: { runId: string }): JSX.Element {
   };
 
   const outside = diff?.files.filter((f) => !f.inPlan) ?? [];
+  const byFile = useMemo(
+    () => (diff === null ? [] : orderFiles(splitPatchByFile(diff.patch), diff.files)),
+    [diff],
+  );
+
+  const toggleFile = (path: string): void => {
+    setOpenFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
 
   return (
     <div className="mt-3 rounded border border-neutral-800">
@@ -55,15 +75,45 @@ export function RunDiffView({ runId }: { runId: string }): JSX.Element {
         <div className="px-3 py-2 text-xs text-red-300">{error}</div>
       ) : null}
 
-      {diff !== null ? (
+      {diff !== null && outside.length > 0 ? (
+        <div className="border-b border-neutral-900 px-3 py-2 text-xs text-amber-400">
+          вне плана: {outside.length} — запись туда отклоняется политикой, а правка,
+          сделанная не агентом, вменяется исполнителю scope-гейтом
+        </div>
+      ) : null}
+
+      {diff !== null && compact ? (
+        <ul className="divide-y divide-neutral-900 font-mono text-[11px]">
+          {byFile.map((f) => (
+            <li key={f.path}>
+              <button
+                type="button"
+                onClick={() => toggleFile(f.path)}
+                className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left hover:bg-neutral-900/60"
+              >
+                <span className={f.inPlan ? 'text-neutral-400' : 'text-amber-300'}>
+                  {f.inPlan ? '·' : '!'} {f.path}
+                </span>
+                <span className="ml-auto shrink-0 text-emerald-400">+{f.adds}</span>
+                <span className="shrink-0 text-red-400">−{f.dels}</span>
+              </button>
+              {openFiles.has(f.path) ? (
+                <pre className="max-h-[50vh] overflow-auto border-t border-neutral-900 px-3 py-2 font-mono text-[11px] leading-4">
+                  {f.text.split('\n').map((line, i) => (
+                    <div key={i} className={diffLineTone(line)}>
+                      {line === '' ? ' ' : line}
+                    </div>
+                  ))}
+                </pre>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {diff !== null && !compact ? (
         <>
           <div className="border-b border-neutral-900 px-3 py-2 text-xs">
-            {outside.length > 0 ? (
-              <div className="mb-1 text-amber-400">
-                вне плана: {outside.length} — запись туда отклоняется политикой, а правка,
-                сделанная не агентом, вменяется исполнителю scope-гейтом
-              </div>
-            ) : null}
             <ul className="space-y-0.5 font-mono text-[11px]">
               {diff.files.map((f) => (
                 <li key={f.path} className={f.inPlan ? 'text-neutral-400' : 'text-amber-300'}>
@@ -75,18 +125,7 @@ export function RunDiffView({ runId }: { runId: string }): JSX.Element {
 
           <pre className="max-h-[50vh] overflow-auto px-3 py-2 font-mono text-[11px] leading-4">
             {diff.patch.split('\n').map((line, i) => (
-              <div
-                key={i}
-                className={
-                  line.startsWith('+') && !line.startsWith('+++')
-                    ? 'text-emerald-400'
-                    : line.startsWith('-') && !line.startsWith('---')
-                      ? 'text-red-400'
-                      : line.startsWith('@@')
-                        ? 'text-sky-400'
-                        : 'text-neutral-500'
-                }
-              >
+              <div key={i} className={diffLineTone(line)}>
                 {line === '' ? ' ' : line}
               </div>
             ))}

@@ -1,5 +1,7 @@
 import type { IterationSummary } from '@sdlc-runner/shared';
 
+import { CollapsibleSection } from './run/CollapsibleSection.tsx';
+
 /**
  * История попыток chunk↔verify.
  *
@@ -13,11 +15,13 @@ export function AttemptsPanel({
   iterations,
   attemptBudget,
   closenessWarn,
+  compact,
 }: {
   iterations: IterationSummary[];
   attemptBudget: number;
   /** Порог топтания из конфига раннера — не литерал: число настраивается. */
   closenessWarn: number;
+  compact: boolean;
 }): JSX.Element | null {
   if (iterations.length === 0) return null;
 
@@ -25,20 +29,24 @@ export function AttemptsPanel({
   const nearBudget = last !== undefined && last.attempt >= attemptBudget;
 
   return (
-    <div className="mt-3 rounded border border-neutral-800">
-      <div className="flex flex-wrap items-center gap-3 border-b border-neutral-800 px-3 py-2 text-xs">
-        <span className="font-medium">Попытки</span>
-        <span className="text-neutral-500">всего вердиктов: {iterations.length}</span>
-        {/* Предупреждение появляется, когда попытка достигла потолка: она ещё доступна,
-            но следующей не будет. «Заранее» это назвать нельзя, и текст обещает ровно то,
-            что делает условие. */}
-        {nearBudget ? (
-          <span className="text-amber-400">
-            бюджет попыток исчерпан ({last?.attempt} из {attemptBudget})
-          </span>
-        ) : null}
-      </div>
-
+    <CollapsibleSection
+      id="attempts"
+      title="Попытки"
+      compact={compact}
+      summary={
+        <>
+          <span className="text-neutral-500">всего вердиктов: {iterations.length}</span>
+          {/* Предупреждение появляется, когда попытка достигла потолка: она ещё доступна,
+              но следующей не будет. «Заранее» это назвать нельзя, и текст обещает ровно то,
+              что делает условие. Видно и в свёрнутой строке — прятать потолок нельзя. */}
+          {nearBudget ? (
+            <span className="ml-2 text-amber-400">
+              бюджет попыток исчерпан ({last?.attempt} из {attemptBudget})
+            </span>
+          ) : null}
+        </>
+      }
+    >
       <div className="divide-y divide-neutral-900">
         {iterations.map((it, i) => (
           <div key={`${it.chunk}:${it.attempt}:${i}`} className="px-3 py-2 text-xs">
@@ -74,6 +82,6 @@ export function AttemptsPanel({
           </div>
         ))}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 }
