@@ -7,18 +7,7 @@ import { strictEqual, throws } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { loadConfig } from '../src/config/load.ts';
-
-function withEnv(key: string, value: string | undefined, run: () => void): void {
-  const prev = process.env[key];
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
-  try {
-    run();
-  } finally {
-    if (prev === undefined) delete process.env[key];
-    else process.env[key] = prev;
-  }
-}
+import { withEnv } from './testUtils.ts';
 
 describe('SDLC_PORT переопределяет config/runner.json', () => {
   it('не задан — берётся порт из runner.json', () => {
@@ -47,6 +36,20 @@ describe('SDLC_PORT переопределяет config/runner.json', () => {
 
   it('вне диапазона портов — тоже явная ошибка', () => {
     withEnv('SDLC_PORT', '99999', () => {
+      throws(() => loadConfig(), /SDLC_PORT/);
+    });
+  });
+
+  it('шестнадцатеричная запись — явная ошибка, а не тихая подмена порта', () => {
+    // Регрессия: голый Number('0x1F') === 31 — валидное целое для JS, но не то, что
+    // оператор написал в .env.
+    withEnv('SDLC_PORT', '0x1F', () => {
+      throws(() => loadConfig(), /SDLC_PORT/);
+    });
+  });
+
+  it('экспоненциальная запись — тоже явная ошибка', () => {
+    withEnv('SDLC_PORT', '1e4', () => {
       throws(() => loadConfig(), /SDLC_PORT/);
     });
   });

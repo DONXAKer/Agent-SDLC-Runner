@@ -64,8 +64,14 @@ function nonBlank(v: string | undefined): string | undefined {
 function portOverride(): number | undefined {
   const raw = nonBlank(process.env['SDLC_PORT']);
   if (raw === undefined) return undefined;
+  // Строгий формат до `Number()`: голый парсер принимает hex (`0x1F` → 31) и экспоненту
+  // (`1e4` → 10000) как валидные целые — опечатка в `.env` превращалась бы в другой порт
+  // молча, а не в ошибку загрузки.
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`SDLC_PORT «${raw}» — не похоже на номер порта`);
+  }
   const port = Number(raw);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  if (port <= 0 || port > 65535) {
     throw new Error(`SDLC_PORT «${raw}» — не похоже на номер порта`);
   }
   return port;
