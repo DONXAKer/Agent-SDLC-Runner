@@ -14,7 +14,7 @@
 import { sep } from 'node:path';
 
 import { loadSandboxSpec } from './spec.ts';
-import { createDockerSandbox } from './dockerSandbox.ts';
+import { createDockerSandbox, stopDockerSandbox } from './dockerSandbox.ts';
 import type { SandboxHandle } from './types.ts';
 
 const active = new Map<string, SandboxHandle>();
@@ -68,6 +68,29 @@ export async function ensureSandboxFor(projectRoot: string, projectName: string)
 
 export function unregisterSandbox(projectRoot: string): void {
   active.delete(normalize(projectRoot));
+}
+
+/**
+ * Останавливает и удаляет контейнер песочницы проекта — вызывается при закрытии витка
+ * (`DELETE /api/runs/:id`), не после каждого этапа: контейнер живёт долго НАРОЧНО, ради
+ * тёплого `~/.m2`/`~/.npm` между попытками одного витка, и гасить его на границе каждого
+ * этапа обнулило бы этот смысл целиком.
+ *
+ * Идемпотентна и не бросает: закрытие витка — не место для отказа операции по вине докера,
+ * образ остаётся в кэше в любом случае — следующий виток того же проекта просто поднимет
+ * контейнер заново без пересборки.
+ */
+export async function stopSandboxForProject(projectRoot: string, projectName: string): Promise<void> {
+  const root = normalize(projectRoot);
+  const handle = active.get(root);
+  if (handle === undefined) return;
+  active.delete(root);
+  try {
+    await stopDockerSandbox(projectName, handle.specHash);
+  } catch {
+    // Закрытие витка не должно упасть из-за докера — контейнер, оставшийся жить, не хуже
+    // того, что уже было ДО появления песочницы (просто трата ресурсов, не отказ витка).
+  }
 }
 
 /** Только для тестов — реестр иначе живёт всё время процесса Runner'а. */

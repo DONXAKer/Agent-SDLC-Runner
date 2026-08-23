@@ -36,6 +36,8 @@ import { normalizePlanPath } from './policy/paths.ts';
 import { readArtifact, readDecision } from './artifacts/artifact.ts';
 import { artifactPathOf } from './artifacts/paths.ts';
 import { Run } from './run/Run.ts';
+import { stopSandboxForProject } from './sandbox/registry.ts';
+import { detectSandboxSpec } from './sandbox/detect.ts';
 import { STAGES, isStageId, stageById } from './run/stages.ts';
 import { badSlug } from './validation.ts';
 
@@ -193,6 +195,21 @@ app.post('/api/projects', (req, reply) => {
     };
   } catch (e) {
     return reply.code(400).send({ error: (e as Error).message });
+  }
+});
+
+/**
+ * Черновик `.sdlc/sandbox.json` по составу проекта — ничего не пишет и не поднимает Docker,
+ * только читает манифесты. Оператор сохраняет результат сам (или правит перед сохранением);
+ * ручка нужна там, где не хочется писать спеку с нуля вручную для нового проекта.
+ */
+app.get('/api/projects/:name/sandbox/detect', (req, reply) => {
+  const { name } = req.params as { name: string };
+  try {
+    const project = requireProject(config, name);
+    return detectSandboxSpec(project.projectRoot);
+  } catch (e) {
+    return reply.code(404).send({ error: (e as Error).message });
   }
 });
 
@@ -612,8 +629,16 @@ app.delete('/api/runs/:id', async (req, reply) => {
   }
 
   live.run.cancel('прогон закрыт оператором');
+  const { projectRoot, name: projectName } = live.run.project;
   runs.delete(id);
   bus.forget(id);
+
+  // Гасим контейнер песочницы проекта, только если это был ПОСЛЕДНИЙ живой прогон на нём —
+  // у оператора может быть открыто несколько витков одного проекта одновременно, и остановка
+  // по закрытию одного из них не должна выбивать почву из-под другого.
+  const stillLive = [...runs.values()].some((l) => l.run.project.projectRoot === projectRoot);
+  if (!stillLive) void stopSandboxForProject(projectRoot, projectName);
+
   return { ok: true };
 });
 

@@ -97,9 +97,24 @@ export function hostMountSource(projectRoot: string): string {
   return hostRoot + projectRoot.slice(containerRoot.length);
 }
 
+function safeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9_.-]/g, '-');
+}
+
 function containerName(projectName: string, hash: string): string {
-  const safe = projectName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-');
-  return `sdlc-sandbox-${safe}-${hash}`;
+  return `sdlc-sandbox-${safeName(projectName)}-${hash}`;
+}
+
+/** `~/.m2` → `/root/.m2` — базовые образы без своего `USER` работают под root'ом, `HOME`
+ * которого `/root`; путь без `~` возвращается как есть (уже абсолютный). */
+function expandHome(p: string): string {
+  return p.startsWith('~/') ? `/root/${p.slice(2)}` : p === '~' ? '/root' : p;
+}
+
+/** Именованный том — на ПРОЕКТ, а не на хэш спеки: прогрев не должен повторяться из-за
+ * правки версии тулчейна, которая на состав кэша обычно не влияет. */
+function cacheVolumeName(projectName: string, cachePath: string): string {
+  return `sdlc-sandbox-cache-${safeName(projectName)}-${safeName(expandHome(cachePath))}`;
 }
 
 async function containerRunning(name: string): Promise<boolean> {
@@ -130,10 +145,23 @@ async function buildImage(tag: string, dockerfile: string, projectRoot: string):
   }
 }
 
+/** Одна команда прогрева/обслуживания через `docker exec` — не метод `DockerSandbox`
+ * (тот ещё не существует на этой стадии подготовки: класс собирается ПОСЛЕ, из готового
+ * имени контейнера), тот же паттерн передачи команды через stdin, что и у него. */
+function execInContainer(
+  name: string,
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  return runDockerCli(['exec', '-i', '-w', cwd, name, 'sh'], { input: command + '\n', timeoutMs });
+}
+
 async function ensureContainer(
   name: string,
   tag: string,
   projectRoot: string,
+  projectName: string,
   spec: SandboxSpec,
 ): Promise<void> {
   if (await containerRunning(name)) return;
@@ -158,11 +186,37 @@ async function ensureContainer(
   if (spec.docker === 'socket') {
     args.push('-v', '/var/run/docker.sock:/var/run/docker.sock');
   }
+  for (const cachePath of spec.caches ?? []) {
+    args.push('-v', `${cacheVolumeName(projectName, cachePath)}:${expandHome(cachePath)}`);
+  }
   args.push(tag);
 
   const r = await runDockerCli(args, { timeoutMs: 30_000 });
   if (r.exitCode !== 0) {
     throw new Error(`не удалось поднять контейнер песочницы (${name}):\n${r.stderr || r.stdout}`);
+  }
+
+  // Прогрев — ТОЛЬКО на свежесозданном контейнере: `containerRunning` выше вернул бы
+  // раньше на уже поднятом, повторный прогрев на каждый вызов был бы той же работой,
+  // которую кэш-тома и существуют, чтобы не делать дважды.
+  for (const cmd of spec.warmup ?? []) {
+    const wr = await execInContainer(name, cmd, projectRoot, 10 * 60_000);
+    if (wr.exitCode !== 0) {
+      // Прогрев не блокирует появление песочницы — без прогретого кэша гейты просто
+      // увидят обычную холодную установку зависимостей при первом реальном прогоне,
+      // ту же деградацию, что была бы вовсе без `warmup`.
+      console.error(
+        `[sandbox] прогрев «${cmd}» в ${name} упал (код ${wr.exitCode}):\n${(wr.stderr || wr.stdout).slice(0, 2000)}`,
+      );
+    }
+  }
+
+  if (spec.network === 'none') {
+    // Лучшее усилие: контейнер создан командой выше без `--network`, значит сеть у него —
+    // дефолтный мост `bridge`. Кастомная сеть здесь не заводится, поэтому имя фиксировано;
+    // неудача отключения (сеть уже не та, docker network plugin и т.п.) не должна ронять
+    // подготовку песочницы целиком — это защита в глубину, а не единственная граница.
+    await runDockerCli(['network', 'disconnect', 'bridge', name], { timeoutMs: 10_000 });
   }
 }
 
@@ -256,7 +310,7 @@ export async function createDockerSandbox(
   if (!(await imageExists(tag))) {
     await buildImage(tag, buildDockerfile(spec), projectRoot);
   }
-  await ensureContainer(name, tag, projectRoot, spec);
+  await ensureContainer(name, tag, projectRoot, projectName, spec);
 
   const exec = new DockerSandbox(name);
 

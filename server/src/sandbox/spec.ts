@@ -68,6 +68,18 @@ export function parseSandboxSpec(raw: string, sourcePath: string): SandboxSpec {
     throw new SandboxSpecError(`${sourcePath}: «apt» обязан быть списком строк`);
   }
 
+  if (o.warmup !== undefined && (!Array.isArray(o.warmup) || o.warmup.some((x) => typeof x !== 'string'))) {
+    throw new SandboxSpecError(`${sourcePath}: «warmup» обязан быть списком строк`);
+  }
+
+  if (o.caches !== undefined && (!Array.isArray(o.caches) || o.caches.some((x) => typeof x !== 'string'))) {
+    throw new SandboxSpecError(`${sourcePath}: «caches» обязан быть списком строк`);
+  }
+
+  if (o.network !== undefined && o.network !== 'none') {
+    throw new SandboxSpecError(`${sourcePath}: «network» поддерживает только значение «none»`);
+  }
+
   if (o.probes !== undefined) {
     if (!Array.isArray(o.probes)) throw new SandboxSpecError(`${sourcePath}: «probes» обязан быть списком`);
     for (const p of o.probes) {

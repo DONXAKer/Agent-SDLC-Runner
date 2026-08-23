@@ -25,12 +25,15 @@ function jdkLayer(version: string, dist: string): string {
 
 function nodeLayer(version: string): string {
   const major = version.split('.')[0];
-  return [
-    `COPY --from=node:${major}-slim /usr/local/bin/node /usr/local/bin/node`,
-    `COPY --from=node:${major}-slim /usr/local/lib/node_modules /usr/local/lib/node_modules`,
-    `COPY --from=node:${major}-slim /usr/local/bin/npm /usr/local/bin/npm`,
-    `COPY --from=node:${major}-slim /usr/local/bin/npx /usr/local/bin/npx`,
-  ].join('\n');
+  // ОДНИМ слоем, не по файлам: `/usr/local/bin/npm` в официальном образе — символическая
+  // ссылка на `../lib/node_modules/npm/bin/npm-cli.js`, и `npm-cli.js` сам требует модули
+  // ОТНОСИТЕЛЬНО СВОЕГО расположения внутри `node_modules/npm/`. Копирование `bin/npm` и
+  // `lib/node_modules` отдельными `COPY` (было раньше) на некоторых версиях Docker
+  // разыменовывает символическую ссылку в обычный файл ПО СТАРОМУ пути — относительные
+  // require ломаются («Cannot find module '../lib/cli.js'»), и это не гипотеза: `npm ci`
+  // валился этой ошибкой на живом контейнере CV. Копирование `/usr/local` целиком копирует
+  // директории как есть, включая внутреннюю структуру symlink'ов, и работает.
+  return `COPY --from=node:${major}-slim /usr/local /usr/local`;
 }
 
 /** `docker exec`-исполнителю самой песочницы CLI не нужен — она изнутри Runner'а ходит по

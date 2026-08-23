@@ -22,6 +22,7 @@ import {
 } from '../src/sandbox/registry.ts';
 import { parseSandboxSpec, SandboxSpecError, loadSandboxSpec } from '../src/sandbox/spec.ts';
 import { preflightBlockers } from '../src/sandbox/preflight.ts';
+import { detectSandboxSpec } from '../src/sandbox/detect.ts';
 import type { SandboxHandle, SandboxSpec } from '../src/sandbox/types.ts';
 
 const CV_LIKE_SPEC: SandboxSpec = {
@@ -132,6 +133,74 @@ function fakeHandle(hash: string): SandboxHandle {
     runProbes: async () => [],
   };
 }
+
+describe('detectSandboxSpec: черновик спеки по составу репозитория', () => {
+  function withFixture(files: Record<string, string>, fn: (root: string) => void): void {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-detect-'));
+    try {
+      for (const [rel, content] of Object.entries(files)) {
+        const full = join(root, rel);
+        mkdirSync(join(full, '..'), { recursive: true });
+        writeFileSync(full, content);
+      }
+      fn(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  it('CV-подобный моно-репо: pom.xml даёт JDK, package.json/Dockerfile дают Node, Testcontainers включает docker', () => {
+    withFixture(
+      {
+        'backend/pom.xml': '<project><properties><java.version>21</java.version></properties></project>',
+        'frontend/package.json': JSON.stringify({ engines: { node: '>=22.0.0' } }),
+        'frontend/Dockerfile': 'FROM node:22-alpine AS build\n',
+        'backend/src/test/java/AuthFlowIntegrationTest.java': 'import org.testcontainers.junit.jupiter.Testcontainers;\n@Testcontainers\nclass X {}\n',
+      },
+      (root) => {
+        const { spec, evidence } = detectSandboxSpec(root);
+        deepStrictEqual(spec.toolchains, { jdk: { version: '21', dist: 'temurin' }, node: { version: '22' } });
+        strictEqual(spec.docker, 'socket');
+        strictEqual(spec.probes?.length, 3);
+        strictEqual(evidence.some((e) => e.includes('pom.xml')), true);
+        strictEqual(evidence.some((e) => e.includes('Testcontainers')), true);
+      },
+    );
+  });
+
+  it('нет манифестов вообще — пустая спека без тулчейнов и без docker', () => {
+    withFixture({ 'README.md': '# ничего интересного\n' }, (root) => {
+      const { spec, evidence } = detectSandboxSpec(root);
+      deepStrictEqual(spec.toolchains, {});
+      strictEqual(spec.docker, undefined);
+      strictEqual(spec.probes, undefined);
+      strictEqual(evidence.length, 0);
+    });
+  });
+
+  it('maven.compiler.release читается, если java.version не задан', () => {
+    withFixture(
+      { 'pom.xml': '<project><properties><maven.compiler.release>17</maven.compiler.release></properties></project>' },
+      (root) => {
+        strictEqual(detectSandboxSpec(root).spec.toolchains.jdk?.version, '17');
+      },
+    );
+  });
+
+  it('node_modules и target пропускаются — детект не тонет в чужих манифестах', () => {
+    withFixture(
+      {
+        'frontend/node_modules/some-lib/package.json': JSON.stringify({ engines: { node: '>=99' } }),
+        'backend/target/classes/pom.xml': '<project><properties><java.version>99</java.version></properties></project>',
+      },
+      (root) => {
+        const { spec } = detectSandboxSpec(root);
+        strictEqual(spec.toolchains.jdk, undefined);
+        strictEqual(spec.toolchains.node, undefined);
+      },
+    );
+  });
+});
 
 describe('preflightBlockers: не трогает Docker, если у проекта нет спеки', () => {
   it('проект без .sdlc/sandbox.json — пустой список блокеров, без похода в Docker', async () => {
