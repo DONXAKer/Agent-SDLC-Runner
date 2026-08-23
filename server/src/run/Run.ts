@@ -26,7 +26,7 @@ import type {
 } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 
 import { decisionValue, readArtifact, readField, setDecision, writeArtifact } from '../artifacts/artifact.ts';
 import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
@@ -157,6 +157,34 @@ const REVIEW_GATE = 'Ревью независимым агентом';
  * «прокликать» attempt 1→2→3 через кнопку «Новая попытка», рискуя случайно перезапустить
  * дорогой этап вместо того, чтобы просто продолжить его просмотр.
  */
+/**
+ * Восстанавливает номер ТЕКУЩЕГО chunk'а по файлам витка на диске.
+ *
+ * `restoreAttemptFromJournal` ниже чинит попытку внутри chunk'а, но сам `this.chunk`
+ * до его вызова был захардкожен единицей в поле класса — рестарт процесса на chunk'е 3
+ * откатывал счётчик в памяти на chunk 1, и `restoreAttemptFromJournal` смотрела не в тот
+ * журнал вовсе. Наблюдение живого витка: случайный клик «Следующий chunk» сдвинул
+ * состояние, откатить смог только `docker restart`, потому что перезапуск НЕ восстанавливал
+ * то, что должен был. Берём наибольший `N`, для которого на диске есть `chunk-N-journal.md`
+ * — тот же признак «chunk начался», на который опирается `restoreAttemptFromJournal`.
+ */
+function restoreChunkFromDir(dir: string): number | null {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  let max = 0;
+  for (const name of entries) {
+    const m = /^chunk-(\d+)-journal\.md$/.exec(name);
+    if (m === null) continue;
+    const n = Number.parseInt(m[1] as string, 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return max > 0 ? max : null;
+}
+
 function restoreAttemptFromJournal(journalPath: string): number | null {
   if (!existsSync(journalPath)) return null;
   let text: string;
@@ -263,6 +291,7 @@ export class Run {
     this.askGate = o.askGate;
     this.emit = o.emit;
     this.paths = new WitokPaths(o.project.projectRoot, o.slug);
+    this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
     this.attempt = restoreAttemptFromJournal(this.paths.chunkJournal(this.chunk)) ?? this.attempt;
   }
 
