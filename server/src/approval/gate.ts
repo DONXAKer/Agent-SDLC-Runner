@@ -157,6 +157,12 @@ export class ApprovalGate {
   ): boolean {
     if (call.kind === 'bash') return rules.bash;
 
+    // Расширение scope — решение о ГРАНИЦАХ плана, не о содержимом отдельной правки, и
+    // «остальное разрешаю» не должно снимать его молча: `rest`-правило думает про обычные
+    // MCP-вызовы вроде `finalize_artifact`, не про решение впустить chunk за пределы того,
+    // что человек уже одобрил.
+    if (call.kind === 'request_scope_extension') return false;
+
     // `writeTargetPaths` возвращает `null` для вызовов, которые вообще не пишут: такой
     // вызов «внутри плана» не бывает, и правило про правки к нему не относится.
     const targets = writeTargetPaths(call);

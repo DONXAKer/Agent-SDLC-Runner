@@ -75,6 +75,24 @@ describe('правила автоодобрения', () => {
     strictEqual(d.allowed && d.by, 'auto');
   });
 
+  it('request_scope_extension не проходит по rest — решение о границах плана только человеком', async () => {
+    const g = gate();
+    g.setAutoApprove('r1', 'chunk', { planWrites: true, bash: true, rest: true });
+    const scopeExt: NormalizedCall = { kind: 'request_scope_extension', path: 'src/extra.ts', reason: 'нужен под claim-3' };
+    const pending = g.request({
+      runId: 'r1',
+      stage: 'chunk',
+      requestId: 'ext-1',
+      toolName: 'RequestScopeExtension',
+      rawInput: {},
+      call: scopeExt,
+      ctx: { ...ctx(['src/a.ts']), allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'RequestScopeExtension'] },
+    });
+    strictEqual(g.list().length, 1, 'вызов обязан встать в очередь к человеку, а не пройти по rest');
+    g.resolve('r1', g.list()[0]!.requestId, { allowed: true, updatedInput: null, by: 'operator' });
+    strictEqual((await pending).allowed, true);
+  });
+
   it('выключенные правила спрашивают всё', async () => {
     const g = gate();
     const rules = g.autoApproveRules('r1', 'chunk');

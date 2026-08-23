@@ -42,7 +42,14 @@ export type ToolName =
    * («автор не рецензирует себя»). Вызовы инструментов внутри субагента проходят через
    * тот же гейт, поэтому право на Task не расширяет права этапа.
    */
-  | 'Task';
+  | 'Task'
+  /**
+   * Просьба расширить `plan.files_to_touch` посреди chunk'а — законный путь для файла,
+   * понадобившегося по ходу правки и не бывшего в плане, вместо тихого нарушения scope
+   * или полной остановки chunk'а. Решает **только человек** — см. `RequestScopeExtension`
+   * в `matchesRule` (`policy/index.ts`): автоодобрение `rest` на неё не распространяется.
+   */
+  | 'RequestScopeExtension';
 
 export type FlowId = 'sdk' | 'loop';
 
@@ -103,6 +110,7 @@ export type NormalizedCall =
   | { kind: 'ask_human'; questions: Question[] }
   | { kind: 'finalize_artifact'; artifact: string; note: string | null }
   | { kind: 'subagent'; agent: string; prompt: string }
+  | { kind: 'request_scope_extension'; path: string; reason: string }
   /** Инструмент, которого мы не знаем. Политика считает его записью — по худшему случаю. */
   | { kind: 'unknown'; toolName: string; raw: unknown };
 

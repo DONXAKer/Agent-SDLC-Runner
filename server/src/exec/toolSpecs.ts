@@ -178,6 +178,24 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
       ['artifact'],
     ),
   },
+
+  RequestScopeExtension: {
+    name: 'RequestScopeExtension',
+    sdkName: 'mcp__sdlc__request_scope_extension',
+    description:
+      'Попросить человека расширить files_to_touch плана на файл, понадобившийся по ходу ' +
+      'chunk\'а и не бывший в плане. Замена молчаливому нарушению scope и полной остановке ' +
+      'chunk\'а. Решает человек; одобрение дописывает путь в plan.md с пометкой «расширено на ' +
+      'этапе N» и разрешает запись в него на этом же chunk\'е. Отказ означает: делай без этого ' +
+      'файла или остановись и спроси иначе.',
+    schema: obj(
+      {
+        path: str('Путь к файлу относительно корня проекта, который нужно добавить в scope'),
+        reason: str('Почему он понадобился и не был назван в плане'),
+      },
+      ['path', 'reason'],
+    ),
+  },
 };
 
 export function specsFor(tools: readonly ToolName[]): ToolSpec[] {

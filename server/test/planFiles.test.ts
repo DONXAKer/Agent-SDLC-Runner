@@ -1,4 +1,4 @@
-import { deepStrictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { readFileSync, existsSync} from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -14,7 +14,7 @@ function нетЭталона(dir: string): string | false {
 }
 
 
-import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
+import { appendScopeExtension, extractFilesToTouch } from '../src/artifacts/planFiles.ts';
 import { loadConfig } from '../src/config/load.ts';
 
 describe('files_to_touch', () => {
@@ -68,6 +68,31 @@ describe('files_to_touch', () => {
   it('проза без обратных кавычек не становится путём', () => {
     const plan = '## files_to_touch\n\nсписок совпал с разведкой, менять нечего\n';
     deepStrictEqual(extractFilesToTouch(plan), []);
+  });
+
+  it('appendScopeExtension дописывает путь после «Добавлено сверх разведки»', () => {
+    const plan = [
+      '## files_to_touch',
+      '| Путь | Что делаем |',
+      '|---|---|',
+      '| `src/a.java` | правим |',
+      '',
+      '- **Добавлено сверх разведки:** нет',
+      '- **Из задачи исключено:** нет',
+      '',
+      '## Дальше',
+    ].join('\n');
+    const updated = appendScopeExtension(plan, 'src/extra.java', 'расширено на этапе chunk · Иван · 2026-08-23 — понадобился под claim-3');
+    ok(updated !== null);
+    ok(updated.includes('src/extra.java'));
+    // Дописанный путь обязан реально попасть в allowlist — не просто лечь строкой в файл,
+    // а быть виден тому же парсеру, который читает files_to_touch для PlanScope.
+    deepStrictEqual(extractFilesToTouch(updated), ['src/a.java', 'src/extra.java']);
+  });
+
+  it('appendScopeExtension — null, если в plan.md нет строки «Добавлено сверх разведки»', () => {
+    const plan = '## files_to_touch\n| `src/a.java` | правим |\n';
+    strictEqual(appendScopeExtension(plan, 'src/extra.java', 'причина'), null);
   });
 
   it('живой пример методологии разбирается целиком', { skip: нетЭталона(loadConfig().runner.methodologyDir) }, () => {

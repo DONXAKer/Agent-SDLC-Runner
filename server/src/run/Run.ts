@@ -30,7 +30,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 
 import { decisionValue, readArtifact, readField, setDecision, writeArtifact } from '../artifacts/artifact.ts';
 import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
-import { extractFilesToTouch } from '../artifacts/planFiles.ts';
+import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
@@ -1214,7 +1214,11 @@ export class Run {
       this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     }
 
-    const ctx = this.policyContext(stage);
+    // `let`, не `const`: одобренный `request_scope_extension` дописывает `plan.md` на диске
+    // и пересчитывает `ctx` из него же — без переприсвоения политика этого же прогона
+    // видела бы старый `files_to_touch` до самого конца этапа, и одобренная человеком
+    // правка всё равно отклонялась бы следующим же `Write` в тот же путь.
+    let ctx = this.policyContext(stage);
     /** Вызовы субагента-рецензента, ждущие результата: по ним ставится факт ревью. */
     const pendingReviewer = new Set<string>();
     /** Команда bash по requestId — только для вызовов, дошедших до исполнения: `onToolResult`
@@ -1261,6 +1265,29 @@ export class Run {
           }
           if (decision.allowed && call.kind === 'bash') {
             pendingBash.set(meta.requestId, call.command);
+          }
+          // Человек одобрил расширение scope — дописываем `plan.md` и пересчитываем `ctx`
+          // из него ЖЕ, до возврата решения: следующий вызов этого же прогона (обычно —
+          // Write в только что одобренный путь) обязан увидеть новый `files_to_touch`,
+          // а не versию, посчитанную в начале этапа.
+          if (decision.allowed && call.kind === 'request_scope_extension') {
+            const note = `расширено на этапе ${stage} · ${decisionValue(this.config.runner.operator, new Date())} — ${call.reason}`;
+            const planText = readArtifact(this.paths.plan).text;
+            const updated = appendScopeExtension(planText, call.path, note);
+            if (updated === null) {
+              this.emit({
+                type: 'warning',
+                runId: this.id,
+                stage,
+                message:
+                  `request_scope_extension одобрен человеком, но в plan.md не нашлась строка ` +
+                  `«Добавлено сверх разведки» — файл, видимо, правлен вручную не по форме. ` +
+                  `«${call.path}» НЕ добавлен в files_to_touch, запись в него всё ещё будет отклонена.`,
+              });
+            } else {
+              writeArtifact(this.paths.plan, updated);
+              ctx = this.policyContext(stage);
+            }
           }
           return decision;
         } finally {

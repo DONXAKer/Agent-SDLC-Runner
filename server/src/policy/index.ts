@@ -34,6 +34,7 @@ const KIND_TO_TOOL: Record<CallKind, ToolName | null> = {
   ask_human: 'AskHuman',
   finalize_artifact: 'FinalizeArtifact',
   subagent: 'Task',
+  request_scope_extension: 'RequestScopeExtension',
   unknown: null,
 };
 

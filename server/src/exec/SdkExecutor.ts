@@ -60,7 +60,23 @@ function sdlcMcpServer(hooks: ExecHooks) {
     },
   );
 
-  return createSdkMcpServer({ name: 'sdlc', version: '0.1.0', tools: [askHuman, finalize] });
+  const requestScopeExtension = tool(
+    'request_scope_extension',
+    TOOL_SPECS.RequestScopeExtension.description,
+    { path: z.string(), reason: z.string() },
+    async (args) => {
+      // Дописывание `plan.md` и пересчёт `ctx.planFiles` уже произошли в `onToolRequest`
+      // ДО того, как SDK вообще позвал этот обработчик, — см. комментарий в `ask_human`.
+      const text = `«${args.path}» добавлен в files_to_touch — теперь его можно писать`;
+      return { content: [{ type: 'text' as const, text }] };
+    },
+  );
+
+  return createSdkMcpServer({
+    name: 'sdlc',
+    version: '0.1.0',
+    tools: [askHuman, finalize, requestScopeExtension],
+  });
 }
 
 function usageFromResult(m: {

@@ -34,6 +34,8 @@ export function describeCall(call: NormalizedCall): string {
       return `Финализация ${call.artifact}`;
     case 'subagent':
       return `Субагент ${call.agent}`;
+    case 'request_scope_extension':
+      return `Расширить scope: ${call.path} (${call.reason})`;
     case 'unknown':
       return `Неизвестный инструмент ${call.toolName}`;
   }

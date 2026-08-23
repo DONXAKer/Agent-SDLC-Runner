@@ -34,6 +34,8 @@ const NAME_TO_KIND = new Map<string, CallKind>([
   ['finalize_artifact', 'finalize_artifact'],
   ['Task', 'subagent'],
   ['Agent', 'subagent'],
+  ['RequestScopeExtension', 'request_scope_extension'],
+  ['request_scope_extension', 'request_scope_extension'],
 ]);
 
 function str(input: Record<string, unknown>, ...keys: string[]): string | null {
@@ -188,6 +190,13 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
       const agent = str(input, 'subagent_type', 'agent', 'name');
       if (agent === null) return { kind: 'unknown', toolName, raw: input };
       return { kind: 'subagent', agent, prompt: str(input, 'prompt', 'description') ?? '' };
+    }
+
+    case 'request_scope_extension': {
+      const path = str(input, 'path', 'file_path');
+      const reason = str(input, 'reason');
+      if (path === null || reason === null) return { kind: 'unknown', toolName, raw: input };
+      return { kind: 'request_scope_extension', path, reason };
     }
 
     case 'unknown':

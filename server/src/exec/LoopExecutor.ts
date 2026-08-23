@@ -403,6 +403,12 @@ export class LoopExecutor implements StageExecutor {
         // подтверждение, что заявка принята.
         return `артефакт заявлен готовым: ${call.artifact}`;
 
+      case 'request_scope_extension':
+        // Само расширение `plan.md` и пересчёт политики уже произошли в `onToolRequest`
+        // ДО того, как этот вызов дошёл сюда: `execute()` зовётся только после `decision.
+        // allowed`. Здесь только подтверждение модели, что путь теперь можно писать.
+        return `«${call.path}» добавлен в files_to_touch — теперь его можно писать`;
+
       case 'subagent': {
         // Субагент — вложенный прогон ТОГО ЖЕ цикла с урезанными правами.
         //

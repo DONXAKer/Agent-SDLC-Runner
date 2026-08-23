@@ -69,6 +69,25 @@ function pathFromRow(line: string): string | null {
   return plain === undefined ? null : clean(plain);
 }
 
+const ADDED_BEYOND_RE = /^(.*\*\*Добавлено сверх разведки:\*\*.*)$/m;
+
+/**
+ * Дописывает путь в `files_to_touch` плана после одобренного `request_scope_extension`
+ * (этап 5, реализация: `Run.ts`).
+ *
+ * Строка ставится СРАЗУ после «Добавлено сверх разведки», а не строкой новой таблицы:
+ * `extractFilesToTouch` уже читает путь в обратных кавычках вне таблицы, если он лежит
+ * до «Из задачи исключено» — переиспользуем это, а не заводим второй парсер для того же
+ * файла. Маркер обязан существовать: `plan.md` копируется из `plan.template.md`, где эта
+ * строка есть по форме; отсутствие — признак вручную покалеченного файла, чинить который
+ * подстановкой означало бы гадать, куда именно.
+ */
+export function appendScopeExtension(planText: string, path: string, note: string): string | null {
+  if (!ADDED_BEYOND_RE.test(planText)) return null;
+  const line = `- **Расширено:** \`${path}\` — ${note}`;
+  return planText.replace(ADDED_BEYOND_RE, (m) => `${m}\n${line}`);
+}
+
 export function extractFilesToTouch(planText: string): string[] {
   const start = SECTION_RE.exec(planText);
   if (start === null) return [];
