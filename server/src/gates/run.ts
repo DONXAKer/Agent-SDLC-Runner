@@ -11,6 +11,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 import type { GateRunResult, GateStatus } from '@sdlc-runner/shared';
 
@@ -19,6 +20,7 @@ import { builtinFor } from './builtin/index.ts';
 import type { GateRow, GatesFile } from './gatesFile.ts';
 import { gateKey, gatesRunnableAtVerify, parseGates } from './gatesFile.ts';
 import { runShell } from './shell.ts';
+import { ensureSandboxFor } from '../sandbox/registry.ts';
 
 export function loadGates(gatesPath: string): GatesFile {
   return parseGates(readFileSync(gatesPath, 'utf8'));
@@ -98,6 +100,18 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
  * а взаимные помехи — настоящие.
  */
 export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
+  // Готовим песочницу проекта ДО первого гейта — если у проекта есть `.sdlc/sandbox.json`,
+  // «Сборка»/«Тесты» пойдут внутрь неё прозрачно через `runShell` (см. `sandbox/registry.ts`).
+  // Нет спеки — `ensureSandboxFor` возвращает `null`, и всё идёт локальным путём, как раньше.
+  // Сбой сборки образа НЕ роняет виток целиком: гейты просто останутся на локальном
+  // исполнителе и упадут своей обычной красной строкой («java: not found» и т.п.) — это то
+  // же самое состояние, что было до появления песочницы, а не новый класс отказа.
+  try {
+    await ensureSandboxFor(i.projectRoot, basename(i.projectRoot));
+  } catch (e) {
+    console.error(`[sandbox] песочница ${i.projectRoot} не поднялась: ${(e as Error).message}`);
+  }
+
   // Контекст один на прогон и общий для всех гейтов: по нему кэшируется разбор diff'а
   // (`diffViolations`), который иначе тянут по разу «Анти-обход» и «Секреты». Пересоздание
   // контекста на каждый гейт обнуляло бы кэш, а модульный кэш по корню проекта пережил бы

@@ -8,11 +8,17 @@
  *
  * Вывод режется: гейт, уронивший сборку, печатает мегабайты, а вердикту нужна последняя
  * содержательная строка и хвост для диагноза.
+ *
+ * Исполнитель команды — `LocalSandbox` (спавн в процессе Runner'а, как всегда) или
+ * `DockerSandbox` проекта, если для него подготовлена песочница (`sandbox/registry.ts`).
+ * Выбор прозрачен для вызывающих: сигнатура и структура результата не меняются, а без
+ * `.sdlc/sandbox.json` у проекта реестр пуст и путь ровно тот же, что был до песочницы.
  */
 
 import { spawn } from 'node:child_process';
 
 import { checkBash } from '../policy/denyList.ts';
+import { findSandboxForCwd } from '../sandbox/registry.ts';
 
 export interface ShellResult {
   exitCode: number | null;
@@ -64,6 +70,23 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
       timedOut: false,
       denied: guard.reason,
     });
+  }
+
+  const sandbox = findSandboxForCwd(opts.cwd);
+  if (sandbox !== null && sandbox.exec.kind === 'docker') {
+    return sandbox.exec
+      .exec(command, opts)
+      .then((r) => ({
+        exitCode: r.exitCode,
+        stdout: r.stdout,
+        stderr: r.stderr,
+        lastLine: r.timedOut
+          ? `команда не уложилась в ${opts.timeoutMs} мс`
+          : lastMeaningfulLine(r.stdout) || lastMeaningfulLine(r.stderr),
+        durationMs: r.durationMs,
+        timedOut: r.timedOut,
+        denied: null,
+      }));
   }
 
   return new Promise<ShellResult>((resolve) => {

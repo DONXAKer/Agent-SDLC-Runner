@@ -33,8 +33,16 @@ FROM node:22-slim
 # git нужен не для удобства: на нём держатся обязательные гейты — scope (сверка diff с
 # `files_to_touch`), анти-обход тест-гейта и детект отсутствия прогресса. Без него они
 # честно отвечают `⏭`, и зелёный вердикт становится недостижим.
+#
+# docker.io ставит клиент `docker` — не демон. Демон остаётся на хосте: `docker-compose.yml`
+# монтирует его сокет (`/var/run/docker.sock`) сюда же. Это даёт `server/src/sandbox/` собирать
+# и исполнять команды в песочнице ПРОЕКТА (`.sdlc/sandbox.json`) — своя JDK/Node/итд под
+# каждый проект, а не то, что случайно оказалось в этом образе. Осознанная уступка: доступ
+# к сокету хоста — это root-эквивалентный доступ к хосту для того, кто пролез в контейнер
+# Runner'а. Подтверждено оператором явно (не тихий выбор дефолта), см. `.sdlc/sandbox.json`
+# CV и `server/src/sandbox/dockerSandbox.ts`.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates \
+ && apt-get install -y --no-install-recommends git ca-certificates docker.io \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
