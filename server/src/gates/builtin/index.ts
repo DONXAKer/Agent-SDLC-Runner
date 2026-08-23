@@ -735,12 +735,17 @@ const DUPLICATE_SCAN_LIMIT = 2000;
  * Обход останавливается по достижении лимита и пропускает каталоги зависимостей и истории:
  * искать одноимённую функцию в `node_modules` бессмысленно, а времени это стоит больше,
  * чем весь остальной гейт.
+ *
+ * Асинхронный по той же причине, что и обход в `exec/tools/index.ts::grep`: `readdirSync`/
+ * `statSync` сами по себе синхронны, но на большом дереве (до 2000 файлов) обход без единой
+ * уступки циклу событий блокирует WebSocket-события и отмену прогона на всё время гейта.
+ * Уступка на каждую запись каталога — тот же паттерн, что уже используется там.
  */
-function listSourceFiles(
+async function listSourceFiles(
   root: string,
   limit: number,
   signal?: AbortSignal,
-): { files: string[]; truncated: boolean } {
+): Promise<{ files: string[]; truncated: boolean }> {
   const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', 'vendor', '.sdlc', 'venv', '__pycache__']);
   const out: string[] = [];
   let truncated = false;
@@ -754,7 +759,7 @@ function listSourceFiles(
   // проверке заставляло компилятор считать вторую невозможной.
   const cancelled = (): boolean => signal !== undefined && signal.aborted;
 
-  const walk = (rel: string, depth: number): void => {
+  const walk = async (rel: string, depth: number): Promise<void> => {
     if (out.length >= limit || depth > MAX_DEPTH) return;
     if (cancelled()) return;
     let entries: string[];
@@ -768,6 +773,9 @@ function listSourceFiles(
         truncated = true;
         return;
       }
+      // Отдаём управление циклу событий на каждую запись каталога: без этой уступки
+      // отмена прогона и ответы по сокету ждали бы конца всего обхода.
+      await new Promise((r) => setImmediate(r));
       if (cancelled()) return;
       if (SKIP.has(name) || name.startsWith('.')) continue;
       const child = rel === '' ? name : `${rel}/${name}`;
@@ -781,14 +789,14 @@ function listSourceFiles(
       } catch {
         continue;
       }
-      if (isDir) walk(child, depth + 1);
+      if (isDir) await walk(child, depth + 1);
       else if (CODE_EXTENSIONS.has(child.slice(child.lastIndexOf('.')).toLowerCase())) {
         out.push(child);
       }
     }
   };
 
-  walk('', 0);
+  await walk('', 0);
   return { files: out, truncated };
 }
 
@@ -832,7 +840,7 @@ const duplicatesGate: BuiltinGate = async (ctx) => {
     };
   }
 
-  const { files, truncated } = listSourceFiles(ctx.projectRoot, DUPLICATE_SCAN_LIMIT, ctx.signal);
+  const { files, truncated } = await listSourceFiles(ctx.projectRoot, DUPLICATE_SCAN_LIMIT, ctx.signal);
   const checkedNames = Math.min(added.length, DUPLICATE_NAME_LIMIT);
   const found = findDuplicates(added.slice(0, DUPLICATE_NAME_LIMIT), files, (f) =>
     readIfExists(join(ctx.projectRoot, f)),

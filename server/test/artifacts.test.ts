@@ -69,6 +69,17 @@ describe('поля решений человека', () => {
     strictEqual(readDecision(t, DECISION.accepted).state, 'declined');
   });
 
+  // Регрессия: DOUBLE_NEGATIVE_SAFE_WORD не включал корни самого NEGATIVE_TRIGGER
+  // (отклон/отказ/отверг/провал) — «не провален»/«не отклонён» читались как отказ,
+  // хотя это двойное отрицание с положительным итогом, как и «не пропущен».
+  it('двойное отрицание с корнем самого триггера — не отказ', () => {
+    for (const v of ['не отклонён', 'не отказано', 'не отвергнут', 'не провален']) {
+      const t = `- **Одобрение:** **${v}** — Иван · 2026-08-16`;
+      const d = readDecision(t, DECISION.approval);
+      strictEqual(d.state, 'granted', `«${v}» — двойное отрицание, не должно быть отказом`);
+    }
+  });
+
   it('заполненное поле читается как одобрение', () => {
     const t = setDecision(PLAN_UNAPPROVED, DECISION.approval, decisionValue('Иван', new Date('2026-08-16')));
     const d = readDecision(t, DECISION.approval);

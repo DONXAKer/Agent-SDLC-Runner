@@ -15,6 +15,7 @@ import { php } from './php.ts';
 import { python } from './python.ts';
 import { ruby } from './ruby.ts';
 import { cargo } from './rust.ts';
+import { swift } from './swift.ts';
 import type { BuildSystem, Ecosystem, EcosystemEnv } from './types.ts';
 
 export type { BuildSystem, Ecosystem, EcosystemEnv } from './types.ts';
@@ -38,6 +39,7 @@ export const ORDER: readonly Ecosystem[] = [
   php,
   dotnet,
   ruby,
+  swift,
   python,
 ];
 

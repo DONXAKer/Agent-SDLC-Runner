@@ -137,6 +137,16 @@ describe('реестр экосистем', () => {
     );
   });
 
+  it('Swift — своя экосистема, а не слепое пятно между Package.swift и .swift', () => {
+    // Регрессия: `.swift` не входил ни в один `codeExt` реестра — «Анти-обход тест-гейта»
+    // и «Дубли хелперов» молча не смотрели на Swift-файлы вообще, не давая ни ✅, ни ❌.
+    ok(CODE_EXTENSIONS.has('.swift'), '.swift обязан быть в реестре расширений кода');
+    strictEqual(detectEcosystem(set('Package.swift'))?.id, 'swift');
+    ok(syntaxCheckerFor('Sources/App/a.swift') !== null, 'у swift обязана быть проверка синтаксиса');
+    ok(disableMarkersFor('Tests/AppTests/aTests.swift').includes('XCTSkip'));
+    ok(testDeclarationsFor('Tests/AppTests/aTests.swift').includes('func test'));
+  });
+
   it('маркеры берутся по языку файла и собраны без дублей', () => {
     ok(CODE_EXTENSIONS.has('.py') && CODE_EXTENSIONS.has('.java') && CODE_EXTENSIONS.has('.ts'));
 
