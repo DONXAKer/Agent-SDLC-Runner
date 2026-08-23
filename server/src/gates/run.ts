@@ -35,6 +35,14 @@ export interface RunGatesInput extends GateContext {
    */
   externalStatuses?: Readonly<Record<string, GateStatus>>;
   onResult?: (r: GateRunResult) => void;
+  /**
+   * Имя проекта из конфига (`ProjectConfig.name`) — идентификатор песочницы. Не задано —
+   * `basename(projectRoot)`, тот же фолбэк, что был единственным поведением до появления
+   * этого поля. Важно совпадать с именем, которым уже пользовался pre-flight
+   * (`sandbox/preflight.ts`): разные имена — разные контейнеры, и гейты пойдут МИМО той
+   * песочницы, которую только что проверили пробами.
+   */
+  projectName?: string;
 }
 
 async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise<GateRunResult> {
@@ -107,7 +115,7 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
   // исполнителе и упадут своей обычной красной строкой («java: not found» и т.п.) — это то
   // же самое состояние, что было до появления песочницы, а не новый класс отказа.
   try {
-    await ensureSandboxFor(i.projectRoot, basename(i.projectRoot));
+    await ensureSandboxFor(i.projectRoot, i.projectName ?? basename(i.projectRoot));
   } catch (e) {
     console.error(`[sandbox] песочница ${i.projectRoot} не поднялась: ${(e as Error).message}`);
   }

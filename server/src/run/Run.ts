@@ -50,6 +50,7 @@ import type { GatesFile } from '../gates/gatesFile.ts';
 import { configProblems, gateKey, parseGates, uncalibratedGates } from '../gates/gatesFile.ts';
 import { describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
 import { runGates } from '../gates/run.ts';
+import { preflightBlockers } from '../sandbox/preflight.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
 import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
@@ -801,6 +802,7 @@ export class Run {
     const results = await runGates({
       gates,
       projectRoot: this.project.projectRoot,
+      projectName: this.project.name,
       planFiles: this.planFilesFor('verify') ?? [],
       baseline: this.readBaseline(),
       timeoutMs: this.config.runner.limits.gateTimeoutMs,
@@ -1022,6 +1024,20 @@ export class Run {
       this.status = 'failed';
       this.emit({ type: 'error', runId: this.id, stage, message });
       return { ok: false, finalText: '', usage: emptyUsage(), note: message };
+    }
+
+    // Только «Тесты»/«Сборка» реально идут через `runShell`, и только на этапе 6 — pre-flight
+    // здесь, а не после запуска модели: несоответствие среды раньше обнаруживалось только
+    // прогоном самих гейтов, то есть после того, как разведка и отчёт уже съели попытку.
+    // До `nextAttempt()` (отдельный метод, не вызывается отсюда) — попытка не тратится.
+    if (stage === 'verify') {
+      const sandboxBlockers = await preflightBlockers(this.project.projectRoot, this.project.name);
+      if (sandboxBlockers.length > 0) {
+        const message = sandboxBlockers.join('\n');
+        this.status = 'failed';
+        this.emit({ type: 'error', runId: this.id, stage, message });
+        return { ok: false, finalText: '', usage: emptyUsage(), note: message };
+      }
     }
 
     if (report.skip !== null) {

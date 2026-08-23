@@ -21,6 +21,7 @@ import {
   _setSandboxForTests,
 } from '../src/sandbox/registry.ts';
 import { parseSandboxSpec, SandboxSpecError, loadSandboxSpec } from '../src/sandbox/spec.ts';
+import { preflightBlockers } from '../src/sandbox/preflight.ts';
 import type { SandboxHandle, SandboxSpec } from '../src/sandbox/types.ts';
 
 const CV_LIKE_SPEC: SandboxSpec = {
@@ -131,6 +132,20 @@ function fakeHandle(hash: string): SandboxHandle {
     runProbes: async () => [],
   };
 }
+
+describe('preflightBlockers: не трогает Docker, если у проекта нет спеки', () => {
+  it('проект без .sdlc/sandbox.json — пустой список блокеров, без похода в Docker', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sdlc-preflight-'));
+    try {
+      // Нет `Docker` мок-объекта нарочно: если бы функция полезла собирать образ для
+      // проекта без спеки, тест бы завис на реальном docker build, а не просто прошёл —
+      // отсутствие похода в Docker и есть то, что здесь проверяется.
+      deepStrictEqual(await preflightBlockers(dir, 'no-spec-project'), []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('hostMountSource: перевод пути для docker-outside-of-docker', () => {
   afterEach(() => {
