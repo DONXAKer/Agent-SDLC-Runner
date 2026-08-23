@@ -15,6 +15,9 @@ import { describe, it } from 'node:test';
 
 import type { ConfigInfo, RunStatus, Usage } from '@sdlc-runner/shared';
 
+import type { Question } from '@sdlc-runner/shared';
+
+import { allQuestionsAnswered } from '../src/lib/askAnswers.ts';
 import { fmtCost, fmtDuration, fmtTokens } from '../src/lib/format.ts';
 import { GATE_TONE } from '../src/lib/gateTone.ts';
 import { evaluateReviewerRule } from '../src/lib/reviewerRule.ts';
@@ -145,5 +148,43 @@ describe('правило рецензента на клиенте', () => {
     const v = evaluateReviewerRule({ models, stages: {}, base: { chunk: ['нет-такой'], verify: ['mid'] } });
     strictEqual(v.chunkRank, null);
     strictEqual(v.broken, false);
+  });
+});
+
+describe('готовность кнопки «Ответить» в диалоге вопроса человеку', () => {
+  const q = (id: string, multiSelect = false): Question => ({
+    id,
+    question: `вопрос ${id}`,
+    header: id,
+    multiSelect,
+    options: [
+      { label: 'A', description: '' },
+      { label: 'B', description: '' },
+    ],
+  });
+
+  it('ни один вопрос без ответа — не готово', () => {
+    strictEqual(allQuestionsAnswered([q('q1'), q('q2')], {}, {}), false);
+  });
+
+  it('часть вопросов отвечена — всё ещё не готово', () => {
+    strictEqual(allQuestionsAnswered([q('q1'), q('q2')], { q1: ['A'] }, {}), false);
+  });
+
+  it('все вопросы отвечены выбором опции — готово', () => {
+    strictEqual(allQuestionsAnswered([q('q1'), q('q2')], { q1: ['A'], q2: ['B'] }, {}), true);
+  });
+
+  it('свой текстовый ответ считается ответом наравне с выбором', () => {
+    strictEqual(allQuestionsAnswered([q('q1'), q('q2')], { q1: ['A'] }, { q2: 'мой вариант' }), true);
+  });
+
+  it('пустой или пробельный свой ответ ответом не считается', () => {
+    strictEqual(allQuestionsAnswered([q('q1')], {}, { q1: '   ' }), false);
+    strictEqual(allQuestionsAnswered([q('q1')], {}, { q1: '' }), false);
+  });
+
+  it('пустой список вопросов — готово по умолчанию (нечего отвечать)', () => {
+    strictEqual(allQuestionsAnswered([], {}, {}), true);
   });
 });

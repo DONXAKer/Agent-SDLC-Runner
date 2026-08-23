@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import type { Question } from '@sdlc-runner/shared';
+import { allQuestionsAnswered } from '../lib/askAnswers.ts';
 
 /**
  * Вопрос человеку. Отдельно от одобрения вызова: там человек разрешает уже сформированное
@@ -37,6 +38,13 @@ export function AskHumanDialog({
     }
     onAnswer(requestId, answers);
   };
+
+  // У КАЖДОГО подвопроса обязан быть ответ — выбранная опция или свой текст — прежде чем
+  // «Ответить» станет нажимаемой. Раньше клик по «Ответить» без выбора (или клик по
+  // соседней кнопке до того, как оператор дочитал варианты) резолвил вопрос пустым
+  // `answers[q.id] = []`, и модель получала «человек ответил» на вопрос, который никто не
+  // читал, — неотличимо от настоящего пропуска через отдельную кнопку.
+  const allAnswered = allQuestionsAnswered(questions, picked, custom);
 
   return (
     <div className="rounded-lg border border-sky-700/60 bg-sky-950/20 p-4">
@@ -83,7 +91,9 @@ export function AskHumanDialog({
         <button
           type="button"
           onClick={submit}
-          className="rounded bg-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-sky-600"
+          disabled={!allAnswered}
+          title={allAnswered ? undefined : 'выбери вариант или впиши свой ответ на каждый вопрос'}
+          className="rounded bg-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500 disabled:hover:bg-neutral-800"
         >
           Ответить
         </button>
