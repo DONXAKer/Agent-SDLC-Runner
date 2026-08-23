@@ -31,6 +31,7 @@ const POLICY_LABEL: Record<string, string> = {
   denyList: 'запрещённая категория',
   planScope: 'вне files_to_touch плана',
   stageTools: 'инструмент не разрешён на этапе',
+  repeatFailure: 'команда повторно падает',
 };
 
 export function ToolApproval({

@@ -92,10 +92,28 @@ export interface GateEvents {
  */
 const NO_HUMAN_STEP = new Set(['read', 'glob', 'grep', 'ask_human']);
 
+/**
+ * Столько раз подряд одна и та же команда обязана упасть, прежде чем гейт откажет
+ * в повторе сам, не дожидаясь оператора.
+ *
+ * Наблюдение живого витка: рецензент прогнал ~10 одинаковых падающих `jar xf`/`javap` по
+ * разным путям `.m2`, прерван вручную через reject. Три — это ещё «может, опечатка
+ * в пути», четвёртый одинаковый — уже не диагностика, а зацикливание.
+ */
+const MAX_REPEAT_BASH_FAILURES = 3;
+
 export class ApprovalGate {
   private readonly waiting = new Map<string, Waiting>();
   /** Правила автоодобрения по этапам. Отсутствие записи означает «спрашивать всегда». */
   private readonly autoRules = new Map<string, AutoApproveRules>();
+  /**
+   * Сколько раз подряд упала последняя команда bash этого прогона, и какая именно.
+   *
+   * По `runId`, не по `runId+stage`: зацикливание не спрашивает, сменился ли этап — та же
+   * команда, повторённая после случайного перехода между этапами, всё ещё зацикливание.
+   * Успех или другая команда сбрасывают счётчик — см. `recordBashResult`.
+   */
+  private readonly bashFailures = new Map<string, { command: string; count: number }>();
   private readonly events: GateEvents;
 
   constructor(events: GateEvents) {
@@ -180,6 +198,25 @@ export class ApprovalGate {
     const info = { runId: args.runId, stage: args.stage, requestId: args.requestId };
     const writeTargets = writeTargetsOf(args.call);
     const base = { ...args, writeTargets, createdAt: Date.now() };
+
+    // Одна и та же bash-команда упала уже `MAX_REPEAT_BASH_FAILURES` раз подряд — отказ
+    // ЗДЕСЬ, до политики и до оператора: не находка политики (команда сама по себе
+    // разрешена), а факт истории этого прогона, которого чистая `evaluate` знать не может.
+    const call = args.call;
+    const loop = call.kind === 'bash' ? this.bashFailures.get(args.runId) : undefined;
+    if (loop !== undefined && call.kind === 'bash' && loop.command === call.command && loop.count >= MAX_REPEAT_BASH_FAILURES) {
+      const policy: PolicyVerdict = {
+        ok: false,
+        policy: 'repeatFailure',
+        reason:
+          `эта команда уже упала ${loop.count} раз подряд без изменений — команда падает ` +
+          `повторно, смени подход, а не повторяй тот же вызов`,
+      };
+      const decision: Decision = { allowed: false, reason: `[repeatFailure] ${policy.reason}`, by: 'policy' };
+      this.events.onPending(visible({ ...base, policy, preview: null, resolve: () => {} }));
+      this.events.onResolved(info, decision);
+      return decision;
+    }
 
     const policy = this.checkAll(args.call, args.ctx);
     if (!policy.ok) {
@@ -297,5 +334,24 @@ export class ApprovalGate {
     for (const k of [...this.autoRules.keys()]) {
       if (k.startsWith(`${runId}:`)) this.autoRules.delete(k);
     }
+    this.bashFailures.delete(runId);
+  }
+
+  /**
+   * Обновляет счётчик подряд идущих провалов bash-команды этого прогона.
+   *
+   * Зовёт `Run.onToolResult` — единственное место обоих флоу, которое узнаёт исход ПОСЛЕ
+   * исполнения; `request()` выше решает ДО исполнения и исхода знать не может. Успех или
+   * другая команда обнуляют счётчик: зацикливание — это одна и та же команда N раз подряд,
+   * не N провалов вперемешку с другими попытками.
+   */
+  recordBashResult(runId: string, command: string, ok: boolean): void {
+    if (ok) {
+      this.bashFailures.delete(runId);
+      return;
+    }
+    const prev = this.bashFailures.get(runId);
+    const count = prev !== undefined && prev.command === command ? prev.count + 1 : 1;
+    this.bashFailures.set(runId, { command, count });
   }
 }

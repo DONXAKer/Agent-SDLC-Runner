@@ -112,7 +112,7 @@ export type CallKind = NormalizedCall['kind'];
 // Политика доступа
 // ---------------------------------------------------------------------------
 
-export type PolicyName = 'pathScope' | 'denyList' | 'planScope' | 'stageTools';
+export type PolicyName = 'pathScope' | 'denyList' | 'planScope' | 'stageTools' | 'repeatFailure';
 
 export type PolicyVerdict =
   | { ok: true }

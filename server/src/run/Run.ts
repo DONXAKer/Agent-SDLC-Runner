@@ -1217,6 +1217,9 @@ export class Run {
     const ctx = this.policyContext(stage);
     /** Вызовы субагента-рецензента, ждущие результата: по ним ставится факт ревью. */
     const pendingReviewer = new Set<string>();
+    /** Команда bash по requestId — только для вызовов, дошедших до исполнения: `onToolResult`
+     * знает исход, но не сам вызов, `recordBashResult` гейта нужны оба. */
+    const pendingBash = new Map<string, string>();
     /**
      * Имена, под которыми у этого этапа объявлен независимый рецензент, — и только они.
      *
@@ -1256,6 +1259,9 @@ export class Run {
           if (decision.allowed && call.kind === 'subagent' && reviewerNames.has(call.agent)) {
             pendingReviewer.add(meta.requestId);
           }
+          if (decision.allowed && call.kind === 'bash') {
+            pendingBash.set(meta.requestId, call.command);
+          }
           return decision;
         } finally {
           this.status = 'running';
@@ -1267,6 +1273,12 @@ export class Run {
         // прогона рецензента, и вот он, этот факт: вызов дошёл до результата без ошибки.
         if (meta.ok && pendingReviewer.has(meta.requestId)) this.markReviewerRan();
         pendingReviewer.delete(meta.requestId);
+
+        const bashCommand = pendingBash.get(meta.requestId);
+        if (bashCommand !== undefined) {
+          this.gate.recordBashResult(this.id, bashCommand, meta.ok);
+          pendingBash.delete(meta.requestId);
+        }
 
         this.emit({
           type: 'tool_result',
