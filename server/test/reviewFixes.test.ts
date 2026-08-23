@@ -21,7 +21,7 @@ import { LoopExecutor } from '../src/exec/LoopExecutor.ts';
 import { normalize } from '../src/exec/normalize.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import { executeTool, type ToolContext } from '../src/exec/tools/index.ts';
-import { configProblems, parseCommand, parseGates } from '../src/gates/gatesFile.ts';
+import { configProblems, parseCommand, parseGates, unimplementedGates } from '../src/gates/gatesFile.ts';
 import { evaluate } from '../src/policy/index.ts';
 import type { ChatProvider, ChatTurn } from '../src/provider/ChatProvider.ts';
 import { toolCallFromText } from '../src/provider/OpenAiCompatProvider.ts';
@@ -379,6 +379,41 @@ describe('набор гейтов', () => {
       ].join('\n'),
     );
     ok(configProblems(g).some((p) => /одним именем/.test(p)), configProblems(g).join('; '));
+  });
+
+  it('гейт этапа 6 без команды и без встроенной реализации назван до прогона, не после', () => {
+    const g = parseGates(
+      [
+        '## Набор',
+        '',
+        '| Гейт | Вкл | Где отчитывается | Чем реализован |',
+        '|---|---|---|---|',
+        '| Сборка | да — минимум | этап 6 | `npm run build` |',
+        '| Тесты | да — минимум | этап 6 | `npm test` |',
+        '| Scope: файлы вне плана | да — минимум | этап 6 | скрипт |',
+        '| Анти-обход тест-гейта | да — минимум | этап 6 | скрипт |',
+        '| Ревью независимым агентом | да — минимум | этап 6 | агент |',
+        '| Свой гейт | да | этап 6 | проза без обратных кавычек |',
+      ].join('\n'),
+    );
+    const isBuiltin = (name: string): boolean => /^(сборка|тесты)$/.test(name.toLowerCase());
+    const problems = unimplementedGates(g, isBuiltin);
+    ok(problems.some((p) => /Свой гейт/.test(p)), problems.join('; '));
+    // «Сборка»/«Тесты» дали команду в кавычках — не попадают в список независимо от isBuiltin.
+    ok(!problems.some((p) => /«Сборка»/.test(p) || /«Тесты»/.test(p)), problems.join('; '));
+  });
+
+  it('гейт с командой в кавычках не считается неисполнимым, даже если isBuiltin(name) вернул false', () => {
+    const g = parseGates(
+      [
+        '## Набор',
+        '',
+        '| Гейт | Вкл | Где отчитывается | Чем реализован |',
+        '|---|---|---|---|',
+        '| Сборка | да — минимум | этап 6 | `npm run build` |',
+      ].join('\n'),
+    );
+    strictEqual(unimplementedGates(g, () => false).length, 0);
   });
 });
 

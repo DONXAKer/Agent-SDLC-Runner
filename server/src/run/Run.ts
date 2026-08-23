@@ -47,8 +47,8 @@ import type {
 } from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
-import { configProblems, gateKey, parseGates, uncalibratedGates } from '../gates/gatesFile.ts';
-import { describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
+import { configProblems, gateKey, parseGates, uncalibratedGates, unimplementedGates } from '../gates/gatesFile.ts';
+import { builtinFor, describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
 import { runGates } from '../gates/run.ts';
 import { preflightBlockers } from '../sandbox/preflight.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
@@ -784,6 +784,7 @@ export class Run {
         );
       } else {
         problems.push(...configProblems(gates));
+        problems.push(...unimplementedGates(gates, (name) => builtinFor(name) !== null));
       }
     }
 
