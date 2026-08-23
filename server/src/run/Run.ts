@@ -28,7 +28,7 @@ import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 
-import { decisionValue, readArtifact, setDecision, writeArtifact } from '../artifacts/artifact.ts';
+import { decisionValue, readArtifact, readField, setDecision, writeArtifact } from '../artifacts/artifact.ts';
 import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { extractFilesToTouch } from '../artifacts/planFiles.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
@@ -49,6 +49,7 @@ import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
 import { configProblems, gateKey, parseGates, uncalibratedGates, unimplementedGates } from '../gates/gatesFile.ts';
 import { builtinFor, describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
+import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGates } from '../gates/run.ts';
 import { preflightBlockers } from '../sandbox/preflight.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
@@ -1021,6 +1022,32 @@ export class Run {
     writeArtifact(path, JSON.stringify(snapshot, null, 2));
   }
 
+  /**
+   * Блокер, если рабочее дерево стоит не на ветке, объявленной задачей.
+   *
+   * `null` — либо ветка совпадает, либо проверять не с чем: не git-репозиторий, поле
+   * «Ветка витка» не заполнено или в нём плейсхолдер (`intent.md` этого не требует —
+   * поле по форме опционально текстом-подсказкой «‹sdlc/слаг или по конвенции проекта›»,
+   * и виток без него не бракуется, просто теряет эту конкретную защиту). Заполненное
+   * поле — обязательство, которое Runner проверяет за оператора: тот самый коммит на
+   * `main` из AUTH-104 обнаружился только гейтом «Проверка предусловий публикации» на
+   * этапе 7, когда правка уже легла на неверную ветку.
+   */
+  private async branchMismatchBlocker(): Promise<string | null> {
+    const declared = readField(readArtifact(this.paths.intent).text, 'Ветка витка');
+    if (declared === null) return null;
+    if (!(await isRepo(this.project.projectRoot))) return null;
+
+    const actual = await currentBranch(this.project.projectRoot);
+    if (actual === declared) return null;
+    return (
+      `рабочее дерево на ветке «${actual}», а задача объявляет «${declared}» (intent.md → ` +
+      `«Ветка витка»). Правка в этом состоянии легла бы не туда — переключись на нужную ветку ` +
+      `сам (\`git checkout -b ${declared}\` или \`git checkout ${declared}\`) и начни попытку ` +
+      `заново; Runner не переключает ветку автоматически, чтобы не тронуть незакоммиченное.`
+    );
+  }
+
   /** Отменяет текущий этап: и исполнителя, и всё, что ждёт ответа оператора. */
   cancel(reason: string): void {
     this.aborter?.abort();
@@ -1075,6 +1102,21 @@ export class Run {
         this.status = 'failed';
         this.emit({ type: 'error', runId: this.id, stage, message });
         return { ok: false, finalText: '', usage: emptyUsage(), note: message };
+      }
+    }
+
+    // `chunk` — первый этап, где модель реально пишет в рабочее дерево (`Write`/`Edit`).
+    // Проверка ЗДЕСЬ, а не в handoff'е (где формально стоит гейт «Проверка предусловий
+    // публикации»): тот гейт находит неверную ветку уже ПОСЛЕ коммита — правка на `main`
+    // случилась раньше, чем гейт вообще успел отчитаться. Не переключаем ветку
+    // автоматически: `git checkout` посреди грязного дерева — свой источник потери
+    // рабочих файлов, а решение, что считать «текущей задачей», принимает человек.
+    if (stage === 'chunk') {
+      const branchBlocker = await this.branchMismatchBlocker();
+      if (branchBlocker !== null) {
+        this.status = 'failed';
+        this.emit({ type: 'error', runId: this.id, stage, message: branchBlocker });
+        return { ok: false, finalText: '', usage: emptyUsage(), note: branchBlocker };
       }
     }
 

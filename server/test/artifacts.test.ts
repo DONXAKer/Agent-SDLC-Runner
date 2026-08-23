@@ -10,6 +10,7 @@ import {
   decisionValue,
   placeholderRanges,
   readDecision,
+  readField,
   setDecision,
   writeArtifact,
 } from '../src/artifacts/artifact.ts';
@@ -111,6 +112,18 @@ describe('поля решений человека', () => {
   it('зачёркнутое прежнее решение не воскресает', () => {
     const t = `- **Одобрение:** ~~Иван · 2026-08-01~~ отозвано, план переписан`;
     strictEqual(readDecision(t, DECISION.approval).state, 'placeholder');
+  });
+});
+
+describe('readField: сырое значение простого поля', () => {
+  it('заполненное поле возвращается как есть', () => {
+    strictEqual(readField('- **Ветка витка:** sdlc/auth-104', 'Ветка витка'), 'sdlc/auth-104');
+  });
+
+  it('плейсхолдер, пусто и отсутствие поля — всё null', () => {
+    strictEqual(readField('- **Ветка витка:** ‹sdlc/слаг или по конвенции проекта›', 'Ветка витка'), null);
+    strictEqual(readField('- **Ветка витка:** ', 'Ветка витка'), null);
+    strictEqual(readField('# План\nбез поля', 'Ветка витка'), null);
   });
 });
 

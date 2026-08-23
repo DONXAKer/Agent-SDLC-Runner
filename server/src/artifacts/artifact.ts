@@ -189,6 +189,19 @@ function fieldRegex(label: string): RegExp {
   return new RegExp(`^(.*\\*\\*${escapeRe(label)}:\\*\\*)(.*)$`, 'm');
 }
 
+/**
+ * Сырое значение простого поля-метки («- **Ветка витка:** sdlc/auth-104») — без семантики
+ * решения человека, которую несёт `readDecision`. `null` — поля нет, плейсхолдер или пусто:
+ * вызывающий сам решает, что означает отсутствие значения для его конкретного поля.
+ */
+export function readField(text: string, label: string): string | null {
+  const m = fieldRegex(label).exec(text);
+  if (m === null) return null;
+  const raw = (m[2] ?? '').trim();
+  if (raw === '' || hasPlaceholder(raw)) return null;
+  return raw;
+}
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
