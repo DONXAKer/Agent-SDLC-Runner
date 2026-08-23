@@ -19,6 +19,7 @@ import { spawn } from 'node:child_process';
 
 import { checkBash } from '../policy/denyList.ts';
 import { findSandboxForCwd } from '../sandbox/registry.ts';
+import { cap } from '../sandbox/capture.ts';
 
 export interface ShellResult {
   exitCode: number | null;
@@ -32,8 +33,6 @@ export interface ShellResult {
   denied: string | null;
 }
 
-const MAX_CAPTURE = 200_000;
-
 export function lastMeaningfulLine(text: string): string {
   const lines = text.split(/\r?\n/);
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -41,13 +40,6 @@ export function lastMeaningfulLine(text: string): string {
     if (t !== '') return t;
   }
   return '';
-}
-
-function cap(chunks: string[]): string {
-  const joined = chunks.join('');
-  return joined.length <= MAX_CAPTURE
-    ? joined
-    : `${joined.slice(0, MAX_CAPTURE / 2)}\n…[обрезано рантаймом]…\n${joined.slice(-MAX_CAPTURE / 2)}`;
 }
 
 export interface ShellOptions {

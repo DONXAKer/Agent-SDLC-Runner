@@ -83,6 +83,21 @@ export interface DetectResult {
   evidence: string[];
 }
 
+/** Файл без прав на чтение, битый symlink или удалённый между `readdirSync` и
+ * `readFileSync` (реальная гонка — сам `walk` уже ловит такую же для каталогов, строки
+ * 30-34) — `null`, не исключение. Весь модуль — best-effort детект: один нечитаемый файл
+ * не должен ронять черновик спеки целиком, только эту одну находку. Раньше `readFileSync`
+ * трёх мест ниже был не обёрнут — исключение долетало необработанным до
+ * `GET /api/projects/:name/sandbox/detect`, где try/catch маршрута ловил его как 404
+ * «проект не найден», хотя `requireProject` уже успешно нашёл проект. */
+function tryReadFile(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
 export function detectSandboxSpec(projectRoot: string): DetectResult {
   const evidence: string[] = [];
   let jdkVersion: string | null = null;
@@ -91,19 +106,22 @@ export function detectSandboxSpec(projectRoot: string): DetectResult {
 
   walk(projectRoot, (path, name) => {
     if (name === 'pom.xml' && jdkVersion === null) {
-      const v = jdkVersionFromPom(readFileSync(path, 'utf8'));
+      const content = tryReadFile(path);
+      const v = content === null ? null : jdkVersionFromPom(content);
       if (v !== null) {
         jdkVersion = v;
         evidence.push(`JDK ${v} — из ${path}`);
       }
     } else if (name === 'package.json' && nodeVersion === null) {
-      const v = nodeVersionFromPackageJson(readFileSync(path, 'utf8'));
+      const content = tryReadFile(path);
+      const v = content === null ? null : nodeVersionFromPackageJson(content);
       if (v !== null) {
         nodeVersion = v;
         evidence.push(`Node ${v} — из ${path} (engines.node)`);
       }
     } else if (name === 'Dockerfile' && nodeVersion === null) {
-      const v = nodeVersionFromDockerfile(readFileSync(path, 'utf8'));
+      const content = tryReadFile(path);
+      const v = content === null ? null : nodeVersionFromDockerfile(content);
       if (v !== null) {
         nodeVersion = v;
         evidence.push(`Node ${v} — из ${path} (FROM node:…)`);
@@ -113,13 +131,10 @@ export function detectSandboxSpec(projectRoot: string): DetectResult {
       // тянет за собой характерное имя файла или директорию `test`/`it`, и импорт ищется
       // только там, а не по всему дереву исходников.
       if (/test|\bit\b/i.test(path)) {
-        try {
-          if (/testcontainers/i.test(readFileSync(path, 'utf8'))) {
-            needsDocker = true;
-            evidence.push(`Testcontainers — из ${path}`);
-          }
-        } catch {
-          // нечитаемый файл детекту не критичен
+        const content = tryReadFile(path);
+        if (content !== null && /testcontainers/i.test(content)) {
+          needsDocker = true;
+          evidence.push(`Testcontainers — из ${path}`);
         }
       }
     }

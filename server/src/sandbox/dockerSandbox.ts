@@ -11,12 +11,14 @@
  * exec` — нет.
  */
 
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { buildDockerfile, imageTag } from './dockerfile.ts';
+import { buildDockerfile, imageTag, projectSlug } from './dockerfile.ts';
+import { cap } from './capture.ts';
 import type {
   SandboxExec,
   SandboxExecOptions,
@@ -25,15 +27,6 @@ import type {
   SandboxProbeResult,
   SandboxSpec,
 } from './types.ts';
-
-const MAX_CAPTURE = 200_000;
-
-function cap(chunks: string[]): string {
-  const joined = chunks.join('');
-  return joined.length <= MAX_CAPTURE
-    ? joined
-    : `${joined.slice(0, MAX_CAPTURE / 2)}\n…[обрезано рантаймом]…\n${joined.slice(-MAX_CAPTURE / 2)}`;
-}
 
 /** Обёртка над `spawn` для управляющих команд docker (build/run/inspect) — не для команд
  * ПРОЕКТА: у тех свой путь с таймаутом-внутри-контейнера, см. `DockerSandbox.exec`. */
@@ -97,12 +90,10 @@ export function hostMountSource(projectRoot: string): string {
   return hostRoot + projectRoot.slice(containerRoot.length);
 }
 
-function safeName(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9_.-]/g, '-');
-}
-
+/** `projectSlug`, не голый `safeName` — см. doc-комментарий `projectSlug` в `dockerfile.ts`
+ * про реальную коллизию, которую голый `safeName` допускал между разными проектами. */
 function containerName(projectName: string, hash: string): string {
-  return `sdlc-sandbox-${safeName(projectName)}-${hash}`;
+  return `sdlc-sandbox-${projectSlug(projectName)}-${hash}`;
 }
 
 /** `~/.m2` → `/root/.m2` — базовые образы без своего `USER` работают под root'ом, `HOME`
@@ -114,7 +105,7 @@ function expandHome(p: string): string {
 /** Именованный том — на ПРОЕКТ, а не на хэш спеки: прогрев не должен повторяться из-за
  * правки версии тулчейна, которая на состав кэша обычно не влияет. */
 function cacheVolumeName(projectName: string, cachePath: string): string {
-  return `sdlc-sandbox-cache-${safeName(projectName)}-${safeName(expandHome(cachePath))}`;
+  return `sdlc-sandbox-cache-${projectSlug(projectName)}-${expandHome(cachePath).toLowerCase().replace(/[^a-z0-9_.-]/g, '-')}`;
 }
 
 async function containerRunning(name: string): Promise<boolean> {
@@ -154,7 +145,18 @@ function execInContainer(
   cwd: string,
   timeoutMs: number,
 ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
-  return runDockerCli(['exec', '-i', '-w', cwd, name, 'sh'], { input: command + '\n', timeoutMs });
+  // Тот же класс отказа, что уже пойман и закрыт в `DockerSandbox.exec` (см. комментарий
+  // там): `runDockerCli`'s `timeoutMs` убивает только хостовый `docker exec`-клиент, а не
+  // процесс ВНУТРИ контейнера — команда прогрева, зависшая на сети, продолжала бы жить
+  // внутри контейнера после того, как хост решил, что она отменена. `timeout -k` внутри —
+  // та же обёртка, что и у основного пути; хостовый `timeoutMs` даётся с запасом ПОВЕРХ
+  // него — она подстраховка на случай, если сам демон docker не отвечает вообще, а не
+  // основной механизм ограничения.
+  const secs = Math.max(1, Math.ceil(timeoutMs / 1000));
+  return runDockerCli(['exec', '-i', '-w', cwd, name, 'timeout', '-k', '2', `${secs}s`, 'sh'], {
+    input: command + '\n',
+    timeoutMs: timeoutMs + 30_000,
+  });
 }
 
 async function ensureContainer(
@@ -231,12 +233,18 @@ export class DockerSandbox implements SandboxExec {
   exec(command: string, opts: SandboxExecOptions): Promise<SandboxExecResult> {
     const started = Date.now();
     const secs = Math.max(1, Math.ceil(opts.timeoutMs / 1000));
+    // Маркер — путь ВНУТРИ контейнера, не на хосте: один долгоживущий контейнер обслуживает
+    // много последовательных вызовов, и `randomUUID()` не даёт двум одновременным вызовам
+    // (гейт + parallel-пробы) перезаписать чужой маркер.
+    const marker = `/tmp/.sdlc-exec-${randomUUID()}.pid`;
 
     return new Promise<SandboxExecResult>((resolve) => {
       // `timeout` внутри контейнера, а не таймер снаружи: попытка убить `docker exec` с
       // хоста прибивает клиентский CLI-процесс, но НЕ сигналит процессу внутри контейнера
       // без `-t`/sig-proxy. GNU coreutils `timeout` есть в debian:12-slim из коробки и сам
-      // шлёт SIGKILL нужному дереву — снаружи убивать нечего.
+      // заводит команде отдельную группу процессов и шлёт SIGKILL ЕЙ ЦЕЛИКОМ на истечении
+      // срока. Тот же PGID читается ниже для ручной отмены (`onAbort`) — но НЕ через `$$`
+      // (см. комментарий там про то, почему это не одно и то же).
       const args = [
         'exec',
         '-i',
@@ -256,14 +264,41 @@ export class DockerSandbox implements SandboxExec {
       let timedOut = false;
       let settled = false;
 
-      // Отмена этапа — best-effort SIGKILL всему, что живёт в контейнере. Песочница
-      // выделена под гейты и Bash-вызовы одного витка, не под фоновые сервисы: снести всё
-      // её дерево процессов по отмене — то же намерение, что `killTree` у локального
-      // исполнителя, перенесённое через границу контейнера.
+      // Страховка на случай, если сам демон docker завис ДО того, как команда внутри
+      // контейнера вообще стартовала (in-container `timeout` тогда ещё не запущен и
+      // ничего не ограничивает) — без этого таймера `runShell`/гейт ждал бы такую команду
+      // вечно, несмотря на переданный `opts.timeoutMs`. Запас поверх in-container таймаута
+      // — она подстраховка, не основной механизм: обычный сценарий завершается раньше него.
+      const hostTimer = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+      }, opts.timeoutMs + 30_000);
+
+      // Отмена этапа — SIGKILL ГРУППЕ ПРОЦЕССОВ этого конкретного вызова, а не всему
+      // контейнеру. Раньше здесь стоял `kill -KILL -1` (сигнал ВСЕМ процессам в PID-
+      // неймспейсе контейнера кроме PID 1) — экспериментально подтверждено, что это убивает
+      // весь долгоживущий контейнер целиком (init-процесс `tini` умирает вслед за убитым
+      // ребёнком `sleep infinity`), а не только отменяемую команду: следующий гейт того же
+      // прогона попадал на контейнер, которого больше нет.
+      //
+      // PGID, записанный в маркер ниже, читается из `/proc/self/stat` (поле 5), а НЕ через
+      // `$$` — это тоже проверено исполнением, не догадкой: `timeout` заводит для команды
+      // новую группу процессов, но ЛИДЕРОМ этой группы становится сам `timeout` (его
+      // собственный PID), а порождённый им `sh` лишь НАСЛЕДУЕТ эту группу — `$$` внутри `sh`
+      // даёт PID самого `sh`, который НЕ равен PGID группы. `kill -KILL -$$` в такой схеме
+      // не находит процесс с этим PID как группу («No such process») и не убивает вообще
+      // ничего — воспроизведено вручную на `debian:12-slim` через `/proc`-дамп процессов.
       const onAbort = (): void => {
-        void runDockerCli(['exec', this.containerName, 'sh', '-c', 'kill -KILL -1 2>/dev/null || true'], {
-          timeoutMs: 5_000,
-        });
+        void runDockerCli(
+          [
+            'exec',
+            this.containerName,
+            'sh',
+            '-c',
+            `pgid=$(cat '${marker}' 2>/dev/null) && kill -KILL -"$pgid" 2>/dev/null; rm -f '${marker}'`,
+          ],
+          { timeoutMs: 5_000 },
+        );
       };
       opts.signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -273,6 +308,7 @@ export class DockerSandbox implements SandboxExec {
       const finish = (exitCode: number | null, extraErr?: string): void => {
         if (settled) return;
         settled = true;
+        clearTimeout(hostTimer);
         opts.signal?.removeEventListener('abort', onAbort);
         if (extraErr !== undefined) err.push(extraErr);
         // `timeout` возвращает 124 на истечении срока — переводим в тот же семантический
@@ -292,7 +328,18 @@ export class DockerSandbox implements SandboxExec {
       );
       child.on('close', (code) => finish(code));
 
-      child.stdin.write(command + '\n');
+      // Поле 5 `/proc/self/stat` — `pgrp` (см. proc(5)) читается ДО запуска команды, чтобы
+      // `onAbort` мог прочитать его в любой момент исполнения. НЕ `$$`: проверено вручную —
+      // `timeout` заводит новую группу процессов, но её лидер — сам `timeout` (его
+      // собственный PID), а порождённый им `sh` лишь наследует эту группу; `$$` внутри `sh`
+      // даёт PID самого `sh`, который НЕ равен PGID группы, и `kill -KILL -$$` в такой схеме
+      // не находит процесс с этим PID как группу («No such process») и не убивает вообще
+      // ничего — воспроизведено на `debian:12-slim`: `/proc`-дамп показал `sh` с pgid,
+      // равным PID `timeout`, а не своему собственному. `rm -f` в конце убирает маркер при
+      // штатном завершении — при отмене он может остаться (гонка между `kill` и `rm`), это
+      // безвредный осколок в `/tmp` долгоживущего контейнера, не накопление: следующий вызов
+      // пишет свой маркер с новым именем и не читает чужие.
+      child.stdin.write(`awk '{print $5}' /proc/self/stat > '${marker}'\n${command}\nrm -f '${marker}'\n`);
       child.stdin.end();
     });
   }

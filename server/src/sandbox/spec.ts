@@ -10,6 +10,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { KNOWN_JDK_DIST } from './dockerfile.ts';
 import type { SandboxSpec } from './types.ts';
 
 export class SandboxSpecError extends Error {}
@@ -17,17 +18,29 @@ export class SandboxSpecError extends Error {}
 const KNOWN_TOOLCHAINS = new Set(['jdk', 'node']);
 const KNOWN_DOCKER = new Set(['none', 'socket']);
 
+// Версия тулчейна и имя apt-пакета попадают в текст генерируемого Dockerfile
+// (`dockerfile.ts::jdkLayer`/`nodeLayer`/`buildDockerfile`) как есть, без экранирования —
+// белый список символов здесь и есть граница: строка вида `21\nRUN curl … | sh` не пройдёт
+// эту проверку и не дойдёт до подстановки в `COPY --from=`/`RUN apt-get install`.
+const VERSION_RE = /^[0-9][0-9A-Za-z_.+-]*$/;
+const APT_PACKAGE_RE = /^[a-zA-Z0-9][a-zA-Z0-9+.-]*$/;
+const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 function assertToolchain(name: string, v: unknown): void {
   if (typeof v !== 'object' || v === null) {
     throw new SandboxSpecError(`toolchains.${name} обязан быть объектом`);
   }
   const version = (v as Record<string, unknown>).version;
-  if (typeof version !== 'string' || version.trim() === '') {
-    throw new SandboxSpecError(`toolchains.${name}.version обязан быть непустой строкой`);
+  if (typeof version !== 'string' || !VERSION_RE.test(version)) {
+    throw new SandboxSpecError(
+      `toolchains.${name}.version обязан быть версией вида «21» или «21.0.5» (только цифры, буквы, точки, «_+-», начинается с цифры)`,
+    );
   }
   const dist = (v as Record<string, unknown>).dist;
-  if (dist !== undefined && typeof dist !== 'string') {
-    throw new SandboxSpecError(`toolchains.${name}.dist обязан быть строкой`);
+  if (dist !== undefined && (typeof dist !== 'string' || !KNOWN_JDK_DIST.has(dist))) {
+    throw new SandboxSpecError(
+      `toolchains.${name}.dist «${String(dist)}» не поддерживается — известны: ${[...KNOWN_JDK_DIST].join(', ')}`,
+    );
   }
 }
 
@@ -64,8 +77,36 @@ export function parseSandboxSpec(raw: string, sourcePath: string): SandboxSpec {
     throw new SandboxSpecError(`${sourcePath}: «docker» обязан быть одним из: ${[...KNOWN_DOCKER].join(', ')}`);
   }
 
-  if (o.apt !== undefined && (!Array.isArray(o.apt) || o.apt.some((x) => typeof x !== 'string'))) {
-    throw new SandboxSpecError(`${sourcePath}: «apt» обязан быть списком строк`);
+  if (o.apt !== undefined) {
+    if (!Array.isArray(o.apt) || o.apt.some((x) => typeof x !== 'string')) {
+      throw new SandboxSpecError(`${sourcePath}: «apt» обязан быть списком строк`);
+    }
+    for (const pkg of o.apt as string[]) {
+      if (!APT_PACKAGE_RE.test(pkg)) {
+        throw new SandboxSpecError(
+          `${sourcePath}: «${pkg}» не похоже на имя apt-пакета (буквы, цифры, «+.-», начинается с буквы/цифры) — попадает в RUN apt-get install как есть`,
+        );
+      }
+    }
+  }
+
+  if (o.env !== undefined) {
+    if (typeof o.env !== 'object' || o.env === null || Array.isArray(o.env)) {
+      throw new SandboxSpecError(`${sourcePath}: «env» обязан быть объектом строка→строка`);
+    }
+    for (const [k, v] of Object.entries(o.env as Record<string, unknown>)) {
+      if (!ENV_KEY_RE.test(k)) {
+        throw new SandboxSpecError(`${sourcePath}: env-ключ «${k}» не похож на имя переменной окружения`);
+      }
+      if (typeof v !== 'string') {
+        throw new SandboxSpecError(`${sourcePath}: env.${k} обязан быть строкой`);
+      }
+      if (v.includes('\n') || v.includes('\r')) {
+        throw new SandboxSpecError(
+          `${sourcePath}: env.${k} содержит перевод строки — Dockerfile-инструкция ENV обязана быть одной строкой`,
+        );
+      }
+    }
   }
 
   if (o.warmup !== undefined && (!Array.isArray(o.warmup) || o.warmup.some((x) => typeof x !== 'string'))) {

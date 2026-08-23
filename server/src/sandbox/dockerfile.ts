@@ -12,12 +12,18 @@ import { createHash } from 'node:crypto';
 
 import type { SandboxSpec } from './types.ts';
 
-function jdkLayer(version: string, dist: string): string {
+/** Только это значение поддерживается сегодня — раньше параметр `dist` принимался, но
+ * молча игнорировался («temurin» всегда, независимо от того, что записано в спеке): тег
+ * образа тихо расходился с тем, что человек видел в `sandbox.json`. Явный список одного
+ * значения честнее мёртвой ветки — расширять его нужно вместе с реальным вторым слоем в
+ * `jdkLayer`, не раньше. */
+export const KNOWN_JDK_DIST = new Set(['temurin']);
+
+function jdkLayer(version: string): string {
   // Temurin публикует `/opt/java/openjdk` как готовый JAVA_HOME внутри своего образа —
   // копируем директорию целиком, без апт-репозитория adoptium и его ключа.
-  const tag = dist === 'temurin' ? `eclipse-temurin:${version}-jdk` : `eclipse-temurin:${version}-jdk`;
   return [
-    `COPY --from=${tag} /opt/java/openjdk /opt/java`,
+    `COPY --from=eclipse-temurin:${version}-jdk /opt/java/openjdk /opt/java`,
     'ENV JAVA_HOME=/opt/java',
     'ENV PATH="/opt/java/bin:${PATH}"',
   ].join('\n');
@@ -46,14 +52,25 @@ function dockerCliLayer(): string {
   ].join('\n');
 }
 
+/** Экранирование для двойных кавычек Dockerfile (та же семантика, что и у shell-строк в
+ * двойных кавычках): обратный слэш и сама кавычка — единственные символы, ломающие форму.
+ * Перевод строки экранировать нечем — Dockerfile-инструкция всегда одна строка, поэтому
+ * такие значения отклоняются валидацией спеки (`spec.ts`) ДО того, как долетают сюда. */
+function dockerfileQuote(v: string): string {
+  return v.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 export function buildDockerfile(spec: SandboxSpec): string {
   const lines: string[] = [`FROM ${spec.base}`];
 
+  // `spec.apt` — список ИМЁН ПАКЕТОВ, а не произвольного shell-текста: валидация в
+  // `spec.ts` (`assertAptPackageName`) уже отклонила всё, что не похоже на имя пакета apt,
+  // до того, как строка сюда попала — здесь достаточно склеить.
   const apt = ['curl', 'ca-certificates', 'unzip', ...(spec.apt ?? [])];
   lines.push(`RUN apt-get update && apt-get install -y --no-install-recommends ${apt.join(' ')} && rm -rf /var/lib/apt/lists/*`);
 
   if (spec.toolchains.jdk) {
-    lines.push(jdkLayer(spec.toolchains.jdk.version, spec.toolchains.jdk.dist ?? 'temurin'));
+    lines.push(jdkLayer(spec.toolchains.jdk.version));
   }
   if (spec.toolchains.node) {
     lines.push(nodeLayer(spec.toolchains.node.version));
@@ -62,7 +79,12 @@ export function buildDockerfile(spec: SandboxSpec): string {
     lines.push(dockerCliLayer());
   }
   for (const [k, v] of Object.entries(spec.env ?? {})) {
-    lines.push(`ENV ${k}="${v}"`);
+    // Ключ уже проверен `spec.ts` как имя переменной окружения (`^[A-Za-z_][A-Za-z0-9_]*$`)
+    // — в него нельзя вставить `=`/пробел/перевод строки, значит инструкция не разъедется
+    // на две. Значение экранируется явно — раньше шло в шаблонную строку как есть, и `"`
+    // или перевод строки внутри него закрывали кавычку раньше и добавляли произвольные
+    // Dockerfile-инструкции.
+    lines.push(`ENV ${k}="${dockerfileQuote(v)}"`);
   }
   // Держит контейнер живым между `docker exec`; PID 1 без `tini` не пожинает зомби-процессы
   // от `mvnw`/`npm`, оставленных прерванными командами — на живущий часами контейнер это
@@ -95,7 +117,34 @@ export function specHash(spec: SandboxSpec): string {
   return createHash('sha256').update(stableStringify(spec)).digest('hex').slice(0, 12);
 }
 
+/**
+ * Строка, безопасная как компонент имени ресурса Docker (тег/имя контейнера/том):
+ * `[a-z0-9_.-]`, нижний регистр. НЕ уникальна сама по себе — `safeName("Foo Bar")` и
+ * `safeName("foo-bar")` дают одну и ту же строку.
+ */
+function safeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9_.-]/g, '-');
+}
+
+/**
+ * Идентификатор проекта в именах ресурсов Docker — `safeName` ПЛЮС короткий хэш от
+ * исходного (не санитайзированного) имени.
+ *
+ * Один `safeName` был реальной коллизией, а не гипотетической: `config/load.ts` не
+ * прогоняет ручные конфиги проектов через `badSlug`, а `badSlug` (путь через UI) допускает
+ * заглавные буквы и сравнивает имена точным совпадением строк без нормализации — значит
+ * `"Foo Bar"` и `"foo-bar"` регистрируются как два РАЗНЫХ проекта, но схлопываются в один
+ * `safeName("foo-bar")`. Без хэша это давало один и тот же `containerName`/
+ * `cacheVolumeName` для двух разных проектов: `ensureContainer` видел контейнер «уже
+ * поднятым» и переиспользовал его — с чужим смонтированным `projectRoot` и чужими
+ * кэш-томами `~/.m2`/`~/.npm`. Хэш от ИСХОДНОГО имени различает такие пары независимо от
+ * того, что с ними делает `safeName`.
+ */
+export function projectSlug(projectName: string): string {
+  const hash = createHash('sha256').update(projectName).digest('hex').slice(0, 8);
+  return `${safeName(projectName)}-${hash}`;
+}
+
 export function imageTag(projectName: string, spec: SandboxSpec): string {
-  const safe = projectName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-');
-  return `sdlc-sandbox:${safe}-${specHash(spec)}`;
+  return `sdlc-sandbox:${projectSlug(projectName)}-${specHash(spec)}`;
 }

@@ -8,15 +8,7 @@
 import { spawn } from 'node:child_process';
 
 import type { SandboxExec, SandboxExecOptions, SandboxExecResult } from './types.ts';
-
-const MAX_CAPTURE = 200_000;
-
-function cap(chunks: string[]): string {
-  const joined = chunks.join('');
-  return joined.length <= MAX_CAPTURE
-    ? joined
-    : `${joined.slice(0, MAX_CAPTURE / 2)}\n…[обрезано рантаймом]…\n${joined.slice(-MAX_CAPTURE / 2)}`;
-}
+import { cap } from './capture.ts';
 
 export class LocalSandbox implements SandboxExec {
   readonly kind = 'local' as const;

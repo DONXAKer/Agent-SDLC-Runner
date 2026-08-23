@@ -196,6 +196,15 @@ export class Run {
   /** Фактический прогон гейтов текущей попытки — источник статусов для вердикта. */
   private lastGateResults: GateRunResult[] = [];
   private lastGatesAborted = false;
+  /**
+   * Последний посчитанный `preflightBlockers` для `verify` — не «живой» результат (Docker
+   * не опрашивается на каждый вызов `blockers()`, только когда сам `runStage` реально его
+   * посчитал), но лучше, чем ничего: `blockers()` синхронный и вызывается из GET-ручек на
+   * каждый опрос списка витков — дёргать Docker на каждый такой опрос было бы дороже, чем
+   * не показывать pre-flight-статус в списке заранее вовсе. Обновляется в `runStage`, тем
+   * же местом, где сегодня и вычисляется актуальный pre-flight.
+   */
+  private lastPreflightBlockers: string[] = [];
   /** Вход последнего посчитанного вердикта — из него собирается выжимка для ретрая. */
   private lastVerdictInput: VerdictInput | null = null;
   /**
@@ -778,6 +787,18 @@ export class Run {
       }
     }
 
+    // Последний ИЗВЕСТНЫЙ (не обязательно свежий — см. `lastPreflightBlockers`)
+    // pre-flight-статус песочницы: без этого GET-ручки, которые как раз для того и зовут
+    // `blockers()`, чтобы показать оператору «почему этап нельзя начать» ДО клика «Старт»,
+    // никогда не видели провал пробы среды — он всплывал только ошибкой уже начавшегося
+    // `runStage`. Отдельная ветка от `preflightBlockers` (не встроена в неё саму) — та
+    // асинхронна (ходит в Docker), а `blockers()` обязан остаться синхронным: он вызывается
+    // на каждый опрос списка витков, и дёргать Docker на каждый такой опрос было бы дороже
+    // самой проблемы, которую чинит.
+    if (stage === 'verify') {
+      problems.push(...this.lastPreflightBlockers);
+    }
+
     return problems;
   }
 
@@ -1012,6 +1033,13 @@ export class Run {
     const route = this.profile.routes[stage];
     const abortOpts = opts.abortHandoff === true ? { abortHandoff: true } : {};
 
+    // Кэш предыдущего pre-flight сбрасывается ДО проверки блокеров ниже: если прошлая
+    // попытка упала на пробе среды, `this.lastPreflightBlockers` от неё ещё не пуст, а
+    // `blockers()` теперь подмешивает его в свой список (см. её комментарий) — без сброса
+    // здесь виток заблокировал бы сам себя устаревшим результатом, ни разу не пройдя до
+    // свежей проверки ниже, и retry стал бы физически недостижим.
+    if (stage === 'verify') this.lastPreflightBlockers = [];
+
     // Предусловия считаются ОДИН раз: `blockers` вызывает `checkPreconditions` внутри,
     // и второй вызов рядом был чистым дублированием чтения артефактов, хотя комментарий
     // рядом утверждал обратное.
@@ -1026,23 +1054,27 @@ export class Run {
       return { ok: false, finalText: '', usage: emptyUsage(), note: message };
     }
 
+    if (report.skip !== null) {
+      this.emit({ type: 'stage_done', runId: this.id, stage, ok: true, note: report.skip });
+      return { ok: true, finalText: '', usage: emptyUsage(), note: report.skip };
+    }
+
     // Только «Тесты»/«Сборка» реально идут через `runShell`, и только на этапе 6 — pre-flight
     // здесь, а не после запуска модели: несоответствие среды раньше обнаруживалось только
     // прогоном самих гейтов, то есть после того, как разведка и отчёт уже съели попытку.
     // До `nextAttempt()` (отдельный метод, не вызывается отсюда) — попытка не тратится.
+    // ПОСЛЕ проверки `report.skip`, не до неё: у `verify` пропуска сегодня не бывает
+    // (`stages.ts::skipIf` для него всегда `null`), но если он появится — pre-flight не
+    // должен блокировать попытку, которая всё равно была бы пропущена без него.
     if (stage === 'verify') {
       const sandboxBlockers = await preflightBlockers(this.project.projectRoot, this.project.name);
+      this.lastPreflightBlockers = sandboxBlockers;
       if (sandboxBlockers.length > 0) {
         const message = sandboxBlockers.join('\n');
         this.status = 'failed';
         this.emit({ type: 'error', runId: this.id, stage, message });
         return { ok: false, finalText: '', usage: emptyUsage(), note: message };
       }
-    }
-
-    if (report.skip !== null) {
-      this.emit({ type: 'stage_done', runId: this.id, stage, ok: true, note: report.skip });
-      return { ok: true, finalText: '', usage: emptyUsage(), note: report.skip };
     }
 
     const { agents, missing } = loadSubagents(this.config.runner.agentsDir, def.subagents);
