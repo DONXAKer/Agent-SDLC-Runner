@@ -365,14 +365,17 @@ export async function createDockerSandbox(
     exec,
     specHash: hash,
     async runProbes(): Promise<SandboxProbeResult[]> {
-      const results: SandboxProbeResult[] = [];
-      for (const probe of spec.probes ?? []) {
-        const r = await exec.exec(probe.cmd, { cwd: projectRoot, timeoutMs: 15_000 });
-        const output = `${r.stdout}\n${r.stderr}`;
-        const ok = r.exitCode === 0 && new RegExp(probe.expect).test(output);
-        results.push({ cmd: probe.cmd, ok, output: output.trim() });
-      }
-      return results;
+      // Пробы независимы (`java -version`, `node -v`, `docker info` — только чтение) и не
+      // делят состояние, поэтому гоняются параллельно: `docker exec` не сериализует вызовы
+      // сам, и pre-flight не обязан ждать одну команду ради старта следующей.
+      return Promise.all(
+        (spec.probes ?? []).map(async (probe) => {
+          const r = await exec.exec(probe.cmd, { cwd: projectRoot, timeoutMs: 15_000 });
+          const output = `${r.stdout}\n${r.stderr}`;
+          const ok = r.exitCode === 0 && new RegExp(probe.expect).test(output);
+          return { cmd: probe.cmd, ok, output: output.trim() };
+        }),
+      );
     },
   };
 }

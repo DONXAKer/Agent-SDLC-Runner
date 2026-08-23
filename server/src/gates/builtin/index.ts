@@ -139,8 +139,20 @@ async function forEachModule(
   return inBatches(mods, width, async (m) => ({ dir: m.dir, outcome: await run(m) }));
 }
 
+/**
+ * Кэш `resolveModules` по контексту прогона — тот же WeakMap-паттерн и то же основание,
+ * что у `diffCache`/`rawDiffCache`: «Сборка», «Тесты» и «Линт» из одного набора зовут
+ * `resolveModules` с ОДНИМ и тем же `ctx` (`gates/run.ts` создаёт контекст один раз на
+ * прогон), и без кэша каждая из трёх заново парсила план и перечитывала каталоги модулей
+ * `readdirSync`'ом — тот же файл диска, трижды подряд, за один прогон гейтов.
+ */
+const modulesCache = new WeakMap<GateContext, { dir: string; files: Set<string> }[]>();
+
 /** Все модули, затронутые планом. Пусто — собирать нечего. */
 function resolveModules(ctx: GateContext): { dir: string; files: Set<string> }[] {
+  const cached = modulesCache.get(ctx);
+  if (cached !== undefined) return cached;
+
   const dirs = moduleDirsFromPlan(ctx.planFiles, (d) => {
     // Объявленный человеком модуль — модуль, даже если манифеста детект не знает: ради
     // этого случая поле и заводилось.
@@ -148,7 +160,9 @@ function resolveModules(ctx: GateContext): { dir: string; files: Set<string> }[]
     const files = dirEntries(ctx.projectRoot, d);
     return detectBuildSystem(files, readIfExists(join(ctx.projectRoot, d, 'package.json'))) !== null;
   });
-  return dirs.map((dir) => ({ dir, files: dirEntries(ctx.projectRoot, dir) }));
+  const mods = dirs.map((dir) => ({ dir, files: dirEntries(ctx.projectRoot, dir) }));
+  modulesCache.set(ctx, mods);
+  return mods;
 }
 
 /**
@@ -830,7 +844,7 @@ const duplicatesGate: BuiltinGate = async (ctx) => {
     };
   }
 
-  const added = addedFunctionNames(diffLines(await workingDiff(ctx.projectRoot, [], ctx.signal)));
+  const added = addedFunctionNames(diffLines(await cachedWorkingDiff(ctx)));
   if (added.length === 0) {
     return {
       status: '✅',
@@ -959,11 +973,30 @@ const scopeGate: BuiltinGate = async (ctx) => {
  */
 const diffCache = new WeakMap<GateContext, InvariantViolation[]>();
 
+/**
+ * Сам текст diff'а (не разбор) — тем же ключом-контекстом, что `diffCache`.
+ *
+ * «Дубли хелперов» тоже нуждается в diff'е (искать новые функции), но не в
+ * `InvariantViolation[]` — общий разбор ему не подходит по форме. Без этого кэша при
+ * «Анти-обход»/«Секреты» и «Дубли хелперов», включённых одновременно, `workingDiff` уходил
+ * в git дважды на один и тот же прогон — тот же класс лишнего I/O, ради которого заведён
+ * `diffCache` выше, только с другой формой результата.
+ */
+const rawDiffCache = new WeakMap<GateContext, Promise<string>>();
+
+function cachedWorkingDiff(ctx: GateContext): Promise<string> {
+  const cached = rawDiffCache.get(ctx);
+  if (cached !== undefined) return cached;
+  const promise = workingDiff(ctx.projectRoot, [], ctx.signal);
+  rawDiffCache.set(ctx, promise);
+  return promise;
+}
+
 async function diffViolations(ctx: GateContext): Promise<InvariantViolation[]> {
   const cached = diffCache.get(ctx);
   if (cached !== undefined) return cached;
 
-  const diff = await workingDiff(ctx.projectRoot, [], ctx.signal);
+  const diff = await cachedWorkingDiff(ctx);
   const deleted = await deletedPaths(ctx.projectRoot, ctx.signal);
   const violations = invariantViolations(diff, deleted);
   diffCache.set(ctx, violations);
