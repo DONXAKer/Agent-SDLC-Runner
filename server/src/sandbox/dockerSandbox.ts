@@ -113,6 +113,81 @@ async function containerRunning(name: string): Promise<boolean> {
   return r.exitCode === 0 && r.stdout.trim() === 'true';
 }
 
+/**
+ * Санитайзер, которым имена Docker-ресурсов считались ДО введения `projectSlug`
+ * (`dockerfile.ts`) — дословная копия старого `safeName`, живёт здесь ТОЛЬКО ради
+ * одноразовой миграции кэш-томов/контейнеров на новую схему имён, см. `migrateLegacy*`
+ * ниже. Не экспортируется и не используется больше нигде: сам факт того, что `projectSlug`
+ * пришлось завести (реальная коллизия `"Foo Bar"`/`"foo-bar"` — см. её doc-комментарий),
+ * означает, что голый `safeName` небезопасен для НОВЫХ имён ресурсов — миграция читает
+ * старое имя, чтобы перенести данные, а не производит новые имена этой функцией.
+ */
+function legacySafeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9_.-]/g, '-');
+}
+
+/** Экспортирована только для теста формулы дословным совпадением со старым кодом
+ * (`git show 776a9bf~1:server/src/sandbox/dockerSandbox.ts`) — не для использования вне
+ * миграции, см. doc-комментарий `legacySafeName`. */
+export function legacyContainerName(projectName: string, hash: string): string {
+  return `sdlc-sandbox-${legacySafeName(projectName)}-${hash}`;
+}
+
+export function legacyCacheVolumeName(projectName: string, cachePath: string): string {
+  return `sdlc-sandbox-cache-${legacySafeName(projectName)}-${legacySafeName(expandHome(cachePath))}`;
+}
+
+async function volumeExists(name: string): Promise<boolean> {
+  const r = await runDockerCli(['volume', 'inspect', name], { timeoutMs: 10_000 });
+  return r.exitCode === 0;
+}
+
+/**
+ * Одноразовая миграция данных кэш-тома со старого имени (голый `safeName`, до
+ * `projectSlug`) на новое. Docker не умеет переименовывать тома — только копирование через
+ * промежуточный контейнер. Лучшее усилие: неудача не должна ронять подготовку песочницы,
+ * контейнер просто прогреется заново в пустой новый том — та же деградация, что была бы
+ * без миграции вовсе, не хуже.
+ *
+ * Найдено и подтверждено на живой машине: переход `containerName`/`cacheVolumeName` на
+ * `projectSlug` в этом же коммите меняет итоговое имя для КАЖДОГО проекта, не только для
+ * коллизировавших — без миграции уже прогретый `~/.m2`/`~/.npm` осиротевал бы молча при
+ * первом же запуске после обновления.
+ */
+export async function migrateLegacyCacheVolume(newName: string, legacyName: string): Promise<void> {
+  if (newName === legacyName) return;
+  if (await volumeExists(newName)) return; // уже мигрировано или заведено заново — не трогаем
+  if (!(await volumeExists(legacyName))) return; // старого тома нет — переносить нечего
+
+  const created = await runDockerCli(['volume', 'create', newName], { timeoutMs: 10_000 });
+  if (created.exitCode !== 0) {
+    console.error(`[sandbox] не удалось завести том ${newName} для миграции кэша: ${created.stderr || created.stdout}`);
+    return;
+  }
+  // Старый том — только на чтение: миграция копирует, не перемещает, старый остаётся
+  // нетронутым (удаление — на усмотрение оператора, `docker volume rm` вручную).
+  const copy = await runDockerCli(
+    [
+      'run',
+      '--rm',
+      '-v',
+      `${legacyName}:/from:ro`,
+      '-v',
+      `${newName}:/to`,
+      'busybox:stable',
+      'sh',
+      '-c',
+      'cp -a /from/. /to/',
+    ],
+    { timeoutMs: 5 * 60_000 },
+  );
+  if (copy.exitCode !== 0) {
+    console.error(
+      `[sandbox] перенос кэша ${legacyName} → ${newName} не удался (код ${copy.exitCode}): ${(copy.stderr || copy.stdout).slice(0, 2000)}`,
+    );
+  }
+}
+
 async function imageExists(tag: string): Promise<boolean> {
   const r = await runDockerCli(['image', 'inspect', tag], { timeoutMs: 10_000 });
   return r.exitCode === 0;
@@ -165,12 +240,22 @@ async function ensureContainer(
   projectRoot: string,
   projectName: string,
   spec: SandboxSpec,
+  hash: string,
 ): Promise<void> {
   if (await containerRunning(name)) return;
 
   // Контейнер мог остаться от прошлого запуска Runner'а в остановленном состоянии — не
   // плодим тёзок.
   await runDockerCli(['rm', '-f', name], { timeoutMs: 10_000 });
+
+  // Осиротевший контейнер под ИМЕНЕМ ДО перехода на `projectSlug` — данных в нём нет (сам
+  // проект смонтирован bind-mount'ом, кэш живёт в volume'ах, которые мигрируются ниже
+  // отдельно), поэтому для контейнера миграция — просто уборка, не перенос: оставлять его
+  // висеть остановленным смысла нет.
+  const legacyName = legacyContainerName(projectName, hash);
+  if (legacyName !== name) {
+    await runDockerCli(['rm', '-f', legacyName], { timeoutMs: 10_000 });
+  }
 
   const args = [
     'run',
@@ -189,7 +274,12 @@ async function ensureContainer(
     args.push('-v', '/var/run/docker.sock:/var/run/docker.sock');
   }
   for (const cachePath of spec.caches ?? []) {
-    args.push('-v', `${cacheVolumeName(projectName, cachePath)}:${expandHome(cachePath)}`);
+    const volumeName = cacheVolumeName(projectName, cachePath);
+    // ДО того, как `-v volumeName:...` ниже неявно заведёт пустой том, если такого имени
+    // ещё нет — иначе `docker run` создаёт его первым, `volumeExists(newName)` в миграции
+    // видит его уже существующим и молча пропускает перенос.
+    await migrateLegacyCacheVolume(volumeName, legacyCacheVolumeName(projectName, cachePath));
+    args.push('-v', `${volumeName}:${expandHome(cachePath)}`);
   }
   args.push(tag);
 
@@ -374,7 +464,7 @@ export async function createDockerSandbox(
   if (!(await imageExists(tag))) {
     await buildImage(tag, buildDockerfile(spec), projectRoot);
   }
-  await ensureContainer(name, tag, projectRoot, projectName, spec);
+  await ensureContainer(name, tag, projectRoot, projectName, spec, hash);
 
   const exec = new DockerSandbox(name);
 

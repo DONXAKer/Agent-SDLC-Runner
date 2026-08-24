@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type {
+  Decision,
   EventSink,
   GateRunResult,
   GateStatus,
@@ -1313,25 +1314,32 @@ export class Run {
           // Человек одобрил расширение scope — дописываем `plan.md` и пересчитываем `ctx`
           // из него ЖЕ, до возврата решения: следующий вызов этого же прогона (обычно —
           // Write в только что одобренный путь) обязан увидеть новый `files_to_touch`,
-          // а не versию, посчитанную в начале этапа.
+          // а не версию, посчитанную в начале этапа.
           if (decision.allowed && call.kind === 'request_scope_extension') {
             const note = `расширено на этапе ${stage} · ${decisionValue(this.config.runner.operator, new Date())} — ${call.reason}`;
             const planText = readArtifact(this.paths.plan).text;
             const updated = appendScopeExtension(planText, call.path, note);
             if (updated === null) {
-              this.emit({
-                type: 'warning',
-                runId: this.id,
-                stage,
-                message:
-                  `request_scope_extension одобрен человеком, но в plan.md не нашлась строка ` +
-                  `«Добавлено сверх разведки» — файл, видимо, правлен вручную не по форме. ` +
-                  `«${call.path}» НЕ добавлен в files_to_touch, запись в него всё ещё будет отклонена.`,
-              });
-            } else {
-              writeArtifact(this.paths.plan, updated);
-              ctx = this.policyContext(stage);
+              // Одобрение человека остаётся в силе (решение о том, что расширение —
+              // хорошая идея, не отменяется), но САМ вызов инструмента не выполнен —
+              // технически дописать план не удалось. Раньше здесь возвращался исходный
+              // `decision` (allowed: true) без изменений, и модель получала текст «путь
+              // добавлен — теперь можно писать» безусловно, хотя `ctx.planFiles` не
+              // обновился и следующий Write в этот путь всё равно падал на planScope —
+              // модель узнавала о провале только на попытке записи, без объяснения
+              // противоречия. Честнее — отказать ЭТОМУ вызову сейчас, с причиной: тот же
+              // канал (`decision.reason`), которым уже пользуется отказ политики.
+              const message =
+                `человек одобрил расширение scope на «${call.path}», но в plan.md не нашлась ` +
+                `строка «Добавлено сверх разведки» — файл, видимо, правлен вручную не по форме. ` +
+                `Путь НЕ добавлен в files_to_touch; поправь plan.md вручную или попроси ` +
+                `человека сделать это, прежде чем повторять запрос.`;
+              this.emit({ type: 'warning', runId: this.id, stage, message });
+              const denied: Decision = { allowed: false, reason: message, by: 'policy' };
+              return denied;
             }
+            writeArtifact(this.paths.plan, updated);
+            ctx = this.policyContext(stage);
           }
           return decision;
         } finally {

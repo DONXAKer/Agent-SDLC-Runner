@@ -13,8 +13,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 
-import { buildDockerfile, imageTag, specHash } from '../src/sandbox/dockerfile.ts';
-import { hostMountSource } from '../src/sandbox/dockerSandbox.ts';
+import { buildDockerfile, imageTag, projectSlug, specHash } from '../src/sandbox/dockerfile.ts';
+import { hostMountSource, legacyCacheVolumeName, legacyContainerName } from '../src/sandbox/dockerSandbox.ts';
 import {
   findSandboxForCwd,
   ensureSandboxFor,
@@ -450,6 +450,29 @@ describe('hostMountSource: перевод пути для docker-outside-of-dock
     // "/projects-other" не лежит внутри "/projects" — та же ловушка, что и в реестре.
     process.env.SDLC_HOST_PROJECTS_DIR = '/Users/home/Code';
     strictEqual(hostMountSource('/projects-other/x'), '/projects-other/x');
+  });
+});
+
+describe('миграция Docker-ресурсов на projectSlug', () => {
+  it('legacyCacheVolumeName воспроизводит формулу до projectSlug дословно', () => {
+    // Регресс-проверка не по абстрактной логике, а по РЕАЛЬНЫМ именам томов, найденным на
+    // машине этой сессии `docker volume ls` до миграции: `sdlc-sandbox-cache-cv--root-.m2`
+    // для проекта «cv», пути `~/.m2` — если формула здесь разойдётся со старым кодом,
+    // миграция не найдёт настоящий том и молча создаст новый пустой.
+    strictEqual(legacyCacheVolumeName('cv', '~/.m2'), 'sdlc-sandbox-cache-cv--root-.m2');
+    strictEqual(legacyCacheVolumeName('cv', '~/.npm'), 'sdlc-sandbox-cache-cv--root-.npm');
+  });
+
+  it('legacyContainerName воспроизводит формулу до projectSlug — тот же hash, что и у новой', () => {
+    strictEqual(legacyContainerName('cv', 'abc123'), 'sdlc-sandbox-cv-abc123');
+  });
+
+  it('legacy-имя тома отличается от нового имени по формуле projectSlug', () => {
+    // `migrateLegacyCacheVolume` выходит no-op'ом, если `newName === legacyName` —
+    // формулы обязаны различаться (новая содержит хэш от имени проекта, старая нет),
+    // иначе миграция самой себе была бы тихо бесполезна.
+    const newName = `sdlc-sandbox-cache-${projectSlug('cv')}-root-.m2`;
+    strictEqual(newName === legacyCacheVolumeName('cv', '~/.m2'), false);
   });
 });
 
