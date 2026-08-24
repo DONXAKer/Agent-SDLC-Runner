@@ -816,7 +816,17 @@ export class Run {
         );
       } else {
         problems.push(...configProblems(gates));
-        problems.push(...unimplementedGates(gates, (name) => builtinFor(name) !== null));
+        // `REVIEW_GATE` не в BUILTIN и не в кавычках, но НЕ является дырой в наборе: он
+        // получает статус не скриптом gates/run.ts, а `externalGateStatuses()` ниже — тем
+        // же путём, каким и реально считается на прогоне (см. `runGates({ externalStatuses:
+        // this.externalGateStatuses() })`). Без этого исключения витки с обычным для
+        // минимума набором никогда бы не проходили дальше intent.
+        problems.push(
+          ...unimplementedGates(
+            gates,
+            (name) => builtinFor(name) !== null || gateKey(name) === gateKey(REVIEW_GATE),
+          ),
+        );
       }
     }
 
