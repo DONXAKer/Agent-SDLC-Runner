@@ -12,13 +12,25 @@
  */
 
 import { ok, strictEqual } from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
 
 import type { NormalizedCall, ToolName } from '@sdlc-runner/shared';
 
 import { LoopExecutor } from '../src/exec/LoopExecutor.ts';
 import type { ChatProvider } from '../src/provider/ChatProvider.ts';
 import type { ExecHooks, ExecRequest, SubagentDef } from '../src/exec/StageExecutor.ts';
+
+// `hooks()` мокает `onToolRequest` и всегда отвечает `allowed: true` — значит `LoopExecutor`
+// реально доходит до `executeTool`, и тестовый `write()` (`file_path: 'a.ts'`) РЕАЛЬНО
+// пишет файл на диск относительно `request().cwd`. `process.cwd()` там раньше означал
+// «текущий рабочий каталог процесса тестов» — то есть `server/`, откуда обычно запускают
+// `npm test`, — и тест молча оставлял мусорный `server/a.ts` при каждом прогоне. Изолируем
+// в tmpdir, чтобы тест не писал в сам репозиторий.
+const scratchDir = mkdtempSync(join(tmpdir(), 'sdlc-loopbudget-'));
+after(() => rmSync(scratchDir, { recursive: true, force: true }));
 
 /** Провайдер-заглушка: ходы по порядку, цена хода задаётся отдельно. */
 function provider(
@@ -113,7 +125,7 @@ const nothing: SubagentDef = { ...inherits, name: 'пустой', tools: [] };
 function request(over: Partial<ExecRequest> = {}): ExecRequest {
   return {
     prompt: { presetNote: null, system: 'этап', user: 'работай', tools: [], editedByOperator: false },
-    cwd: process.cwd(),
+    cwd: scratchDir,
     model: 'm',
     allowedTools: ['Read', 'Grep', 'Write', 'Task'] as ToolName[],
     readOnlyDirs: [],
