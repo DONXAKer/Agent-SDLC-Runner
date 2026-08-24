@@ -34,6 +34,9 @@ export interface RunGatesInput extends GateContext {
    */
   externalStatuses?: Readonly<Record<string, GateStatus>>;
   onResult?: (r: GateRunResult) => void;
+  /** Сбой подготовки песочницы (напр. не удалось отключить сеть под `network: 'none'`) —
+   * best-effort, не роняет прогон, но обязан дойти до оператора, а не только в stderr. */
+  onWarn?: (message: string) => void;
   /**
    * Имя проекта из конфига (`ProjectConfig.name`) — идентификатор песочницы. ОБЯЗАНО
    * совпадать с именем, которым уже пользовался pre-flight (`sandbox/preflight.ts`):
@@ -126,7 +129,7 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
   // исполнителе и упадут своей обычной красной строкой («java: not found» и т.п.) — это то
   // же самое состояние, что было до появления песочницы, а не новый класс отказа.
   try {
-    await ensureSandboxFor(i.projectRoot, i.projectName);
+    await ensureSandboxFor(i.projectRoot, i.projectName, i.onWarn);
   } catch (e) {
     console.error(`[sandbox] песочница ${i.projectRoot} не поднялась: ${(e as Error).message}`);
   }

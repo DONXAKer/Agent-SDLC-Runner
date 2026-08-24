@@ -821,12 +821,7 @@ export class Run {
         // же путём, каким и реально считается на прогоне (см. `runGates({ externalStatuses:
         // this.externalGateStatuses() })`). Без этого исключения витки с обычным для
         // минимума набором никогда бы не проходили дальше intent.
-        problems.push(
-          ...unimplementedGates(
-            gates,
-            (name) => builtinFor(name) !== null || gateKey(name) === gateKey(REVIEW_GATE),
-          ),
-        );
+        problems.push(...unimplementedGates(gates, (name) => builtinFor(name) !== null, [REVIEW_GATE]));
       }
     }
 
@@ -874,6 +869,7 @@ export class Run {
       ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
       ...(signal === undefined ? {} : { signal }),
       externalStatuses: this.externalGateStatuses(),
+      onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage: 'verify', message }),
       onResult: (gate) => {
         this.lastGateResults.push(gate);
         this.emit({ type: 'gate_result', runId: this.id, stage: 'verify', gate });

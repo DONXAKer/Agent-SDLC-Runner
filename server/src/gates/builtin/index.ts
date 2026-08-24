@@ -168,14 +168,12 @@ function memoByCtxAsync<T>(
   ctx: GateContext,
   compute: () => Promise<T>,
 ): Promise<T> {
-  const cached = cache.get(ctx);
-  if (cached !== undefined) return cached;
-  const value = compute().catch((e: unknown) => {
-    cache.delete(ctx);
-    throw e;
-  });
-  cache.set(ctx, value);
-  return value;
+  return memoByCtx(cache, ctx, () =>
+    compute().catch((e: unknown) => {
+      cache.delete(ctx);
+      throw e;
+    }),
+  );
 }
 
 /**

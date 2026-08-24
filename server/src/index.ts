@@ -257,8 +257,12 @@ app.post('/api/runs', async (req, reply) => {
     // slug (двойной клик, незакрытый предыдущий процесс) — `runs` индексирована по
     // `run.id`, не по slug, и клик «открыть» в HistoryList (`App.tsx::onOpen`, ищет по
     // slug+project) уходил в первый по порядку вставки, не обязательно в актуальный.
+    // `currentStage !== null`, а не просто присутствие в `runs`: тот же критерий, что у
+    // `DELETE /api/runs/:id` ниже — иначе отменённый или просто не «убранный» руками
+    // прошлый прогон того же slug навсегда блокировал бы перезапуск 409-м, хотя реально
+    // ничего не выполняется.
     const clashing = [...runs.values()].find(
-      (lr) => lr.run.project.name === project.name && lr.run.slug === slug,
+      (lr) => lr.run.project.name === project.name && lr.run.slug === slug && lr.currentStage !== null,
     );
     if (clashing !== undefined) {
       return reply

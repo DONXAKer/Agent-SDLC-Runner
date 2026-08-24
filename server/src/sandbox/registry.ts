@@ -45,7 +45,11 @@ export function findSandboxForCwd(cwd: string): SandboxHandle | null {
  * не гоняют `docker build` по кругу — конкуренция была реальной: и `gates/run.ts`, и первая
  * команда модели могли позвать это одновременно на старте витка.
  */
-export async function ensureSandboxFor(projectRoot: string, projectName: string): Promise<SandboxHandle | null> {
+export async function ensureSandboxFor(
+  projectRoot: string,
+  projectName: string,
+  onWarn?: (message: string) => void,
+): Promise<SandboxHandle | null> {
   const root = normalize(projectRoot);
 
   // Дождаться уже идущей остановки ПЕРЕД тем, как смотреть на `active`/`pending`: без этого
@@ -68,7 +72,7 @@ export async function ensureSandboxFor(projectRoot: string, projectName: string)
   const promise = (async () => {
     const spec = loadSandboxSpec(root);
     if (spec === null) return null;
-    const handle = await createDockerSandbox(root, projectName, spec);
+    const handle = await createDockerSandbox(root, projectName, spec, onWarn);
     active.set(root, handle);
     return handle;
   })();

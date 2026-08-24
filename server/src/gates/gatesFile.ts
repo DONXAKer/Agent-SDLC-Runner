@@ -294,12 +294,30 @@ export function uncalibratedGates(g: GatesFile): string[] {
  * в тексте набора. `isBuiltin` передаётся параметром, а не импортируется отсюда: реестр
  * встроенных реализаций живёт в `gates/builtin/index.ts`, который сам импортирует эту
  * функцию (`gateKey`) — обратный импорт замкнул бы модули друг на друга.
+ *
+ * `alwaysImplemented` — гейты, у которых статус берётся НЕ отсюда и НЕ из `isBuiltin`, а из
+ * внешнего механизма рантайма (сегодня единственный такой — «Ревью независимым агентом»:
+ * статус ставит `Run.externalGateStatuses()` по факту вызова субагента, минуя
+ * `gates/run.ts` целиком). Раньше это исключение подмешивалось в саму лямбду `isBuiltin` НА
+ * МЕСТЕ ВЫЗОВА — предикат с этим именем лгал о своём контракте (не «есть builtin», а «есть
+ * builtin ИЛИ ещё какое-то другое условие»), и второй вызывающий, собравший `isBuiltin`
+ * буквально по этой доке, был обязан заново вспомнить и продублировать то же исключение.
+ * Теперь оно — часть сигнатуры, а не спрятанный побочный смысл параметра.
  */
-export function unimplementedGates(g: GatesFile, isBuiltin: (name: string) => boolean): string[] {
+export function unimplementedGates(
+  g: GatesFile,
+  isBuiltin: (name: string) => boolean,
+  alwaysImplemented: readonly string[] = [],
+): string[] {
+  const exempt = new Set(alwaysImplemented.map(gateKey));
   return g.rows
     .filter(
       (row) =>
-        row.enabled && row.reportsAt === 'этап 6' && row.command === null && !isBuiltin(row.name),
+        row.enabled &&
+        row.reportsAt === 'этап 6' &&
+        row.command === null &&
+        !isBuiltin(row.name) &&
+        !exempt.has(gateKey(row.name)),
     )
     .map(
       (row) =>

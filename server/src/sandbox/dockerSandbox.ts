@@ -241,6 +241,7 @@ async function ensureContainer(
   projectName: string,
   spec: SandboxSpec,
   hash: string,
+  onWarn?: (message: string) => void,
 ): Promise<void> {
   if (await containerRunning(name)) return;
 
@@ -332,10 +333,15 @@ async function ensureContainer(
     // сигнала о том, что контейнер эту сеть на самом деле сохранил.
     const r = await runDockerCli(['network', 'disconnect', 'bridge', name], { timeoutMs: 10_000 });
     if (r.exitCode !== 0) {
-      console.error(
-        `[sandbox] не удалось отключить сеть у ${name} (код ${r.exitCode}) — network: 'none' ` +
-          `НЕ обеспечен, контейнер сохраняет доступ к сети:\n${(r.stderr || r.stdout).slice(0, 2000)}`,
-      );
+      const message =
+        `не удалось отключить сеть у ${name} (код ${r.exitCode}) — network: 'none' НЕ обеспечен, ` +
+        `контейнер сохраняет доступ к сети: ${(r.stderr || r.stdout).slice(0, 500)}`;
+      console.error(`[sandbox] ${message}`);
+      // `console.error` одного мало: оператор следит за веб-интерфейсом, не за stderr
+      // сервера, а `ensureContainer` вызывается из `runGates` до самого первого гейта —
+      // без этого коллбэка обещание «обязана быть ГРОМКОЙ» из комментария выше не
+      // выполнялось, сигнал терялся в логе, который никто не читает.
+      onWarn?.(message);
     }
   }
 }
@@ -480,6 +486,7 @@ export async function createDockerSandbox(
   projectRoot: string,
   projectName: string,
   spec: SandboxSpec,
+  onWarn?: (message: string) => void,
 ): Promise<SandboxHandle> {
   const tag = imageTag(projectName, spec);
   const hash = tag.split('-').pop() as string;
@@ -488,7 +495,7 @@ export async function createDockerSandbox(
   if (!(await imageExists(tag))) {
     await buildImage(tag, buildDockerfile(spec), projectRoot);
   }
-  await ensureContainer(name, tag, projectRoot, projectName, spec, hash);
+  await ensureContainer(name, tag, projectRoot, projectName, spec, hash, onWarn);
 
   const exec = new DockerSandbox(name);
 

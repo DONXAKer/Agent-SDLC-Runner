@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 /**
@@ -42,8 +42,13 @@ export function CollapsibleSection({
   // компактный. Раньше это давали снаружи через `key={compact ? …}` — принудительный
   // remount секции при каждом переключателе, скопированный в три места; сброс здесь один
   // на все точки использования.
+  // `useLayoutEffect`, не `useEffect`: последний коммитит и красит кадр СО СТАРЫМ `choice`
+  // до того, как эффект успевает сбросить его — на смене мастер-тумблера секция на один
+  // кадр показывала прежнее (ручное) состояние и дёргалась при перерисовке. Layout-эффект
+  // выполняется синхронно после DOM-мутаций, но до отрисовки браузером — кадра с неверным
+  // состоянием не возникает, ровно как при старом `key`-remount.
   const prevCompact = useRef(compact);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (compact !== prevCompact.current) {
       setChoice(null);
       prevCompact.current = compact;

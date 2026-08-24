@@ -84,6 +84,15 @@ services:
       SDLC_SKILLS_DIR: /methodology/implementations/claude-code/skills
       SDLC_AGENTS_DIR: /methodology/implementations/claude-code/agents
 
+      # Учётные данные Max-подписки для флоу `sdk`: том ниже монтирует `~/.claude` хоста в
+      # `/claude` контейнера — НЕ в `$HOME/.claude` (`$HOME` внутри контейнера — `/root`,
+      # своего `.claude`-каталога там нет и не создаётся). `@anthropic-ai/claude-agent-sdk`
+      # без этой переменной ищет креды по умолчанию в `$HOME/.claude/.credentials.json`,
+      # ничего там не находит и на каждом вызове флоу `sdk` отвечает «Not logged in ·
+      # Please run /login» — даже если сам файл на хосте свежий и валидный. Найдено на
+      # первом реальном витке CV после перехода на этот compose-файл.
+      CLAUDE_CONFIG_DIR: /claude
+
       # Адрес локального сервера моделей — свой на каждой машине (см. extra_hosts ниже).
       # Пусто здесь и в `.env` — не переопределяет: остаётся baseUrl из config/models.json.
       OLLAMA_BASE_URL: '${OLLAMA_BASE_URL:-}'

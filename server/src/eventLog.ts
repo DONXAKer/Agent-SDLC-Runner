@@ -32,9 +32,19 @@ import { WitokPaths } from './artifacts/paths.ts';
  */
 export function appendEvent(projectRoot: string, slug: string, event: RunEvent): void {
   const path = new WitokPaths(projectRoot, slug).events;
+  const line = `${JSON.stringify(event)}\n`;
   try {
-    mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, `${JSON.stringify(event)}\n`);
+    try {
+      appendFileSync(path, line);
+    } catch (e) {
+      // `mkdirSync` — только по факту ENOENT (каталог витка ещё не создан, обычно на
+      // самом первом событии), не на КАЖДЫЙ вызов: `emit()` в index.ts теперь прогоняет
+      // сюда все события живого прогона, включая частый стрим `assistant_text`/`thinking`
+      // — синхронный `mkdirSync` на каждое из них был бы лишним syscall'ом на горячем пути.
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      mkdirSync(dirname(path), { recursive: true });
+      appendFileSync(path, line);
+    }
   } catch (e) {
     // Лента — вспомогательный архив, не источник истины для самого прогона: ошибка записи
     // (диск полон, права) не должна ронять виток, только лишать его архивной ленты.
