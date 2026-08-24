@@ -19,13 +19,26 @@ import type { SandboxSpec } from './types.ts';
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'target', 'out', '.sdlc']);
 const MAX_FILES_SCANNED = 4_000;
 
-/** Обход в ограниченную глубину: сотни тысяч файлов `node_modules` в детекте видеть незачем
- * — манифесты (`pom.xml`, `package.json`, `Dockerfile`) живут у корня модуля, не глубоко. */
+/**
+ * Обход в ограниченную глубину: сотни тысяч файлов `node_modules` в детекте видеть незачем
+ * — манифесты (`pom.xml`, `package.json`, `Dockerfile`) живут у корня модуля, не глубоко.
+ *
+ * BFS (очередь, `shift()`), не DFS через стек: манифесты у корня КАЖДОГО модуля обязаны
+ * попасть в поле зрения раньше, чем бюджет `MAX_FILES_SCANNED` исчерпается — c DFS порядок
+ * обхода зависел от того, в каком порядке `readdirSync` вернул каталоги ВЕРХНЕГО уровня.
+ * В моно-репо с `backend/`+`frontend/`, если `frontend` оказывался в стеке позже `backend`
+ * (значит, popится РАНЬШЕ — LIFO), он разбирался целиком первым; при большом числе файлов
+ * в его подкаталогах (`public/`, `assets/`) бюджет мог исчерпаться внутри `frontend`, не
+ * дойдя до `backend/pom.xml` вовсе. BFS обходит каждый уровень вложенности целиком, прежде
+ * чем уйти глубже — предсказуемо доходит до корня каждого модуля верхнего уровня первым.
+ */
 function walk(root: string, onFile: (path: string, name: string) => void): void {
   let scanned = 0;
-  const stack: string[] = [root];
-  while (stack.length > 0 && scanned < MAX_FILES_SCANNED) {
-    const dir = stack.pop() as string;
+  const queue: string[] = [root];
+  let head = 0;
+  while (head < queue.length && scanned < MAX_FILES_SCANNED) {
+    const dir = queue[head] as string;
+    head += 1;
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -37,7 +50,7 @@ function walk(root: string, onFile: (path: string, name: string) => void): void 
       if (e.name.startsWith('.') && e.name !== '.sdlc') continue;
       if (e.isDirectory()) {
         if (SKIP_DIRS.has(e.name)) continue;
-        stack.push(join(dir, e.name));
+        queue.push(join(dir, e.name));
       } else {
         scanned += 1;
         onFile(join(dir, e.name), e.name);
@@ -58,6 +71,20 @@ function jdkVersionFromPom(xml: string): string | null {
     firstMatch(xml, /<java\.version>\s*(\d+)\s*<\/java\.version>/) ??
     firstMatch(xml, /<maven\.compiler\.release>\s*(\d+)\s*<\/maven\.compiler\.release>/)
   );
+}
+
+/**
+ * Форма, в которой `java -version` реально печатает номер версии.
+ *
+ * JDK 8 и старше используют дореформенную схему (JEP 223 сменила её только с 9): вывод
+ * начинается с `"1.8.0_XXX`, не `"8...` — проверено исполнением: `eclipse-temurin:8-jdk`
+ * даёт `openjdk version "1.8.0_502"`, `eclipse-temurin:21-jdk` — `"21.0.11"`. Проба,
+ * построенная без этой поправки, ложно проваливается на верно установленной JDK 8 —
+ * pre-flight блокирует этап, хотя тулчейн на месте.
+ */
+function javaVersionProbeExpect(version: string): string {
+  const major = Number.parseInt(version, 10);
+  return Number.isFinite(major) && major <= 8 ? `"1\\.${version}\\.` : `"${version}\\.`;
 }
 
 function nodeVersionFromPackageJson(json: string): string | null {
@@ -144,7 +171,7 @@ export function detectSandboxSpec(projectRoot: string): DetectResult {
   const probes: NonNullable<SandboxSpec['probes']> = [];
   if (jdkVersion !== null) {
     toolchains.jdk = { version: jdkVersion, dist: 'temurin' };
-    probes.push({ cmd: 'java -version', expect: `"${jdkVersion}\\.` });
+    probes.push({ cmd: 'java -version', expect: javaVersionProbeExpect(jdkVersion) });
   }
   if (nodeVersion !== null) {
     toolchains.node = { version: nodeVersion };

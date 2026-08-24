@@ -68,6 +68,13 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
 
   // Команда набора имеет приоритет над встроенной: проект, назвавший свою команду,
   // знает про себя больше, чем детект.
+  //
+  // `cwd: i.projectRoot` всегда, не по модулю: гейт из набора — ОДНА команда на проект
+  // (например «cd backend && ./mvnw test»), а не список per-модуль команд, как у
+  // встроенных «Сборка»/«Тесты» (`buildOne`/`testOne` там зовут `runShell` с
+  // `join(ctx.projectRoot, mod.dir)` — реальная адресация по подкаталогу, на которую и
+  // рассчитан `registry.ts::findSandboxForCwd`). Если проектная команда должна идти из
+  // подкаталога — она сама пишет `cd` в начале, как в примере выше.
   if (row.command !== null) {
     const r = await runShell(row.command, {
       cwd: i.projectRoot,

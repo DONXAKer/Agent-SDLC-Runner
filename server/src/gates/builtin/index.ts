@@ -140,29 +140,47 @@ async function forEachModule(
 }
 
 /**
- * Кэш `resolveModules` по контексту прогона — тот же WeakMap-паттерн и то же основание,
- * что у `diffCache`/`rawDiffCache`: «Сборка», «Тесты» и «Линт» из одного набора зовут
- * `resolveModules` с ОДНИМ и тем же `ctx` (`gates/run.ts` создаёт контекст один раз на
- * прогон), и без кэша каждая из трёх заново парсила план и перечитывала каталоги модулей
- * `readdirSync`'ом — тот же файл диска, трижды подряд, за один прогон гейтов.
+ * Get-or-compute по контексту прогона — общий паттерн `modulesCache`/`diffCache`/
+ * `rawDiffCache` ниже: `WeakMap` по идентичности `ctx` живёт и умирает вместе с прогоном
+ * (`gates/run.ts` создаёт контекст один раз на прогон), сбрасывать нечего и забыть сброс
+ * невозможно. Работает и для синхронных значений, и для `Promise<T>` — кэш в последнем
+ * случае хранит САМ промис (а не его результат), что заодно схлопывает конкурентные вызовы
+ * в один запрос вместо параллельных дублей.
+ */
+function memoByCtx<T>(cache: WeakMap<GateContext, T>, ctx: GateContext, compute: () => T): T {
+  const cached = cache.get(ctx);
+  if (cached !== undefined) return cached;
+  const value = compute();
+  cache.set(ctx, value);
+  return value;
+}
+
+/**
+ * Кэш `resolveModules` по контексту прогона: «Сборка», «Тесты» и «Линт» из одного набора
+ * зовут `resolveModules` с ОДНИМ и тем же `ctx`, и без кэша каждая из трёх заново парсила
+ * план и перечитывала каталоги модулей `readdirSync`'ом — тот же файл диска, трижды подряд,
+ * за один прогон гейтов.
+ *
+ * Работает только для этого пути (`runGates`/гейты этапа 6) — `describeBuild`, вызываемый
+ * из `Run.ts::preparePrompt` для сборки промпта, строит СВОЙ `GateContext`-литерал на
+ * каждый вызов (не переиспользует ссылку), поэтому кэш по идентичности `ctx` для него
+ * гарантированно промахивается: не оптимизация для этого конкретного вызывающего, только
+ * для гейтов.
  */
 const modulesCache = new WeakMap<GateContext, { dir: string; files: Set<string> }[]>();
 
 /** Все модули, затронутые планом. Пусто — собирать нечего. */
 function resolveModules(ctx: GateContext): { dir: string; files: Set<string> }[] {
-  const cached = modulesCache.get(ctx);
-  if (cached !== undefined) return cached;
-
-  const dirs = moduleDirsFromPlan(ctx.planFiles, (d) => {
-    // Объявленный человеком модуль — модуль, даже если манифеста детект не знает: ради
-    // этого случая поле и заводилось.
-    if (declaredModule(ctx, d) !== null) return true;
-    const files = dirEntries(ctx.projectRoot, d);
-    return detectBuildSystem(files, readIfExists(join(ctx.projectRoot, d, 'package.json'))) !== null;
+  return memoByCtx(modulesCache, ctx, () => {
+    const dirs = moduleDirsFromPlan(ctx.planFiles, (d) => {
+      // Объявленный человеком модуль — модуль, даже если манифеста детект не знает: ради
+      // этого случая поле и заводилось.
+      if (declaredModule(ctx, d) !== null) return true;
+      const files = dirEntries(ctx.projectRoot, d);
+      return detectBuildSystem(files, readIfExists(join(ctx.projectRoot, d, 'package.json'))) !== null;
+    });
+    return dirs.map((dir) => ({ dir, files: dirEntries(ctx.projectRoot, dir) }));
   });
-  const mods = dirs.map((dir) => ({ dir, files: dirEntries(ctx.projectRoot, dir) }));
-  modulesCache.set(ctx, mods);
-  return mods;
 }
 
 /**
@@ -971,7 +989,7 @@ const scopeGate: BuiltinGate = async (ctx) => {
  * не видел никто. `WeakMap` по контексту истекает вместе с прогоном: сбрасывать нечего и
  * забыть сброс невозможно.
  */
-const diffCache = new WeakMap<GateContext, InvariantViolation[]>();
+const diffCache = new WeakMap<GateContext, Promise<InvariantViolation[]>>();
 
 /**
  * Сам текст diff'а (не разбор) — тем же ключом-контекстом, что `diffCache`.
@@ -985,22 +1003,15 @@ const diffCache = new WeakMap<GateContext, InvariantViolation[]>();
 const rawDiffCache = new WeakMap<GateContext, Promise<string>>();
 
 function cachedWorkingDiff(ctx: GateContext): Promise<string> {
-  const cached = rawDiffCache.get(ctx);
-  if (cached !== undefined) return cached;
-  const promise = workingDiff(ctx.projectRoot, [], ctx.signal);
-  rawDiffCache.set(ctx, promise);
-  return promise;
+  return memoByCtx(rawDiffCache, ctx, () => workingDiff(ctx.projectRoot, [], ctx.signal));
 }
 
-async function diffViolations(ctx: GateContext): Promise<InvariantViolation[]> {
-  const cached = diffCache.get(ctx);
-  if (cached !== undefined) return cached;
-
-  const diff = await cachedWorkingDiff(ctx);
-  const deleted = await deletedPaths(ctx.projectRoot, ctx.signal);
-  const violations = invariantViolations(diff, deleted);
-  diffCache.set(ctx, violations);
-  return violations;
+function diffViolations(ctx: GateContext): Promise<InvariantViolation[]> {
+  return memoByCtx(diffCache, ctx, async () => {
+    const diff = await cachedWorkingDiff(ctx);
+    const deleted = await deletedPaths(ctx.projectRoot, ctx.signal);
+    return invariantViolations(diff, deleted);
+  });
 }
 
 /**

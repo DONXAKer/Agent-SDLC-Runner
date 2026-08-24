@@ -25,6 +25,15 @@ const KNOWN_DOCKER = new Set(['none', 'socket']);
 const VERSION_RE = /^[0-9][0-9A-Za-z_.+-]*$/;
 const APT_PACKAGE_RE = /^[a-zA-Z0-9][a-zA-Z0-9+.-]*$/;
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// `base` попадает в текст Dockerfile как `FROM ${base}` (`dockerfile.ts::buildDockerfile`)
+// без экранирования — тот же класс риска, что у version/apt/env выше, и он был здесь
+// пропущен: значение вида «debian:12-slim\nRUN curl … | sh» проходило разбор целиком и
+// давало реально собираемый Dockerfile с инъекцией второй инструкции (воспроизведено
+// исполнением). Форма — как у настоящей ссылки на образ Docker (реестр/репозиторий:тег
+// или @digest), но здесь достаточно самого факта «один токен без пробелов и переводов
+// строки»: полная грамматика ссылок Docker не нужна, а вот отсутствие \n/\r/пробелов —
+// обязательно.
+const BASE_IMAGE_RE = /^[A-Za-z0-9][A-Za-z0-9._/:@-]*$/;
 
 function assertToolchain(name: string, v: unknown): void {
   if (typeof v !== 'object' || v === null) {
@@ -56,8 +65,10 @@ export function parseSandboxSpec(raw: string, sourcePath: string): SandboxSpec {
   }
   const o = json as Record<string, unknown>;
 
-  if (typeof o.base !== 'string' || o.base.trim() === '') {
-    throw new SandboxSpecError(`${sourcePath}: поле «base» обязано быть непустой строкой`);
+  if (typeof o.base !== 'string' || !BASE_IMAGE_RE.test(o.base)) {
+    throw new SandboxSpecError(
+      `${sourcePath}: поле «base» обязано быть ссылкой на образ Docker без пробелов и переводов строки (буквы, цифры, «./:@-») — попадает в FROM как есть`,
+    );
   }
 
   const toolchains = o.toolchains;
@@ -118,7 +129,9 @@ export function parseSandboxSpec(raw: string, sourcePath: string): SandboxSpec {
   }
 
   if (o.network !== undefined && o.network !== 'none') {
-    throw new SandboxSpecError(`${sourcePath}: «network» поддерживает только значение «none»`);
+    throw new SandboxSpecError(
+      `${sourcePath}: «network» поддерживает только значение «none», получено: «${String(o.network)}»`,
+    );
   }
 
   if (o.probes !== undefined) {

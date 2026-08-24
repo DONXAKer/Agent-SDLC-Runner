@@ -37,6 +37,7 @@ import type { ApprovalGate } from '../approval/gate.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/schema.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
+import { normalize } from '../exec/normalize.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
 import { createProvider } from '../provider/registry.ts';
 import type {
@@ -1134,13 +1135,17 @@ export class Run {
       }
     }
 
-    // `chunk` — первый этап, где модель реально пишет в рабочее дерево (`Write`/`Edit`).
-    // Проверка ЗДЕСЬ, а не в handoff'е (где формально стоит гейт «Проверка предусловий
-    // публикации»): тот гейт находит неверную ветку уже ПОСЛЕ коммита — правка на `main`
-    // случилась раньше, чем гейт вообще успел отчитаться. Не переключаем ветку
-    // автоматически: `git checkout` посреди грязного дерева — свой источник потери
-    // рабочих файлов, а решение, что считать «текущей задачей», принимает человек.
-    if (stage === 'chunk') {
+    // `chunk` — первый этап, где модель реально пишет в рабочее дерево (`Write`/`Edit`), но
+    // не единственный, где доступен `Bash`: он разрешён и на `verify`, и на `handoff`
+    // (`stages.ts`) — значит `git checkout` внутри Bash-вызова может сменить ветку уже
+    // ПОСЛЕ входа в `chunk`, и проверка только на входе в `chunk` эту смену не поймает
+    // вплоть до гейта «Проверка предусловий публикации» на `handoff`, который находит её
+    // ПОСЛЕ коммита — ровно тот постфактум-сценарий AUTH-104, ради которого блокер и
+    // заводился. Перепроверяем на входе в каждый из трёх этапов, где Bash в принципе
+    // доступен. Не переключаем ветку автоматически: `git checkout` посреди грязного дерева
+    // — свой источник потери рабочих файлов, а решение, что считать «текущей задачей»,
+    // принимает человек.
+    if (stage === 'chunk' || stage === 'verify' || stage === 'handoff') {
       const branchBlocker = await this.branchMismatchBlocker();
       if (branchBlocker !== null) {
         this.status = 'failed';
@@ -1293,7 +1298,17 @@ export class Run {
             pendingReviewer.add(meta.requestId);
           }
           if (decision.allowed && call.kind === 'bash') {
-            pendingBash.set(meta.requestId, call.command);
+            // `call.command` — то, что ПРЕДЛОЖИЛА модель, не обязательно то, что реально
+            // исполнится: оператор мог поправить команду через approve-with-edit
+            // (`decision.updatedInput`), и оба исполнителя (`SdkExecutor`/`LoopExecutor`)
+            // запускают именно правленый ввод. `recordBashResult` считает повторы по
+            // фактически исполненной команде — иначе три РАЗНЫЕ команды, которые оператор
+            // одну за другой правил после провала, засчитывались бы как одна и та же.
+            const effective =
+              decision.updatedInput === null
+                ? call
+                : normalize(meta.toolName, decision.updatedInput as Record<string, unknown>);
+            pendingBash.set(meta.requestId, effective.kind === 'bash' ? effective.command : call.command);
           }
           // Человек одобрил расширение scope — дописываем `plan.md` и пересчитываем `ctx`
           // из него ЖЕ, до возврата решения: следующий вызов этого же прогона (обычно —

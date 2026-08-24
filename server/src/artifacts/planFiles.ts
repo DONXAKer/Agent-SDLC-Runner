@@ -82,10 +82,26 @@ const ADDED_BEYOND_RE = /^(.*\*\*Добавлено сверх разведки:
  * строка есть по форме; отсутствие — признак вручную покалеченного файла, чинить который
  * подстановкой означало бы гадать, куда именно.
  */
+/** И статичный маркер, и уже вставленная строка расширения — оба годятся как место для
+ * следующей вставки, см. комментарий в `appendScopeExtension` про порядок. */
+const ANCHOR_RE = /^(.*\*\*Добавлено сверх разведки:\*\*.*|- \*\*Расширено:\*\*.*)$/gm;
+
 export function appendScopeExtension(planText: string, path: string, note: string): string | null {
   if (!ADDED_BEYOND_RE.test(planText)) return null;
   const line = `- **Расширено:** \`${path}\` — ${note}`;
-  return planText.replace(ADDED_BEYOND_RE, (m) => `${m}\n${line}`);
+
+  // Вставляем ПОСЛЕ ПОСЛЕДНЕЙ уже добавленной записи, а не сразу за статичным маркером:
+  // `replace` с немодифицированным паттерном всегда матчит маркер (текст самой вставленной
+  // строки этот же паттерн не содержит), поэтому при двух и более `request_scope_extension`
+  // за виток вторая запись вставала бы МЕЖДУ маркером и первой — порядок в файле получался
+  // бы обратным (LIFO) хронологии одобрений. Ищем последнее совпадение (маркер ИЛИ
+  // последняя вставленная строка) и вставляем сразу за ним.
+  let lastMatch: RegExpExecArray | null = null;
+  for (const m of planText.matchAll(ANCHOR_RE)) lastMatch = m;
+  if (lastMatch === null) return null;
+
+  const insertAt = lastMatch.index + lastMatch[0].length;
+  return `${planText.slice(0, insertAt)}\n${line}${planText.slice(insertAt)}`;
 }
 
 export function extractFilesToTouch(planText: string): string[] {

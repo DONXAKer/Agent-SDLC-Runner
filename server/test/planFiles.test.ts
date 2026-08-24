@@ -95,6 +95,28 @@ describe('files_to_touch', () => {
     strictEqual(appendScopeExtension(plan, 'src/extra.java', 'причина'), null);
   });
 
+  it('appendScopeExtension — вторая запись встаёт ПОСЛЕ первой, не между маркером и ней', () => {
+    // Регресс на LIFO: раньше каждая вставка матчила статичный маркер, а не последнюю уже
+    // добавленную строку, и порядок в plan.md получался обратным хронологии одобрений.
+    const plan = [
+      '## files_to_touch',
+      '| `src/a.java` | правим |',
+      '',
+      '- **Добавлено сверх разведки:** нет',
+      '- **Из задачи исключено:** нет',
+    ].join('\n');
+    const afterFirst = appendScopeExtension(plan, 'src/first.java', 'первая');
+    ok(afterFirst !== null);
+    const afterSecond = appendScopeExtension(afterFirst, 'src/second.java', 'вторая');
+    ok(afterSecond !== null);
+
+    const firstAt = afterSecond.indexOf('src/first.java');
+    const secondAt = afterSecond.indexOf('src/second.java');
+    ok(firstAt >= 0 && secondAt >= 0);
+    ok(firstAt < secondAt, `порядок должен быть хронологическим: first=${firstAt}, second=${secondAt}`);
+    deepStrictEqual(extractFilesToTouch(afterSecond), ['src/a.java', 'src/first.java', 'src/second.java']);
+  });
+
   it('живой пример методологии разбирается целиком', { skip: нетЭталона(loadConfig().runner.methodologyDir) }, () => {
     const cfg = loadConfig();
     const example = join(cfg.runner.methodologyDir, 'example', 'plan.md');

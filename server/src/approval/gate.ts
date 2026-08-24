@@ -13,7 +13,7 @@
  * запись не произошла, а содержимое приватного ключа утекло и осело в истории событий.
  */
 
-import { AUTO_APPROVE_OFF } from '@sdlc-runner/shared';
+import { AUTO_APPROVE_OFF, policyDeny } from '@sdlc-runner/shared';
 import type { AutoApproveRules } from '@sdlc-runner/shared';
 
 import { evaluate, writeTargetPaths, writeTargetsOf } from '../policy/index.ts';
@@ -211,14 +211,11 @@ export class ApprovalGate {
     const call = args.call;
     const loop = call.kind === 'bash' ? this.bashFailures.get(args.runId) : undefined;
     if (loop !== undefined && call.kind === 'bash' && loop.command === call.command && loop.count >= MAX_REPEAT_BASH_FAILURES) {
-      const policy: PolicyVerdict = {
-        ok: false,
-        policy: 'repeatFailure',
-        reason:
-          `эта команда уже упала ${loop.count} раз подряд без изменений — команда падает ` +
-          `повторно, смени подход, а не повторяй тот же вызов`,
-      };
-      const decision: Decision = { allowed: false, reason: `[repeatFailure] ${policy.reason}`, by: 'policy' };
+      const reason =
+        `эта команда уже упала ${loop.count} раз подряд без изменений — команда падает ` +
+        `повторно, смени подход, а не повторяй тот же вызов`;
+      const policy = policyDeny('repeatFailure', reason);
+      const decision: Decision = { allowed: false, reason: `[repeatFailure] ${reason}`, by: 'policy' };
       this.events.onPending(visible({ ...base, policy, preview: null, resolve: () => {} }));
       this.events.onResolved(info, decision);
       return decision;
@@ -279,7 +276,7 @@ export class ApprovalGate {
 
     for (const path of paths) {
       const escape = symlinkEscape(ctx.projectRoot, path, ctx.readOnlyRoots);
-      if (escape !== null) return { ok: false, policy: 'pathScope', reason: escape };
+      if (escape !== null) return policyDeny('pathScope', escape);
     }
     return verdict;
   }
