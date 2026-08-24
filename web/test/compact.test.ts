@@ -15,7 +15,7 @@ import { orderFiles, splitPatchBlocks } from '../src/lib/diffStats.ts';
 import { groupEvents } from '../src/lib/eventGroups.ts';
 import { mergePending } from '../src/lib/pending.ts';
 import { readLS, writeLS } from '../src/lib/persist.ts';
-import { gateSummary, promptSummary } from '../src/lib/summaries.ts';
+import { gateSummary } from '../src/lib/summaries.ts';
 import { PANEL_TONE, diffLineTone, verdictTextTone, verdictTone } from '../src/lib/tones.ts';
 
 // ---------------------------------------------------------------------------
@@ -169,20 +169,6 @@ describe('очередь решений mergePending', () => {
 });
 
 describe('сводки', () => {
-  it('промпт показывается в тех же символах, что и строка ленты — не в отдельной оценке токенов', () => {
-    const prompt = {
-      presetNote: null,
-      system: 'x'.repeat(4000),
-      user: 'y'.repeat(4000),
-      tools: [],
-      editedByOperator: false,
-    };
-    const plain = promptSummary(prompt, false);
-    ok(plain.includes('4000 + 4000 симв.'), plain);
-    ok(!plain.includes('изменён'), 'правки не было');
-    ok(promptSummary(prompt, true).includes('изменён вручную'));
-  });
-
   it('счётчики гейтов покрывают все статусы и сходятся с длиной входа', () => {
     const results = [
       { name: 'a', status: '✅', command: null, exitCode: null, lastLine: '', durationMs: 0 },

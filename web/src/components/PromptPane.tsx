@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react';
 
 import type { PreparedPrompt } from '@sdlc-runner/shared';
 
-import { promptSummary } from '../lib/summaries.ts';
 import { PANEL_TONE } from '../lib/tones.ts';
-import { CollapsibleSection } from './run/CollapsibleSection.tsx';
 
 /**
  * Полный промпт с правкой перед отправкой.
@@ -19,7 +17,6 @@ export function PromptPane({
   busy,
   busyReason,
   onRun,
-  compact,
 }: {
   prompt: PreparedPrompt | null;
   blockers: string[];
@@ -30,7 +27,6 @@ export function PromptPane({
    */
   busyReason?: string;
   onRun: (edited: { system: string; user: string }) => void;
-  compact: boolean;
 }): JSX.Element {
   const [system, setSystem] = useState('');
   const [user, setUser] = useState('');
@@ -129,8 +125,6 @@ export function PromptPane({
     </div>
   );
 
-  // Кнопка запуска видна в обоих режимах и в любом состоянии секции: свёрнутый промпт не
-  // должен прятать единственное действие колонки.
   const runRow = (
     <div className="mt-3 flex items-center gap-3">
       <button
@@ -145,39 +139,10 @@ export function PromptPane({
     </div>
   );
 
-  if (!compact) {
-    return (
-      <div>
-        {presetNoteBlock}
-        {body}
-        {runRow}
-      </div>
-    );
-  }
-
   return (
     <div>
       {presetNoteBlock}
-      <CollapsibleSection
-        id="prompt"
-        title="Промпт"
-        compact={compact}
-        defaultOpen={!compact || blockers.length > 0}
-        alert={blockers.length > 0}
-        summary={
-          <>
-            {promptSummary(prompt, edited)}
-            {/* Блокеры этапа нельзя спрятать за свёрнутой секцией: свёрнутая строка
-                обязана называть, что этап не начнётся, — иначе серая кнопка запуска
-                выглядит поломкой, а не следствием предусловий. */}
-            {blockers.length > 0 ? (
-              <span className="ml-2 text-red-400">блокеров: {blockers.length}</span>
-            ) : null}
-          </>
-        }
-      >
-        <div className="p-3">{body}</div>
-      </CollapsibleSection>
+      {body}
       {runRow}
     </div>
   );

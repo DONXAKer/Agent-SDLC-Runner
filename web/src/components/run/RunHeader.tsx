@@ -13,8 +13,6 @@ export function RunHeader({
   onConfirmCancel,
   onCancel,
   onExit,
-  compact,
-  onToggleCompact,
 }: {
   detail: RunDetail;
   connected: boolean;
@@ -24,8 +22,6 @@ export function RunHeader({
   onConfirmCancel: (v: boolean) => void;
   onCancel: () => void;
   onExit: () => void;
-  compact: boolean;
-  onToggleCompact: () => void;
 }): JSX.Element {
   return (
     <header className="flex items-center gap-4 border-b border-neutral-800 px-4 py-2.5">
@@ -61,15 +57,6 @@ export function RunHeader({
       </span>
 
       <div className="ml-auto flex items-center gap-4">
-        <button
-          type="button"
-          onClick={onToggleCompact}
-          title="Компактный вид сворачивает секции в строки-сводки; очередь решений и кнопки действий видны всегда"
-          className="rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 hover:bg-neutral-800"
-        >
-          {compact ? 'Подробно' : 'Компакт'}
-        </button>
-
         {/* Бюджет берётся из конфига проекта, а не из константы: до этого полоса
             сравнивала расход с чужим числом и краснела не тогда, когда надо. */}
         <CostBar usage={detail.usage} budgetUsd={detail.maxBudgetUsd} />

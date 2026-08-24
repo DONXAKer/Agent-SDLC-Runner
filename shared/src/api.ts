@@ -84,6 +84,28 @@ export interface RunSummary {
   usage: Usage;
 }
 
+/**
+ * Статус витка ЦЕЛИКОМ, выведенный из артефактов на диске, — не то же самое, что
+ * `RunStatus` (статус последнего этапа живого прогона в памяти).
+ *
+ * `done`/`aborted` читаются из поля «Приёмка» в `handoff.md` (methodology фиксирует обрыв
+ * тем же полем — declined — а не отдельным флагом в файле). `open` — handoff'а ещё нет,
+ * но виток сейчас держит сервер в памяти. `unfinished` — ни того, ни другого: виток мог
+ * оборваться без записи (закрыли вкладку, забыли) либо просто ещё не начинали handoff в
+ * этой сессии сервера — история этого не различает и не должна утверждать больше, чем
+ * видно по файлам.
+ */
+export type HistoryStatus = 'done' | 'aborted' | 'open' | 'unfinished';
+
+export interface HistoryEntry {
+  slug: string;
+  status: HistoryStatus;
+  /** Самый дальний этап, для которого на диске есть артефакт. `null` — только intent не начат. */
+  lastStage: StageId | null;
+  /** ISO-момент последнего изменения среди файлов витка. */
+  updatedAt: string;
+}
+
 export interface PendingApproval {
   runId: string;
   stage: StageId;

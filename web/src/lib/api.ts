@@ -3,10 +3,12 @@ import type {
   BrowseResult,
   ConfigInfo,
   Decision,
+  HistoryEntry,
   PreparedPrompt,
   ProjectInfo,
   RunDetail,
   RunDiff,
+  RunEvent,
   RunSummary,
   StageId,
 } from '@sdlc-runner/shared';
@@ -62,6 +64,20 @@ export const api = {
    * попытку, и расход — ровно то, ради чего список и нужен.
    */
   runs: (): Promise<RunSummary[]> => fetch('/api/runs').then(json<RunSummary[]>),
+
+  /** История витков проекта — с диска, а не из памяти: переживает перезапуск сервера. */
+  history: (project: string): Promise<HistoryEntry[]> =>
+    fetch(`/api/history?project=${encodeURIComponent(project)}`).then(json<HistoryEntry[]>),
+
+  /**
+   * Полная лента событий витка — АРХИВНЫЙ путь (с диска, `.events.ndjson`), не WS. Работает
+   * для любого статуса истории, не только `open`: закрытый/убранный виток не имеет живого
+   * `runId`, поэтому берётся по `project`+`slug`, не по `id`, как `run()` выше.
+   */
+  historyEvents: (project: string, slug: string): Promise<RunEvent[]> =>
+    fetch(`/api/history/${encodeURIComponent(slug)}/events?project=${encodeURIComponent(project)}`).then(
+      json<RunEvent[]>,
+    ),
 
   preparePrompt: (
     id: string,

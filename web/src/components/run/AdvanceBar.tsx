@@ -1,52 +1,32 @@
-import { DecideButtons } from './DecideButtons.tsx';
-
 /**
- * Панель действий оператора — прилипает к низу прокручиваемой области.
+ * Продвижение витка: новая попытка, следующий chunk или обрыв через handoff.
  *
- * Выход из красного вердикта: новая попытка, следующий chunk или обрыв витка. Без этих
- * трёх кнопок интерфейс не имел ни одного легального продолжения. Sticky — чтобы решение
- * не требовало прокрутки через ленту и панели: кнопки видны всегда.
+ * Кнопки приёмки записи сюда больше не дублируются — они живут только в `DecisionCard`
+ * внутри `DecisionQueue`, на той же вкладке «Сейчас». До этого одна и та же карточка
+ * `DecideButtons` рендерилась и здесь, и в очереди решений с тем же `onDecide` — оператору
+ * приходилось решать, какая из двух копий актуальна.
+ *
+ * Sticky — вкладка «Сейчас» может быть длинной (очередь решений + промпт с двумя
+ * textarea), и без прилипания к низу кнопки продвижения уходили за экран ровно в
+ * момент, когда решение нужно принять быстрее всего — на красном вердикте.
  */
 export function AdvanceBar({
   attempt,
   attemptBudget,
   uiBusy,
   abortBlockers,
-  decision,
-  decisionNote,
-  onDecisionNoteChange,
   onAdvance,
   onAbort,
-  onDecide,
 }: {
   attempt: number;
   attemptBudget: number;
   uiBusy: boolean;
   abortBlockers: string[];
-  /** Ждущая приёмка записи — кнопки решения дублируются сюда, чтобы быть видимыми без прокрутки. */
-  decision: { label: string; artifact: string } | null;
-  decisionNote: string;
-  onDecisionNoteChange: (v: string) => void;
   onAdvance: (to: 'attempt' | 'chunk') => void;
   onAbort: () => void;
-  /** Тот же хендлер, что у карточки приёмки, — логика решения не дублируется. */
-  onDecide: (granted: boolean) => void;
 }): JSX.Element {
   return (
     <div className="sticky bottom-0 z-10 mt-3 flex flex-wrap items-center gap-2 rounded border border-neutral-800 bg-neutral-950/95 p-3 backdrop-blur">
-      {decision !== null ? (
-        <>
-          <span className="shrink-0 text-xs text-amber-300">Ждёт приёмки: {decision.label}</span>
-          <DecideButtons
-            artifact={decision.artifact}
-            note={decisionNote}
-            onNoteChange={onDecisionNoteChange}
-            onDecide={onDecide}
-          />
-          <span className="mx-1 h-4 w-px bg-neutral-800" />
-        </>
-      ) : null}
-
       <span className="shrink-0 text-xs text-neutral-400">Продвинуть виток:</span>
       <button
         type="button"

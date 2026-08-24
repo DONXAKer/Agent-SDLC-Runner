@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { DirectoryBrowser } from './components/DirectoryBrowser.tsx';
+import { HistoryList } from './components/HistoryList.tsx';
 import { ProfileEditor } from './components/ProfileEditor.tsx';
 import { RunList } from './components/RunList.tsx';
+import { ArchivedRunView } from './pages/ArchivedRunView.tsx';
 import { RunPage } from './pages/RunPage.tsx';
 import { api } from './lib/api.ts';
 import { PANEL_TONE } from './lib/tones.ts';
-import type { ConfigInfo, ProjectInfo, RunSummary, StageId } from '@sdlc-runner/shared';
+import type { ConfigInfo, HistoryEntry, ProjectInfo, RunSummary, StageId } from '@sdlc-runner/shared';
 
 export default function App(): JSX.Element {
   const [config, setConfig] = useState<ConfigInfo | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+  /** Виток из истории, которого нет среди живых `runs` — открывается read-only архивом. */
+  const [archived, setArchived] = useState<{ project: string; slug: string } | null>(null);
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [profile, setProfile] = useState('');
   const [slug, setSlug] = useState('');
@@ -19,6 +23,7 @@ export default function App(): JSX.Element {
   const [pendingPath, setPendingPath] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   /** Правка моделей на один виток: на диск не сохраняется. */
   const [stageOverrides, setStageOverrides] = useState<Partial<Record<StageId, string>>>({});
 
@@ -41,11 +46,26 @@ export default function App(): JSX.Element {
     api.runs().then(setRuns).catch((e: Error) => setError(e.message));
   }, []);
 
+  // История — с диска и per-project (в отличие от `runs`, общего списка живых прогонов
+  // сервера сразу по всем проектам), поэтому перезапрашивается и при смене проекта.
+  const refreshHistory = useCallback(() => {
+    if (project === null) {
+      setHistory(null);
+      return;
+    }
+    api.history(project.name).then(setHistory).catch((e: Error) => setError(e.message));
+  }, [project]);
+
   // Перезапрашивается и при возврате из витка: выход со страницы прогона — единственный
   // момент, когда список заведомо устарел, а раньше возвращаться было попросту некуда.
+  // Условие включает и архивный просмотр — иначе список фонового `fetch`ился бы, пока
+  // оператор читает read-only ленту `ArchivedRunView`, без всякой пользы для этого экрана.
   useEffect(() => {
-    if (runId === null) refreshRuns();
-  }, [runId, refreshRuns]);
+    if (runId === null && archived === null) {
+      refreshRuns();
+      refreshHistory();
+    }
+  }, [runId, archived, refreshRuns, refreshHistory]);
 
   const forget = async (id: string): Promise<void> => {
     setError(null);
@@ -76,6 +96,16 @@ export default function App(): JSX.Element {
   };
 
   if (runId !== null) return <RunPage runId={runId} onExit={() => setRunId(null)} />;
+  if (archived !== null) {
+    return (
+      <ArchivedRunView
+        project={archived.project}
+        slug={archived.slug}
+        stageTitles={Object.fromEntries((config?.stages ?? []).map((s) => [s.id, s.title]))}
+        onExit={() => setArchived(null)}
+      />
+    );
+  }
 
   const start = async (): Promise<void> => {
     if (project === null || slug.trim() === '') return;
@@ -106,25 +136,46 @@ export default function App(): JSX.Element {
         <div className="text-sm text-neutral-500">Загрузка конфигурации…</div>
       ) : (
         <div className="space-y-4">
-          {/* Условие видимости списка живёт здесь одно: пока оно было и внутри `RunList`,
+          {/* Условие видимости списков живёт здесь одно: пока оно было и внутри `RunList`,
               и снаружи у разделителя, любое изменение правила рассинхронизировало бы их. */}
           {runs !== null && runs.length > 0 ? (
-            <>
-              <RunList
-                runs={runs}
-                onOpen={setRunId}
-                onForget={(id) => void forget(id)}
-                onRefresh={() => {
-                  // Обновление по кнопке — действие человека, и оно вправе снять свою же
-                  // прошлую ошибку (например отказ «Убрать» с кодом 409).
-                  setError(null);
-                  refreshRuns();
-                }}
-              />
-              <div className="border-t border-neutral-800 pt-4 text-xs uppercase tracking-wide text-neutral-500">
-                Новый виток
-              </div>
-            </>
+            <RunList
+              runs={runs}
+              onOpen={setRunId}
+              onForget={(id) => void forget(id)}
+              onRefresh={() => {
+                // Обновление по кнопке — действие человека, и оно вправе снять свою же
+                // прошлую ошибку (например отказ «Убрать» с кодом 409).
+                setError(null);
+                refreshRuns();
+              }}
+            />
+          ) : null}
+
+          {history !== null && history.length > 0 ? (
+            <HistoryList
+              entries={history}
+              stageTitles={Object.fromEntries(config.stages.map((s) => [s.id, s.title]))}
+              onOpen={(slug) => {
+                // Живой виток открывается как раньше (`RunPage`, WS, полное управление);
+                // для всего остального (done/aborted/unfinished — и теперь тоже open, если
+                // почему-то разошёлся со списком `runs`) единственный источник — архивная
+                // лента с диска, `ArchivedRunView` read-only.
+                const r = runs?.find((x) => x.slug === slug && x.project === project?.name);
+                if (r !== undefined) setRunId(r.runId);
+                else if (project !== null) setArchived({ project: project.name, slug });
+              }}
+              onRefresh={() => {
+                setError(null);
+                refreshHistory();
+              }}
+            />
+          ) : null}
+
+          {(runs !== null && runs.length > 0) || (history !== null && history.length > 0) ? (
+            <div className="border-t border-neutral-800 pt-4 text-xs uppercase tracking-wide text-neutral-500">
+              Новый виток
+            </div>
           ) : null}
 
           <label className="block">

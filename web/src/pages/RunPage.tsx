@@ -10,6 +10,10 @@ import { CollapsibleSection } from '../components/run/CollapsibleSection.tsx';
 import { DecisionQueue } from '../components/run/DecisionQueue.tsx';
 import { PromptColumn } from '../components/run/PromptColumn.tsx';
 import { RunHeader } from '../components/run/RunHeader.tsx';
+import { RunMetricsPanel } from '../components/run/RunMetricsPanel.tsx';
+import { RunSummaryStrip } from '../components/run/RunSummaryStrip.tsx';
+import type { RunTab } from '../components/run/RunTabs.tsx';
+import { RunTabs } from '../components/run/RunTabs.tsx';
 import { StageArtifacts } from '../components/run/StageArtifacts.tsx';
 import { VerdictCard } from '../components/run/VerdictCard.tsx';
 import { api } from '../lib/api.ts';
@@ -22,9 +26,8 @@ import type {
 } from '@sdlc-runner/shared';
 import { AUTO_APPROVE_OFF, describeCall } from '@sdlc-runner/shared';
 import { groupEvents } from '../lib/eventGroups.ts';
-import { mergePending } from '../lib/pending.ts';
+import { decisionQueueCount, mergePending } from '../lib/pending.ts';
 import { PANEL_TONE } from '../lib/tones.ts';
-import { useCompactMode } from '../lib/useCompactMode.ts';
 import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
 
@@ -39,7 +42,9 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
   const [error, setError] = useState<string | null>(null);
   /** Отмена прогона спрашивается вторым кликом: бюджет уже потрачен, отменить отмену нельзя. */
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const { compact, toggle: toggleCompact } = useCompactMode();
+  const [tab, setTab] = useState<RunTab>('now');
+  /** Один флаг на все секции вкладки «Ход» — вместо отдельного выбора по каждой. */
+  const [progressExpanded, setProgressExpanded] = useState(true);
   /**
    * Правила автоодобрения. Живут до конца этапа: сервер снимает их в `finally` запуска, и
    * обещать здесь большее (например «на весь виток») значило бы обещать не своё.
@@ -354,6 +359,10 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
   // предусловие следующего этапа.
   const decision =
     stageInfo?.decision != null && !stageInfo.decisionRecorded ? stageInfo.decision : null;
+  // Красный вердикт — тоже повод заглянуть на «Сейчас»: виток стоит и ждёт «Новая
+  // попытка»/«Следующий chunk»/«Обрыв», хотя это не decision-слот и не запрос от агента.
+  const verdictNeedsAction = detail.verdict !== null && !detail.verdict.passed;
+  const nowCount = decisionQueueCount(asks, approvals, decision) + (verdictNeedsAction ? 1 : 0);
 
   return (
     <div className="flex h-full flex-col">
@@ -366,9 +375,8 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
         onConfirmCancel={setConfirmCancel}
         onCancel={() => void cancel()}
         onExit={onExit}
-        compact={compact}
-        onToggleCompact={toggleCompact}
       />
+      <RunSummaryStrip detail={detail} />
 
       <div className="flex min-h-0 flex-1">
         <StageRail run={detail} selected={stage} onSelect={setStage} />
@@ -380,43 +388,84 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
             </div>
           ) : null}
 
-          <DecisionQueue
-            asks={asks}
-            approvals={approvals}
-            decision={decision}
-            decisionNote={decisionNote}
-            onNoteChange={setDecisionNote}
-            onDecide={(granted) => void decide(granted)}
-            onAnswer={answer}
-            onResolve={resolveApproval}
-            compact={compact}
-          />
+          <RunTabs tab={tab} onSelect={setTab} nowCount={nowCount} />
 
-          {/* minmax(0,1fr) вместо 1fr: иначе длинные пути в артефактах распирают колонку
-              и правая половина уезжает за экран. */}
-          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <PromptColumn
-              stage={stage}
-              prompt={prompt}
-              blockers={blockers}
-              uiBusy={uiBusy}
-              busyReason={busyReason}
-              autoRules={autoRules}
-              onAutoRulesChange={setAutoRules}
-              requirement={requirement}
-              onRequirementChange={setRequirement}
-              onBuild={() => void build()}
-              onRun={(p) => void run(p)}
-              compact={compact}
-            />
+          {/* Вкладки «Ход»/«Метрики» размонтируют очередь решений вместе с «Сейчас» —
+              бейдж на неактивной вкладке легко потерять боковым зрением, а браузерные
+              уведомления decision-слот не покрывают (useOperatorAlerts.ts). Баннер —
+              второй, более настойчивый сигнал того же nowCount, а не новый источник. */}
+          {tab !== 'now' && nowCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setTab('now')}
+              className="mb-3 flex w-full items-center gap-2 rounded border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-left text-xs text-amber-300 hover:bg-amber-950/40"
+            >
+              <span className="rounded bg-amber-900/60 px-1.5 py-0.5 text-amber-200">{nowCount}</span>
+              Ждёт решения на вкладке «Сейчас» → перейти
+            </button>
+          ) : null}
 
+          {tab === 'now' ? (
+            <div className="space-y-4">
+              <DecisionQueue
+                asks={asks}
+                approvals={approvals}
+                decision={decision}
+                decisionNote={decisionNote}
+                onNoteChange={setDecisionNote}
+                onDecide={(granted) => void decide(granted)}
+                onAnswer={answer}
+                onResolve={resolveApproval}
+              />
+
+              <PromptColumn
+                stage={stage}
+                prompt={prompt}
+                blockers={blockers}
+                uiBusy={uiBusy}
+                busyReason={busyReason}
+                autoRules={autoRules}
+                onAutoRulesChange={setAutoRules}
+                requirement={requirement}
+                onRequirementChange={setRequirement}
+                onBuild={() => void build()}
+                onRun={(p) => void run(p)}
+              />
+
+              <AdvanceBar
+                attempt={detail.attempt}
+                attemptBudget={detail.attemptBudget}
+                uiBusy={uiBusy}
+                abortBlockers={abortBlockers}
+                onAdvance={(to) => void advance(to)}
+                onAbort={() => void abortWitok()}
+              />
+            </div>
+          ) : null}
+
+          {tab === 'progress' ? (
             <section className="min-w-0">
-              <h2 className="mb-2 text-sm font-medium">Ход этапа</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium">Ход этапа</h2>
+                <button
+                  type="button"
+                  onClick={() => setProgressExpanded((v) => !v)}
+                  className="rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 hover:bg-neutral-800"
+                >
+                  {progressExpanded ? 'Свернуть всё' : 'Развернуть всё'}
+                </button>
+              </div>
+
+              {/* `key` привязан к мастер-тумблеру: без него ручной клик по секции
+                  (её собственный `choice`) навсегда переживает нажатие «Развернуть/
+                  Свернуть всё» — кнопка обещает разворот всех секций, а не слушавшую
+                  бы её секцию. Remount на смену `progressExpanded` сбрасывает `choice`
+                  и возвращает секцию под управление тумблера. */}
               <CollapsibleSection
-                id="events"
+                key={progressExpanded ? 'expanded' : 'collapsed'}
                 title="Лента событий"
-                compact={compact}
-                defaultOpen={!compact || hasWarning}
+                compact={!progressExpanded}
+                defaultOpen={progressExpanded || hasWarning}
                 alert={hasWarning}
                 summary={
                   <>
@@ -435,12 +484,16 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                   Условие по этапу то же, что у вердикта: гейты прогоняются на `verify` и
                   под лентой `plan` читались бы как «план провалил сборку». */}
               {stage === 'verify' ? (
-                <GatePanel results={gateResults} aborted={detail.gatesAborted} compact={compact} />
+                <GatePanel
+                  results={gateResults}
+                  aborted={detail.gatesAborted}
+                  compact={!progressExpanded}
+                />
               ) : null}
 
               {/* Патч попытки — там же, где его чинят и где по нему судят. */}
               {stage === 'verify' || stage === 'chunk' ? (
-                <RunDiffView runId={runId} compact={compact} />
+                <RunDiffView runId={runId} compact={!progressExpanded} />
               ) : null}
 
               {/* Попытки видны и на chunk, и на verify: чинят на первом, а решают по
@@ -450,12 +503,12 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                   iterations={detail.iterations}
                   attemptBudget={detail.attemptBudget}
                   closenessWarn={detail.progressClosenessWarn}
-                  compact={compact}
+                  compact={!progressExpanded}
                 />
               ) : null}
 
-              {/* Вердикт не сворачивается ни в одном режиме: это главный вход решения
-                  оператора, и прятать его — прятать сам смысл этапа 6. */}
+              {/* Вердикт не сворачивается никогда: это главный вход решения оператора, и
+                  прятать его — прятать сам смысл этапа 6. */}
               {detail.verdict !== null && stage === 'verify' ? (
                 <VerdictCard
                   verdict={detail.verdict}
@@ -466,22 +519,9 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
 
               {stageInfo !== null ? <StageArtifacts produces={stageInfo.produces} /> : null}
             </section>
-          </div>
+          ) : null}
 
-          {/* Sticky-панель — последним ребёнком прокручиваемого main, вне грида колонок:
-              кнопки продвижения и приёмки видны без прокрутки в любом режиме. */}
-          <AdvanceBar
-            attempt={detail.attempt}
-            attemptBudget={detail.attemptBudget}
-            uiBusy={uiBusy}
-            abortBlockers={abortBlockers}
-            decision={decision}
-            decisionNote={decisionNote}
-            onDecisionNoteChange={setDecisionNote}
-            onAdvance={(to) => void advance(to)}
-            onAbort={() => void abortWitok()}
-            onDecide={(granted) => void decide(granted)}
-          />
+          {tab === 'metrics' ? <RunMetricsPanel detail={detail} /> : null}
         </main>
       </div>
     </div>

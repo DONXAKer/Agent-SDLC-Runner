@@ -15,7 +15,6 @@ export function PromptColumn({
   onRequirementChange,
   onBuild,
   onRun,
-  compact,
 }: {
   stage: StageId;
   prompt: PreparedPrompt | null;
@@ -28,7 +27,6 @@ export function PromptColumn({
   onRequirementChange: (v: string) => void;
   onBuild: () => void;
   onRun: (edited: { system: string; user: string }) => void;
-  compact: boolean;
 }): JSX.Element {
   return (
     <section className="min-w-0">
@@ -79,7 +77,6 @@ export function PromptColumn({
         busy={uiBusy}
         {...(busyReason === null ? {} : { busyReason })}
         onRun={onRun}
-        compact={compact}
       />
     </section>
   );

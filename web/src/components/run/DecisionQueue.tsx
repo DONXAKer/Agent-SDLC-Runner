@@ -1,20 +1,16 @@
 import type { Decision } from '@sdlc-runner/shared';
 
 import type { PendingAsk, PendingCall } from '../../lib/pending.ts';
+import { decisionQueueCount } from '../../lib/pending.ts';
 import { AskHumanDialog } from '../AskHumanDialog.tsx';
 import { ToolApproval } from '../ToolApproval.tsx';
-import { CollapsibleSection } from './CollapsibleSection.tsx';
 import { DecisionCard } from './DecisionCard.tsx';
 
 /**
  * Единая очередь всего, что ждёт человека: вопросы агента, одобрения вызовов и приёмка
- * записи. До неё карточки были рассыпаны по странице (вопросы и одобрения сверху,
- * приёмка глубоко в правой колонке), и «что от меня сейчас нужно» собиралось прокруткой.
- *
- * В компакте секция не сворачивается вовсе (`forceOpen`). В подробном режиме её можно
- * закрыть, но `alert` не даёт этому закрытию пережить сессию: сохранённое в localStorage
- * «свёрнуто» больше не решает — на новый непустой список секция снова открыта, иначе
- * пришедшее одобрение или вопрос стоят за свёрнутой строкой со счётчиком.
+ * записи. Живёт на вкладке «Сейчас» — отдельной от наблюдательной вкладки «Ход», поэтому
+ * прятать её сворачиванием больше не нужно: сама вкладка и есть ответ на вопрос «что от
+ * меня нужно прямо сейчас».
  */
 export function DecisionQueue({
   asks,
@@ -25,7 +21,6 @@ export function DecisionQueue({
   onDecide,
   onAnswer,
   onResolve,
-  compact,
 }: {
   asks: PendingAsk[];
   approvals: PendingCall[];
@@ -36,21 +31,16 @@ export function DecisionQueue({
   onDecide: (granted: boolean) => void;
   onAnswer: (requestId: string, answers: Record<string, string[]>) => void;
   onResolve: (requestId: string, decision: Decision) => void;
-  compact: boolean;
 }): JSX.Element | null {
-  const count = asks.length + approvals.length + (decision !== null ? 1 : 0);
+  const count = decisionQueueCount(asks, approvals, decision);
   if (count === 0) return null;
 
   return (
-    <CollapsibleSection
-      id="decisions"
-      title="Ждут решения"
-      compact={compact}
-      forceOpen={compact}
-      defaultOpen={true}
-      alert={true}
-      summary={<span className="text-amber-300">{count}</span>}
-    >
+    <div className="rounded border border-amber-900/60 bg-amber-950/10">
+      <div className="border-b border-amber-900/60 px-3 py-2 text-xs">
+        <span className="font-medium">Ждут решения</span>{' '}
+        <span className="text-amber-300">{count}</span>
+      </div>
       <div className="space-y-4 p-3">
         {asks.map((a) => (
           <AskHumanDialog key={a.requestId} requestId={a.requestId} questions={a.questions} onAnswer={onAnswer} />
@@ -67,6 +57,6 @@ export function DecisionQueue({
           />
         ) : null}
       </div>
-    </CollapsibleSection>
+    </div>
   );
 }

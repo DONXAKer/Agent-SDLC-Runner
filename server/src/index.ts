@@ -31,6 +31,8 @@ import { loadConfig, requireProject } from './config/load.ts';
 import { ProfileError, resolveAdHocProfile, resolveStartableProfile } from './config/profiles.ts';
 import { listDir } from './fs/browse.ts';
 import { fileStats, parseDiff } from './diff/parse.ts';
+import { appendEvent, readPersistedEvents } from './eventLog.ts';
+import { scanHistory } from './history.ts';
 import { scopeViolations } from './gates/builtin/logic.ts';
 import { normalizePlanPath } from './policy/paths.ts';
 import { readArtifact, readDecision } from './artifacts/artifact.ts';
@@ -230,6 +232,8 @@ app.post('/api/runs', async (req, reply) => {
   const slugProblem = badSlug(body.slug);
   if (slugProblem !== null) return reply.code(400).send({ error: slugProblem });
 
+  const slug = body.slug;
+
   try {
     const project = requireProject(config, body.project);
     const profileName = body.profile ?? project.activeProfile;
@@ -239,18 +243,26 @@ app.post('/api/runs', async (req, reply) => {
         ? resolveStartableProfile(project, config.models, profileName)
         : resolveAdHocProfile(project, config.models, body.stages, profileName);
 
+    // И в шину (живые WS-подписчики), И на диск (архив на весь виток, переживает рестарт
+    // сервера и «Убрать» — см. `eventLog.ts`). Ключ на диске — `slug`, не `run.id`: слаг
+    // переживает рестарт процесса, случайный `randomUUID()` — нет.
+    const emitAndPersist = (e: RunEvent): void => {
+      bus.emit(e);
+      appendEvent(project.projectRoot, slug, e);
+    };
+
     const run = new Run({
       config,
       project,
       profile,
-      slug: body.slug,
+      slug,
       gate,
       askGate,
-      emit: (e: RunEvent) => bus.emit(e),
+      emit: emitAndPersist,
     });
 
     runs.set(run.id, { run, currentStage: null });
-    bus.emit({
+    emitAndPersist({
       type: 'run_started',
       runId: run.id,
       slug: run.slug,
@@ -278,6 +290,45 @@ app.get('/api/runs', (): RunSummary[] =>
     usage: run.totalUsage,
   })),
 );
+
+app.get('/api/history', (req, reply) => {
+  const { project } = req.query as { project?: unknown };
+  if (typeof project !== 'string') {
+    return reply.code(400).send({ error: 'нужен параметр project' });
+  }
+  try {
+    const p = requireProject(config, project);
+    const liveSlugs = new Set(
+      [...runs.values()]
+        .filter((lr) => lr.run.project.name === p.name)
+        .map((lr) => lr.run.slug),
+    );
+    return scanHistory(p.projectRoot, liveSlugs);
+  } catch (e) {
+    return reply.code(400).send({ error: (e as Error).message });
+  }
+});
+
+/**
+ * Полная лента событий витка — АРХИВНЫЙ путь, читает с диска, не из живого `runs`/`bus`.
+ * Работает и для витка, который прямо сейчас идёт (лента дописывается по ходу), и для уже
+ * закрытого/убранного из живого списка — `readPersistedEvents` не смотрит на `runs` вообще.
+ * `GET /api/runs/:id` остаётся источником LIVE-детали (текущий этап, статус, WS) — это два
+ * разных вопроса: «что происходит сейчас» и «что произошло за весь виток».
+ */
+app.get('/api/history/:slug/events', (req, reply) => {
+  const { slug } = req.params as { slug: string };
+  const { project } = req.query as { project?: unknown };
+  if (typeof project !== 'string') {
+    return reply.code(400).send({ error: 'нужен параметр project' });
+  }
+  try {
+    const p = requireProject(config, project);
+    return readPersistedEvents(p.projectRoot, slug);
+  } catch (e) {
+    return reply.code(400).send({ error: (e as Error).message });
+  }
+});
 
 app.get('/api/runs/:id', async (req, reply) => {
   const { id } = req.params as { id: string };

@@ -26,6 +26,11 @@ export function verdictTextTone(passed: boolean): string {
   return passed ? 'text-emerald-300' : 'text-red-300';
 }
 
+/** Тон счётчика красных вердиктов — общий для сводной строки и вкладки «Метрики». */
+export function redCountTone(red: number): string {
+  return red > 0 ? 'text-amber-400' : '';
+}
+
 /**
  * Раскраска строки unified-diff. Проверка `+++`/`---` обязательна: заголовки файлов
  * начинаются с тех же символов, что добавленные и удалённые строки.

@@ -86,3 +86,15 @@ export function mergePending(
 
   return { approvals: [...approvals.values()], asks: [...asks.values()] };
 }
+
+/**
+ * Сколько карточек ждёт человека в очереди решений — одна формула для заголовка самой
+ * очереди и для бейджа вкладки «Сейчас», иначе они расходятся при любой правке одного места.
+ */
+export function decisionQueueCount(
+  asks: PendingAsk[],
+  approvals: PendingCall[],
+  decision: { label: string; artifact: string } | null,
+): number {
+  return asks.length + approvals.length + (decision !== null ? 1 : 0);
+}
