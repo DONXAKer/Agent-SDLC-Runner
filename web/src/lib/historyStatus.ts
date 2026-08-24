@@ -1,5 +1,7 @@
 import type { HistoryStatus } from '@sdlc-runner/shared';
 
+import { BADGE_TONE } from './tones.ts';
+
 /**
  * Подпись и цвет статуса витка ЦЕЛИКОМ — не путать с `runStatus.ts` (статус последнего
  * этапа живого прогона). Источник здесь — файлы на диске, см. `server/src/history.ts`.
@@ -13,10 +15,10 @@ const LABEL: Record<HistoryStatus, string> = {
 };
 
 const TONE: Record<HistoryStatus, string> = {
-  done: 'border-neutral-700 text-neutral-300',
-  aborted: 'border-red-800 text-red-300',
-  open: 'border-emerald-700 text-emerald-300',
-  unfinished: 'border-amber-700 text-amber-300',
+  done: BADGE_TONE.neutral,
+  aborted: BADGE_TONE.red,
+  open: BADGE_TONE.emerald,
+  unfinished: BADGE_TONE.amber,
 };
 
 export function historyStatusLabel(status: HistoryStatus): string {

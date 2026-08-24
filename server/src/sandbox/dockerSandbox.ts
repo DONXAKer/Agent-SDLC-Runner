@@ -273,12 +273,22 @@ async function ensureContainer(
   if (spec.docker === 'socket') {
     args.push('-v', '/var/run/docker.sock:/var/run/docker.sock');
   }
-  for (const cachePath of spec.caches ?? []) {
+  const cachePaths = spec.caches ?? [];
+  // Параллельно, не по одному: миграции РАЗНЫХ путей кэша (например `~/.m2` и `~/.npm`)
+  // независимы, а каждая — до нескольких `docker`-подпроцессов с таймаутом в минуты
+  // (`migrateLegacyCacheVolume`). Последовательный await суммировал бы худший случай по
+  // всем кэшам разом; здесь важно лишь то, что ВСЕ миграции завершатся ДО `docker run`
+  // ниже (иначе он неявно заведёт пустой том раньше, чем миграция успеет его создать).
+  await Promise.all(
+    cachePaths.map((cachePath) =>
+      migrateLegacyCacheVolume(
+        cacheVolumeName(projectName, cachePath),
+        legacyCacheVolumeName(projectName, cachePath),
+      ),
+    ),
+  );
+  for (const cachePath of cachePaths) {
     const volumeName = cacheVolumeName(projectName, cachePath);
-    // ДО того, как `-v volumeName:...` ниже неявно заведёт пустой том, если такого имени
-    // ещё нет — иначе `docker run` создаёт его первым, `volumeExists(newName)` в миграции
-    // видит его уже существующим и молча пропускает перенос.
-    await migrateLegacyCacheVolume(volumeName, legacyCacheVolumeName(projectName, cachePath));
     args.push('-v', `${volumeName}:${expandHome(cachePath)}`);
   }
   args.push(tag);
@@ -312,11 +322,21 @@ async function ensureContainer(
   }
 
   if (spec.network === 'none') {
-    // Лучшее усилие: контейнер создан командой выше без `--network`, значит сеть у него —
-    // дефолтный мост `bridge`. Кастомная сеть здесь не заводится, поэтому имя фиксировано;
-    // неудача отключения (сеть уже не та, docker network plugin и т.п.) не должна ронять
-    // подготовку песочницы целиком — это защита в глубину, а не единственная граница.
-    await runDockerCli(['network', 'disconnect', 'bridge', name], { timeoutMs: 10_000 });
+    // Контейнер создан командой выше без `--network`, значит сеть у него — дефолтный мост
+    // `bridge`; кастомная сеть здесь не заводится, поэтому имя фиксировано. Это ЕДИНСТВЕННЫЙ
+    // механизм, обеспечивающий `network: 'none'` — нигде в этом файле `docker run` не
+    // получает `--network=none`. Неудача отключения (сеть уже не та, docker network plugin
+    // и т.п.) не должна ронять подготовку песочницы целиком (оператор получил бы нерабочую
+    // среду вместо просто менее изолированной), но обязана быть ГРОМКОЙ — иначе оператор,
+    // объявивший `network: 'none'` ради изоляции гейтов от сети, не получает никакого
+    // сигнала о том, что контейнер эту сеть на самом деле сохранил.
+    const r = await runDockerCli(['network', 'disconnect', 'bridge', name], { timeoutMs: 10_000 });
+    if (r.exitCode !== 0) {
+      console.error(
+        `[sandbox] не удалось отключить сеть у ${name} (код ${r.exitCode}) — network: 'none' ` +
+          `НЕ обеспечен, контейнер сохраняет доступ к сети:\n${(r.stderr || r.stdout).slice(0, 2000)}`,
+      );
+    }
   }
 }
 
@@ -400,8 +420,12 @@ export class DockerSandbox implements SandboxExec {
             this.containerName,
             'sh',
             '-c',
+            // `sleep 0.05 2>/dev/null` — на минимальном `sh`/busybox без поддержки дробных
+            // секунд команда падает с ошибкой парсинга; без `set -e` это не рвёт цикл, а
+            // просто убирает саму паузу (опрос идёт чаще, не медленнее) — `2>/dev/null`
+            // только глушит шум в stderr результата, поведение не меняет.
             `i=0; pgid=''; while [ $i -lt 20 ]; do pgid=$(cat '${marker}' 2>/dev/null); ` +
-              `[ -n "$pgid" ] && break; i=$((i+1)); sleep 0.05; done; ` +
+              `[ -n "$pgid" ] && break; i=$((i+1)); sleep 0.05 2>/dev/null; done; ` +
               `[ -n "$pgid" ] && kill -KILL -"$pgid" 2>/dev/null; rm -f '${marker}'`,
           ],
           { timeoutMs: 5_000 },

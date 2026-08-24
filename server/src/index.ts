@@ -53,9 +53,32 @@ const bus = new EventBus();
  */
 const browseRoot = process.env['SDLC_BROWSE_ROOT'];
 
+interface LiveRun {
+  run: Run;
+  currentStage: StageId | null;
+}
+
+const runs = new Map<string, LiveRun>();
+
+/**
+ * И в шину (живые WS-подписчики), И на диск (архив на весь виток — см. `eventLog.ts`).
+ * Единственная точка эмита в этом файле: до этого `ApprovalGate`/`AskGate` и пара
+ * стихийных `bus.emit` в обработчиках HTTP слали события МИМО персиста — архивная лента
+ * не содержала ни одного `tool_request`/`tool_resolved`/`tool_result`/`error`/`warning`,
+ * то есть ни одного одобрения, отказа или вызова инструмента. `runs` — по `run.id`, а
+ * ключ на диске — `slug`: ищем живой прогон по `e.runId`, чтобы узнать его project+slug.
+ */
+function emit(e: RunEvent): void {
+  bus.emit(e);
+  if ('runId' in e) {
+    const live = runs.get(e.runId);
+    if (live !== undefined) appendEvent(live.run.project.projectRoot, live.run.slug, e);
+  }
+}
+
 const gate = new ApprovalGate({
   onPending: (p) =>
-    bus.emit({
+    emit({
       type: 'tool_request',
       runId: p.runId,
       stage: p.stage,
@@ -68,7 +91,7 @@ const gate = new ApprovalGate({
       writeTargets: p.writeTargets,
     }),
   onResolved: (info, decision) =>
-    bus.emit({
+    emit({
       type: 'tool_resolved',
       runId: info.runId,
       stage: info.stage,
@@ -79,7 +102,7 @@ const gate = new ApprovalGate({
 
 const askGate = new AskGate({
   onPending: (p) =>
-    bus.emit({
+    emit({
       type: 'tool_request',
       runId: p.runId,
       stage: p.stage,
@@ -92,7 +115,7 @@ const askGate = new AskGate({
       writeTargets: null,
     }),
   onAnswered: (info, answers) =>
-    bus.emit({
+    emit({
       type: 'tool_result',
       runId: info.runId,
       stage: info.stage,
@@ -102,13 +125,6 @@ const askGate = new AskGate({
       durationMs: 0,
     }),
 });
-
-interface LiveRun {
-  run: Run;
-  currentStage: StageId | null;
-}
-
-const runs = new Map<string, LiveRun>();
 
 const app = Fastify({ logger: { level: 'warn' } });
 await app.register(websocket);
@@ -236,20 +252,26 @@ app.post('/api/runs', async (req, reply) => {
 
   try {
     const project = requireProject(config, body.project);
+
+    // Без этой проверки два live-прогона одного проекта могли получить один и тот же
+    // slug (двойной клик, незакрытый предыдущий процесс) — `runs` индексирована по
+    // `run.id`, не по slug, и клик «открыть» в HistoryList (`App.tsx::onOpen`, ищет по
+    // slug+project) уходил в первый по порядку вставки, не обязательно в актуальный.
+    const clashing = [...runs.values()].find(
+      (lr) => lr.run.project.name === project.name && lr.run.slug === slug,
+    );
+    if (clashing !== undefined) {
+      return reply
+        .code(409)
+        .send({ error: `виток «${slug}» уже идёт для проекта «${project.name}» (id ${clashing.run.id})` });
+    }
+
     const profileName = body.profile ?? project.activeProfile;
     // Правило рецензента проверяется здесь: виток с ревью слабее исполнителя не стартует.
     const profile =
       body.stages === undefined || Object.keys(body.stages).length === 0
         ? resolveStartableProfile(project, config.models, profileName)
         : resolveAdHocProfile(project, config.models, body.stages, profileName);
-
-    // И в шину (живые WS-подписчики), И на диск (архив на весь виток, переживает рестарт
-    // сервера и «Убрать» — см. `eventLog.ts`). Ключ на диске — `slug`, не `run.id`: слаг
-    // переживает рестарт процесса, случайный `randomUUID()` — нет.
-    const emitAndPersist = (e: RunEvent): void => {
-      bus.emit(e);
-      appendEvent(project.projectRoot, slug, e);
-    };
 
     const run = new Run({
       config,
@@ -258,11 +280,11 @@ app.post('/api/runs', async (req, reply) => {
       slug,
       gate,
       askGate,
-      emit: emitAndPersist,
+      emit,
     });
 
     runs.set(run.id, { run, currentStage: null });
-    emitAndPersist({
+    emit({
       type: 'run_started',
       runId: run.id,
       slug: run.slug,
@@ -504,7 +526,7 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
           }),
     })
     .catch((e: unknown) => {
-      bus.emit({
+      emit({
         type: 'error',
         runId: id,
         stage,
@@ -596,7 +618,7 @@ app.post('/api/runs/:id/auto-approve', async (req, reply) => {
     rules.rest ? 'всё остальное, включая запись вне плана' : null,
   ].filter((v): v is string => v !== null);
 
-  bus.emit({
+  emit({
     type: 'warning',
     runId: id,
     stage: body.stage,

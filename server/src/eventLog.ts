@@ -12,7 +12,8 @@
  * (`randomUUID()`) не переживает рестарт, слаг — переживает.
  */
 
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 import type { RunEvent } from '@sdlc-runner/shared';
 
@@ -22,10 +23,17 @@ import { WitokPaths } from './artifacts/paths.ts';
  * Дописывает одну запись. Синхронно и через `O_APPEND` — Node однопоточен, поэтому гонки
  * между конкурентными `emit` внутри одного процесса нет; `appendFileSync` с `O_APPEND`
  * атомарен и на уровне ОС для записей такого небольшого размера.
+ *
+ * `mkdirSync` — как и `writeArtifact` (`artifacts/artifact.ts`): `run_started` дописывается
+ * СРАЗУ после создания `Run`, до первого артефакта методологии, когда `.sdlc/<slug>/` ещё
+ * не существует — без создания каталога здесь эта и все последующие записи до первого
+ * `writeArtifact` падали на ENOENT и молча терялись (лента archive-only, catch ниже её не
+ * восстанавливает).
  */
 export function appendEvent(projectRoot: string, slug: string, event: RunEvent): void {
   const path = new WitokPaths(projectRoot, slug).events;
   try {
+    mkdirSync(dirname(path), { recursive: true });
     appendFileSync(path, `${JSON.stringify(event)}\n`);
   } catch (e) {
     // Лента — вспомогательный архив, не источник истины для самого прогона: ошибка записи

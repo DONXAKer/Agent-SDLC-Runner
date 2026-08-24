@@ -1,5 +1,7 @@
 import type { RunStatus, StageId } from '@sdlc-runner/shared';
 
+import { BADGE_TONE } from './tones.ts';
+
 /**
  * Подпись и цвет статуса — один на все поверхности.
  *
@@ -19,11 +21,11 @@ const LABEL: Record<RunStatus, string> = {
 
 const TONE: Record<RunStatus, string> = {
   idle: 'border-neutral-700 text-neutral-400',
-  running: 'border-emerald-700 text-emerald-300',
+  running: BADGE_TONE.emerald,
   // Ждёт человека — единственный статус, который требует действия прямо сейчас.
-  awaiting: 'border-amber-700 text-amber-300',
-  done: 'border-neutral-700 text-neutral-300',
-  failed: 'border-red-800 text-red-300',
+  awaiting: BADGE_TONE.amber,
+  done: BADGE_TONE.neutral,
+  failed: BADGE_TONE.red,
   cancelled: 'border-neutral-700 text-neutral-500',
 };
 
@@ -38,6 +40,6 @@ export function statusLabel(status: RunStatus, stage: StageId | null): string {
 }
 
 export function statusTone(status: RunStatus, stage: StageId | null): string {
-  if (stage !== null && status === 'cancelled') return 'border-amber-700 text-amber-300';
+  if (stage !== null && status === 'cancelled') return BADGE_TONE.amber;
   return TONE[status];
 }

@@ -456,13 +456,7 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 </button>
               </div>
 
-              {/* `key` привязан к мастер-тумблеру: без него ручной клик по секции
-                  (её собственный `choice`) навсегда переживает нажатие «Развернуть/
-                  Свернуть всё» — кнопка обещает разворот всех секций, а не слушавшую
-                  бы её секцию. Remount на смену `progressExpanded` сбрасывает `choice`
-                  и возвращает секцию под управление тумблера. */}
               <CollapsibleSection
-                key={progressExpanded ? 'expanded' : 'collapsed'}
                 title="Лента событий"
                 compact={!progressExpanded}
                 defaultOpen={progressExpanded || hasWarning}

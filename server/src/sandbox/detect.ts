@@ -50,6 +50,10 @@ function walk(root: string, onFile: (path: string, name: string) => void): void 
       if (e.name.startsWith('.') && e.name !== '.sdlc') continue;
       if (e.isDirectory()) {
         if (SKIP_DIRS.has(e.name)) continue;
+        // Каталог тоже считается в бюджет, не только файл: иначе дерево с большим числом
+        // подкаталогов без файлов на верхних уровнях (не входящих в SKIP_DIRS) раздувает
+        // очередь `queue` произвольно ДО того, как бюджет вообще успевает сработать.
+        scanned += 1;
         queue.push(join(dir, e.name));
       } else {
         scanned += 1;

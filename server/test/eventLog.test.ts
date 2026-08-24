@@ -85,11 +85,11 @@ describe('eventLog: персистентная лента событий вит�
     strictEqual(readPersistedEvents(root, 'demo').length, 1);
   });
 
-  it('appendEvent не бросает, если каталог витка ещё не создан — только логирует', () => {
+  it('appendEvent создаёт каталог витка сам — первое событие не теряется', () => {
     const root = tempRoot();
-    // Каталог .sdlc/demo НЕ создан заранее — лента вспомогательна, не должна ронять emit.
+    // Каталог .sdlc/demo НЕ создан заранее: это ровно ситуация `run_started` — первое
+    // событие витка эмитится раньше первого writeArtifact, который его обычно создаёт.
     appendEvent(root, 'demo', started('r1'));
-    // Файл не появился без каталога — это ожидаемо (лучшее усилие), проверка не падает.
-    deepStrictEqual(readPersistedEvents(root, 'demo'), []);
+    strictEqual(readPersistedEvents(root, 'demo').length, 1);
   });
 });

@@ -29,10 +29,7 @@ export function AttemptsPanel({
   const nearBudget = last !== undefined && last.attempt >= attemptBudget;
 
   return (
-    // key на compact: без него ручной клик по секции переживает нажатие мастер-
-    // тумблера «Развернуть/Свернуть всё» на странице витка (см. RunPage.tsx).
     <CollapsibleSection
-      key={compact ? 'collapsed' : 'expanded'}
       title="Попытки"
       compact={compact}
       defaultOpen={!compact || nearBudget}

@@ -42,7 +42,15 @@ function latestMtimeIso(dir: string, files: readonly string[]): string {
       // Файл мог исчезнуть между readdir и stat — не роняем сканирование ради одной строки.
     }
   }
-  return new Date(max).toISOString();
+  if (max > 0) return new Date(max).toISOString();
+  // ВСЕ файлы витка пропали между readdir и stat — `max` остался нулём, и без этой ветки
+  // запись показала бы дату «1970-01-01» (эпоха Unix), а не честное «дата неизвестна».
+  // mtime самого каталога — не точный, но правдоподобный запасной вариант.
+  try {
+    return new Date(statSync(dir).mtimeMs).toISOString();
+  } catch {
+    return new Date(0).toISOString();
+  }
 }
 
 function statusOf(paths: WitokPaths, isLive: boolean): HistoryStatus {

@@ -156,6 +156,29 @@ function memoByCtx<T>(cache: WeakMap<GateContext, T>, ctx: GateContext, compute:
 }
 
 /**
+ * Тот же приём, но для `Promise<T>`-кэшей: кэш обязан хранить промис ДО его резолва (иначе
+ * конкурентные вызовы не схлопнутся в один запрос), но если он зарежектится — запись нужно
+ * убрать, а не оставлять reject висеть в `WeakMap` на весь прогон. Простой `memoByCtx` этого
+ * не делает: транзиентный сбой `git` (лок репозитория, убитый процесс) на первом гейте,
+ * вызвавшем кэшируемую функцию, иначе мгновенно валил бы ВСЕ последующие гейты того же
+ * набора тем же самым исключением, без единого шанса на повтор.
+ */
+function memoByCtxAsync<T>(
+  cache: WeakMap<GateContext, Promise<T>>,
+  ctx: GateContext,
+  compute: () => Promise<T>,
+): Promise<T> {
+  const cached = cache.get(ctx);
+  if (cached !== undefined) return cached;
+  const value = compute().catch((e: unknown) => {
+    cache.delete(ctx);
+    throw e;
+  });
+  cache.set(ctx, value);
+  return value;
+}
+
+/**
  * Кэш `resolveModules` по контексту прогона: «Сборка», «Тесты» и «Линт» из одного набора
  * зовут `resolveModules` с ОДНИМ и тем же `ctx`, и без кэша каждая из трёх заново парсила
  * план и перечитывала каталоги модулей `readdirSync`'ом — тот же файл диска, трижды подряд,
@@ -1003,11 +1026,11 @@ const diffCache = new WeakMap<GateContext, Promise<InvariantViolation[]>>();
 const rawDiffCache = new WeakMap<GateContext, Promise<string>>();
 
 function cachedWorkingDiff(ctx: GateContext): Promise<string> {
-  return memoByCtx(rawDiffCache, ctx, () => workingDiff(ctx.projectRoot, [], ctx.signal));
+  return memoByCtxAsync(rawDiffCache, ctx, () => workingDiff(ctx.projectRoot, [], ctx.signal));
 }
 
 function diffViolations(ctx: GateContext): Promise<InvariantViolation[]> {
-  return memoByCtx(diffCache, ctx, async () => {
+  return memoByCtxAsync(diffCache, ctx, async () => {
     const diff = await cachedWorkingDiff(ctx);
     const deleted = await deletedPaths(ctx.projectRoot, ctx.signal);
     return invariantViolations(diff, deleted);

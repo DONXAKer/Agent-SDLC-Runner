@@ -33,10 +33,7 @@ export function GatePanel({
   const hasProblem = results.some((r) => r.status === '❌' || r.status === '⏭');
 
   return (
-    // key на compact: без него ручной клик по секции переживает нажатие мастер-
-    // тумблера «Развернуть/Свернуть всё» на странице витка (см. RunPage.tsx).
     <CollapsibleSection
-      key={compact ? 'collapsed' : 'expanded'}
       title="Гейты последнего прогона"
       compact={compact}
       defaultOpen={!compact || hasProblem}

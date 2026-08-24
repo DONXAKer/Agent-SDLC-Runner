@@ -90,6 +90,17 @@ export function appendScopeExtension(planText: string, path: string, note: strin
   if (!ADDED_BEYOND_RE.test(planText)) return null;
   const line = `- **Расширено:** \`${path}\` — ${note}`;
 
+  // Якорь ищем ТОЛЬКО внутри секции files_to_touch — та же граница, что использует
+  // `extractFilesToTouch`. Без нею тот же паттерн мог совпасть где угодно в документе
+  // (вручную скопированный пример методологии, приложение) и вставить запись не в ту
+  // секцию — маркер обязан быть найден именно там, где реально живёт список путей.
+  const start = SECTION_RE.exec(planText);
+  if (start === null) return null;
+  const sectionStart = start.index + start[0].length;
+  const rest = planText.slice(sectionStart);
+  const next = NEXT_HEADING_RE.exec(rest);
+  const section = next === null ? rest : rest.slice(0, next.index);
+
   // Вставляем ПОСЛЕ ПОСЛЕДНЕЙ уже добавленной записи, а не сразу за статичным маркером:
   // `replace` с немодифицированным паттерном всегда матчит маркер (текст самой вставленной
   // строки этот же паттерн не содержит), поэтому при двух и более `request_scope_extension`
@@ -97,10 +108,10 @@ export function appendScopeExtension(planText: string, path: string, note: strin
   // бы обратным (LIFO) хронологии одобрений. Ищем последнее совпадение (маркер ИЛИ
   // последняя вставленная строка) и вставляем сразу за ним.
   let lastMatch: RegExpExecArray | null = null;
-  for (const m of planText.matchAll(ANCHOR_RE)) lastMatch = m;
+  for (const m of section.matchAll(ANCHOR_RE)) lastMatch = m;
   if (lastMatch === null) return null;
 
-  const insertAt = lastMatch.index + lastMatch[0].length;
+  const insertAt = sectionStart + lastMatch.index + lastMatch[0].length;
   return `${planText.slice(0, insertAt)}\n${line}${planText.slice(insertAt)}`;
 }
 

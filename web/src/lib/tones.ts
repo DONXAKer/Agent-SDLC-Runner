@@ -12,6 +12,20 @@ export const PANEL_TONE = {
   neutral: 'border-neutral-800',
 } as const;
 
+/**
+ * Палитра «рамка + текст» для бейджей статуса — общая для статуса ЭТАПА (`runStatus.ts`)
+ * и статуса ВИТКА целиком (`historyStatus.ts`): разные домены, но одни и те же 4
+ * семантических цвета для одинаковых по духу значений (готово/идёт/ждёт/провалено). Оба
+ * файла раньше копировали эти четыре пары дословно — правка оттенка требовала синхронно
+ * чинить оба места вручную.
+ */
+export const BADGE_TONE = {
+  neutral: 'border-neutral-700 text-neutral-300',
+  emerald: 'border-emerald-700 text-emerald-300',
+  amber: 'border-amber-700 text-amber-300',
+  red: 'border-red-800 text-red-300',
+} as const;
+
 /** Тон панели вердикта — одно правило для карточки этапа и строки в ленте. */
 export function verdictTone(passed: boolean): string {
   return passed ? PANEL_TONE.ok : PANEL_TONE.fail;

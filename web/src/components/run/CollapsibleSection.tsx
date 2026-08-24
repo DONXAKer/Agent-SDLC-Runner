@@ -36,6 +36,20 @@ export function CollapsibleSection({
 }): JSX.Element {
   const [choice, setChoice] = useState<'open' | 'closed' | null>(null);
 
+  // Клик пользователя переопределяет `compact` только пока действует ТОТ режим, в котором
+  // кликнули: смена мастер-тумблера обязана снова решать всё сама, иначе выбор «свернуть»,
+  // сделанный в подробном режиме, продолжал бы прятать секцию и после переключения в
+  // компактный. Раньше это давали снаружи через `key={compact ? …}` — принудительный
+  // remount секции при каждом переключателе, скопированный в три места; сброс здесь один
+  // на все точки использования.
+  const prevCompact = useRef(compact);
+  useEffect(() => {
+    if (compact !== prevCompact.current) {
+      setChoice(null);
+      prevCompact.current = compact;
+    }
+  }, [compact]);
+
   // Закрытие под alert — тоже только на время жизни компонента.
   const [sessionOverride, setSessionOverride] = useState<'open' | 'closed' | null>(null);
   const wasAlert = useRef(alert);
