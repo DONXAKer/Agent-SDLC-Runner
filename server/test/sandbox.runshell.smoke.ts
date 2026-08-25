@@ -33,4 +33,39 @@ describe('runShell маршрутизируется в песочницу CV ч�
       unregisterSandbox(CV_ROOT);
     }
   });
+
+  // Регресс: DockerSandbox.exec() отчитывался кодом завершающего `rm -f` маркера (почти
+  // всегда 0), а не кодом самой команды — любой упавший гейт внутри sandbox выглядел
+  // прошедшим. Без исправления этот тест видел бы exitCode: 0 для заведомо падающей команды.
+  it('падающая команда даёт настоящий ненулевой exitCode, не 0 от cleanup-маркера', async () => {
+    const handle = await ensureSandboxFor(CV_ROOT, 'cv');
+    strictEqual(handle !== null, true);
+
+    try {
+      const r = await runShell('exit 3', { cwd: CV_ROOT, timeoutMs: 30_000 });
+      strictEqual(r.denied, null);
+      strictEqual(r.exitCode, 3, `ожидался exitCode 3, получен ${r.exitCode}`);
+    } finally {
+      if (handle) await stopDockerSandbox('cv', handle.specHash);
+      unregisterSandbox(CV_ROOT);
+    }
+  });
+
+  // Регресс: git отсутствовал в базовом apt-списке sandbox-образа — «Scope: нетракованные
+  // файлы» (`git status --porcelain`) падал с «command not found», что теперь (после
+  // предыдущего фикса) корректно даёт ненулевой exitCode вместо молчаливого ✅.
+  it('git доступен внутри sandbox — «git status --porcelain» не падает на command not found', async () => {
+    const handle = await ensureSandboxFor(CV_ROOT, 'cv');
+    strictEqual(handle !== null, true);
+
+    try {
+      const r = await runShell('git status --porcelain', { cwd: CV_ROOT, timeoutMs: 30_000 });
+      strictEqual(r.denied, null);
+      strictEqual(r.exitCode, 0, r.stdout + '\n' + r.stderr);
+      strictEqual(/not found/i.test(r.stderr), false, r.stderr);
+    } finally {
+      if (handle) await stopDockerSandbox('cv', handle.specHash);
+      unregisterSandbox(CV_ROOT);
+    }
+  });
 });

@@ -232,6 +232,19 @@ describe('генератор Dockerfile', () => {
     strictEqual(buildDockerfile(spec).includes('docker:cli'), false);
   });
 
+  // Регресс: git отсутствовал и в базовом apt-списке, и в spec.apt проекта — Scope-гейты
+  // методологии (git status/diff) молча падали на command not found внутри sandbox.
+  it('git — в базовом apt-списке независимо от spec.apt проекта', () => {
+    const withoutSpecApt: SandboxSpec = { base: 'debian:12-slim', toolchains: {} };
+    const aptLine1 = buildDockerfile(withoutSpecApt).split('\n').find((l) => l.includes('apt-get install')) ?? '';
+    ok(/\bgit\b/.test(aptLine1), aptLine1);
+
+    const withSpecApt: SandboxSpec = { base: 'debian:12-slim', toolchains: {}, apt: ['jq'] };
+    const aptLine2 = buildDockerfile(withSpecApt).split('\n').find((l) => l.includes('apt-get install')) ?? '';
+    ok(/\bgit\b/.test(aptLine2), aptLine2);
+    ok(/\bjq\b/.test(aptLine2), aptLine2);
+  });
+
   it('env-значение с кавычкой экранируется, а не закрывает ENV раньше времени', () => {
     const spec: SandboxSpec = { base: 'debian:12-slim', toolchains: {}, env: { X: 'a"b\\c' } };
     const df = buildDockerfile(spec);

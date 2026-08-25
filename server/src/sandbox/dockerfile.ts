@@ -73,7 +73,12 @@ export function buildDockerfile(spec: SandboxSpec): string {
   // `spec.apt` — список ИМЁН ПАКЕТОВ, а не произвольного shell-текста: валидация в
   // `spec.ts` (`assertAptPackageName`) уже отклонила всё, что не похоже на имя пакета apt,
   // до того, как строка сюда попала — здесь достаточно склеить.
-  const apt = ['curl', 'ca-certificates', 'unzip', ...(spec.apt ?? [])];
+  //
+  // `git` — baseline, не opt-in через `spec.apt`: гейты Scope-класса методологии
+  // (`Scope: нетракованные файлы`/`Scope: файлы вне плана`) стандартно исполняют `git`-команды,
+  // и без него они не «неприменимы», а молча падают на `command not found` — проектам не
+  // нужно об этом отдельно помнить.
+  const apt = ['curl', 'ca-certificates', 'unzip', 'git', ...(spec.apt ?? [])];
   lines.push(`RUN apt-get update && apt-get install -y --no-install-recommends ${apt.join(' ')} && rm -rf /var/lib/apt/lists/*`);
 
   if (spec.toolchains.jdk) {

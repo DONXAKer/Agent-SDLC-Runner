@@ -476,7 +476,15 @@ export class DockerSandbox implements SandboxExec {
       // штатном завершении — при отмене он может остаться (гонка между `kill` и `rm`), это
       // безвредный осколок в `/tmp` долгоживущего контейнера, не накопление: следующий вызов
       // пишет свой маркер с новым именем и не читает чужие.
-      child.stdin.write(`awk '{print $5}' /proc/self/stat > '${marker}'\n${command}\nrm -f '${marker}'\n`);
+      //
+      // `ec=$?` ДО `rm -f`, `exit $ec` в конце — без этого exit-код всей строки был бы кодом
+      // `rm -f` (почти всегда 0, `-f` глотает «файла нет»), а не кодом `${command}`: три строки
+      // без `&&`/`set -e` — POSIX-шелл идёт дальше независимо от исхода `${command}`, и статус
+      // процесса — статус ПОСЛЕДНЕЙ команды. Гейт с любым провалом внутри sandbox отчитывался
+      // бы `exitCode: 0` → `✅`, что и происходило до этой правки.
+      child.stdin.write(
+        `awk '{print $5}' /proc/self/stat > '${marker}'\n${command}\nec=$?\nrm -f '${marker}'\nexit $ec\n`,
+      );
       child.stdin.end();
     });
   }
