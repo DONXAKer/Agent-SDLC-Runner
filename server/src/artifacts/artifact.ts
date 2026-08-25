@@ -227,9 +227,56 @@ const NEGATIVE_TRIGGER = /(^|\s)(не\s+\S+|отклон\S*|отказ\S*|отв
 const DOUBLE_NEGATIVE_SAFE_WORD =
   /^(пропущен\w*|забыт\w*|потерян\w*|упущен\w*|усохл\w*|сломан\w*|нарушен\w*|утрачен\w*|отклон\w*|отказ\w*|отверг\w*|провал\w*)/i;
 
-/** «Похоже на отказ» — с поправкой на двойное отрицание, см. DOUBLE_NEGATIVE_SAFE_WORD. */
-function looksDeclined(s: string): boolean {
-  const re = new RegExp(NEGATIVE_TRIGGER.source, NEGATIVE_TRIGGER.flags);
+/**
+ * Корни глаголов, которыми методология выражает исход решения. Внутри скобок поле несёт
+ * не сам вердикт, а пояснение к нему — прямую цитату ответа человека, перечень пунктов
+ * сферы правки («класс не переименовываем»). Там `NEGATIVE_TRIGGER` (любое «не + слово»)
+ * ловит случайную реплику вместо вердикта: «Иван · 2026-08-25 (через ask_human:
+ * «Подтверждаю как в плане» — …, класс не переименовываем)» в целом читалось как отказ.
+ * Внутри скобок триггер обязан целиться в сам глагол решения, а не в «не» как таковое —
+ * вне скобок (сам вердикт, каким его пишет форма — «**не одобрен**», «не использовано
+ * одобрение плана через ExitPlanMode») это сужение неверно, там нужен широкий триггер.
+ */
+const DECISION_VERB_ROOTS =
+  'одобр\\S*|приним\\S*|принял\\S*|подтвержд\\S*|соглас\\S*|поддерж\\S*|разреш\\S*|отклон\\S*|отказ\\S*|отверг\\S*|провал\\S*';
+const PAREN_NEGATIVE_TRIGGER = new RegExp(
+  `(^|\\s)(не\\s+(?:${DECISION_VERB_ROOTS})|отклон\\S*|отказ\\S*|отверг\\S*|провал\\S*)`,
+  'gi',
+);
+
+/** Символы вне/внутри круглых скобок — остальные позиции заменены пробелом, чтобы не
+ * склеить соседние слова и не сдвинуть индексы. Вложенность скобок не поддерживается —
+ * форма полей её не использует. */
+function splitByParens(s: string): { outside: string; inside: string } {
+  let depth = 0;
+  let outside = '';
+  let inside = '';
+  for (const ch of s) {
+    if (ch === '(') {
+      depth++;
+      outside += ' ';
+      inside += ' ';
+      continue;
+    }
+    if (ch === ')') {
+      if (depth > 0) depth--;
+      outside += ' ';
+      inside += ' ';
+      continue;
+    }
+    if (depth > 0) {
+      outside += ' ';
+      inside += ch;
+    } else {
+      outside += ch;
+      inside += ' ';
+    }
+  }
+  return { outside, inside };
+}
+
+function scanForDecline(s: string, trigger: RegExp): boolean {
+  const re = new RegExp(trigger.source, trigger.flags);
   let m: RegExpExecArray | null;
   while ((m = re.exec(s)) !== null) {
     const token = m[2] ?? '';
@@ -238,6 +285,12 @@ function looksDeclined(s: string): boolean {
     return true;
   }
   return false;
+}
+
+/** «Похоже на отказ» — с поправкой на двойное отрицание и на скобочные пояснения. */
+function looksDeclined(s: string): boolean {
+  const { outside, inside } = splitByParens(s);
+  return scanForDecline(outside, NEGATIVE_TRIGGER) || scanForDecline(inside, PAREN_NEGATIVE_TRIGGER);
 }
 
 const PENDING = /(ожида|не\s*реш|tbd|todo|^[\s—–\-?.]*$|н\/п)/i;
