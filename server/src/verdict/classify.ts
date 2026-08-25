@@ -32,6 +32,7 @@ import { gateKey } from '../gates/gatesFile.ts';
  */
 const GATE_CAUSE = new Map<string, RedCauseKind>([
   [gateKey('Scope: файлы вне плана'), 'scope'],
+  [gateKey('Scope: нетракованные файлы'), 'scope'],
   [gateKey('Сборка'), 'gate'],
   [gateKey('Тесты'), 'gate'],
   [gateKey('Анти-обход тест-гейта'), 'gate'],

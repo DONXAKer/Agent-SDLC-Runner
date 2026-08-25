@@ -16,6 +16,8 @@
 
 import type { Verdict, VerdictAction, VerdictInput } from '@sdlc-runner/shared';
 
+import { classifyRedVerdict } from './classify.ts';
+
 /**
  * Таблица методологии (SDLC.md → Вердикт), строка в строку:
  *
@@ -111,11 +113,20 @@ function nonStatusReasons(i: VerdictInput): string[] {
  * Действие после красного вердикта.
  *
  * Возврат на доработку — умолчание. Эскалация — не «сильно плохо», а «повторять
- * бессмысленно»: бюджет исчерпан либо две попытки подряд дали один и тот же diff.
- * Третьего исхода у красного вердикта нет: коммит из этого состояния методология
- * запрещает.
+ * бессмысленно»: бюджет исчерпан, две попытки подряд дали один и тот же diff, либо
+ * классификатор (`classify.ts`) сам сказал «чинить не в chunk'е» (`back-to-plan` —
+ * вылазка за границы плана, `escalate-model` — рецензент разошёлся с прогоном).
+ * Здесь не спрашивается мнение модели о том, чинимо ли: `classifyRedVerdict` — таблица
+ * по уже посчитанным полям `VerdictInput`, тот же источник, что и у причин `passed`, а
+ * не текст, который пишет отчёт. `fix-in-chunk` остаётся `retry` — обычный красный,
+ * причину которого исполнитель может закрыть повторной попыткой в том же
+ * `files_to_touch`.
  */
-function decideAction(i: VerdictInput, passed: boolean): { action: VerdictAction; why: string[] } {
+function decideAction(
+  i: VerdictInput,
+  passed: boolean,
+  disagreements: readonly string[],
+): { action: VerdictAction; why: string[] } {
   if (passed) return { action: 'continue', why: [] };
 
   const why: string[] = [];
@@ -128,7 +139,20 @@ function decideAction(i: VerdictInput, passed: boolean): { action: VerdictAction
   if (i.attempt >= i.attemptBudget) {
     why.push(`бюджет попыток исчерпан: ${i.attempt} из ${i.attemptBudget}`);
   }
-  return why.length > 0 ? { action: 'escalate', why } : { action: 'retry', why };
+  if (why.length > 0) return { action: 'escalate', why };
+
+  const cause = classifyRedVerdict(i, disagreements);
+  if (cause !== null && cause.suggest !== 'fix-in-chunk') {
+    return {
+      action: 'escalate',
+      why: [
+        `причина красного вердикта — «${cause.kind}» (${cause.suggest}): это не то, что ` +
+          'чинится повторной попыткой в пределах текущего плана',
+      ],
+    };
+  }
+
+  return { action: 'retry', why: [] };
 }
 
 /**
@@ -148,7 +172,13 @@ function evidenceProblem(i: VerdictInput): string | null {
   );
 }
 
-export function computeVerdict(i: VerdictInput): Verdict {
+/**
+ * `disagreements` — расхождения отчёта с фактическим прогоном (`collectVerdictInput`).
+ * Нужны только классификатору (`escalate-model`, когда рецензент разошёлся с прогоном);
+ * на `passed`/`reasons` не влияют — те решаются исключительно полями `VerdictInput`,
+ * как и раньше.
+ */
+export function computeVerdict(i: VerdictInput, disagreements: readonly string[] = []): Verdict {
   const evidence = evidenceProblem(i);
   const reasons = [
     ...(evidence === null ? [] : [evidence]),
@@ -156,6 +186,6 @@ export function computeVerdict(i: VerdictInput): Verdict {
     ...nonStatusReasons(i),
   ];
   const passed = reasons.length === 0;
-  const { action, why } = decideAction(i, passed);
+  const { action, why } = decideAction(i, passed, disagreements);
   return { passed, action, reasons: [...reasons, ...why] };
 }

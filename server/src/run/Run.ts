@@ -970,7 +970,7 @@ export class Run {
       noProgress,
     });
 
-    const verdict = computeVerdict(input);
+    const verdict = computeVerdict(input, disagreements);
     // Расхождение отчёта с прогоном не роняет вердикт само по себе (в статус уже взят
     // худший из двух), но обязано быть видно: рецензент, переписывающий статусы, —
     // отдельный симптом, о котором оператор должен узнать.

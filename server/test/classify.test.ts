@@ -133,10 +133,34 @@ describe('классификация причин красного', () => {
     }
   });
 
-  it('исчерпанный бюджет и отсутствие прогресса решает decideAction, а не классификатор', () => {
+  it('исчерпанный бюджет и отсутствие прогресса решает decideAction раньше классификатора', () => {
     const i = input({ gates: redGate('Сборка'), noProgress: true, attempt: 3, attemptBudget: 3 });
     strictEqual(computeVerdict(i).action, 'escalate');
-    // Классификатор при этом по-прежнему отвечает «куда возвращать», не трогая action.
+    // Классификатор при этом по-прежнему отвечает «куда возвращать», не трогая passed.
     deepStrictEqual(classifyRedVerdict(i)?.kind, 'gate');
+  });
+
+  // Регрессия: раньше `action` решался только бюджетом/прогрессом, и вылазка за границы
+  // плана (`suggest: 'back-to-plan'`) с непустым бюджетом уходила в `retry` — chunk
+  // переписывал код заново под тем же планом, хотя причина падения была не в коде, а в
+  // самом плане (лишний файл вне `files_to_touch`). Починка в `files_to_touch` этого не
+  // касается — значит переписывать код бессмысленно, пока план не пересмотрен человеком.
+  it('«вылазка за границы плана» эскалирует, даже когда бюджет не исчерпан', () => {
+    const i = input({ gates: redGate('Scope: файлы вне плана'), attempt: 1, attemptBudget: 3 });
+    const v = computeVerdict(i);
+    strictEqual(v.action, 'escalate');
+    ok(v.reasons.some((r) => r.includes('back-to-plan')), v.reasons.join('; '));
+  });
+
+  it('гейт «Scope: нетракованные файлы» классифицируется как scope, не generic gate', () => {
+    const c = classifyRedVerdict(input({ gates: redGate('Scope: нетракованные файлы') }));
+    strictEqual(c?.kind, 'scope');
+  });
+
+  // Обычный красный (упавшая сборка) — по-прежнему retry: классификатор говорит
+  // «fix-in-chunk», и это ровно то, что `decideAction` уже делал по умолчанию.
+  it('обычный гейт (fix-in-chunk) не эскалирует раньше времени', () => {
+    const i = input({ gates: redGate('Сборка'), attempt: 1, attemptBudget: 3 });
+    strictEqual(computeVerdict(i).action, 'retry');
   });
 });
