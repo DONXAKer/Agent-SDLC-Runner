@@ -89,6 +89,13 @@ export function buildDockerfile(spec: SandboxSpec): string {
   }
   if (spec.docker === 'socket') {
     lines.push(dockerCliLayer());
+    // docker-java (Testcontainers) без явного DOCKER_API_VERSION по умолчанию шлёт устаревшую
+    // версию API (наблюдалось: 1.32) и падает на современном демоне («client version 1.32 is
+    // too old. Minimum supported API version is 1.40») — не проблема самого DooD-монтирования,
+    // подтверждено живым прогоном `./mvnw verify -Pdocker` в CV: `docker info` через CLI видит
+    // демон нормально, а Testcontainers внутри JVM — нет. `spec.env` ниже позволяет проекту
+    // переопределить это значение, если понадобится другая версия API.
+    lines.push('ENV DOCKER_API_VERSION=1.41');
   }
   for (const [k, v] of Object.entries(spec.env ?? {})) {
     // Ключ уже проверен `spec.ts` как имя переменной окружения (`^[A-Za-z_][A-Za-z0-9_]*$`)

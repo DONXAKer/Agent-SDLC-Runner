@@ -232,6 +232,30 @@ describe('генератор Dockerfile', () => {
     strictEqual(buildDockerfile(spec).includes('docker:cli'), false);
   });
 
+  // Регресс: Testcontainers внутри docker:socket-песочницы падал на несовместимости версий
+  // API («client version 1.32 is too old») — сам docker CLI видел демон нормально, а
+  // docker-java (используется Testcontainers) без явного DOCKER_API_VERSION слал устаревшую
+  // версию по умолчанию. Подтверждено живым прогоном на CV.
+  it('docker: socket — задаёт DOCKER_API_VERSION по умолчанию', () => {
+    const spec: SandboxSpec = { base: 'debian:12-slim', toolchains: {}, docker: 'socket' };
+    ok(/ENV DOCKER_API_VERSION=/.test(buildDockerfile(spec)));
+  });
+
+  it('docker: socket — spec.env переопределяет DOCKER_API_VERSION по умолчанию', () => {
+    const spec: SandboxSpec = {
+      base: 'debian:12-slim',
+      toolchains: {},
+      docker: 'socket',
+      env: { DOCKER_API_VERSION: '1.45' },
+    };
+    const df = buildDockerfile(spec);
+    const lines = df.split('\n').filter((l) => l.includes('DOCKER_API_VERSION'));
+    // Обе строки ENV присутствуют (Dockerfile-семантика: последняя побеждает в рантайме),
+    // но проектное значение должно идти ПОСЛЕ дефолта, чтобы реально победить.
+    strictEqual(lines.length, 2);
+    ok(lines[1]!.includes('1.45'), lines.join('\n'));
+  });
+
   // Регресс: git отсутствовал и в базовом apt-списке, и в spec.apt проекта — Scope-гейты
   // методологии (git status/diff) молча падали на command not found внутри sandbox.
   it('git — в базовом apt-списке независимо от spec.apt проекта', () => {
