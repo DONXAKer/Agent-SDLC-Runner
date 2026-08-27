@@ -190,6 +190,7 @@ function request(over: Partial<ExecRequest> = {}): ExecRequest {
     cwd: root,
     model: 'test-model',
     allowedTools: ['Read', 'Write', 'Bash'],
+  mcp: null,
     readOnlyDirs: [],
     subagents: [],
     maxTurns: 10,
@@ -213,6 +214,7 @@ function hooks(over: Partial<ExecHooks> = {}): ExecHooks & { warns: string[]; ca
     onAskHuman: () => Promise.resolve({}),
     onUsage: () => {},
     onWarn: (m) => warns.push(m),
+    onFriction: () => {},
     ...over,
   };
   return Object.assign(base, { warns, calls });

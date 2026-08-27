@@ -41,6 +41,7 @@ function ctx(
     protectedArtifacts: ['.sdlc/gates.md', '.sdlc/demo/plan.md', '.sdlc/demo/intent.md'],
     readOnlyRoots: ['D:/methodology'],
     allowedTools: ALL_TOOLS,
+  mcpTools: [],
     ...over,
   };
 }

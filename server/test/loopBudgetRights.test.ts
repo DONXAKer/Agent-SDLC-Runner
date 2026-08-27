@@ -85,6 +85,7 @@ function hooks(seen: Seen, allow = true): ExecHooks {
     onAskHuman: async () => ({}),
     onUsage: () => {},
     onWarn: (m: string) => seen.warns.push(m),
+    onFriction: () => {},
   } as unknown as ExecHooks;
 }
 
@@ -128,6 +129,7 @@ function request(over: Partial<ExecRequest> = {}): ExecRequest {
     cwd: scratchDir,
     model: 'm',
     allowedTools: ['Read', 'Grep', 'Write', 'Task'] as ToolName[],
+  mcp: null,
     readOnlyDirs: [],
     subagents: [locator, inherits, nothing],
     maxTurns: 8,

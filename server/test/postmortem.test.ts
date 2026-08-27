@@ -20,6 +20,7 @@ const metrics = (over: Partial<RunMetrics> = {}): RunMetrics => ({
   verdicts: { total: 2, red: 1 },
   redByCause: [{ kind: 'gate', count: 1 }],
   attemptsByChunk: [{ chunk: 1, attempts: 2 }],
+  friction: [],
   ...over,
 });
 

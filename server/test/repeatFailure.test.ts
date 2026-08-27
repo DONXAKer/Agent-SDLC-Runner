@@ -21,6 +21,7 @@ const ctx: PolicyContext = {
   protectedArtifacts: [],
   readOnlyRoots: [],
   allowedTools: ['Read', 'Write', 'Edit', 'Bash'],
+  mcpTools: [],
 };
 
 const bash = (command: string): NormalizedCall => ({ kind: 'bash', command });
@@ -30,8 +31,8 @@ function gate(): ApprovalGate {
   // Автоодобрение bash — иначе `request()` для разрешённого политикой вызова повисает на
   // промисе, ждущем ответа оператора, которого в этом тесте нет: тест проверяет счётчик
   // повторов, а не очередь ручных одобрений.
-  g.setAutoApprove('r1', 'chunk', { planWrites: false, bash: true, rest: false });
-  g.setAutoApprove('r2', 'chunk', { planWrites: false, bash: true, rest: false });
+  g.setAutoApprove('r1', 'chunk', { planWrites: false, bash: true, rest: false, mcpWrites: false });
+  g.setAutoApprove('r2', 'chunk', { planWrites: false, bash: true, rest: false, mcpWrites: false });
   return g;
 }
 
@@ -109,7 +110,7 @@ describe('защита от зацикливания одинаковых пад
     g.cancelRun('r1', 'обрыв');
     // `cancelRun` снимает и автоодобрение (тот же префикс `runId:`) — восстанавливаем его,
     // иначе `ask` ниже проверял бы очередь ручных одобрений, а не счётчик повторов.
-    g.setAutoApprove('r1', 'chunk', { planWrites: false, bash: true, rest: false });
+    g.setAutoApprove('r1', 'chunk', { planWrites: false, bash: true, rest: false, mcpWrites: false });
     const d = await ask(g, bash('./mvnw test'));
     ok(d.allowed, 'после cancelRun счётчик не должен переживать прогон');
   });

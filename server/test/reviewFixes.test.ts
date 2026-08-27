@@ -39,6 +39,7 @@ const ctx = (over: Partial<PolicyContext> = {}): PolicyContext => ({
   protectedArtifacts: [],
   readOnlyRoots: [],
   allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
+  mcpTools: [],
   ...over,
 });
 
@@ -211,6 +212,7 @@ function request(over: Partial<ExecRequest> = {}): ExecRequest {
     cwd: root,
     model: 'test',
     allowedTools: ['Read'],
+  mcp: null,
     readOnlyDirs: [],
     subagents: [],
     maxTurns: 10,
@@ -232,6 +234,7 @@ function hooks(): ExecHooks & { warns: string[] } {
       onAskHuman: () => Promise.resolve({}),
       onUsage: () => {},
       onWarn: (m: string) => warns.push(m),
+      onFriction: () => {},
     } satisfies ExecHooks,
     { warns },
   );

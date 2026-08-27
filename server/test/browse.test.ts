@@ -69,6 +69,7 @@ describe('createProject', () => {
     runner: {} as LoadedConfig['runner'],
     models: {} as LoadedConfig['models'],
     projects: new Map(),
+    mcp: new Map(),
   });
 
   it('создаёт проект внутри browseRoot', () => {

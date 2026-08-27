@@ -39,6 +39,7 @@ const ctx = (over: Partial<PolicyContext> = {}): PolicyContext => ({
   protectedArtifacts: [],
   readOnlyRoots: [],
   allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
+  mcpTools: [],
   ...over,
 });
 
@@ -327,8 +328,8 @@ describe('гейт одобрений', () => {
   // «(переменная не развёрнута)», и путь с этим хвостом на диске не находится.
   it('пути для проверки отделены от подписей для оператора', () => {
     const call = { kind: 'bash' as const, command: 'echo x > $OUT/report.txt' };
-    const shown = writeTargetsOf(call) ?? [];
-    const checked = writeTargetPaths(call) ?? [];
+    const shown = writeTargetsOf(call, ctx()) ?? [];
+    const checked = writeTargetPaths(call, ctx()) ?? [];
     strictEqual(checked.length, shown.length);
     ok(
       shown.some((s) => /переменная не развёрнута/.test(s)),

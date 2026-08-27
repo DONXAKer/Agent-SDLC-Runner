@@ -154,6 +154,7 @@ function makeRun(reports: string[]): Run {
     },
     models: { models: [] },
     projects: new Map(),
+    mcp: new Map(),
   } as unknown as LoadedConfig;
 
   const run = new Run({

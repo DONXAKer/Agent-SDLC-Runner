@@ -79,6 +79,7 @@ function makeRun(root: string): Run {
     },
     models: { models: [] },
     projects: new Map(),
+    mcp: new Map(),
   } as unknown as LoadedConfig;
 
   return new Run({

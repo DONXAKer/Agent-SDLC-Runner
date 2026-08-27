@@ -15,7 +15,8 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { NormalizedCall, PolicyContext, ToolName } from '@sdlc-runner/shared';
+import type { CallKind, NormalizedCall, PolicyContext, ToolName } from '@sdlc-runner/shared';
+import { CALL_KINDS } from '@sdlc-runner/shared';
 
 import { ApprovalGate } from '../src/approval/gate.ts';
 import { baseToolName, normalize } from '../src/exec/normalize.ts';
@@ -41,6 +42,7 @@ const CTX: PolicyContext = {
     'AskHuman',
     'FinalizeArtifact',
   ] satisfies ToolName[],
+  mcpTools: [],
 };
 
 interface Case {
@@ -237,5 +239,76 @@ describe('политика решает одинаково независимо 
       ok(d.allowed, `${call.kind} обязан пройти без ожидания оператора`);
     }
     strictEqual(gate.list().length, 0, 'ни один такой вызов не должен висеть в очереди');
+  });
+});
+
+describe('внешние MCP-серверы: имя разбирается одинаково в обоих флоу', () => {
+  // Пары `sdk`/`loop` здесь нет намеренно: у внешнего сервера имя на проводе ОДНО —
+  // `mcp__<сервер>__<инструмент>`, и написать пару значило бы сравнить X с X. Проверяется
+  // то, что действительно может разъехаться: разбор самого имени.
+  const cases: { name: string; expect: NormalizedCall }[] = [
+    {
+      name: 'mcp__unreal__pie_start',
+      expect: { kind: 'mcp', server: 'unreal', tool: 'pie_start', args: {} },
+    },
+    {
+      // Дефис в имени сервера — обычное дело: это ключ из `.mcp.json`.
+      name: 'mcp__unreal-mcp__asset_exists',
+      expect: { kind: 'mcp', server: 'unreal-mcp', tool: 'asset_exists', args: {} },
+    },
+    {
+      // `__` внутри имени ИНСТРУМЕНТА: режем по первому разделителю, а не по последнему.
+      name: 'mcp__srv__do__it',
+      expect: { kind: 'mcp', server: 'srv', tool: 'do__it', args: {} },
+    },
+    {
+      // Наш внутренний сервер зарезервирован: иначе неизвестный `mcp__sdlc__*` превратился
+      // бы из `unknown` в законный вызов к серверу, которого нет.
+      name: 'mcp__sdlc__нет_такого',
+      expect: { kind: 'unknown', toolName: 'mcp__sdlc__нет_такого', raw: {} },
+    },
+    { name: 'mcp__', expect: { kind: 'unknown', toolName: 'mcp__', raw: {} } },
+    { name: 'mcp____x', expect: { kind: 'unknown', toolName: 'mcp____x', raw: {} } },
+    { name: 'mcp__srv__', expect: { kind: 'unknown', toolName: 'mcp__srv__', raw: {} } },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name} -> ${c.expect.kind}`, () => {
+      deepStrictEqual(normalize(c.name, {}), c.expect);
+    });
+  }
+
+  it('вызов сервера, которого нет в разрешительном списке, отклоняется как stageTools', () => {
+    const v = evaluate(normalize('mcp__unreal__spawn_actor', {}), CTX);
+    ok(!v.ok);
+    strictEqual(v.policy, 'stageTools');
+  });
+
+  it('наш внутренний MCP-инструмент по-прежнему узнаётся, а не считается внешним', () => {
+    strictEqual(baseToolName('mcp__sdlc__ask_human'), 'ask_human');
+    strictEqual(normalize('mcp__sdlc__ask_human', { questions: [] }).kind, 'ask_human');
+  });
+});
+
+describe('новый вид вызова не проходит мимо разбора молча', () => {
+  // Половина модулей политики и предпросмотр разбирают вызов через `switch` с `default`:
+  // новый `kind` их не ломает — он через них просто проходит. Этот тест требует, чтобы
+  // автор нового вида ОТНЁС его к одному из двух списков, а не забыл про него.
+  it('каждый вид вызова назван явно', () => {
+    const проверяется: CallKind[] = ['read', 'write', 'edit', 'bash', 'mcp'];
+    const пропускается: CallKind[] = [
+      'glob',
+      'grep',
+      'ask_human',
+      'finalize_artifact',
+      'subagent',
+      'request_scope_extension',
+      'unknown',
+    ];
+    const названы = new Set([...проверяется, ...пропускается]);
+    for (const kind of CALL_KINDS) {
+      ok(названы.has(kind), `вид «${kind}» не отнесён ни к проверяемым, ни к пропускаемым`);
+    }
+    strictEqual(названы.size, CALL_KINDS.length);
   });
 });

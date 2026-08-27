@@ -31,6 +31,7 @@ const ctx = (over: Partial<PolicyContext> = {}): PolicyContext => ({
   protectedArtifacts: [],
   readOnlyRoots: [],
   allowedTools: ['Read', 'Write', 'Edit', 'Bash'],
+  mcpTools: [],
   ...over,
 });
 
@@ -159,7 +160,7 @@ describe('гейт одобрений', () => {
   it('автоодобрение действует на этап и снимается вместе с ним', async () => {
     const { gate } = makeGate();
     // Тумблер «одобрять всё» заменён правилами: «всё» — это `rest`.
-    gate.setAutoApprove('r1', 'chunk', { planWrites: true, bash: true, rest: true });
+    gate.setAutoApprove('r1', 'chunk', { planWrites: true, bash: true, rest: true, mcpWrites: false });
     const d = await gate.request({
       runId: 'r1',
       stage: 'chunk',
@@ -178,7 +179,7 @@ describe('гейт одобрений', () => {
 
   it('автоодобрение не снимает отказ политики', async () => {
     const { gate } = makeGate();
-    gate.setAutoApprove('r1', 'chunk', { planWrites: true, bash: true, rest: true });
+    gate.setAutoApprove('r1', 'chunk', { planWrites: true, bash: true, rest: true, mcpWrites: false });
     const d = await gate.request({
       runId: 'r1',
       stage: 'chunk',

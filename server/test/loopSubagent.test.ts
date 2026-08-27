@@ -71,6 +71,7 @@ function hooks(seen: Seen): ExecHooks {
     onAskHuman: async () => ({}),
     onUsage: () => {},
     onWarn: (m: string) => seen.warns.push(m),
+    onFriction: () => {},
   } as unknown as ExecHooks;
 }
 
@@ -80,6 +81,7 @@ function request(over: Partial<ExecRequest> = {}): ExecRequest {
     cwd: process.cwd(),
     model: 'm',
     allowedTools: ['Read', 'Grep', 'Task'] as ToolName[],
+  mcp: null,
     readOnlyDirs: [],
     subagents: [reviewer],
     maxTurns: 8,
