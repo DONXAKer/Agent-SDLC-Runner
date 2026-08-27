@@ -114,16 +114,44 @@ function questionsOf(input: Record<string, unknown>): Question[] {
   return out;
 }
 
-/** Имя инструмента без транспортного префикса MCP. */
+/** Имя инструмента без транспортного префикса нашего MCP-сервера. */
 export function baseToolName(toolName: string): string {
   return toolName.startsWith(MCP_PREFIX) ? toolName.slice(MCP_PREFIX.length) : toolName;
+}
+
+/** Общий префикс имён MCP-инструментов у Claude Code — и у нас, в обоих флоу. */
+const MCP_ANY_PREFIX = 'mcp__';
+
+/**
+ * Разбор имени инструмента внешнего MCP-сервера: `mcp__<сервер>__<инструмент>`.
+ *
+ * Режем по ПЕРВОМУ `__` после префикса: имя сервера приходит ключом `.mcp.json` и нами
+ * проверяется, а имя инструмента — дело сервера и вполне может содержать `__`.
+ *
+ * Сервер `sdlc` зарезервирован за нашим in-process сервером и здесь даёт `null`. Иначе
+ * `mcp__sdlc__что_то_неизвестное` (префикс снят, в `NAME_TO_KIND` не найдено) превратился
+ * бы из `unknown` в законный вызов к серверу, которого нет.
+ */
+export function parseMcpName(toolName: string): { server: string; tool: string } | null {
+  if (!toolName.startsWith(MCP_ANY_PREFIX)) return null;
+  const rest = toolName.slice(MCP_ANY_PREFIX.length);
+  const sep = rest.indexOf('__');
+  if (sep <= 0) return null;
+  const server = rest.slice(0, sep);
+  const tool = rest.slice(sep + 2);
+  if (server === '' || tool === '' || server === 'sdlc') return null;
+  return { server, tool };
 }
 
 export function normalize(toolName: string, input: Record<string, unknown>): NormalizedCall {
   const name = baseToolName(toolName);
   const kind = NAME_TO_KIND.get(name);
 
-  if (kind === undefined) return { kind: 'unknown', toolName, raw: input };
+  if (kind === undefined) {
+    const mcp = parseMcpName(toolName);
+    if (mcp !== null) return { kind: 'mcp', server: mcp.server, tool: mcp.tool, args: input };
+    return { kind: 'unknown', toolName, raw: input };
+  }
 
   switch (kind) {
     case 'read': {
@@ -199,6 +227,10 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
       return { kind: 'request_scope_extension', path, reason };
     }
 
+    // Недостижимо: `mcp` не приходит из `NAME_TO_KIND` — вызовы внешних серверов узнаются
+    // по префиксу имени выше и до switch'а не доходят. Ветка стоит ради исчерпывающего
+    // switch: без неё пропуск НАСТОЯЩЕГО нового вида перестал бы быть ошибкой сборки.
+    case 'mcp':
     case 'unknown':
       return { kind: 'unknown', toolName, raw: input };
   }

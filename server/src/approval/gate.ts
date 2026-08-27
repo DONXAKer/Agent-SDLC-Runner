@@ -19,7 +19,9 @@ import type { AutoApproveRules } from '@sdlc-runner/shared';
 import { evaluate, writeTargetPaths, writeTargetsOf } from '../policy/index.ts';
 import { normalizePlanPath } from '../policy/paths.ts';
 import { normalize } from '../exec/normalize.ts';
+import { modeOf } from '../policy/mcp.ts';
 import type {
+  CallKind,
   Decision,
   DiffPreview,
   NormalizedCall,
@@ -90,7 +92,7 @@ export interface GateEvents {
  * же вопросе человеку. Политика при этом проверяется до этой развилки, поэтому этап без
  * права `AskHuman` работающего инструмента всё равно не получает.
  */
-const NO_HUMAN_STEP = new Set(['read', 'glob', 'grep', 'ask_human']);
+const NO_HUMAN_STEP = new Set<CallKind>(['read', 'glob', 'grep', 'ask_human']);
 
 /**
  * Столько раз подряд одна и та же команда обязана упасть, прежде чем гейт откажет
@@ -135,7 +137,11 @@ export class ApprovalGate {
 
   setAutoApprove(runId: string, stage: StageId, rules: AutoApproveRules): void {
     const k = this.stageKey(runId, stage);
-    if (rules.planWrites || rules.bash || rules.rest) this.autoRules.set(k, rules);
+    // Перечисление полей, а не `Object.values(...).some(...)`: правило, забытое в этом
+    // условии, молча не сохраняется — включённый оператором флаг просто не действует.
+    // Так и случилось с `mcpWrites`, когда он появился четвёртым.
+    const anyOn = rules.planWrites || rules.bash || rules.rest || rules.mcpWrites;
+    if (anyOn) this.autoRules.set(k, rules);
     else this.autoRules.delete(k);
   }
 
@@ -163,9 +169,14 @@ export class ApprovalGate {
     // что человек уже одобрил.
     if (call.kind === 'request_scope_extension') return false;
 
+    // Изменяющий MCP-вызов — свой флаг, а не `rest`. Читающие сюда не доходят (их пропускает
+    // ветка выше), а `rest` документирован как «всё остальное, включая запись вне плана»:
+    // оператор, включивший его ради темпа на этапе 5, молча подписался бы на `delete_asset`.
+    if (call.kind === 'mcp') return rules.mcpWrites;
+
     // `writeTargetPaths` возвращает `null` для вызовов, которые вообще не пишут: такой
     // вызов «внутри плана» не бывает, и правило про правки к нему не относится.
-    const targets = writeTargetPaths(call);
+    const targets = writeTargetPaths(call, ctx);
     const planFiles = ctx.planFiles;
     const insidePlan =
       targets !== null &&
@@ -202,7 +213,7 @@ export class ApprovalGate {
     ctx: PolicyContext;
   }): Promise<Decision> {
     const info = { runId: args.runId, stage: args.stage, requestId: args.requestId };
-    const writeTargets = writeTargetsOf(args.call);
+    const writeTargets = writeTargetsOf(args.call, args.ctx);
     const base = { ...args, writeTargets, createdAt: Date.now() };
 
     // Одна и та же bash-команда упала уже `MAX_REPEAT_BASH_FAILURES` раз подряд — отказ
@@ -239,6 +250,13 @@ export class ApprovalGate {
       return { allowed: true, updatedInput: null, by: 'auto' };
     }
 
+    // Читающий MCP-вызов — та же нулевая цена, что у `Read`, но решает не вид вызова, а
+    // конкретный инструмент, поэтому в `NO_HUMAN_STEP` его записать нечем. Ветка стоит
+    // ПОСЛЕ политики: вызова, которого нет в разрешительном списке, здесь уже не будет.
+    if (args.call.kind === 'mcp' && modeOf(args.call, args.ctx) === 'read') {
+      return { allowed: true, updatedInput: null, by: 'auto' };
+    }
+
     const preview = buildPreview(args.call, args.ctx.projectRoot);
 
     if (this.matchesRule(args.call, args.ctx, this.autoApproveRules(args.runId, args.stage))) {
@@ -271,7 +289,7 @@ export class ApprovalGate {
     // Именно `writeTargetPaths`, а не отображаемый список: во втором к пути приклеено
     // «(переменная не развёрнута)», и такой строки на диске нет — проверка на симлинк
     // молча проходила по несуществующему файлу.
-    const paths = [...(writeTargetPaths(call) ?? [])];
+    const paths = [...(writeTargetPaths(call, ctx) ?? [])];
     if (call.kind === 'read') paths.push(call.path);
 
     for (const path of paths) {

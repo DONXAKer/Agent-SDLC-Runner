@@ -93,12 +93,70 @@ export interface ModuleProfile {
   lint?: string;
 }
 
+/**
+ * Переопределение одного MCP-сервера поверх описания из `.mcp.json` целевого проекта.
+ *
+ * Все поля необязательные: указывают только то, что отличается. Копировать сюда команду
+ * и пути целиком значило бы завести второе знание об одном, и оно разъехалось бы с
+ * проектом на первой же его правке.
+ */
+export interface McpServerOverride {
+  enabled?: boolean;
+  type?: 'stdio' | 'http';
+  command?: string;
+  /** Заменяет список целиком: поэлементное слияние аргументов командной строки неотлаживаемо. */
+  args?: string[];
+  /** Сливается по ключам — чтобы добавить одну переменную, не переписывая блок. */
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  connectTimeoutMs?: number;
+  callTimeoutMs?: number;
+  /**
+   * Опросные инструменты (шаблоны с `*`): их повтор не считается топтанием на месте.
+   * `pie_status` и `wait_for_condition` для того и существуют, чтобы звать их подряд.
+   */
+  pollingTools?: string[];
+}
+
+/** Разрешение на инструмент в конфиге витка: `mode` и аргументы-пути задаёт человек. */
+export interface McpToolAllow {
+  /** Точное имя инструмента или префикс с одной завершающей `*`. */
+  tool: string;
+  /** Умолчание — `write`: неназванный класс считается изменяющим. */
+  mode?: 'read' | 'write';
+  pathArgs?: { key: string; access?: 'read' | 'write' }[];
+}
+
+export interface McpProjectConfig {
+  enabled?: boolean;
+  /** Путь к файлу серверов относительно корня проекта. Умолчание — `.mcp.json`. */
+  fromProjectFile?: string;
+  /**
+   * Что делать с сервером, который есть в `.mcp.json` и не упомянут в `servers`.
+   *
+   * Умолчание намеренно запретительное: `.mcp.json` пишется для Claude Code, где каждое
+   * подключение подтверждает человек диалогом. Раннер работает полуавтономно, и новый
+   * сервер в чужом файле не должен молча расширять его досягаемость.
+   */
+  unlistedServers?: 'off' | 'on';
+  servers?: Record<string, McpServerOverride>;
+  /** Разрешённые инструменты по этапам: `"chunk": { "unreal-mcp": [ … ] }`. */
+  stages?: Record<string, Record<string, (string | McpToolAllow)[]>>;
+  /** Потолок числа MCP-инструментов, отдаваемых модели на этап. */
+  maxInlineTools?: number;
+  /** Свой потолок на результат MCP-вызова, обычно жёстче общего `maxToolResultBytes`. */
+  maxResultBytes?: number;
+}
+
 export interface ProjectConfig {
   name: string;
   projectRoot: string;
   activeProfile: string;
   maxBudgetUsd: number;
   profiles: Record<string, ProfileDef>;
+  /** Внешние MCP-серверы. Не задано — раннер про MCP этого проекта не знает. */
+  mcp?: McpProjectConfig;
   /**
    * Модули проекта, описанные человеком. Пусто или не задано — работает автодетект.
    * Приоритет источников: команда из `.sdlc/gates.md` > это описание > детект.

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EventStream } from '../components/EventStream.tsx';
 import { AttemptsPanel } from '../components/AttemptsPanel.tsx';
 import { GatePanel } from '../components/GatePanel.tsx';
+import { McpPanel } from '../components/run/McpPanel.tsx';
 import { RunDiffView } from '../components/RunDiffView.tsx';
 import { StageRail } from '../components/StageRail.tsx';
 import { AdvanceBar } from '../components/run/AdvanceBar.tsx';
@@ -555,6 +556,14 @@ export function RunPage({
                   compact={!progressExpanded}
                 />
               ) : null}
+
+              {/* Серверы MCP — рядом с гейтами, а не отдельной вкладкой: это наблюдение
+                  за прогоном, и недоступный сервер надо видеть там же, где упавший гейт. */}
+              <McpPanel
+                servers={detail.mcpServers}
+                stage={detail.mcpStage}
+                compact={!progressExpanded}
+              />
 
               {/* Патч попытки — там же, где его чинят и где по нему судят. */}
               {stage === 'verify' || stage === 'chunk' ? (

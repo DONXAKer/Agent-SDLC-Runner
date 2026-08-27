@@ -42,6 +42,17 @@ export interface BuildPromptInput {
    * модель, которой сказали «сборка: npm run build» в проекте без package.json, потратит
    * итерацию на починку несуществующей поломки.
    */
+  /**
+   * Набор MCP-инструментов, выданный этапу. Считается вызывающим до сборки промпта: два
+   * места, считающих набор, показали бы оператору не то, что уходит в модель.
+   */
+  mcpTools?: readonly { name: string; description: string; schema: Record<string, unknown> }[];
+  /**
+   * Серверы, которые не ответили. Про них говорится ПРЯМО: недоступный редактор, о котором
+   * промолчали, превращается в выдуманный отчёт «сделано» — тот самый ложный зелёный,
+   * от которого весь этот сервис и защищается.
+   */
+  mcpUnavailable?: readonly { name: string; reason: string }[];
   ecosystem?: readonly {
     /** Каталог модуля относительно корня проекта. `.` — корень. */
     dir: string;
@@ -104,6 +115,20 @@ function adapterBlock(i: BuildPromptInput): string {
     `- Текущий chunk: **${i.ctx.chunk}**, попытка: **${i.ctx.attempt}**.`,
     `- Доступные инструменты на этом этапе: ${i.stage.tools.join(', ')}. Других у тебя нет — ` +
       'права выдаются на шаг, а не на прогон.',
+    ...((i.mcpTools ?? []).length > 0
+      ? [
+          `- Инструменты внешних MCP-серверов на этом этапе: ` +
+            `${(i.mcpTools ?? []).map((t) => t.name).join(', ')}. Набор ограничен намеренно: ` +
+            'описания сотен инструментов не помещаются в контекст. Нужного нет — так и напиши ' +
+            'в артефакте, а не подбирай похожий.',
+        ]
+      : []),
+    ...((i.mcpUnavailable ?? []).map(
+      (s) =>
+        `- MCP-сервер \`${s.name}\` НЕДОСТУПЕН: ${s.reason}. Задачи, требующие его ` +
+        'инструментов, выполнить нельзя — напиши это в артефакте прямо, не изображай ' +
+        'выполнение и не выдумывай результат.',
+    ) ?? []),
     ...(i.stage.subagents.length > 0
       ? [
           `- Субагенты этого этапа: ${i.stage.subagents.join(', ')} — вызывай их инструментом ` +
@@ -217,11 +242,20 @@ export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
   const system = `${skillBody}\n\n---\n\n${adapterBlock(i)}`;
 
   const specs = specsFor(i.stage.tools);
-  const tools = specs.map((s) => ({
-    name: i.flow === 'sdk' ? s.sdkName : s.name,
-    description: s.description,
-    schema: s.schema,
-  }));
+  const tools = [
+    ...specs.map((s) => ({
+      name: i.flow === 'sdk' ? s.sdkName : s.name,
+      description: s.description,
+      schema: s.schema,
+    })),
+    // Внешние MCP-инструменты показываются оператору в том же списке и под теми же
+    // именами, под какими уйдут в модель: панель промпта не должна врать про набор.
+    ...(i.mcpTools ?? []).map((t) => ({
+      name: t.name,
+      description: t.description,
+      schema: t.schema,
+    })),
+  ];
 
   return {
     presetNote:

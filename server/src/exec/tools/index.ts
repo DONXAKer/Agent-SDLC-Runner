@@ -57,7 +57,9 @@ const SKIP_DIRS = new Set([
  * вдвое больше объявленного потолка, то есть ровно тот случай, ради предотвращения
  * которого лимит и заведён.
  */
-function cap(text: string, limitBytes: number): string {
+// Экспортируется ради результатов MCP-вызовов: у них тот же лимит и та же цена ошибки,
+// а вторая копия этой функции разошлась бы с первой ровно на кириллице, как уже было.
+export function cap(text: string, limitBytes: number): string {
   const size = Buffer.byteLength(text, 'utf8');
   if (size <= limitBytes) return text;
 

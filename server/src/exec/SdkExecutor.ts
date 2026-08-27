@@ -20,7 +20,7 @@ import { describeCall, emptyUsage } from '@sdlc-runner/shared';
 
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
-import { TOOL_SPECS } from './toolSpecs.ts';
+import { TOOL_SPECS, isBuiltinToolName } from './toolSpecs.ts';
 
 /** Инструменты рантайма, которых у Claude Code нет: вопрос человеку и финализация артефакта. */
 function sdlcMcpServer(hooks: ExecHooks) {
@@ -122,8 +122,13 @@ export class SdkExecutor implements StageExecutor {
     let note = 'этап завершён';
     let ok = true;
 
-    // Имена встроенных инструментов Claude Code + наши MCP-инструменты.
-    const sdkToolNames = req.allowedTools.map((t) => TOOL_SPECS[t].sdkName);
+    // Имена встроенных инструментов Claude Code + наши MCP-инструменты + отобранный набор
+    // внешних. `McpRead`/`McpWrite` — права, а не инструменты: за ними стоят имена, которые
+    // отдал живой сервер, поэтому в `TOOL_SPECS` их нет и разворачиваются они отдельно.
+    const sdkToolNames = [
+      ...req.allowedTools.filter(isBuiltinToolName).map((t) => TOOL_SPECS[t].sdkName),
+      ...(req.mcp?.tools ?? []).map((t) => t.name),
+    ];
 
     const agents = Object.fromEntries(
       req.subagents.map((a) => [
@@ -156,7 +161,9 @@ export class SdkExecutor implements StageExecutor {
         // allowedTools НЕ выставляем намеренно: он авто-разрешает вызовы, и тогда
         // canUseTool до них не доходит, а гейт одобрений становится декорацией.
         permissionMode: 'default',
-        mcpServers: { sdlc: sdlcMcpServer(hooks) },
+        // Внешние серверы соседствуют с нашим in-process. Соединения к ним держит SDK, а
+        // не наш хаб: два клиента к одному редактору спорили бы за одну PIE-сессию.
+        mcpServers: { sdlc: sdlcMcpServer(hooks), ...(req.mcp?.sdkServers ?? {}) },
         // Каталоги форм методологии и текстов этапов: промпт велит их читать, а лежат
         // они вне целевого проекта.
         ...(req.readOnlyDirs.length > 0 ? { additionalDirectories: [...req.readOnlyDirs] } : {}),
@@ -213,6 +220,25 @@ export class SdkExecutor implements StageExecutor {
                 attempted.set(block.id, describeCall(normalize(block.name, input)));
                 startedAt.set(block.id, Date.now());
               }
+            }
+            break;
+          }
+
+          // Харнесс сам сообщает, что у агента на руках. Сверяем с объявленным набором:
+          // если фактических инструментов больше, значит `tools:` отфильтровал не всё, и
+          // молчать об этом нельзя ровно по той же причине, по которой не молчат о
+          // вызовах мимо гейта.
+          case 'system': {
+            if (m.subtype !== 'init') break;
+            for (const srv of m.mcp_servers) {
+              hooks.onWarn(`MCP-сервер «${srv.name}»: ${srv.status}`);
+            }
+            const declared = new Set(sdkToolNames);
+            const extra = m.tools.filter((t) => t.startsWith('mcp__') && !declared.has(t));
+            if (extra.length > 0) {
+              hooks.onWarn(
+                `харнесс дал агенту MCP-инструменты сверх объявленного набора: ${extra.join(', ')}`,
+              );
             }
             break;
           }

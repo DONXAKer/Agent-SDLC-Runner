@@ -9,10 +9,10 @@
  * `AskHuman` и `FinalizeArtifact` наши в обоих флоу: в `sdk` они приезжают как MCP-сервер.
  */
 
-import type { ToolName } from '@sdlc-runner/shared';
+import type { BuiltinToolName, ToolName } from '@sdlc-runner/shared';
 
 export interface ToolSpec {
-  name: ToolName;
+  name: BuiltinToolName;
   /** Имя, под которым инструмент известен исполнителю флоу `sdk`. */
   sdkName: string;
   description: string;
@@ -28,7 +28,14 @@ function obj(
 
 const str = (description: string): Record<string, unknown> => ({ type: 'string', description });
 
-export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
+/**
+ * Схемы есть только у инструментов, которые раннер описывает сам.
+ *
+ * `McpRead`/`McpWrite` — не инструменты, а права: за ними стоят имена и схемы, приходящие
+ * из `tools/list` живого сервера. Записать их сюда нечем, поэтому таблица параметризована
+ * `BuiltinToolName`, и полнота по встроенным по-прежнему проверяется компилятором.
+ */
+export const TOOL_SPECS: Record<BuiltinToolName, ToolSpec> = {
   Read: {
     name: 'Read',
     sdkName: 'Read',
@@ -198,6 +205,11 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
   },
 };
 
+/** Права на MCP схемы не имеют — они приходят от сервера отдельным списком. */
+export function isBuiltinToolName(name: ToolName): name is BuiltinToolName {
+  return name !== 'McpRead' && name !== 'McpWrite';
+}
+
 export function specsFor(tools: readonly ToolName[]): ToolSpec[] {
-  return tools.map((t) => TOOL_SPECS[t]);
+  return tools.filter(isBuiltinToolName).map((t) => TOOL_SPECS[t]);
 }

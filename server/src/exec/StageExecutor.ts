@@ -59,7 +59,19 @@ export interface ExecHooks {
    * например, вызов инструмента, проскочивший мимо гейта одобрений.
    */
   onWarn: (message: string) => void;
+  /**
+   * Трение цикла: то, на чём модель буксует, а не то, что она сделала.
+   *
+   * Все четыре вида цикл и так детектирует, но до этого хука они уходили только текстом
+   * замечания самой модели — то есть после прогона нельзя было ответить, на чём сгорели
+   * ходы: на длинных результатах, на схемах инструментов или на политике. Для локального
+   * контура это главный измеряемый признак, ради него хук и заведён.
+   */
+  onFriction: (kind: FrictionKind) => void;
 }
+
+/** Виды трения цикла — считаются по этапам и попадают в метрики витка. */
+export type FrictionKind = 'repeat' | 'badJson' | 'denied' | 'truncated';
 
 /** Субагент этапа: у него собственные права, и это конструкция, а не просьба. */
 export interface SubagentDef {
@@ -69,6 +81,32 @@ export interface SubagentDef {
   /** `null` — строки `tools:` в файле агента нет: наследует права вызывающего. */
   tools: string[] | null;
   model: string | null;
+}
+
+/**
+ * Внешние MCP-серверы, выданные этапу.
+ *
+ * Набор инструментов приходит СЮДА уже отобранным, а не считается внутри исполнителя:
+ * список для показа оператору (`buildPrompt`) и список, уходящий в модель, обязаны быть
+ * одним и тем же, иначе панель промпта врёт.
+ */
+export interface McpAccess {
+  /** Что показать модели: полные имена `mcp__сервер__инструмент` со схемами. */
+  tools: readonly { name: string; description: string; schema: Record<string, unknown> }[];
+  /**
+   * Исполнение вызова во флоу `loop`. Флоу `sdk` этим не пользуется: там соединения
+   * держит сам SDK, и два клиента к одному редактору спорили бы за одну PIE-сессию.
+   */
+  call: (
+    server: string,
+    tool: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ) => Promise<{ ok: boolean; text: string }>;
+  /** Конфиги серверов для `mcpServers` Agent SDK — только для флоу `sdk`. */
+  sdkServers: Readonly<Record<string, unknown>>;
+  /** Шаблоны опросных инструментов: их повтор не считается топтанием на месте. */
+  pollingTools: readonly string[];
 }
 
 export interface ExecRequest {
@@ -81,6 +119,8 @@ export interface ExecRequest {
   readOnlyDirs: readonly string[];
   /** Субагенты, доступные на этом этапе. */
   subagents: readonly SubagentDef[];
+  /** Внешние MCP-серверы. `null` — на этом этапе MCP не выдан. */
+  mcp: McpAccess | null;
   maxTurns: number;
   maxBudgetUsd: number | null;
   /**

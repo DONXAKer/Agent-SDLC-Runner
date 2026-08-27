@@ -400,6 +400,8 @@ app.get('/api/runs/:id', async (req, reply) => {
     pendingApprovals: gate.list().filter((p) => p.runId === id),
     pendingQuestions: askGate.list().filter((p) => p.runId === id),
     gateResults: run.gateResults,
+    mcpServers: run.mcpServers(),
+    mcpStage: run.mcpStageInfo(),
     gatesAborted: run.gatesAborted,
     verdict: run.lastVerdict,
     redCause: run.lastRedCause,
@@ -613,6 +615,7 @@ app.post('/api/runs/:id/auto-approve', async (req, reply) => {
     planWrites: body.rules.planWrites === true,
     bash: body.rules.bash === true,
     rest: body.rules.rest === true,
+    mcpWrites: body.rules.mcpWrites === true,
   };
   gate.setAutoApprove(id, body.stage, rules);
 
@@ -706,6 +709,9 @@ app.delete('/api/runs/:id', async (req, reply) => {
   }
 
   live.run.cancel('прогон закрыт оператором');
+  // Внешние MCP-серверы гаснут вместе с витком: stdio-сервер — это живой процесс, и
+  // закрытый прогон не должен оставлять его висеть до перезапуска раннера.
+  void live.run.dispose();
   const { projectRoot, name: projectName } = live.run.project;
   runs.delete(id);
   bus.forget(id);

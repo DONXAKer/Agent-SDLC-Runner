@@ -13,6 +13,7 @@ import type {
   EventSink,
   GateRunResult,
   GateStatus,
+  McpServerInfo,
   PolicyContext,
   PreparedPrompt,
   RunStatus,
@@ -28,6 +29,7 @@ import type {
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { decisionValue, readArtifact, readField, setDecision, writeArtifact } from '../artifacts/artifact.ts';
 import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
@@ -36,6 +38,13 @@ import { columnIndex, parseTables } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import type { LoadedConfig } from '../config/load.ts';
+import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
+import type { McpSetup } from '../config/mcp.ts';
+import { McpHub } from '../mcp/McpHub.ts';
+import { imageSaver } from '../mcp/content.ts';
+import { estimateTokens, selectTools } from '../mcp/select.ts';
+import type { McpToolInfo } from '../mcp/types.ts';
+import { cap } from '../exec/tools/index.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/schema.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { normalize } from '../exec/normalize.ts';
@@ -43,6 +52,8 @@ import { SdkExecutor } from '../exec/SdkExecutor.ts';
 import { createProvider } from '../provider/registry.ts';
 import type {
   ExecHooks,
+  FrictionKind,
+  McpAccess,
   StageExecutor,
   StageResult,
   SubagentDef,
@@ -258,6 +269,23 @@ export class Run {
    */
   private readonly stageStats = new Map<StageId, { runs: number; usage: Usage; durationMs: number }>();
   private readonly attemptsByChunk = new Map<number, number>();
+
+  /**
+   * Трение цикла по этапам. Считается рантаймом, а не рассказывается моделью: она про
+   * свои повторы и обрезанные результаты не знает, а числа отсюда — наблюдение.
+   */
+  private readonly friction = new Map<
+    StageId,
+    { repeat: number; badJson: number; denied: number; truncated: number }
+  >();
+
+  /** Внешние MCP-серверы витка: набор задан конфигом проекта, соединения — ленивые. */
+  private readonly mcpSetup: McpSetup;
+  private readonly hub: McpHub;
+  /** Набор MCP-инструментов последнего запуска этапа — для панели и для показа промпта. */
+  private mcpSelected: McpToolInfo[] = [];
+  /** Счётчик сохранённых картинок витка: имена файлов не должны затирать друг друга. */
+  private mcpImageSeq = 0;
   /**
    * Проваленные пункты приёмки по попыткам текущего chunk'а — вход эскалации.
    * Живёт на chunk: `resetAttemptState` обнуляет состояние ПОПЫТКИ, а история попыток
@@ -293,6 +321,8 @@ export class Run {
     this.askGate = o.askGate;
     this.emit = o.emit;
     this.paths = new WitokPaths(o.project.projectRoot, o.slug);
+    this.mcpSetup = o.config.mcp.get(o.project.name) ?? EMPTY_MCP;
+    this.hub = new McpHub(this.mcpSetup.servers);
     this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
     this.attempt = restoreAttemptFromJournal(this.paths.chunkJournal(this.chunk)) ?? this.attempt;
   }
@@ -333,6 +363,9 @@ export class Run {
         chunk,
         attempts,
       })),
+      friction: [...this.friction.entries()]
+        .filter(([, v]) => v.repeat + v.badJson + v.denied + v.truncated > 0)
+        .map(([stage, v]) => ({ stage, ...v })),
     };
   }
 
@@ -635,7 +668,131 @@ export class Run {
       protectedArtifacts: def.protectedArtifacts(this.ctx),
       readOnlyRoots: this.readOnlyRoots,
       allowedTools: def.tools,
+      mcpTools: rulesForStage(this.mcpSetup, stage),
     };
+  }
+
+  private countFriction(stage: StageId, kind: FrictionKind): void {
+    const cur = this.friction.get(stage) ?? { repeat: 0, badJson: 0, denied: 0, truncated: 0 };
+    cur[kind] += 1;
+    this.friction.set(stage, cur);
+  }
+
+  /**
+   * Внешние MCP-серверы, выданные этапу: соединения, отбор набора, исполнение вызова.
+   *
+   * Соединения поднимаются здесь — лениво, на этап. Недоступный сервер этап НЕ роняет:
+   * его инструменты просто не попадают в набор, а причина уходит оператору и в промпт.
+   * Иначе выключенный редактор превращался бы в непонятный отказ посреди работы.
+   */
+  private async mcpAccess(stage: StageId): Promise<McpAccess | null> {
+    const rules = rulesForStage(this.mcpSetup, stage);
+    this.mcpSelected = [];
+    if (rules.length === 0 || this.hub.size === 0) return null;
+
+    const servers = [...new Set(rules.map((r) => r.server))];
+    const failed = await this.hub.ensureReady(servers);
+
+    for (const name of servers) {
+      const s = this.hub.status(name);
+      this.emit({
+        type: 'mcp_state',
+        runId: this.id,
+        stage,
+        server: name,
+        state: s.state,
+        reason: s.reason,
+        toolCount: s.toolCount,
+      });
+    }
+    for (const name of failed) {
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage,
+        message:
+          `MCP-сервер «${name}» недоступен: ` +
+          `${this.hub.status(name).reason ?? 'причина не названа'}`,
+      });
+    }
+
+    const selection = selectTools(rules, this.hub.tools(servers), this.mcpSetup.maxInlineTools);
+    this.mcpSelected = selection.tools;
+
+    // Отброшенное называется вслух: молча укороченный набор читается как «дали всё».
+    for (const d of selection.dropped) {
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage,
+        message: `MCP-инструмент ${d.name} не выдан: ${d.why}`,
+      });
+    }
+
+    if (selection.tools.length === 0) return null;
+
+    const sdkServers: Record<string, unknown> = {};
+    for (const spec of this.mcpSetup.servers) {
+      if (!servers.includes(spec.name)) continue;
+      sdkServers[spec.name] =
+        spec.transport === 'http'
+          ? { type: 'http', url: spec.url, headers: spec.headers }
+          : { type: 'stdio', command: spec.command, args: spec.args, env: spec.env };
+    }
+
+    const maxBytes = Math.min(
+      this.mcpSetup.maxResultBytes,
+      this.config.runner.limits.maxToolResultBytes,
+    );
+
+    return {
+      tools: selection.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        schema: t.schema,
+      })),
+      sdkServers,
+      pollingTools: servers.flatMap((n) => this.hub.pollingPatterns(n)),
+      call: async (server, tool, args, signal) => {
+        const outcome = await this.hub.call(server, tool, args, {
+          signal,
+          fold: {
+            saveImage: imageSaver(() =>
+              join(this.paths.dir, 'mcp', `${stage}-${this.chunk}-${++this.mcpImageSeq}`),
+            ),
+          },
+        });
+        return { ok: outcome.ok, text: cap(outcome.text, maxBytes) };
+      },
+    };
+  }
+
+  /** Недоступные серверы витка с причинами — для честной строки в промпте. */
+  private mcpUnavailable(): { name: string; reason: string }[] {
+    return this.hub
+      .names()
+      .map((name) => ({ name, status: this.hub.status(name) }))
+      .filter((x) => x.status.state === 'unavailable')
+      .map((x) => ({ name: x.name, reason: x.status.reason ?? 'причина не названа' }));
+  }
+
+  /** Набор MCP-инструментов последнего запуска этапа и его цена — для интерфейса. */
+  mcpStageInfo(): { tools: string[]; estimatedTokens: number } {
+    return {
+      tools: this.mcpSelected.map((t) => t.name),
+      estimatedTokens: estimateTokens(this.mcpSelected),
+    };
+  }
+
+  /** Состояние серверов для панели оператора. */
+  mcpServers(): McpServerInfo[] {
+    const selected = new Map<string, string[]>();
+    for (const t of this.mcpSelected) {
+      const list = selected.get(t.server) ?? [];
+      list.push(t.tool);
+      selected.set(t.server, list);
+    }
+    return this.hub.info(selected);
   }
 
   /**
@@ -683,6 +840,8 @@ export class Run {
             cwd: this.project.projectRoot,
             model: other.model,
             allowedTools: def.tools,
+            // Тот же набор, что у первого маршрута: соединения уже подняты, отбор посчитан.
+            mcp: await this.mcpAccess('verify'),
             readOnlyDirs: this.readOnlyRoots,
             subagents: agents,
             maxTurns: this.config.runner.limits.maxIterationsPerStage,
@@ -771,6 +930,10 @@ export class Run {
       // Чем проект собирается — тем же источником, что у гейтов. Пусто (плана ещё нет,
       // экосистема не определилась) — блок в промпте молчит, а не гадает.
       ...(ecosystem.length === 0 ? {} : { ecosystem }),
+      // Набор MCP-инструментов и состояние серверов: считаются до сборки промпта, чтобы
+      // панель промпта показывала ровно то, что уходит в модель.
+      ...(this.mcpSelected.length === 0 ? {} : { mcpTools: this.mcpSelected }),
+      ...(this.mcpUnavailable().length === 0 ? {} : { mcpUnavailable: this.mcpUnavailable() }),
     });
     this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     return prompt;
@@ -1093,6 +1256,17 @@ export class Run {
     this.status = 'cancelled';
   }
 
+  /**
+   * Конец витка: гасим внешние MCP-серверы.
+   *
+   * Именно на конце витка, а не этапа. Погасив редактор между chunk и verify, мы отняли бы
+   * у верификации ровно то состояние, которое она и проверяет, — и следующий этап платил
+   * бы за подъём редактора заново.
+   */
+  async dispose(): Promise<void> {
+    await this.hub.close();
+  }
+
   async runStage(stage: StageId, opts: RunStageOptions = {}): Promise<StageResult> {
     const def = stageById(stage);
     const route = this.profile.routes[stage];
@@ -1242,6 +1416,11 @@ export class Run {
         extra = extra === undefined ? block : `${extra}\n\n${block}`;
       }
     }
+
+    // Соединения к MCP поднимаются ДО сборки промпта: набор инструментов, показанный
+    // оператору, обязан быть тем же, что уйдёт в модель, а он зависит от того, какие
+    // серверы реально ответили.
+    const mcp = await this.mcpAccess(stage);
 
     // Промпт пересобирается, когда есть что подклеить: иначе правка оператора и факты
     // прогона исключали бы друг друга. Правка человека при этом сохраняется — она
@@ -1396,6 +1575,8 @@ export class Run {
       },
 
       onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage, message }),
+
+      onFriction: (kind) => this.countFriction(stage, kind),
     };
 
     try {
@@ -1415,6 +1596,7 @@ export class Run {
           allowedTools: def.tools,
           readOnlyDirs: this.readOnlyRoots,
           subagents: agents,
+          mcp,
           maxTurns: this.config.runner.limits.maxIterationsPerStage,
           maxBudgetUsd: this.project.maxBudgetUsd,
           spentUsdBefore: this.totalUsage.costUsd ?? 0,

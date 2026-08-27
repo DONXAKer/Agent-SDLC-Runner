@@ -19,6 +19,8 @@ function title(call: NormalizedCall): string {
       return 'Выполнить команду';
     case 'finalize_artifact':
       return `Финализировать ${call.artifact}`;
+    case 'mcp':
+      return `Сервер ${call.server} · ${call.tool}`;
     case 'unknown':
       return `Неизвестный инструмент ${call.toolName}`;
     default:
@@ -68,6 +70,15 @@ export function ToolApproval({
       {pending.call.kind === 'bash' ? (
         <pre className="mb-3 overflow-auto rounded border border-neutral-800 bg-neutral-950 p-3 font-mono text-xs text-neutral-300">
           {pending.call.command}
+        </pre>
+      ) : null}
+
+      {/* У MCP-вызова диффа нет и быть не может: он меняет состояние редактора, а не файл,
+          который мы умеем прочитать до и после. Поэтому оператору показываются аргументы —
+          то единственное, по чему решение и принимается. */}
+      {pending.call.kind === 'mcp' ? (
+        <pre className="mb-3 overflow-auto rounded border border-neutral-800 bg-neutral-950 p-3 font-mono text-xs text-neutral-300">
+          {JSON.stringify(pending.call.args, null, 2)}
         </pre>
       ) : null}
 

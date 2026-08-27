@@ -20,10 +20,16 @@ import type {
 import { POLICY_OK, policyDeny } from '@sdlc-runner/shared';
 
 import * as denyList from './denyList.ts';
+import { allowedHint, mcpPaths, modeOf } from './mcp.ts';
 import * as pathScope from './pathScope.ts';
 import * as planScope from './planScope.ts';
 import { redirectTargets } from './shellRedirects.ts';
 
+/**
+ * `null` здесь означает разное, и это важно не перепутать: у `unknown` — «инструмент не
+ * опознан, отказать по худшему случаю», у `mcp` — «право зависит от конкретного инструмента
+ * внешнего сервера, а не от вида вызова». Оба разбираются в `checkStageTools` до таблицы.
+ */
 const KIND_TO_TOOL: Record<CallKind, ToolName | null> = {
   read: 'Read',
   glob: 'Glob',
@@ -35,6 +41,7 @@ const KIND_TO_TOOL: Record<CallKind, ToolName | null> = {
   finalize_artifact: 'FinalizeArtifact',
   subagent: 'Task',
   request_scope_extension: 'RequestScopeExtension',
+  mcp: null,
   unknown: null,
 };
 
@@ -50,6 +57,7 @@ function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
       `инструмент «${call.toolName}» не объявлен на этапе ${ctx.stage} и не опознан рантаймом.`,
     );
   }
+  if (call.kind === 'mcp') return checkMcp(call, ctx);
   const tool = KIND_TO_TOOL[call.kind];
   if (tool === null) return POLICY_OK;
   if (!ctx.allowedTools.includes(tool)) {
@@ -62,6 +70,39 @@ function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
 }
 
 /**
+ * Права на конкретный инструмент внешнего MCP-сервера.
+ *
+ * Две различимые причины отказа, обе под именем `stageTools`: новой политики здесь не
+ * заводится — это тот же вопрос «имел ли этап такое право», только имя инструмента приходит
+ * не из закрытого union'а, а из разрешительного списка оператора.
+ */
+function checkMcp(
+  call: Extract<NormalizedCall, { kind: 'mcp' }>,
+  ctx: PolicyContext,
+): PolicyVerdict {
+  const mode = modeOf(call, ctx);
+  if (mode === null) {
+    return policyDeny(
+      'stageTools',
+      `инструмент «${call.tool}» сервера «${call.server}» не в разрешительном списке на ` +
+        `этапе ${ctx.stage}. Разрешены: ${allowedHint(call.server, ctx)}.`,
+    );
+  }
+
+  const tool: ToolName = mode === 'read' ? 'McpRead' : 'McpWrite';
+  if (!ctx.allowedTools.includes(tool)) {
+    const what = mode === 'read' ? 'читающие' : 'изменяющие';
+    return policyDeny(
+      'stageTools',
+      `${what} вызовы MCP не разрешены вызывающему на этапе ${ctx.stage}. ` +
+        `Доступны: ${ctx.allowedTools.join(', ')}.`,
+    );
+  }
+
+  return POLICY_OK;
+}
+
+/**
  * Порядок проверок значим: сперва «имел ли этап такое право вообще», затем безопасный пол,
  * затем границы проекта, и только потом план. Так сообщение об отказе называет самую
  * раннюю и самую понятную причину, а не последнюю сработавшую.
@@ -70,8 +111,14 @@ function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
  * лексер по команде, которую этап и так не имел права выполнять.
  */
 export function evaluate(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
+  const stage = checkStageTools(call, ctx);
+  if (!stage.ok) return stage;
+
+  // MCP не описывается ни путём, ни shell-командой: три оставшиеся проверки идут по
+  // объявленным аргументам-путям, а не по вызову целиком.
+  if (call.kind === 'mcp') return evaluateMcpPaths(call, ctx);
+
   const checks = [
-    (): PolicyVerdict => checkStageTools(call, ctx),
     (): PolicyVerdict => denyList.check(call),
     (): PolicyVerdict => pathScope.check(call, ctx),
     (): PolicyVerdict => planScope.check(call, ctx),
@@ -84,6 +131,41 @@ export function evaluate(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
 }
 
 /**
+ * Три оставшиеся проверки для MCP-вызова — через подстановку файловых вызовов.
+ *
+ * Проверять нечего, кроме объявленных человеком аргументов-путей, а для них уже написаны
+ * `denyList`, `pathScope` и `planScope`. Подставляем `read`/`write` с тем же путём и зовём
+ * их как есть — вместо трёх новых веток, каждая из которых повторяла бы чужую логику и
+ * расходилась бы с ней по одной. Порядок причин сохраняется тот же.
+ *
+ * Записи проверяются раньше чтений: отказ по записи и понятнее, и опаснее.
+ */
+function evaluateMcpPaths(
+  call: Extract<NormalizedCall, { kind: 'mcp' }>,
+  ctx: PolicyContext,
+): PolicyVerdict {
+  const asWrite = mcpPaths(call, ctx, 'write').map(
+    (path): NormalizedCall => ({ kind: 'write', path, content: '' }),
+  );
+  const asRead = mcpPaths(call, ctx, 'read').map(
+    (path): NormalizedCall => ({ kind: 'read', path, range: null }),
+  );
+
+  for (const synthetic of [...asWrite, ...asRead]) {
+    for (const run of [
+      (): PolicyVerdict => denyList.check(synthetic),
+      (): PolicyVerdict => pathScope.check(synthetic, ctx),
+      (): PolicyVerdict => planScope.check(synthetic, ctx),
+    ]) {
+      const v = run();
+      if (!v.ok) return v;
+    }
+  }
+
+  return POLICY_OK;
+}
+
+/**
  * Во что запишет вызов — ПУТИ, без пояснений для человека.
  *
  * Это то, что скармливают проверкам: канонизации, сверке с планом, детекту побега через
@@ -92,13 +174,19 @@ export function evaluate(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
  * получал несуществующий файл, не видел симлинка и пропускал ровно тот случай, ради
  * которого проверка написана.
  */
-export function writeTargetPaths(call: NormalizedCall): string[] | null {
+export function writeTargetPaths(call: NormalizedCall, ctx: PolicyContext): string[] | null {
   switch (call.kind) {
     case 'write':
     case 'edit':
       return [call.path];
     case 'bash':
       return redirectTargets(call.command).map((t) => t.path);
+    case 'mcp': {
+      // Пустой массив здесь означал бы «посчитано: не пишет никуда», а для `delete_asset`
+      // это ложь: он пишет в дерево проекта, просто не файлом, имя которого мы знаем.
+      const paths = mcpPaths(call, ctx, 'write');
+      return paths.length === 0 ? null : paths;
+    }
     default:
       return null;
   }
@@ -109,11 +197,15 @@ export function writeTargetPaths(call: NormalizedCall): string[] | null {
  * видеть её цели записи; заявленного поля на самом вызове для этого нет намеренно, чтобы
  * никто не принял незаполненный массив за посчитанный ответ.
  */
-export function writeTargetsOf(call: NormalizedCall): string[] | null {
+export function writeTargetsOf(call: NormalizedCall, ctx: PolicyContext): string[] | null {
   switch (call.kind) {
     case 'write':
     case 'edit':
       return [call.path];
+    case 'mcp': {
+      const paths = mcpPaths(call, ctx, 'write');
+      return paths.length === 0 ? null : paths;
+    }
     case 'bash': {
       const targets = redirectTargets(call.command);
       return targets.length === 0

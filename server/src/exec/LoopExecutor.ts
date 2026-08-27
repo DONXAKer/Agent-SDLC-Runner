@@ -64,7 +64,18 @@ const REPEAT_LIMIT = 3;
 // молча выпадало бы из пересечения прав, и субагент терял бы объявленное право без
 // единого сообщения. `hasOwn`, а не `in`: объектный словарь отвечает `true` на `toString`.
 function isToolName(v: string): v is ToolName {
+  // Права на MCP в `TOOL_SPECS` не лежат — у них нет статических схем. Без этих двух имён
+  // право, объявленное человеком в шапке субагента, молча выпало бы из пересечения.
+  if (v === 'McpRead' || v === 'McpWrite') return true;
   return Object.hasOwn(TOOL_SPECS, v);
+}
+
+/** Опросный ли это инструмент — по шаблонам из конфига сервера. */
+function isPolling(toolName: string, req: ExecRequest): boolean {
+  const patterns = req.mcp?.pollingTools ?? [];
+  return patterns.some((p) =>
+    p.endsWith('*') ? toolName.startsWith(p.slice(0, -1)) : toolName.endsWith(p),
+  );
 }
 
 /** Инструмент есть, но исполнить его этот флоу не умеет: не успех и не крах этапа. */
@@ -91,13 +102,19 @@ export class LoopExecutor implements StageExecutor {
       signal: req.signal,
     };
 
-    const tools = specsFor(req.allowedTools).map((s) => ({
-      // Во флоу `loop` имена наши: MCP-префикса здесь нет, и подсовывать модели
-      // `mcp__sdlc__ask_human` значило бы описывать несуществующий транспорт.
-      name: s.name,
-      description: s.description,
-      schema: s.schema,
-    }));
+    const tools = [
+      ...specsFor(req.allowedTools).map((s) => ({
+        // Во флоу `loop` имена наши: MCP-префикса здесь нет, и подсовывать модели
+        // `mcp__sdlc__ask_human` значило бы описывать несуществующий транспорт.
+        name: s.name,
+        description: s.description,
+        schema: s.schema,
+      })),
+      // А вот у ВНЕШНИХ серверов транспорт здесь настоящий, и имя у них одно на оба флоу:
+      // `mcp__<сервер>__<инструмент>`. Набор приходит уже отобранным — считать его второй
+      // раз внутри исполнителя значило бы показать оператору не то, что уходит в модель.
+      ...(req.mcp?.tools ?? []),
+    ];
 
     const messages: ChatMessage[] = [
       { role: 'system', content: req.prompt.system },
@@ -185,6 +202,8 @@ export class LoopExecutor implements StageExecutor {
         const turnFingerprint = answer.toolCalls.map(callFingerprint).join(' ');
         repeats = turnFingerprint === lastFingerprint ? repeats + 1 : 0;
         lastFingerprint = turnFingerprint;
+        if (repeats > 0) hooks.onFriction('repeat');
+
         if (repeats + 1 >= REPEAT_LIMIT) {
           const note =
             `цикл остановлен: ход из ${answer.toolCalls.length} субагентов повторён ` +
@@ -213,7 +232,9 @@ export class LoopExecutor implements StageExecutor {
         repeats = fingerprint === lastFingerprint ? repeats + 1 : 0;
         lastFingerprint = fingerprint;
 
-        if (repeats + 1 >= REPEAT_LIMIT) {
+        if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
+
+        if (repeats + 1 >= REPEAT_LIMIT && !isPolling(call.name, req)) {
           const note =
             `цикл остановлен: «${call.name}» вызван ${repeats + 1} раза подряд с теми же ` +
             `аргументами — прогресса нет`;
@@ -262,11 +283,15 @@ export class LoopExecutor implements StageExecutor {
       // Не падаем: говорим, что именно не разобралось. Модель, которой сказали «ошибка»
       // без подробностей, повторяет ту же строку.
       const text = `аргументы не разобрались как JSON: ${call.rawArguments.slice(0, 300)}`;
+      hooks.onFriction('badJson');
       hooks.onToolResult({ requestId, ok: false, summary: text, durationMs: 0 });
       return text;
     }
 
-    if (repeats > 0) {
+    // Опросный инструмент повторяется законно: `pie_status` и `wait_for_*` для того и
+    // существуют, чтобы звать их подряд, пока редактор не догрузится. Замечание вместо
+    // результата здесь означало бы, что ожидание невозможно в принципе.
+    if (repeats > 0 && !isPolling(call.name, req)) {
       const text =
         `этот вызов уже был с теми же аргументами и дал тот же результат. Он не повторён. ` +
         `Смени подход: либо другой инструмент, либо другие аргументы, либо заверши ход.`;
@@ -285,6 +310,7 @@ export class LoopExecutor implements StageExecutor {
       callerTools: req.allowedTools,
     });
     if (!decision.allowed) {
+      hooks.onFriction('denied');
       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
       return `вызов отклонён: ${decision.reason}`;
     }
@@ -314,6 +340,10 @@ export class LoopExecutor implements StageExecutor {
       });
       return message;
     }
+
+    // Метка обрезки ставится в `cap` — единственном месте, которое знает лимит. Ловим её
+    // по ней же: считать длину второй раз значило бы завести второе знание о потолке.
+    if (text.includes('[рантайм обрезал:')) hooks.onFriction('truncated');
 
     hooks.onToolResult({
       requestId,
@@ -450,6 +480,17 @@ export class LoopExecutor implements StageExecutor {
         }
 
         return this.runSubagent(req, hooks, def, call.prompt, nested, spentUsd);
+      }
+
+      case 'mcp': {
+        // Исполнение здесь, а не в `executeTool`: тот получает только `ToolContext` —
+        // диск, таймаут, сигнал — и по построению не знает ни про хаб, ни про хуки.
+        // Ровно поэтому рядом живут `ask_human` и `subagent`.
+        if (req.mcp === null) {
+          return 'ошибка: внешние MCP-серверы на этом этапе не выданы';
+        }
+        const outcome = await req.mcp.call(call.server, call.tool, call.args, req.signal);
+        return outcome.ok ? outcome.text : `ошибка: ${outcome.text}`;
       }
 
       default: {

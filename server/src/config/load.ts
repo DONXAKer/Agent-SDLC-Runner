@@ -3,6 +3,8 @@ import { join, resolve } from 'node:path';
 
 import { ORDER } from '../gates/ecosystems/index.ts';
 import { normalizeModuleDir } from '../gates/builtin/logic.ts';
+import type { McpSetup } from './mcp.ts';
+import { resolveMcp } from './mcp.ts';
 import type { ModelsConfig, ProjectConfig, RunnerConfig } from './schema.ts';
 
 /** Ключи вида `"// заметка"` в JSON — комментарии для человека; рантайм их игнорирует. */
@@ -24,6 +26,14 @@ export interface LoadedConfig {
   runner: RunnerConfig;
   models: ModelsConfig;
   projects: Map<string, ProjectConfig>;
+  /**
+   * Внешние MCP-серверы по проектам, разобранные при загрузке.
+   *
+   * Разбор здесь, а не при старте витка, ровно по той же причине, по которой здесь живёт
+   * `validateModules`: опечатка в описании должна называться сразу, а не превращаться в
+   * «инструментов почему-то нет» посреди этапа.
+   */
+  mcp: Map<string, McpSetup>;
 }
 
 /**
@@ -152,6 +162,7 @@ export function loadConfig(dir: string = configDir()): LoadedConfig {
 
   const projectsDir = join(dir, 'projects');
   const projects = new Map<string, ProjectConfig>();
+  const mcp = new Map<string, McpSetup>();
   if (existsSync(projectsDir)) {
     for (const file of readdirSync(projectsDir)) {
       if (!file.endsWith('.json')) continue;
@@ -164,6 +175,7 @@ export function loadConfig(dir: string = configDir()): LoadedConfig {
       }
       validateModules(p);
       projects.set(p.name, p);
+      mcp.set(p.name, resolveMcp(p, dir));
     }
   }
 
@@ -171,7 +183,7 @@ export function loadConfig(dir: string = configDir()): LoadedConfig {
     throw new Error(`в ${projectsDir} нет ни одного проекта — нечего запускать`);
   }
 
-  return { dir, runner, models, projects };
+  return { dir, runner, models, projects, mcp };
 }
 
 export function requireProject(cfg: LoadedConfig, name: string): ProjectConfig {
