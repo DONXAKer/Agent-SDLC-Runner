@@ -49,7 +49,26 @@ export type ToolName =
    * или полной остановки chunk'а. Решает **только человек** — см. `RequestScopeExtension`
    * в `matchesRule` (`policy/index.ts`): автоодобрение `rest` на неё не распространяется.
    */
-  | 'RequestScopeExtension';
+  | 'RequestScopeExtension'
+  /**
+   * Читающие вызовы внешних MCP-серверов. Идут без шага человека — как `Read` и `Grep`.
+   *
+   * Права на MCP выражены двумя токенами, а не одним, из-за сужения прав субагента: оно
+   * работает пересечением имён из YAML-шапки агента с правами этапа (`Run.onToolRequest`,
+   * `LoopExecutor`). С единственным токеном `sdlc-locator`, объявленный read-only по
+   * построению, получил бы вместе с `asset_exists` ещё и `delete_asset`.
+   */
+  | 'McpRead'
+  /** Изменяющие вызовы внешних MCP-серверов: только через одобрение оператора. */
+  | 'McpWrite';
+
+/**
+ * Инструменты со статической схемой — те, что раннер описывает сам (`TOOL_SPECS`).
+ *
+ * MCP-инструменты сюда не входят намеренно: их схемы приходят из `tools/list` живого
+ * сервера, а имена — от него же, и придумать для них запись в закрытой таблице нельзя.
+ */
+export type BuiltinToolName = Exclude<ToolName, 'McpRead' | 'McpWrite'>;
 
 export type FlowId = 'sdk' | 'loop';
 
@@ -111,10 +130,45 @@ export type NormalizedCall =
   | { kind: 'finalize_artifact'; artifact: string; note: string | null }
   | { kind: 'subagent'; agent: string; prompt: string }
   | { kind: 'request_scope_extension'; path: string; reason: string }
+  /**
+   * Вызов инструмента внешнего MCP-сервера.
+   *
+   * Класса «читает или пишет» здесь намеренно НЕТ. Он берётся из разрешительного списка
+   * оператора (`PolicyContext.mcpTools`), а не из вызова: продублированный тут, он разошёлся
+   * бы со списком молча — ровно тот класс ловушки, из-за которого у `bash` нет поля
+   * `writeTargets`.
+   *
+   * `args` кладутся дословно: схем сотен внешних инструментов нормализатор не знает, и
+   * «тихо выбросил непонятный ключ» здесь было бы потерей аргумента, а не нормализацией.
+   */
+  | { kind: 'mcp'; server: string; tool: string; args: Record<string, unknown> }
   /** Инструмент, которого мы не знаем. Политика считает его записью — по худшему случаю. */
   | { kind: 'unknown'; toolName: string; raw: unknown };
 
 export type CallKind = NormalizedCall['kind'];
+
+/**
+ * Все виды вызова списком — чтобы про новый вид нельзя было забыть молча.
+ *
+ * Половина модулей политики и предпросмотр разбирают `NormalizedCall` через `switch` с
+ * `default`, то есть новый `kind` их не ломает: он через них просто проходит. Этот массив
+ * существует ради теста, который перебирает виды и требует, чтобы автор отнёс каждый к
+ * «проверяется» или «намеренно пропускается»; `satisfies` стережёт его полноту.
+ */
+export const CALL_KINDS = Object.keys({
+  read: true,
+  glob: true,
+  grep: true,
+  write: true,
+  edit: true,
+  bash: true,
+  ask_human: true,
+  finalize_artifact: true,
+  subagent: true,
+  request_scope_extension: true,
+  mcp: true,
+  unknown: true,
+} satisfies Record<CallKind, true>) as readonly CallKind[];
 
 // ---------------------------------------------------------------------------
 // Политика доступа
@@ -146,13 +200,47 @@ export interface AutoApproveRules {
   bash: boolean;
   /** Всё остальное, включая запись вне плана. */
   rest: boolean;
+  /**
+   * Изменяющие вызовы внешних MCP-серверов. Отдельным флагом, а не в `rest`: этап 5 с
+   * редактором — это десятки правок подряд, а `rest` означает ещё и запись вне плана.
+   * Оператор, включивший его ради темпа, молча подписался бы на `delete_asset`.
+   */
+  mcpWrites: boolean;
 }
 
 export const AUTO_APPROVE_OFF: AutoApproveRules = {
   planWrites: false,
   bash: false,
   rest: false,
+  mcpWrites: false,
 };
+
+/** Читает инструмент или изменяет состояние. Решает человек — см. `McpToolRule`. */
+export type McpMode = 'read' | 'write';
+
+/**
+ * Разрешение на один инструмент внешнего MCP-сервера.
+ *
+ * Класс инструмента задаёт человек в конфиге, а не эвристика по имени и не аннотация
+ * сервера. Имя ничего не гарантирует (`tick_world`, `pie_start`, `compile_blueprint`
+ * читающими не являются), а `readOnlyHint` — утверждение той самой стороны, которую гейт
+ * и сторожит.
+ */
+export interface McpToolRule {
+  server: string;
+  /** Точное имя инструмента либо префикс с одной завершающей `*`. Шаблон даёт только `write`. */
+  tool: string;
+  mode: McpMode;
+  /**
+   * Аргументы, значения которых — НАСТОЯЩИЕ пути файловой системы, и только они уходят
+   * в `pathScope`/`denyList`/`planScope`.
+   *
+   * Пусто по умолчанию, и это решение, а не пробел: `/Game/Cards/BP_Card` — путь ассета
+   * Unreal, но `isAbsolute` считает его абсолютным путём диска, и скан «похожих на путь»
+   * строк отклонял бы каждый вызов отказом, который оператор снять не может.
+   */
+  pathArgs: readonly { key: string; access: 'read' | 'write' }[];
+}
 
 export interface PolicyContext {
   /** Абсолютный нормализованный корень целевого проекта. */
@@ -180,6 +268,13 @@ export interface PolicyContext {
   readOnlyRoots: readonly string[];
   /** Инструменты, разрешённые на текущем этапе. */
   allowedTools: readonly ToolName[];
+  /**
+   * Разрешительный список MCP-инструментов на этап. Пустой список — MCP не выдан.
+   *
+   * Не `| null`: у `planFiles` `null` означает «проверка ещё не действует», и то же
+   * написание здесь читалось бы как «всё разрешено» — противоположность замыслу.
+   */
+  mcpTools: readonly McpToolRule[];
 }
 
 // ---------------------------------------------------------------------------
@@ -368,8 +463,45 @@ export interface GateRunResult {
   durationMs: number;
 }
 
+/**
+ * Состояние внешнего MCP-сервера.
+ *
+ * `unavailable` — сервер описан верно, но не отвечает: редактор не запущен, порт закрыт,
+ * бинарника нет. Это НЕ ошибка конфигурации и не повод не начинать виток; ошибку описания
+ * ловит загрузка конфига, а `invalid` остаётся для файла проекта, который не разобрался.
+ */
+export type McpServerState = 'disabled' | 'pending' | 'connected' | 'unavailable' | 'invalid';
+
+/** Внешний MCP-сервер так, как его показывают оператору. Секретов здесь нет по построению. */
+export interface McpServerInfo {
+  name: string;
+  transport: 'stdio' | 'http';
+  /** Для http — URL без query, для stdio — имя команды с аргументами. */
+  target: string;
+  /** Имена ключей `env`/`headers` без значений: что подставляется — видно, что именно — нет. */
+  envKeys: readonly string[];
+  state: McpServerState;
+  /** Почему недоступен, человеческим языком. `null` — доступен. */
+  reason: string | null;
+  /** Сколько инструментов отдал сервер. `null` — не спрашивали. */
+  toolCount: number | null;
+  /** Набор, разрешённый на текущем этапе. */
+  selected: readonly string[];
+  /** Хвост stderr дочернего процесса: единственная диагностика «команда не найдена». */
+  stderrTail: string | null;
+}
+
 export type RunEvent =
   | { type: 'run_started'; runId: string; slug: string; profile: string; projectRoot: string }
+  | {
+      type: 'mcp_state';
+      runId: string;
+      stage: StageId | null;
+      server: string;
+      state: McpServerState;
+      reason: string | null;
+      toolCount: number | null;
+    }
   | {
       type: 'stage_started';
       runId: string;

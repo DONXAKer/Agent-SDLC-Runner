@@ -1,31 +1,48 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { DirectoryBrowser } from './components/DirectoryBrowser.tsx';
-import { HistoryList } from './components/HistoryList.tsx';
-import { ProfileEditor } from './components/ProfileEditor.tsx';
-import { RunList } from './components/RunList.tsx';
 import { ArchivedRunView } from './pages/ArchivedRunView.tsx';
 import { RunPage } from './pages/RunPage.tsx';
+import { StartPage } from './pages/StartPage.tsx';
 import { api } from './lib/api.ts';
-import { PANEL_TONE } from './lib/tones.ts';
+import { formatHash, parseHash } from './lib/hashRoute.ts';
+import type { Route } from './lib/hashRoute.ts';
 import type { ConfigInfo, HistoryEntry, ProjectInfo, RunSummary, StageId } from '@sdlc-runner/shared';
 
 export default function App(): JSX.Element {
   const [config, setConfig] = useState<ConfigInfo | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
-  /** Виток из истории, которого нет среди живых `runs` — открывается read-only архивом. */
-  const [archived, setArchived] = useState<{ project: string; slug: string } | null>(null);
+  /**
+   * Какой экран открыт — в адресе, а не только в памяти.
+   *
+   * Раньше это были два `useState` (`runId` и `archived`), и F5 посреди работающего витка
+   * возвращал на стартовый экран. `#/run/<id>` после перезапуска сервера мягко деградирует:
+   * прогонов в памяти нет, `RunPage` показывает «← к списку витков».
+   */
+  const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [profile, setProfile] = useState('');
   const [slug, setSlug] = useState('');
+  /** Задача витка: набирается на старте, уходит на этап intent и правится уже там. */
+  const [requirement, setRequirement] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [browsing, setBrowsing] = useState(false);
-  const [pendingPath, setPendingPath] = useState<string | null>(null);
-  const [newName, setNewName] = useState('');
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   /** Правка моделей на один виток: на диск не сохраняется. */
   const [stageOverrides, setStageOverrides] = useState<Partial<Record<StageId, string>>>({});
+
+  // Кнопки «назад»/«вперёд» браузера и ручная правка адреса — такой же вход, как наши
+  // переходы: слушаем событие, а не только пишем hash.
+  useEffect(() => {
+    const onHash = (): void => setRoute(parseHash(window.location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const navigate = useCallback((next: Route): void => {
+    // Стейт ставится сразу, не дожидаясь `hashchange`: браузер не шлёт событие, если hash
+    // не изменился (например «на старт» со старта), и экран замер бы.
+    setRoute(next);
+    window.location.hash = formatHash(next);
+  }, []);
 
   useEffect(() => {
     api
@@ -61,11 +78,11 @@ export default function App(): JSX.Element {
   // Условие включает и архивный просмотр — иначе список фонового `fetch`ился бы, пока
   // оператор читает read-only ленту `ArchivedRunView`, без всякой пользы для этого экрана.
   useEffect(() => {
-    if (runId === null && archived === null) {
+    if (route.kind === 'start') {
       refreshRuns();
       refreshHistory();
     }
-  }, [runId, archived, refreshRuns, refreshHistory]);
+  }, [route.kind, refreshRuns, refreshHistory]);
 
   const forget = async (id: string): Promise<void> => {
     setError(null);
@@ -79,252 +96,99 @@ export default function App(): JSX.Element {
     }
   };
 
-  const addProject = async (): Promise<void> => {
-    if (pendingPath === null || newName.trim() === '') return;
+  const addProject = async (name: string, path: string): Promise<ProjectInfo | null> => {
     setError(null);
     try {
-      const p = await api.addProject(newName.trim(), pendingPath);
-      setPendingPath(null);
-      setNewName('');
+      const p = await api.addProject(name, path);
       // Ответ уже содержит весь новый проект — полный перезапрос /api/config не нужен.
       setConfig((c) => (c === null ? c : { ...c, projects: [...c.projects, p] }));
       setProject(p);
       setProfile(p.activeProfile);
+      return p;
     } catch (e) {
       setError((e as Error).message);
+      return null;
     }
   };
-
-  if (runId !== null) return <RunPage runId={runId} onExit={() => setRunId(null)} />;
-  if (archived !== null) {
-    return (
-      <ArchivedRunView
-        project={archived.project}
-        slug={archived.slug}
-        stageTitles={Object.fromEntries((config?.stages ?? []).map((s) => [s.id, s.title]))}
-        onExit={() => setArchived(null)}
-      />
-    );
-  }
 
   const start = async (): Promise<void> => {
     if (project === null || slug.trim() === '') return;
     setError(null);
     try {
       const r = await api.createRun(project.name, slug.trim(), profile, stageOverrides);
-      setRunId(r.runId);
+      navigate({ kind: 'run', runId: r.runId });
     } catch (e) {
       setError((e as Error).message);
     }
   };
 
+  if (route.kind === 'run') {
+    return (
+      <RunPage
+        runId={route.runId}
+        initialRequirement={requirement}
+        onExit={() => navigate({ kind: 'start' })}
+      />
+    );
+  }
+
+  if (route.kind === 'archive') {
+    return (
+      <ArchivedRunView
+        project={route.project}
+        slug={route.slug}
+        stageTitles={Object.fromEntries((config?.stages ?? []).map((s) => [s.id, s.title]))}
+        onExit={() => navigate({ kind: 'start' })}
+      />
+    );
+  }
+
+  if (config === null) {
+    return (
+      <div className="mx-auto max-w-2xl p-8 text-sm text-neutral-500">
+        {error ?? 'Загрузка конфигурации…'}
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto max-w-2xl p-8">
-      <h1 className="mb-1 text-xl font-medium">Agent-SDLC Runner</h1>
-      <p className="mb-6 text-sm text-neutral-400">
-        Один виток: цель → разведка → вопросы → план → chunk → верификация → передача.
-        Артефакты пишутся в <code className="font-mono">.sdlc/&lt;slug&gt;/</code> целевого проекта.
-      </p>
-
-      {error !== null ? (
-        <div className={`mb-4 whitespace-pre-wrap rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
-          {error}
-        </div>
-      ) : null}
-
-      {config === null ? (
-        <div className="text-sm text-neutral-500">Загрузка конфигурации…</div>
-      ) : (
-        <div className="space-y-4">
-          {/* Условие видимости списков живёт здесь одно: пока оно было и внутри `RunList`,
-              и снаружи у разделителя, любое изменение правила рассинхронизировало бы их. */}
-          {runs !== null && runs.length > 0 ? (
-            <RunList
-              runs={runs}
-              onOpen={setRunId}
-              onForget={(id) => void forget(id)}
-              onRefresh={() => {
-                // Обновление по кнопке — действие человека, и оно вправе снять свою же
-                // прошлую ошибку (например отказ «Убрать» с кодом 409).
-                setError(null);
-                refreshRuns();
-              }}
-            />
-          ) : null}
-
-          {history !== null && history.length > 0 ? (
-            <HistoryList
-              entries={history}
-              stageTitles={Object.fromEntries(config.stages.map((s) => [s.id, s.title]))}
-              onOpen={(slug) => {
-                // Живой виток открывается как раньше (`RunPage`, WS, полное управление);
-                // для всего остального (done/aborted/unfinished — и теперь тоже open, если
-                // почему-то разошёлся со списком `runs`) единственный источник — архивная
-                // лента с диска, `ArchivedRunView` read-only.
-                const r = runs?.find((x) => x.slug === slug && x.project === project?.name);
-                if (r !== undefined) setRunId(r.runId);
-                else if (project !== null) setArchived({ project: project.name, slug });
-              }}
-              onRefresh={() => {
-                setError(null);
-                refreshHistory();
-              }}
-            />
-          ) : null}
-
-          {(runs !== null && runs.length > 0) || (history !== null && history.length > 0) ? (
-            <div className="border-t border-neutral-800 pt-4 text-xs uppercase tracking-wide text-neutral-500">
-              Новый виток
-            </div>
-          ) : null}
-
-          <label className="block">
-            <span className="mb-1 flex items-center justify-between text-xs uppercase tracking-wide text-neutral-500">
-              <span>Проект</span>
-              {config.browseEnabled ? (
-                <button
-                  type="button"
-                  onClick={() => setBrowsing(true)}
-                  className="normal-case text-emerald-500 hover:text-emerald-400"
-                >
-                  + добавить обзором каталогов
-                </button>
-              ) : null}
-            </span>
-            <select
-              value={project?.name ?? ''}
-              onChange={(e) => {
-                const p = config.projects.find((x) => x.name === e.target.value) ?? null;
-                setProject(p);
-                setProfile(p?.activeProfile ?? '');
-                // Панель добавления проекта относится к обзору каталогов, а не к выбору
-                // из списка — оставленная висеть под уже другим проектом сбивает с толку.
-                setPendingPath(null);
-                setNewName('');
-              }}
-              className="w-full rounded border border-neutral-800 bg-neutral-950 px-2 py-2 text-sm"
-            >
-              {config.projects.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.name} — {p.projectRoot}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {browsing ? (
-            <DirectoryBrowser
-              onClose={() => setBrowsing(false)}
-              onPick={(path) => {
-                setBrowsing(false);
-                setPendingPath(path);
-              }}
-            />
-          ) : null}
-
-          {pendingPath !== null ? (
-            <div className="rounded border border-neutral-800 p-3">
-              <div className="mb-2 truncate font-mono text-xs text-neutral-400">{pendingPath}</div>
-              <label className="block">
-                <span className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">
-                  Имя проекта
-                </span>
-                <div className="flex gap-2">
-                  <input
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="my-project"
-                    className="w-full rounded border border-neutral-800 bg-neutral-950 px-2 py-2 font-mono text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void addProject()}
-                    disabled={newName.trim() === ''}
-                    className="shrink-0 rounded bg-emerald-700 px-3 py-2 text-sm font-medium hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
-                  >
-                    Добавить
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPendingPath(null)}
-                    className="shrink-0 rounded border border-neutral-800 px-3 py-2 text-sm hover:border-neutral-600"
-                  >
-                    Отмена
-                  </button>
-                </div>
-              </label>
-            </div>
-          ) : null}
-
-          <div>
-            <span className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">
-              Профиль — переводит весь виток целиком
-            </span>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {(project?.profiles ?? []).map((p) => (
-                <button
-                  key={p.name}
-                  type="button"
-                  onClick={() => setProfile(p.name)}
-                  className={`rounded border p-3 text-left text-sm transition ${
-                    profile === p.name
-                      ? 'border-emerald-600 bg-emerald-950/30'
-                      : 'border-neutral-800 hover:border-neutral-600'
-                  }`}
-                >
-                  <div className="font-medium">{p.label}</div>
-                  <div className="mt-1 space-y-0.5 font-mono text-[11px] text-neutral-500">
-                    {/* `m` — список маршрутов (ансамбль). Как есть его рендерить нельзя:
-                        React склеивает элементы массива без разделителя, и две модели
-                        выглядели одной выдуманной — `claude-sdk:opusclaude-sdk:sonnet`. */}
-                    {Object.entries(p.stages).map(([s, m]) => (
-                      <div key={s}>
-                        {s.padEnd(8, ' ')} {m.join(' + ')}
-                      </div>
-                    ))}
-                  </div>
-                </button>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-neutral-500">
-              Виток не стартует, если модель на <code className="font-mono">verify</code> не
-              строго сильнее модели на <code className="font-mono">chunk</code>: ревью слабее
-              исполнителя — декорация, а «Ревью независимым агентом» входит в минимальную
-              пятёрку гейтов и выключателя не имеет.
-            </p>
-          </div>
-
-          {config.models.length > 0 ? (
-            <ProfileEditor
-              models={config.models}
-              base={project?.profiles.find((p) => p.name === profile)?.stages ?? ({} as Record<StageId, string[]>)}
-              stages={stageOverrides}
-              onChange={setStageOverrides}
-            />
-          ) : null}
-
-          <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">
-              Slug витка — имя каталога артефактов
-            </span>
-            <input
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              placeholder="pay-412"
-              className="w-full rounded border border-neutral-800 bg-neutral-950 px-2 py-2 font-mono text-sm"
-            />
-          </label>
-
-          <button
-            type="button"
-            onClick={() => void start()}
-            disabled={slug.trim() === ''}
-            className="rounded bg-emerald-700 px-4 py-2 text-sm font-medium hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
-          >
-            Начать виток
-          </button>
-        </div>
-      )}
-    </div>
+    <StartPage
+      config={config}
+      error={error}
+      runs={runs}
+      history={history}
+      project={project}
+      profile={profile}
+      slug={slug}
+      requirement={requirement}
+      stageOverrides={stageOverrides}
+      onProjectChange={setProject}
+      onProfileChange={setProfile}
+      onSlugChange={setSlug}
+      onRequirementChange={setRequirement}
+      onStageOverridesChange={setStageOverrides}
+      onOpenRun={(runId) => navigate({ kind: 'run', runId })}
+      onOpenHistory={(s) => {
+        // Живой виток открывается как раньше (`RunPage`, WS, полное управление); для всего
+        // остального (done/aborted/unfinished — и теперь тоже open, если почему-то разошёлся
+        // со списком `runs`) единственный источник — архивная лента с диска, read-only.
+        const r = runs?.find((x) => x.slug === s && x.project === project?.name);
+        if (r !== undefined) navigate({ kind: 'run', runId: r.runId });
+        else if (project !== null) navigate({ kind: 'archive', project: project.name, slug: s });
+      }}
+      onForget={(id) => void forget(id)}
+      onRefreshRuns={() => {
+        // Обновление по кнопке — действие человека, и оно вправе снять свою же прошлую
+        // ошибку (например отказ «Убрать» с кодом 409).
+        setError(null);
+        refreshRuns();
+      }}
+      onRefreshHistory={() => {
+        setError(null);
+        refreshHistory();
+      }}
+      onAddProject={addProject}
+      onStart={() => void start()}
+    />
   );
 }

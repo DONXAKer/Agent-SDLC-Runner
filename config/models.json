@@ -1,7 +1,10 @@
 {
   "// rank": "Проставляется руками. Единственное, для чего он нужен, — правило методологии «рецензент этапа 6 строго сильнее исполнителя этапа 5». Выводить способность модели автоматически мы не умеем и делать вид не будем.",
   "// baseUrl": "Значение по умолчанию для этой машины. У openai-compat провайдеров (ollama/vllm/lmstudio/openrouter) хост и порт локального сервера меняются от машины к машине — переопределяются переменной <ИМЯ>_BASE_URL в окружении (например OLLAMA_BASE_URL=http://host.docker.internal:11434/v1), без правки этого файла.",
-  "// models локальных провайдеров": "Запись в каталоге не значит «модель скачана у всех» — это только допустимый id для профиля. Для ollama/vllm/lmstudio перед использованием проверь, что модель реально стоит на твоей машине (`ollama list`) — иначе виток упадёт сетевой ошибкой, которая выглядит как баг раннера, а не как «модели нет локально».",
+  "// models локальных провайдеров": "Запись в каталоге не значит «модель скачана у всех» — это только допустимый id для профиля. Для ollama/vllm/lmstudio перед использованием проверь, что модель реально стоит на твоей машине (`ollama list`, `lms ls`) — иначе виток упадёт сетевой ошибкой, которая выглядит как баг раннера, а не как «модели нет локально».",
+  "// ollama и num_ctx": "OpenAiCompatProvider не шлёт num_ctx — ollama берёт свой дефолт (4096) для тега, у которого num_ctx не зашит в Modelfile. При штатном maxToolResultBytes один Read вымывает окно целиком. Поэтому в профилях стоят теги-производные с зашитым контекстом (суффикс `-ctx16k`), созданные через `ollama create <тег> -f Modelfile` с `PARAMETER num_ctx 16384`.",
+  "// lmstudio": "Сервер LM Studio по умолчанию выключен: модели видны в `lms ls`, но порт 1234 не слушает. Перед прогоном — `lms server start`. В поле model идёт modelKey из `lms ls --json`, а не имя gguf-файла.",
+  "// класс машины": "Ранги ниже расставлены под потребительскую сборку класса «8 ГБ VRAM + 32–48 ГБ RAM»: до ~9B в Q4 идут в видеопамять целиком, 14B — частично, MoE-модели 30–35B с ~3B активных живут в RAM и годятся для одиночного прогона рецензента, но не для этапа 5.",
 
   "providers": {
     "claude-sdk": { "flow": "sdk", "kind": "claude-agent-sdk" },
@@ -20,9 +23,16 @@
     { "id": "anthropic:claude-opus-5",   "provider": "anthropic", "model": "claude-opus-5",   "rank": 90 },
     { "id": "anthropic:claude-sonnet-5", "provider": "anthropic", "model": "claude-sonnet-5", "rank": 70 },
 
-    { "id": "ollama:qwen3.5:8b", "provider": "ollama", "model": "qwen3.5:8b", "rank": 30 },
-    { "id": "ollama:qwen3.5:4b", "provider": "ollama", "model": "qwen3.5:4b", "rank": 20 },
-    { "id": "ollama:qwen2.5-coder:7b", "provider": "ollama", "model": "qwen2.5-coder:7b", "rank": 30 },
+    { "id": "ollama:qwen3.5:4b",              "provider": "ollama", "model": "qwen3.5:4b",              "rank": 20 },
+    { "id": "ollama:qwen2.5-coder:7b-ctx16k", "provider": "ollama", "model": "qwen2.5-coder:7b-ctx16k", "rank": 30 },
+    { "id": "ollama:qwen3:8b",                "provider": "ollama", "model": "qwen3:8b",                "rank": 32 },
+    { "id": "ollama:qwen3.5:9b-ctx16k",       "provider": "ollama", "model": "qwen3.5:9b-ctx16k",       "rank": 35 },
+    { "id": "ollama:qwen2.5:14b-ctx16k",      "provider": "ollama", "model": "qwen2.5:14b-ctx16k",      "rank": 40 },
+    { "id": "ollama:qwen3:30b-a3b",           "provider": "ollama", "model": "qwen3:30b-a3b",           "rank": 55 },
+    { "id": "ollama:qwen3.6:35b-a3b",         "provider": "ollama", "model": "qwen3.6:35b-a3b",         "rank": 60 },
+
+    { "id": "lmstudio:qwen3.5-9b",                   "provider": "lmstudio", "model": "qwen/qwen3.5-9b",                                          "rank": 35 },
+    { "id": "lmstudio:qwen3.6-35b-a3b-opus-distill", "provider": "lmstudio", "model": "qwen3.6-35b-a3b-claude-4.6-opus-reasoning-distilled",      "rank": 65 },
 
     { "id": "vllm:Qwen/Qwen3-8B-AWQ", "provider": "vllm", "model": "Qwen/Qwen3-8B-AWQ", "rank": 30 },
     { "id": "vllm:Qwen/Qwen3-4B-AWQ", "provider": "vllm", "model": "Qwen/Qwen3-4B-AWQ", "rank": 20 }

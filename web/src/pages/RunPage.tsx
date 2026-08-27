@@ -8,6 +8,8 @@ import { StageRail } from '../components/StageRail.tsx';
 import { AdvanceBar } from '../components/run/AdvanceBar.tsx';
 import { CollapsibleSection } from '../components/run/CollapsibleSection.tsx';
 import { DecisionQueue } from '../components/run/DecisionQueue.tsx';
+import { FocusSection } from '../components/run/FocusSection.tsx';
+import { LiveProgress } from '../components/run/LiveProgress.tsx';
 import { PromptColumn } from '../components/run/PromptColumn.tsx';
 import { RunHeader } from '../components/run/RunHeader.tsx';
 import { RunMetricsPanel } from '../components/run/RunMetricsPanel.tsx';
@@ -26,16 +28,31 @@ import type {
 } from '@sdlc-runner/shared';
 import { AUTO_APPROVE_OFF, describeCall } from '@sdlc-runner/shared';
 import { groupEvents } from '../lib/eventGroups.ts';
+import { computeNowFocus } from '../lib/nowFocus.ts';
 import { decisionQueueCount, mergePending } from '../lib/pending.ts';
+import { suggestedStage } from '../lib/stageProgress.ts';
 import { PANEL_TONE } from '../lib/tones.ts';
 import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
 
-export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }): JSX.Element {
+export function RunPage({
+  runId,
+  initialRequirement = '',
+  onExit,
+}: {
+  runId: string;
+  /**
+   * Задача витка, набранная на стартовом экране. Только начальное значение: дальше текст
+   * живёт здесь и правится на этапе intent — виток, открытый из списка, ничего не
+   * подставляет и не затирает.
+   */
+  initialRequirement?: string;
+  onExit: () => void;
+}): JSX.Element {
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [stage, setStage] = useState<StageId>('intent');
   const [prompt, setPrompt] = useState<PreparedPrompt | null>(null);
-  const [requirement, setRequirement] = useState('');
+  const [requirement, setRequirement] = useState(initialRequirement);
   /** Что именно решил человек — сохраняется в артефакте рядом с подписью. */
   const [decisionNote, setDecisionNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -131,6 +148,18 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
     [events, stage],
   );
 
+  // События ИДУЩЕГО этапа — вход живого прогресса на «Сейчас». Не `stageEvents`: рельс
+  // позволяет смотреть один этап, пока выполняется другой, а живой прогресс — про то,
+  // что крутится на самом деле.
+  const runningStageId = detail?.stage ?? null;
+  const runningEvents = useMemo(
+    () =>
+      runningStageId === null
+        ? []
+        : events.filter((e) => !('stage' in e) || e.stage === runningStageId || e.stage === null),
+    [events, runningStageId],
+  );
+
   // Строк в ленте после схлопывания троек tool_request→resolved→result меньше, чем сырых
   // событий: сводка «N событий» обязана называть то же число, что видно после разворота.
   const stageEventItems = useMemo(() => groupEvents(stageEvents), [stageEvents]);
@@ -190,19 +219,14 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
       : null;
 
   /**
-   * Открытый виток встаёт туда, где он реально находится, а не на `intent`.
-   *
-   * `detail.stage` не пуст ровно тогда, когда этап крутится прямо сейчас, — а виток чаще
-   * всего открывают, когда он СТОИТ между этапами, и сид по одному этому полю не
-   * срабатывал именно в самом частом случае. Запасной признак — самый дальний этап без
-   * блокеров: до него виток уже дошёл. Флаг ставится только после фактического выбора,
+   * Открытый виток встаёт туда, где он реально находится, а не на `intent` — правило
+   * выбора живёт в `suggestedStage`. Флаг ставится только после фактического выбора,
    * иначе этап, стартовавший через секунду после монтирования, тоже терялся.
    */
   const stageSeeded = useRef(false);
   useEffect(() => {
     if (stageSeeded.current || detail === null) return;
-    const runnable = [...detail.stages].reverse().find((s) => s.blockers.length === 0);
-    const seed = detail.stage ?? runnable?.id ?? null;
+    const seed = suggestedStage(detail.stage, detail.stages);
     if (seed === null) return;
     stageSeeded.current = true;
     setStage(seed);
@@ -364,6 +388,16 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
   const verdictNeedsAction = detail.verdict !== null && !detail.verdict.passed;
   const nowCount = decisionQueueCount(asks, approvals, decision) + (verdictNeedsAction ? 1 : 0);
 
+  // Что на «Сейчас» главное — считает чистая машина фокуса; здесь только рендер по ней.
+  const focus = computeNowFocus({
+    queueCount: decisionQueueCount(asks, approvals, decision),
+    runningStage: detail.stage,
+    verdictRed: verdictNeedsAction,
+    nextRunnable: suggestedStage(null, detail.stages),
+  });
+  const stageTitle = (id: StageId): string =>
+    detail.stages.find((s) => s.id === id)?.title ?? id;
+
   return (
     <div className="flex h-full flex-col">
       <RunHeader
@@ -407,6 +441,9 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
 
           {tab === 'now' ? (
             <div className="space-y-4">
+              {/* Очередь решений не заворачивается в FocusSection никогда: «молчание
+                  одобрением не считается» держится на видимости карточек. Пустая очередь
+                  рендерит null сама. */}
               <DecisionQueue
                 asks={asks}
                 approvals={approvals}
@@ -418,25 +455,59 @@ export function RunPage({ runId, onExit }: { runId: string; onExit: () => void }
                 onResolve={resolveApproval}
               />
 
-              <PromptColumn
-                stage={stage}
-                prompt={prompt}
-                blockers={blockers}
-                uiBusy={uiBusy}
-                busyReason={busyReason}
-                autoRules={autoRules}
-                onAutoRulesChange={setAutoRules}
-                requirement={requirement}
-                onRequirementChange={setRequirement}
-                onBuild={() => void build()}
-                onRun={(p) => void run(p)}
-              />
+              {/* Красный вердикт в фокусе показывается прямо здесь (и не сворачивается),
+                  а не только на «Ходе»: виток стоит, и причина обязана быть перед глазами
+                  рядом с кнопками продвижения. На «Ходе» карточка остаётся как была. */}
+              {focus.kind === 'verdict-red' && detail.verdict !== null ? (
+                <VerdictCard
+                  verdict={detail.verdict}
+                  escalation={detail.escalation}
+                  redCause={detail.redCause}
+                />
+              ) : null}
+
+              {detail.stage !== null ? (
+                <FocusSection
+                  title={`Выполняется: ${stageTitle(detail.stage)}`}
+                  focused={focus.kind === 'running'}
+                  summary={<span className="text-amber-400">этап идёт</span>}
+                >
+                  <LiveProgress events={runningEvents} onOpenFull={() => setTab('progress')} />
+                </FocusSection>
+              ) : null}
+
+              <FocusSection
+                title={`Запрос к модели — ${stageTitle(stage)}`}
+                focused={focus.kind === 'prepare' || focus.kind === 'finished'}
+                summary={
+                  blockers.length > 0
+                    ? `этап заблокирован (${blockers.length})`
+                    : prompt === null
+                      ? 'промпт не собран'
+                      : 'промпт собран'
+                }
+              >
+                <PromptColumn
+                  stage={stage}
+                  prompt={prompt}
+                  blockers={blockers}
+                  uiBusy={uiBusy}
+                  busyReason={busyReason}
+                  autoRules={autoRules}
+                  onAutoRulesChange={setAutoRules}
+                  requirement={requirement}
+                  onRequirementChange={setRequirement}
+                  onBuild={() => void build()}
+                  onRun={(p) => void run(p)}
+                />
+              </FocusSection>
 
               <AdvanceBar
                 attempt={detail.attempt}
                 attemptBudget={detail.attemptBudget}
                 uiBusy={uiBusy}
                 abortBlockers={abortBlockers}
+                prominent={focus.kind === 'verdict-red'}
                 onAdvance={(to) => void advance(to)}
                 onAbort={() => void abortWitok()}
               />

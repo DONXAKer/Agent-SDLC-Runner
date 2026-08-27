@@ -77,3 +77,27 @@ export function groupEvents(events: RunEvent[]): EventItem[] {
   }
   return out;
 }
+
+/**
+ * Хвост ленты в N последних СГРУППИРОВАННЫХ строк — для живого прогресса на «Сейчас».
+ *
+ * Резать сырые события нельзя: срез мог пройти посреди тройки вызова, и «последние 8
+ * событий» оказывались тремя строками про один инструмент. Режутся группы, а наружу
+ * возвращаются сырые события этих групп — `EventStream` схлопнет их обратно теми же
+ * правилами. События группы идут подряд, даже если в полной ленте были переплетены с
+ * чужими, — на позиции внутри хвоста это не влияет: группа всё равно рисуется одной
+ * строкой на месте своего запроса.
+ */
+export function tailGroupedEvents(events: RunEvent[], groups: number): RunEvent[] {
+  const out: RunEvent[] = [];
+  for (const item of groupEvents(events).slice(-groups)) {
+    if (item.kind === 'tool') {
+      out.push(item.request);
+      if (item.resolved !== undefined) out.push(item.resolved);
+      if (item.result !== undefined) out.push(item.result);
+    } else {
+      out.push(item.event);
+    }
+  }
+  return out;
+}

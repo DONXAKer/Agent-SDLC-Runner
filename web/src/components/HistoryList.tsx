@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import type { HistoryEntry, StageId } from '@sdlc-runner/shared';
 
 import { historyStatusLabel, historyStatusTone } from '../lib/historyStatus.ts';
@@ -7,13 +9,24 @@ import { historyStatusLabel, historyStatusTone } from '../lib/historyStatus.ts';
  * памяти живых прогонов. Дополняет «Открытые витки»: те живут до перезапуска сервера,
  * эта переживает его — источник один и тот же `.sdlc/<slug>/`, разная только выборка.
  */
+/** Сколько строк истории видно, пока её не раскрыли целиком. */
+const COMPACT_ROWS = 3;
+
 export function HistoryList({
   entries,
   stageTitles,
+  compact = false,
   onOpen,
   onRefresh,
 }: {
   entries: HistoryEntry[];
+  /**
+   * Показать только первые несколько витков с кнопкой «вся история».
+   *
+   * История длинная и растёт: на стартовом экране она отодвигала вниз то, ради чего на
+   * него заходят, — открытые витки и новый виток.
+   */
+  compact?: boolean;
   /** Заголовки этапов из `/api/config` — тот же список, что рисует `StageRail`. */
   stageTitles: Partial<Record<StageId, string>>;
   /**
@@ -27,6 +40,10 @@ export function HistoryList({
   onOpen: (slug: string) => void;
   onRefresh: () => void;
 }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const hidden = compact && !expanded ? Math.max(0, entries.length - COMPACT_ROWS) : 0;
+  const shown = hidden > 0 ? entries.slice(0, COMPACT_ROWS) : entries;
+
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
@@ -42,7 +59,7 @@ export function HistoryList({
         </div>
       ) : (
         <ul className="divide-y divide-neutral-900 rounded border border-neutral-800">
-          {entries.map((e) => (
+          {shown.map((e) => (
             <li key={e.slug} className="flex items-center gap-3 px-3 py-2 text-sm">
               <span className={`shrink-0 rounded border px-1.5 py-0.5 text-xs ${historyStatusTone(e.status)}`}>
                 {historyStatusLabel(e.status)}
@@ -65,6 +82,16 @@ export function HistoryList({
           ))}
         </ul>
       )}
+
+      {hidden > 0 ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="mt-1 text-xs text-neutral-500 hover:text-neutral-300"
+        >
+          вся история ({entries.length}) ▾
+        </button>
+      ) : null}
     </div>
   );
 }

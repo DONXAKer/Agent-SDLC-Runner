@@ -10,6 +10,7 @@
 import type {
   FlowId,
   GateRunResult,
+  McpServerInfo,
   NormalizedCall,
   PolicyVerdict,
   PreparedPrompt,
@@ -155,6 +156,15 @@ export interface RunMetrics {
   redByCause: { kind: RedCauseKind; count: number }[];
   /** Попыток на chunk: ключ — номер chunk'а. */
   attemptsByChunk: { chunk: number; attempts: number }[];
+  /**
+   * Трение цикла по этапам: на чём модель буксовала.
+   *
+   * Отдельно от расхода и вердиктов, потому что отвечает на другой вопрос. Расход говорит
+   * «сколько сгорело», трение — «на чём»: на повторах одного вызова, на сломанном JSON в
+   * аргументах, на отказах политики или на обрезанных результатах. Для слабой модели это
+   * и есть диагноз; пусто — трения не было или этап не запускался.
+   */
+  friction: { stage: StageId; repeat: number; badJson: number; denied: number; truncated: number }[];
 }
 
 /**
@@ -182,6 +192,15 @@ export interface RunDetail extends RunSummary {
   pendingQuestions: PendingQuestions[];
   /** Итоги последнего прогона гейтов. Пусто — этап 6 ещё не запускался. */
   gateResults: GateRunResult[];
+  /** Внешние MCP-серверы витка и их состояние. Пусто — MCP у проекта не настроен. */
+  mcpServers: McpServerInfo[];
+  /**
+   * Набор MCP-инструментов последнего запущенного этапа и его грубая цена в токенах.
+   *
+   * Цена показывается числом не ради красоты: набор ограничен потолком, и оператор должен
+   * видеть, сколько контекста уходит на описания, ДО того как этап упрётся в окно модели.
+   */
+  mcpStage: { tools: string[]; estimatedTokens: number };
   /**
    * Прогон гейтов оборван отменой, набор в `gateResults` неполон.
    *

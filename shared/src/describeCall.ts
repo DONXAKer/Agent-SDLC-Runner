@@ -36,6 +36,8 @@ export function describeCall(call: NormalizedCall): string {
       return `Субагент ${call.agent}`;
     case 'request_scope_extension':
       return `Расширить scope: ${call.path} (${call.reason})`;
+    case 'mcp':
+      return `MCP ${call.server}.${call.tool} ${firstLine(JSON.stringify(call.args))}`;
     case 'unknown':
       return `Неизвестный инструмент ${call.toolName}`;
   }
@@ -54,6 +56,8 @@ export function callTitle(call: NormalizedCall): string {
       return `Финализировать ${call.artifact}`;
     case 'subagent':
       return `Запустить субагента ${call.agent}`;
+    case 'mcp':
+      return `Сервер ${call.server} · ${call.tool}`;
     case 'unknown':
       return `Неизвестный инструмент ${call.toolName}`;
     default:

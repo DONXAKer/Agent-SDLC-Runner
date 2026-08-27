@@ -2,7 +2,12 @@ import type { AutoApproveRules, PreparedPrompt, StageId } from '@sdlc-runner/sha
 
 import { PromptPane } from '../PromptPane.tsx';
 
-/** Левая колонка «Запрос к модели»: сборка промпта, автоодобрение, запуск этапа. */
+/**
+ * «Запрос к модели»: сборка промпта, автоодобрение, запуск этапа.
+ *
+ * Своего заголовка секции здесь нет — им служит шапка обёртки `FocusSection` на вкладке
+ * «Сейчас», второй дублировал бы её строкой ниже.
+ */
 export function PromptColumn({
   stage,
   prompt,
@@ -31,7 +36,6 @@ export function PromptColumn({
   return (
     <section className="min-w-0">
       <div className="mb-2 flex items-center gap-2">
-        <h2 className="text-sm font-medium">Запрос к модели</h2>
         <button
           type="button"
           onClick={onBuild}

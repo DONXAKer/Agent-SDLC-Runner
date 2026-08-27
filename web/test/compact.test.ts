@@ -12,7 +12,7 @@ import { describe, it } from 'node:test';
 import type { PendingApproval, RunDetail, RunEvent } from '@sdlc-runner/shared';
 
 import { orderFiles, splitPatchBlocks } from '../src/lib/diffStats.ts';
-import { groupEvents } from '../src/lib/eventGroups.ts';
+import { groupEvents, tailGroupedEvents } from '../src/lib/eventGroups.ts';
 import { mergePending } from '../src/lib/pending.ts';
 import { readLS, writeLS } from '../src/lib/persist.ts';
 import { gateSummary } from '../src/lib/summaries.ts';
@@ -136,6 +136,31 @@ describe('группировка троек вызова инструмента'
     strictEqual(items.length, 2);
     strictEqual(items[0]?.kind, 'tool');
     strictEqual(items[1]?.kind, 'plain');
+  });
+});
+
+describe('хвост ленты для живого прогресса', () => {
+  it('режутся группы, а не сырые события: тройка не рассекается срезом', () => {
+    // «Последние 2 события» от [text, req, resolved, result] дали бы огрызок тройки;
+    // «последние 2 группы» — текст плюс тройку целиком.
+    const tail = tailGroupedEvents([text, req('a'), resolved('a', true), result('a', true)], 2);
+    strictEqual(tail.length, 4);
+    strictEqual(tail[0]?.type, 'assistant_text');
+    strictEqual(tail[1]?.type, 'tool_request');
+    // Повторная группировка хвоста даёт те же строки — EventStream схлопнет тройку обратно.
+    strictEqual(groupEvents(tail).length, 2);
+  });
+
+  it('хвост короче лимита возвращается целиком', () => {
+    strictEqual(tailGroupedEvents([text], 8).length, 1);
+  });
+
+  it('группа стоит на позиции своего запроса, а не последнего события тройки', () => {
+    // resolved/result пришли ПОСЛЕ text, но группа вызова считается за запросом —
+    // последней строкой хвоста остаётся text, как и в полной ленте.
+    const tail = tailGroupedEvents([req('a'), text, resolved('a', true), result('a', true)], 1);
+    strictEqual(tail.length, 1);
+    strictEqual(tail[0]?.type, 'assistant_text');
   });
 });
 
