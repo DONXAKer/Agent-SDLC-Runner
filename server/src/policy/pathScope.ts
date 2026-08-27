@@ -72,7 +72,7 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
       return checkPath(ctx, call.path, 'write');
     case 'glob': {
       // Шаблон — тоже путь. Пока проверялось только необязательное поле `path`,
-      // `Glob {pattern: "C:/Users/Root/.claude/*.json"}` уходил наружу проекта, и следа
+      // `Glob {pattern: "C:/Users/user/.claude/*.json"}` уходил наружу проекта, и следа
       // не оставалось даже в очереди одобрений: поиск в неё не ставится по дешевизне.
       const patternProblem = checkSearchPattern(ctx, call.pattern);
       if (patternProblem !== null) return patternProblem;

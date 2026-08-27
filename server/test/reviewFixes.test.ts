@@ -75,7 +75,7 @@ describe('пол безопасности', () => {
   });
 
   it('шаблон поиска за пределы проекта отклоняется политикой', () => {
-    for (const pattern of ['C:/Users/Root/.claude/*.json', '../../*', '/etc/*']) {
+    for (const pattern of ['C:/Users/user/.claude/*.json', '../../*', '/etc/*']) {
       const v = evaluate({ kind: 'glob', pattern, path: null }, ctx());
       ok(!v.ok, `шаблон «${pattern}» обязан быть отклонён`);
     }

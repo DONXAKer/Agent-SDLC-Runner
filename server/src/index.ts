@@ -27,7 +27,7 @@ import { AskGate } from './approval/askGate.ts';
 import { ApprovalGate } from './approval/gate.ts';
 import { EventBus } from './bus.ts';
 import { createProject } from './config/createProject.ts';
-import { loadConfig, requireProject } from './config/load.ts';
+import { loadConfig, operatorProblem, requireProject } from './config/load.ts';
 import { ProfileError, resolveAdHocProfile, resolveStartableProfile } from './config/profiles.ts';
 import { listDir } from './fs/browse.ts';
 import { fileStats, parseDiff } from './diff/parse.ts';
@@ -247,6 +247,12 @@ app.post('/api/runs', async (req, reply) => {
 
   const slugProblem = badSlug(body.slug);
   if (slugProblem !== null) return reply.code(400).send({ error: slugProblem });
+
+  // Имя оператора проверяется ЗДЕСЬ, а не при загрузке конфига: без интерфейса человек не
+  // прочитал бы, что именно чинить. Но и стартовать виток с безымянным «Утвердил» нельзя —
+  // такой артефакт методология считает незаполненным, а вердикт роняет.
+  const operatorIssue = operatorProblem(config.runner);
+  if (operatorIssue !== null) return reply.code(400).send({ error: operatorIssue });
 
   const slug = body.slug;
 

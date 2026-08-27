@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { ORDER } from '../gates/ecosystems/index.ts';
@@ -53,9 +54,56 @@ const LIMIT_DEFAULTS = {
 };
 
 /**
- * `skillsDir`/`agentsDir`/`methodologyDir`/`port` в `runner.json` — реальные значения на
- * машине разработчика (сегодня пути — Windows), а не переносимый шаблон. На другой машине
- * их переопределяют этими переменными окружения, не трогая закоммиченный файл.
+ * Значение `operator` в закоммиченном `runner.json` — заглушка, а не имя.
+ *
+ * Имя оператора уходит в поля решений артефактов («Утвердил»), и методология считает
+ * артефакт с пустой колонкой незаполненным. Поэтому в репозитории лежит заглушка (личное
+ * имя в публичном файле — это утечка, а не настройка), а виток с ней не стартует: см.
+ * `operatorProblem`.
+ */
+export const OPERATOR_PLACEHOLDER = 'не задан';
+
+/**
+ * Почему нельзя начинать виток. `null` — можно.
+ *
+ * Проверяется при создании прогона, а не при загрузке конфига: раннер обязан подниматься
+ * и на чужой машине, где имя ещё не прописано, — иначе человек не увидит даже интерфейса,
+ * в котором написано, что чинить.
+ */
+export function operatorProblem(runner: RunnerConfig): string | null {
+  const name = runner.operator.trim();
+  if (name !== '' && name !== OPERATOR_PLACEHOLDER) return null;
+  return (
+    'не задано имя оператора: оно уходит в поля решений артефактов, а артефакт с пустой ' +
+    'колонкой «Утвердил» методология считает незаполненным. Задай его переменной ' +
+    'SDLC_OPERATOR или в config/runner.local.json — этот файл в .gitignore и остаётся ' +
+    'на машине.'
+  );
+}
+
+/**
+ * `~` в начале пути и `${VAR}` — чтобы закоммиченный `runner.json` не содержал ни личных
+ * каталогов, ни привязки к одной машине.
+ *
+ * Разворачивается ровно ведущая тильда: `~` в середине пути — это имя каталога, а не
+ * домашний каталог, и трогать его нельзя.
+ */
+export function expandUserPath(p: string): string {
+  const withVars = p.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (whole, name: string) => {
+    const v = process.env[name];
+    return v === undefined || v === '' ? whole : v;
+  });
+  if (withVars === '~') return homedir();
+  if (withVars.startsWith('~/') || withVars.startsWith('~\\')) {
+    return join(homedir(), withVars.slice(2));
+  }
+  return withVars;
+}
+
+/**
+ * `skillsDir`/`agentsDir`/`methodologyDir`/`port`/`operator` в `runner.json` — переносимые
+ * умолчания, а не значения конкретной машины. Машинное живёт в двух местах, и оба вне
+ * репозитория: `config/runner.local.json` (в `.gitignore`) и переменные окружения.
  */
 /** Пустая или чисто пробельная строка — тоже «не задано», не только `undefined`. */
 function nonBlank(v: string | undefined): string | undefined {
@@ -87,8 +135,12 @@ function portOverride(): number | undefined {
   return port;
 }
 
-function pathOverrides(): Partial<RunnerConfig> {
+function envOverrides(): Partial<RunnerConfig> {
   const overrides: Partial<RunnerConfig> = {};
+  // Имя оператора — не путь, но приходит тем же способом и по той же причине: личное
+  // значение не должно лежать в закоммиченном файле.
+  const operator = nonBlank(process.env['SDLC_OPERATOR']);
+  if (operator !== undefined) overrides.operator = operator;
   // Пустая/пробельная строка — тоже «не задано»: `SDLC_SKILLS_DIR=""` (или `" "`) в
   // окружении иначе тихо затирает валидный путь из runner.json, и дальше `join('', ...)`
   // резолвится от cwd процесса — ошибка идёт с сообщением про runner.json, а причина в env.
@@ -153,10 +205,32 @@ function validateModules(p: ProjectConfig): void {
 
 export function loadConfig(dir: string = configDir()): LoadedConfig {
   const raw = readJson<RunnerConfig>(join(dir, 'runner.json'));
-  const runner: RunnerConfig = {
+
+  // Наложение машинного поверх переносимого. Приоритет: окружение > runner.local.json >
+  // runner.json. Тот же приём, что у `projects/*.local.json`: значения, принадлежащие
+  // машине, а не проекту, не попадают в репозиторий и не требуют правки общего файла.
+  const localFile = join(dir, 'runner.local.json');
+  const local: Partial<RunnerConfig> = existsSync(localFile)
+    ? readJson<Partial<RunnerConfig>>(localFile)
+    : {};
+
+  const merged: RunnerConfig = {
     ...raw,
-    ...pathOverrides(),
-    limits: { ...LIMIT_DEFAULTS, ...raw.limits },
+    ...local,
+    ...envOverrides(),
+    limits: { ...LIMIT_DEFAULTS, ...raw.limits, ...(local.limits ?? {}) },
+  };
+
+  // `runner.json` читается без схемы, и в тестовых конфигах поля может не быть вовсе.
+  // Раскрывать `undefined` нельзя: падение здесь пришло бы с сообщением про тильду, а
+  // настоящая причина («не задан skillsDir») называется позже и по делу.
+  const expand = (v: string): string => (typeof v === 'string' ? expandUserPath(v) : v);
+
+  const runner: RunnerConfig = {
+    ...merged,
+    skillsDir: expand(merged.skillsDir),
+    agentsDir: expand(merged.agentsDir),
+    methodologyDir: expand(merged.methodologyDir),
   };
   const models = readJson<ModelsConfig>(join(dir, 'models.json'));
 
