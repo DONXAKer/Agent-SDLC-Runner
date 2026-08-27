@@ -60,7 +60,23 @@ function sdlcMcpServer(hooks: ExecHooks) {
     },
   );
 
-  return createSdkMcpServer({ name: 'sdlc', version: '0.1.0', tools: [askHuman, finalize] });
+  const requestScopeExtension = tool(
+    'request_scope_extension',
+    TOOL_SPECS.RequestScopeExtension.description,
+    { path: z.string(), reason: z.string() },
+    async (args) => {
+      // Дописывание `plan.md` и пересчёт `ctx.planFiles` уже произошли в `onToolRequest`
+      // ДО того, как SDK вообще позвал этот обработчик, — см. комментарий в `ask_human`.
+      const text = `«${args.path}» добавлен в files_to_touch — теперь его можно писать`;
+      return { content: [{ type: 'text' as const, text }] };
+    },
+  );
+
+  return createSdkMcpServer({
+    name: 'sdlc',
+    version: '0.1.0',
+    tools: [askHuman, finalize, requestScopeExtension],
+  });
 }
 
 function usageFromResult(m: {
@@ -115,7 +131,9 @@ export class SdkExecutor implements StageExecutor {
         {
           description: a.description,
           prompt: a.prompt,
-          ...(a.tools.length > 0 ? { tools: a.tools } : {}),
+          // `tools: null` — строки в файле агента нет, и поле не выставляется: SDK сам
+          // трактует его отсутствие как «наследует права вызывающего».
+          ...(a.tools !== null && a.tools.length > 0 ? { tools: a.tools } : {}),
           ...(a.model === null ? {} : { model: a.model }),
         },
       ]),
@@ -154,6 +172,9 @@ export class SdkExecutor implements StageExecutor {
             requestId: opts.toolUseID,
             toolName,
             rawInput: input as Record<string, unknown>,
+            // Во флоу `sdk` вложенные прогоны крутит сам SDK, и своего списка прав у
+            // вызова здесь нет — правами вызывающего остаются права этапа.
+            callerTools: req.allowedTools,
           });
 
           if (!decision.allowed) {
@@ -236,6 +257,24 @@ export class SdkExecutor implements StageExecutor {
       if (req.signal.aborted) {
         ok = false;
         note = 'этап отменён оператором';
+      } else if (isSdkTransportAbort(e)) {
+        // Наблюдение живого витка: `for await` над `response` изредка рвётся `AbortError`
+        // ("Stream closed"), которую SDK бросает не по нашей отмене (`req.signal` не
+        // взведён) — похоже на гонку/закрытие канала подпроцесса `claude` после долгого
+        // tool-вызова. Раньше это уходило в `throw e` необработанным исключением: этап
+        // падал без единого события в шину, и оператору приходилось писать отчёт вручную,
+        // не имея от рантайма даже честного «упало». Автопересоздание сессии здесь
+        // сознательно НЕ сделано: у частично прошедшего диалога нет проверенного способа
+        // продолжить с той же точки без риска повторить уже исполненные Write/Bash —
+        // это следующий шаг, требующий репродукции на живом SDK, а не догадки.
+        const detail = (e as Error).message || 'AbortError';
+        ok = false;
+        note = `этап оборван: канал SDK-процесса закрылся (${detail}), не отмена оператора`;
+        hooks.onWarn(
+          `[sdk] канал закрыт — ${detail}. Автопересоздание сессии не реализовано: продолжи этап ` +
+            `вручную (retry chunk'а/verify), не полагайся на то, что модель помнит частично ` +
+            `прошедший диалог.`,
+        );
       } else {
         throw e;
       }
@@ -255,6 +294,21 @@ export class SdkExecutor implements StageExecutor {
 
     return { ok, finalText, usage: latestUsage, note };
   }
+}
+
+/**
+ * Отличает разрыв канала SDK-подпроцесса от нашей же отмены (`req.signal`).
+ *
+ * Экспортируемый класс SDK `AbortError` (`sdk.mjs`) — это `DOMException` с
+ * `name === 'AbortError'`, которым SDK сигналит и штатные внутренние остановки
+ * (`interrupt`, `background`, `subagent-park`), и разрыв транспорта. По коду отличить
+ * причину нечем — SDK не публикует отдельный класс на «канал закрыл подпроцесс», —
+ * поэтому здесь ловится весь класс `AbortError`, дошедший НЕ через `req.signal`: раз
+ * оператор не отменял, а SDK всё равно бросила `AbortError`, это её собственная причина
+ * останова, и молчаливый `throw e` для неё не годится ни в одном из вложенных случаев.
+ */
+export function isSdkTransportAbort(e: unknown): boolean {
+  return e instanceof Error && e.name === 'AbortError';
 }
 
 /** SDK принимает AbortController, а машина витка отдаёт сигнал. */

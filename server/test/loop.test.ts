@@ -7,7 +7,7 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -21,7 +21,7 @@ import { executeTool, type ToolContext } from '../src/exec/tools/index.ts';
 import type { ChatProvider, ChatRequest, ChatTurn } from '../src/provider/ChatProvider.ts';
 import { toolCallFromText } from '../src/provider/OpenAiCompatProvider.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-loop-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-loop-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const ctx: ToolContext = {
@@ -379,9 +379,11 @@ describe('цикл tool-use', () => {
     );
   });
 
-  // Методология держит на субагентах то, что нельзя доверить автору работы. Пока цикл их
-  // не запускает, это обязано быть сказано вслух, а не выглядеть как успешный вызов.
-  it('субагент во флоу loop честно объявляется нереализованным', async () => {
+  // Методология держит на субагентах то, что нельзя доверить автору работы. Цикл их теперь
+  // запускает вложенным прогоном, но ВЫЗОВ НЕОБЪЯВЛЕННОГО агента по-прежнему обязан быть
+  // отказом, а не выглядеть успешным: успешный исход здесь зажигает обязательный гейт
+  // «Ревью независимым агентом».
+  it('вызов необъявленного субагента остаётся отказом, а не успехом', async () => {
     const h = hooks();
     const p = provider([
       {
@@ -397,7 +399,9 @@ describe('цикл tool-use', () => {
       },
       { text: 'ладно', finishReason: 'end_turn' },
     ]);
+    // В `request()` субагенты не объявлены, поэтому вызов «sdlc-reviewer» законным не
+    // является — права субагента задаются конструкцией, а не просьбой модели.
     await executor(p).run(request({ allowedTools: ['Read', 'Task'] }), h);
-    ok(h.warns.some((w) => /не запускается/.test(w)), h.warns.join('; '));
+    ok(h.warns.some((w) => /не объявлен/.test(w)), h.warns.join('; '));
   });
 });

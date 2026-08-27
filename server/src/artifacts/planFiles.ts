@@ -69,16 +69,73 @@ function pathFromRow(line: string): string | null {
   return plain === undefined ? null : clean(plain);
 }
 
-export function extractFilesToTouch(planText: string): string[] {
-  const start = SECTION_RE.exec(planText);
-  if (start === null) return [];
+const ADDED_BEYOND_RE = /^(.*\*\*Добавлено сверх разведки:\*\*.*)$/m;
 
-  const rest = planText.slice(start.index + start[0].length);
+/**
+ * Дописывает путь в `files_to_touch` плана после одобренного `request_scope_extension`
+ * (этап 5, реализация: `Run.ts`).
+ *
+ * Строка ставится СРАЗУ после «Добавлено сверх разведки», а не строкой новой таблицы:
+ * `extractFilesToTouch` уже читает путь в обратных кавычках вне таблицы, если он лежит
+ * до «Из задачи исключено» — переиспользуем это, а не заводим второй парсер для того же
+ * файла. Маркер обязан существовать: `plan.md` копируется из `plan.template.md`, где эта
+ * строка есть по форме; отсутствие — признак вручную покалеченного файла, чинить который
+ * подстановкой означало бы гадать, куда именно.
+ */
+/** И статичный маркер, и уже вставленная строка расширения — оба годятся как место для
+ * следующей вставки, см. комментарий в `appendScopeExtension` про порядок. */
+const ANCHOR_RE = /^(.*\*\*Добавлено сверх разведки:\*\*.*|- \*\*Расширено:\*\*.*)$/gm;
+
+/**
+ * Границы секции `files_to_touch` в тексте плана — общие для `extractFilesToTouch` (парсит
+ * пути) и `appendScopeExtension` (ищет якорь для вставки): оба обязаны видеть РОВНО одну и
+ * ту же зону документа, иначе якорь может совпасть там, где парсер путей уже не смотрит
+ * (например, в «Из задачи исключено»), и вставленная запись не попадёт в allowlist.
+ */
+function filesToTouchSection(planText: string): { start: number; section: string } | null {
+  const start = SECTION_RE.exec(planText);
+  if (start === null) return null;
+  const sectionStart = start.index + start[0].length;
+  const rest = planText.slice(sectionStart);
   const next = NEXT_HEADING_RE.exec(rest);
   let section = next === null ? rest : rest.slice(0, next.index);
 
   const excluded = EXCLUDED_RE.exec(section);
   if (excluded !== null) section = section.slice(0, excluded.index);
+
+  return { start: sectionStart, section };
+}
+
+export function appendScopeExtension(planText: string, path: string, note: string): string | null {
+  if (!ADDED_BEYOND_RE.test(planText)) return null;
+  const line = `- **Расширено:** \`${path}\` — ${note}`;
+
+  // Якорь ищем ТОЛЬКО внутри секции files_to_touch — та же граница, что использует
+  // `extractFilesToTouch`. Без неё тот же паттерн мог совпасть где угодно в документе
+  // (вручную скопированный пример методологии, приложение) и вставить запись не в ту
+  // секцию — маркер обязан быть найден именно там, где реально живёт список путей.
+  const boundary = filesToTouchSection(planText);
+  if (boundary === null) return null;
+  const { start: sectionStart, section } = boundary;
+
+  // Вставляем ПОСЛЕ ПОСЛЕДНЕЙ уже добавленной записи, а не сразу за статичным маркером:
+  // `replace` с немодифицированным паттерном всегда матчит маркер (текст самой вставленной
+  // строки этот же паттерн не содержит), поэтому при двух и более `request_scope_extension`
+  // за виток вторая запись вставала бы МЕЖДУ маркером и первой — порядок в файле получался
+  // бы обратным (LIFO) хронологии одобрений. Ищем последнее совпадение (маркер ИЛИ
+  // последняя вставленная строка) и вставляем сразу за ним.
+  let lastMatch: RegExpExecArray | null = null;
+  for (const m of section.matchAll(ANCHOR_RE)) lastMatch = m;
+  if (lastMatch === null) return null;
+
+  const insertAt = sectionStart + lastMatch.index + lastMatch[0].length;
+  return `${planText.slice(0, insertAt)}\n${line}${planText.slice(insertAt)}`;
+}
+
+export function extractFilesToTouch(planText: string): string[] {
+  const boundary = filesToTouchSection(planText);
+  if (boundary === null) return [];
+  const { section } = boundary;
 
   const lines = section.split('\n');
   // Строка-разделитель отмечает конец шапки таблицы: заголовки («Путь», «Что делаем»)

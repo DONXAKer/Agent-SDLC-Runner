@@ -6,7 +6,7 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -20,7 +20,7 @@ import { loadSubagents, parseAgentFile } from '../src/exec/subagents.ts';
 import { runShell } from '../src/gates/shell.ts';
 import { badSlug } from '../src/validation.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-runtime-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-runtime-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const ctx = (over: Partial<PolicyContext> = {}): PolicyContext => ({
@@ -158,7 +158,8 @@ describe('гейт одобрений', () => {
 
   it('автоодобрение действует на этап и снимается вместе с ним', async () => {
     const { gate } = makeGate();
-    gate.setAutoApprove('r1', 'chunk', true);
+    // Тумблер «одобрять всё» заменён правилами: «всё» — это `rest`.
+    gate.setAutoApprove('r1', 'chunk', { planWrites: true, bash: true, rest: true });
     const d = await gate.request({
       runId: 'r1',
       stage: 'chunk',
@@ -171,12 +172,13 @@ describe('гейт одобрений', () => {
     strictEqual(d.allowed && d.by, 'auto');
 
     gate.clearAutoApprove('r1', 'chunk');
-    strictEqual(gate.isAutoApprove('r1', 'chunk'), false);
+    const after = gate.autoApproveRules('r1', 'chunk');
+    strictEqual(after.planWrites || after.bash || after.rest, false);
   });
 
   it('автоодобрение не снимает отказ политики', async () => {
     const { gate } = makeGate();
-    gate.setAutoApprove('r1', 'chunk', true);
+    gate.setAutoApprove('r1', 'chunk', { planWrites: true, bash: true, rest: true });
     const d = await gate.request({
       runId: 'r1',
       stage: 'chunk',
@@ -280,5 +282,20 @@ describe('проверка slug', () => {
 
   it('слишком длинный отклоняется', () => {
     ok(badSlug('a'.repeat(65)) !== null);
+  });
+
+  // Slug — тоже имя файла (для проекта, добавленного через /api/projects: <slug>.local.json),
+  // а зарезервированные в Windows имена устройств валят запись на диске малопонятной
+  // ОС-ошибкой вместо аккуратного отказа валидации.
+  it('зарезервированные в Windows имена устройств отклоняются', () => {
+    for (const s of ['con', 'CON', 'Con', 'aux', 'nul', 'prn', 'com1', 'COM9', 'lpt1', 'nul.txt', 'con.local']) {
+      ok(badSlug(s) !== null, `slug «${s}» обязан быть отклонён`);
+    }
+  });
+
+  it('похожие, но легитимные имена не отклоняются', () => {
+    for (const s of ['console', 'connect', 'auxiliary', 'nullable', 'constant', 'comment']) {
+      strictEqual(badSlug(s), null, `slug «${s}» не должен отклоняться`);
+    }
   });
 });

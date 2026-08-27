@@ -19,6 +19,7 @@ import { builtinFor } from './builtin/index.ts';
 import type { GateRow, GatesFile } from './gatesFile.ts';
 import { gateKey, gatesRunnableAtVerify, parseGates } from './gatesFile.ts';
 import { runShell } from './shell.ts';
+import { ensureSandboxFor } from '../sandbox/registry.ts';
 
 export function loadGates(gatesPath: string): GatesFile {
   return parseGates(readFileSync(gatesPath, 'utf8'));
@@ -33,6 +34,22 @@ export interface RunGatesInput extends GateContext {
    */
   externalStatuses?: Readonly<Record<string, GateStatus>>;
   onResult?: (r: GateRunResult) => void;
+  /** Сбой подготовки песочницы (напр. не удалось отключить сеть под `network: 'none'`) —
+   * best-effort, не роняет прогон, но обязан дойти до оператора, а не только в stderr. */
+  onWarn?: (message: string) => void;
+  /**
+   * Имя проекта из конфига (`ProjectConfig.name`) — идентификатор песочницы. ОБЯЗАНО
+   * совпадать с именем, которым уже пользовался pre-flight (`sandbox/preflight.ts`):
+   * разные имена — разные контейнеры, и гейты пойдут МИМО той песочницы, которую только
+   * что проверили пробами.
+   *
+   * Поле было опциональным с фолбэком на `basename(projectRoot)` — фолбэк не срабатывал
+   * НИ РАЗУ (единственный вызывающий, `Run.runVerifyGates`, всегда передавал явное имя), то
+   * есть был мёртвым кодом, маскирующим реальный риск: молчаливое типами расхождение имён,
+   * если будущий вызывающий забудет передать поле. Обязательность превращает этот класс
+   * ошибки в отказ компиляции, а не в тихую утечку контейнера чужому проекту в рантайме.
+   */
+  projectName: string;
 }
 
 async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise<GateRunResult> {
@@ -54,6 +71,13 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
 
   // Команда набора имеет приоритет над встроенной: проект, назвавший свою команду,
   // знает про себя больше, чем детект.
+  //
+  // `cwd: i.projectRoot` всегда, не по модулю: гейт из набора — ОДНА команда на проект
+  // (например «cd backend && ./mvnw test»), а не список per-модуль команд, как у
+  // встроенных «Сборка»/«Тесты» (`buildOne`/`testOne` там зовут `runShell` с
+  // `join(ctx.projectRoot, mod.dir)` — реальная адресация по подкаталогу, на которую и
+  // рассчитан `registry.ts::findSandboxForCwd`). Если проектная команда должна идти из
+  // подкаталога — она сама пишет `cd` в начале, как в примере выше.
   if (row.command !== null) {
     const r = await runShell(row.command, {
       cwd: i.projectRoot,
@@ -98,6 +122,18 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
  * а взаимные помехи — настоящие.
  */
 export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
+  // Готовим песочницу проекта ДО первого гейта — если у проекта есть `.sdlc/sandbox.json`,
+  // «Сборка»/«Тесты» пойдут внутрь неё прозрачно через `runShell` (см. `sandbox/registry.ts`).
+  // Нет спеки — `ensureSandboxFor` возвращает `null`, и всё идёт локальным путём, как раньше.
+  // Сбой сборки образа НЕ роняет виток целиком: гейты просто останутся на локальном
+  // исполнителе и упадут своей обычной красной строкой («java: not found» и т.п.) — это то
+  // же самое состояние, что было до появления песочницы, а не новый класс отказа.
+  try {
+    await ensureSandboxFor(i.projectRoot, i.projectName, i.onWarn);
+  } catch (e) {
+    console.error(`[sandbox] песочница ${i.projectRoot} не поднялась: ${(e as Error).message}`);
+  }
+
   // Контекст один на прогон и общий для всех гейтов: по нему кэшируется разбор diff'а
   // (`diffViolations`), который иначе тянут по разу «Анти-обход» и «Секреты». Пересоздание
   // контекста на каждый гейт обнуляло бы кэш, а модульный кэш по корню проекта пережил бы
@@ -107,6 +143,7 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
     planFiles: i.planFiles,
     baseline: i.baseline,
     timeoutMs: i.timeoutMs,
+    ...(i.modules === undefined ? {} : { modules: i.modules }),
     ...(i.signal === undefined ? {} : { signal: i.signal }),
   };
 

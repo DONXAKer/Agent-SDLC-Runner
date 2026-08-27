@@ -122,9 +122,22 @@ export function writeArtifact(path: string, text: string): void {
   writeFileSync(path, text, 'utf8');
 }
 
+/**
+ * Строка, начинающаяся с `>` (после пробелов) — markdown-цитата. Шапка каждого шаблона
+ * методологии оформлена такой цитатой и дословно объясняет конвенцию плейсхолдеров
+ * («Незаполненные места помечены `‹…›`») — этот пример сам по себе является валидной
+ * парой `‹…›` и раньше засчитывался как незаполненное поле в полностью готовом
+ * документе, блокируя старт этапа на собственной документации формы.
+ */
+function isBlockquoteLine(text: string, index: number): boolean {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  let i = lineStart;
+  while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i++;
+  return text[i] === '>';
+}
+
 export function countPlaceholders(text: string): number {
-  const m = text.match(PLACEHOLDER_RE);
-  return m === null ? 0 : m.length;
+  return placeholderRanges(text).length;
 }
 
 /** Позиции незаполненных мест — для подсветки в редакторе артефакта. */
@@ -133,7 +146,9 @@ export function placeholderRanges(text: string): { start: number; end: number; t
   const re = new RegExp(PLACEHOLDER_RE.source, 'g');
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    out.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+    if (!isBlockquoteLine(text, m.index)) {
+      out.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+    }
   }
   return out;
 }
@@ -174,6 +189,19 @@ function fieldRegex(label: string): RegExp {
   return new RegExp(`^(.*\\*\\*${escapeRe(label)}:\\*\\*)(.*)$`, 'm');
 }
 
+/**
+ * Сырое значение простого поля-метки («- **Ветка витка:** sdlc/auth-104») — без семантики
+ * решения человека, которую несёт `readDecision`. `null` — поля нет, плейсхолдер или пусто:
+ * вызывающий сам решает, что означает отсутствие значения для его конкретного поля.
+ */
+export function readField(text: string, label: string): string | null {
+  const m = fieldRegex(label).exec(text);
+  if (m === null) return null;
+  const raw = (m[2] ?? '').trim();
+  if (raw === '' || hasPlaceholder(raw)) return null;
+  return raw;
+}
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -183,7 +211,88 @@ function dropStruckThrough(s: string): string {
   return s.replace(/~~[^~]*~~/g, ' ');
 }
 
-const NEGATIVE = /(^|\s)(не\s|отклон|отказ|отверг|провал)/i;
+const NEGATIVE_TRIGGER = /(^|\s)(не\s+\S+|отклон\S*|отказ\S*|отверг\S*|провал\S*)/gi;
+/**
+ * Слова с отрицательным значением, которые в связке с «не» дают ДВОЙНОЕ отрицание —
+ * то есть положительный итог: «ни один claim не пропущен», «долг не забыт», «тест не
+ * сломан». Прежняя проверка ловила голое «не » где угодно в строке и читала такие
+ * согласия как отказ — обнаружено на записи «ни один claim не пропущен» вместо
+ * ожидаемого одобрения.
+ *
+ * Список обязан включать и сами корни `NEGATIVE_TRIGGER` (отклон/отказ/отверг/провал):
+ * без них «не отклонён»/«не провален»/«не отказано»/«не отвергнут» — тоже двойное
+ * отрицание с положительным итогом — читались как отказ, потому что список отделял
+ * форму глагола-причастия от повода, по которому вообще сработал триггер.
+ */
+const DOUBLE_NEGATIVE_SAFE_WORD =
+  /^(пропущен\w*|забыт\w*|потерян\w*|упущен\w*|усохл\w*|сломан\w*|нарушен\w*|утрачен\w*|отклон\w*|отказ\w*|отверг\w*|провал\w*)/i;
+
+/**
+ * Корни глаголов, которыми методология выражает исход решения. Внутри скобок поле несёт
+ * не сам вердикт, а пояснение к нему — прямую цитату ответа человека, перечень пунктов
+ * сферы правки («класс не переименовываем»). Там `NEGATIVE_TRIGGER` (любое «не + слово»)
+ * ловит случайную реплику вместо вердикта: «Иван · 2026-08-25 (через ask_human:
+ * «Подтверждаю как в плане» — …, класс не переименовываем)» в целом читалось как отказ.
+ * Внутри скобок триггер обязан целиться в сам глагол решения, а не в «не» как таковое —
+ * вне скобок (сам вердикт, каким его пишет форма — «**не одобрен**», «не использовано
+ * одобрение плана через ExitPlanMode») это сужение неверно, там нужен широкий триггер.
+ */
+const DECISION_VERB_ROOTS =
+  'одобр\\S*|приним\\S*|принял\\S*|подтвержд\\S*|соглас\\S*|поддерж\\S*|разреш\\S*|отклон\\S*|отказ\\S*|отверг\\S*|провал\\S*';
+const PAREN_NEGATIVE_TRIGGER = new RegExp(
+  `(^|\\s)(не\\s+(?:${DECISION_VERB_ROOTS})|отклон\\S*|отказ\\S*|отверг\\S*|провал\\S*)`,
+  'gi',
+);
+
+/** Символы вне/внутри круглых скобок — остальные позиции заменены пробелом, чтобы не
+ * склеить соседние слова и не сдвинуть индексы. Вложенность скобок не поддерживается —
+ * форма полей её не использует. */
+function splitByParens(s: string): { outside: string; inside: string } {
+  let depth = 0;
+  let outside = '';
+  let inside = '';
+  for (const ch of s) {
+    if (ch === '(') {
+      depth++;
+      outside += ' ';
+      inside += ' ';
+      continue;
+    }
+    if (ch === ')') {
+      if (depth > 0) depth--;
+      outside += ' ';
+      inside += ' ';
+      continue;
+    }
+    if (depth > 0) {
+      outside += ' ';
+      inside += ch;
+    } else {
+      outside += ch;
+      inside += ' ';
+    }
+  }
+  return { outside, inside };
+}
+
+function scanForDecline(s: string, trigger: RegExp): boolean {
+  const re = new RegExp(trigger.source, trigger.flags);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    const token = m[2] ?? '';
+    const neWord = /^не\s+(\S+)/i.exec(token);
+    if (neWord !== null && DOUBLE_NEGATIVE_SAFE_WORD.test(neWord[1] ?? '')) continue;
+    return true;
+  }
+  return false;
+}
+
+/** «Похоже на отказ» — с поправкой на двойное отрицание и на скобочные пояснения. */
+function looksDeclined(s: string): boolean {
+  const { outside, inside } = splitByParens(s);
+  return scanForDecline(outside, NEGATIVE_TRIGGER) || scanForDecline(inside, PAREN_NEGATIVE_TRIGGER);
+}
+
 const PENDING = /(ожида|не\s*реш|tbd|todo|^[\s—–\-?.]*$|н\/п)/i;
 
 /**
@@ -214,7 +323,7 @@ export function readDecision(text: string, label: string): DecisionState {
   // решения нет. Раньше такая строка читалась как одобрение.
   if (stripped.includes(' / ')) {
     const sides = stripped.split(' / ').map((s) => s.trim());
-    const anyNegative = sides.some((s) => NEGATIVE.test(s));
+    const anyNegative = sides.some((s) => looksDeclined(s));
     const anySigned = sides.some((s) => isSignedByHuman(s) || SESSION_APPROVAL.test(s));
     if (anyNegative && !anySigned) return { state: 'declined', raw: rawFull };
     if (anyNegative && anySigned) {
@@ -226,7 +335,7 @@ export function readDecision(text: string, label: string): DecisionState {
     }
   }
 
-  if (NEGATIVE.test(stripped)) return { state: 'declined', raw: rawFull };
+  if (looksDeclined(stripped)) return { state: 'declined', raw: rawFull };
 
   if (PENDING.test(stripped)) {
     return { state: 'placeholder', raw: rawFull, why: 'решение отложено' };

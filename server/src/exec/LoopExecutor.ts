@@ -22,14 +22,20 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
+import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
 import type { ChatMessage, ChatProvider, ChatToolCall } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
-import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+import type {
+  ExecHooks,
+  ExecRequest,
+  StageExecutor,
+  StageResult,
+  SubagentDef,
+} from './StageExecutor.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
-import { specsFor } from './toolSpecs.ts';
+import { TOOL_SPECS, specsFor } from './toolSpecs.ts';
 
 export interface LoopOptions {
   provider: ChatProvider;
@@ -48,6 +54,18 @@ export interface LoopOptions {
  * счётчик начинался с нуля, — лишний полный round-trip к серверу на каждом залипании.
  */
 const REPEAT_LIMIT = 3;
+
+/**
+ * Имена инструментов субагента приходят строками из его YAML-шапки — файл пишет человек.
+ * Незнакомое имя не превращается в право: оно просто не попадает в пересечение.
+ */
+// Реестр `TOOL_SPECS` типизирован как `Record<ToolName, ToolSpec>`, и его полноту следит
+// компилятор. Рукописный список рядом был бы вторым знанием об одном: забытое в нём имя
+// молча выпадало бы из пересечения прав, и субагент терял бы объявленное право без
+// единого сообщения. `hasOwn`, а не `in`: объектный словарь отвечает `true` на `toString`.
+function isToolName(v: string): v is ToolName {
+  return Object.hasOwn(TOOL_SPECS, v);
+}
 
 /** Инструмент есть, но исполнить его этот флоу не умеет: не успех и не крах этапа. */
 export class SubagentUnavailable extends Error {}
@@ -113,7 +131,9 @@ export class LoopExecutor implements StageExecutor {
 
       // Бюджет прогона действует на обоих флоу. Проверяется ПОСЛЕ хода, а не до: цена
       // хода известна только по факту, и обрывать этап на непревышенном бюджете нельзя.
-      const spent = usage.costUsd;
+      // Считается вместе с уже потраченным вне этого вызова: маршруты ансамбля и вложенные
+      // субагенты делят ОДИН потолок витка, а не получают по своему.
+      const spent = usage.costUsd === null ? null : usage.costUsd + (req.spentUsdBefore ?? 0);
       if (req.maxBudgetUsd !== null && spent !== null && spent >= req.maxBudgetUsd) {
         const note = `бюджет прогона исчерпан: $${spent.toFixed(4)} из $${req.maxBudgetUsd}`;
         hooks.onWarn(note);
@@ -149,6 +169,45 @@ export class LoopExecutor implements StageExecutor {
 
       messages.push({ role: 'assistant', content: answer.text, toolCalls: answer.toolCalls });
 
+      // Несколько субагентов, заказанных ОДНИМ ходом, запускаются параллельно: они не
+      // делят состояние (у разведки этапа 2 второй агент выводит приёмочный лист вслепую,
+      // не видя работы первого), а последовательный запуск удлинял этап на время самого
+      // медленного из них подряд. Всё остальное по-прежнему строго последовательно:
+      // инструменты делят рабочее дерево, и порядок правок значим.
+      const parallelSubagents =
+        answer.toolCalls.length > 1 &&
+        answer.toolCalls.every((c) => normalize(c.name, c.arguments ?? {}).kind === 'subagent');
+
+      if (parallelSubagents) {
+        // Отпечаток хода целиком, а не последнего вызова: пока `repeats` здесь обнулялся
+        // безусловно, модель, повторяющая одну и ту же пару `Task`, крутилась до
+        // `maxTurns`, и каждый ход стоил двух полных вложенных прогонов.
+        const turnFingerprint = answer.toolCalls.map(callFingerprint).join(' ');
+        repeats = turnFingerprint === lastFingerprint ? repeats + 1 : 0;
+        lastFingerprint = turnFingerprint;
+        if (repeats + 1 >= REPEAT_LIMIT) {
+          const note =
+            `цикл остановлен: ход из ${answer.toolCalls.length} субагентов повторён ` +
+            `${repeats + 1} раза подряд с теми же аргументами — прогресса нет`;
+          hooks.onWarn(note);
+          return { ok: false, finalText, usage, note };
+        }
+
+        const spentNow = (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0);
+        const results = await Promise.all(
+          answer.toolCalls.map((call) => this.handleCall(call, 0, req, hooks, toolCtx, spentNow)),
+        );
+        answer.toolCalls.forEach((call, idx) => {
+          messages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            name: call.name,
+            content: results[idx] ?? '',
+          });
+        });
+        continue;
+      }
+
       for (const call of answer.toolCalls) {
         const fingerprint = callFingerprint(call);
         repeats = fingerprint === lastFingerprint ? repeats + 1 : 0;
@@ -162,7 +221,14 @@ export class LoopExecutor implements StageExecutor {
           return { ok: false, finalText, usage, note };
         }
 
-        const result = await this.handleCall(call, repeats, req, hooks, toolCtx);
+        const result = await this.handleCall(
+          call,
+          repeats,
+          req,
+          hooks,
+          toolCtx,
+          (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0),
+        );
         messages.push({
           role: 'tool',
           toolCallId: call.id,
@@ -186,6 +252,8 @@ export class LoopExecutor implements StageExecutor {
     req: ExecRequest,
     hooks: ExecHooks,
     toolCtx: ToolContext,
+    /** Уже потрачено на витке к моменту вызова — передаётся вложенному прогону субагента. */
+    spentUsd: number,
   ): Promise<string> {
     const started = Date.now();
     const requestId = `loop:${randomUUID()}`;
@@ -212,6 +280,9 @@ export class LoopExecutor implements StageExecutor {
       requestId,
       toolName: call.name,
       rawInput: call.arguments,
+      // Права текущего вызывающего, а не этапа: во вложенном прогоне субагента здесь
+      // уже суженный список, и политика решает по нему.
+      callerTools: req.allowedTools,
     });
     if (!decision.allowed) {
       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
@@ -229,7 +300,7 @@ export class LoopExecutor implements StageExecutor {
 
     let text: string;
     try {
-      text = await this.execute(effective, req, hooks, toolCtx);
+      text = await this.execute(effective, req, hooks, toolCtx, spentUsd);
     } catch (e) {
       // Инструмент, который не может отработать, отчитывается ОШИБКОЙ — иначе «ok» на
       // заглушке становится доказательством того, чего не было (гейт ревью зеленел от
@@ -253,11 +324,71 @@ export class LoopExecutor implements StageExecutor {
     return text;
   }
 
+  /**
+   * Вложенный прогон субагента.
+   *
+   * Инструменты идут через ТЕ ЖЕ hooks, то есть через тот же гейт политики и то же
+   * одобрение оператора: право на `Task` не расширяет права этапа, и второго места,
+   * принимающего решение о доступе, здесь не появляется.
+   *
+   * Вложенность одноуровневая: субагенту субагенты не выдаются. Рекурсия означала бы
+   * неограниченную глубину прав и бюджета.
+   */
+  private async runSubagent(
+    req: ExecRequest,
+    hooks: ExecHooks,
+    def: SubagentDef,
+    task: string,
+    allowedTools: readonly ToolName[],
+    spentUsd: number,
+  ): Promise<string> {
+    hooks.onWarn(
+      `запущен субагент «${def.name}»: инструменты ${allowedTools.join(', ') || '(нет)'} — ` +
+        'пересечение прав этапа и объявленных прав субагента',
+    );
+
+    const result = await this.run(
+      {
+        ...req,
+        prompt: {
+          presetNote: null,
+          // Тело агента — его системный промпт, задача приходит пользовательским
+          // сообщением. Рассказ вызывающего о своей работе сюда НЕ попадает: рецензент не
+          // должен получать версию автора.
+          system: def.prompt,
+          user: task,
+          tools: [],
+          editedByOperator: false,
+        },
+        // Модель субагента, если он её назвал: рецензент бывает сильнее исполнителя.
+        model: def.model ?? req.model,
+        allowedTools,
+        subagents: [],
+        // Свой потолок ходов: вложенный прогон не должен съесть бюджет этапа целиком.
+        maxTurns: Math.max(4, Math.floor(req.maxTurns / 2)),
+        // Бюджет ОБЩИЙ с родителем: свой полный потолок у каждого субагента означал бы,
+        // что объявленный лимит витка умножается на число вложенных прогонов.
+        spentUsdBefore: spentUsd,
+      },
+      hooks,
+    );
+
+    if (!result.ok) {
+      // Провал субагента не выдаётся за успех: иначе несостоявшееся ревью зажгло бы гейт.
+      throw new SubagentUnavailable(`субагент «${def.name}» не завершил работу: ${result.note}`);
+    }
+    return result.finalText === ''
+      ? `субагент «${def.name}» вернул пустой ответ`
+      : result.finalText;
+  }
+
   private async execute(
     call: NormalizedCall,
     req: ExecRequest,
     hooks: ExecHooks,
     toolCtx: ToolContext,
+    /** Уже потрачено на витке — вложенный прогон субагента делит потолок с родителем. */
+    spentUsd: number,
   ): Promise<string> {
     switch (call.kind) {
       case 'ask_human': {
@@ -272,17 +403,53 @@ export class LoopExecutor implements StageExecutor {
         // подтверждение, что заявка принята.
         return `артефакт заявлен готовым: ${call.artifact}`;
 
+      case 'request_scope_extension':
+        // Само расширение `plan.md` и пересчёт политики уже произошли в `onToolRequest`
+        // ДО того, как этот вызов дошёл сюда: `execute()` зовётся только после `decision.
+        // allowed`. Здесь только подтверждение модели, что путь теперь можно писать.
+        return `«${call.path}» добавлен в files_to_touch — теперь его можно писать`;
+
       case 'subagent': {
-        // Субагент во флоу `loop` — вложенный прогон того же цикла с урезанными правами.
-        // Его отсутствие не проглатывается: методология держит на субагентах ровно то,
-        // что нельзя доверить автору работы. Отдаётся ОШИБКОЙ, а не текстом: успешный
-        // исход здесь засчитывался как состоявшееся ревью и зажигал обязательный гейт
-        // на витке, где независимого рецензента не было вовсе.
-        const note =
-          `субагент «${call.agent}» во флоу loop не запускается. Этап 6 без независимого ` +
-          `рецензента неполон — гейт «Ревью независимым агентом» останется ⏭.`;
-        hooks.onWarn(note);
-        throw new SubagentUnavailable(note);
+        // Субагент — вложенный прогон ТОГО ЖЕ цикла с урезанными правами.
+        //
+        // Отсутствие субагента по-прежнему отдаётся ОШИБКОЙ, а не текстом: успешный исход
+        // здесь засчитывается как состоявшееся ревью и зажигает обязательный гейт, поэтому
+        // «сделал вид, что позвал» — это ложный зелёный на самом сторожевом месте.
+        const def = req.subagents.find((a) => a.name === call.agent);
+        if (def === undefined) {
+          const declared = req.subagents.map((a) => a.name).join(', ');
+          const note =
+            `субагент «${call.agent}» на этом этапе не объявлен` +
+            (declared === '' ? '' : ` (объявлены: ${declared})`) +
+            '. Вызвать можно только объявленного: права субагента заданы конструкцией.';
+          hooks.onWarn(note);
+          throw new SubagentUnavailable(note);
+        }
+
+        // Права — ПЕРЕСЕЧЕНИЕ прав этапа и объявленных прав субагента. Ни расширить права
+        // этапа вызовом субагента, ни выдать субагенту больше, чем он объявил, нельзя;
+        // это пересечение доезжает до политики через `callerTools` в `onToolRequest` —
+        // на списке инструментов для модели оно бы держалось только на её послушании.
+        // `tools: null` — строки в файле нет, то есть агент наследует права этапа.
+        const declaredTools =
+          def.tools === null ? null : def.tools.filter((t): t is ToolName => isToolName(t));
+        const nested =
+          declaredTools === null
+            ? req.allowedTools
+            : req.allowedTools.filter((t) => declaredTools.includes(t));
+
+        // Прогон без единого инструмента — не ревью. Раньше он завершался «успешно» и
+        // зажигал гейт «Ревью независимым агентом» отчётом, сочинённым вслепую.
+        if (nested.length === 0) {
+          const note =
+            `субагент «${def.name}» не получил ни одного инструмента: пересечение прав ` +
+            `этапа (${req.allowedTools.join(', ') || '—'}) и объявленных им ` +
+            `(${(declaredTools ?? []).join(', ') || '—'}) пусто. Прогон вслепую ревью не является.`;
+          hooks.onWarn(note);
+          throw new SubagentUnavailable(note);
+        }
+
+        return this.runSubagent(req, hooks, def, call.prompt, nested, spentUsd);
       }
 
       default: {

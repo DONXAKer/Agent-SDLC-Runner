@@ -42,9 +42,27 @@ export type ToolName =
    * («автор не рецензирует себя»). Вызовы инструментов внутри субагента проходят через
    * тот же гейт, поэтому право на Task не расширяет права этапа.
    */
-  | 'Task';
+  | 'Task'
+  /**
+   * Просьба расширить `plan.files_to_touch` посреди chunk'а — законный путь для файла,
+   * понадобившегося по ходу правки и не бывшего в плане, вместо тихого нарушения scope
+   * или полной остановки chunk'а. Решает **только человек** — см. `RequestScopeExtension`
+   * в `matchesRule` (`policy/index.ts`): автоодобрение `rest` на неё не распространяется.
+   */
+  | 'RequestScopeExtension';
 
 export type FlowId = 'sdk' | 'loop';
+
+/**
+ * Статус ПОСЛЕДНЕГО ЭТАПА прогона, а не витка целиком.
+ *
+ * Рантайм выставляет его в конце каждого этапа, поэтому `done` означает «последний этап
+ * прошёл», а не «виток закончен»: у витка из семи этапов такой статус наступает уже после
+ * `intent`. Отдельного состояния «виток закончен» в рантайме нет — закончил ли виток,
+ * видно по артефактам на диске. Тип живёт в общем пакете, чтобы полнота словарей статуса
+ * на стороне интерфейса проверялась сборкой, а не глазами.
+ */
+export type RunStatus = 'idle' | 'running' | 'awaiting' | 'done' | 'failed' | 'cancelled';
 
 // ---------------------------------------------------------------------------
 // Нормализованный вызов инструмента
@@ -92,6 +110,7 @@ export type NormalizedCall =
   | { kind: 'ask_human'; questions: Question[] }
   | { kind: 'finalize_artifact'; artifact: string; note: string | null }
   | { kind: 'subagent'; agent: string; prompt: string }
+  | { kind: 'request_scope_extension'; path: string; reason: string }
   /** Инструмент, которого мы не знаем. Политика считает его записью — по худшему случаю. */
   | { kind: 'unknown'; toolName: string; raw: unknown };
 
@@ -101,7 +120,7 @@ export type CallKind = NormalizedCall['kind'];
 // Политика доступа
 // ---------------------------------------------------------------------------
 
-export type PolicyName = 'pathScope' | 'denyList' | 'planScope' | 'stageTools';
+export type PolicyName = 'pathScope' | 'denyList' | 'planScope' | 'stageTools' | 'repeatFailure';
 
 export type PolicyVerdict =
   | { ok: true }
@@ -112,6 +131,28 @@ export const POLICY_OK: PolicyVerdict = { ok: true };
 export function policyDeny(policy: PolicyName, reason: string): PolicyVerdict {
   return { ok: false, policy, reason };
 }
+
+/**
+ * Правила автоодобрения на этап.
+ *
+ * Заменяют тумблер «одобрять всё»: он был единственным способом не сидеть над каждым
+ * вызовом, и включавший его оператор соглашался в том числе на `Bash` и на запись вне
+ * плана — то есть ровно на то, ради чего гейт и существует.
+ */
+export interface AutoApproveRules {
+  /** Правки, ВСЕ цели которых лежат в `files_to_touch` одобренного плана. */
+  planWrites: boolean;
+  /** Команды оболочки. Отдельно: их цели записи считает лексер, а не заявляет вызов. */
+  bash: boolean;
+  /** Всё остальное, включая запись вне плана. */
+  rest: boolean;
+}
+
+export const AUTO_APPROVE_OFF: AutoApproveRules = {
+  planWrites: false,
+  bash: false,
+  rest: false,
+};
 
 export interface PolicyContext {
   /** Абсолютный нормализованный корень целевого проекта. */
@@ -212,6 +253,39 @@ export interface PreparedPrompt {
 /** Статусы из таблицы вердикта методологии. */
 export type GateStatus = '✅' | '❌' | '⏭';
 export type ClaimStatus = '✅' | '❌' | '⚠';
+
+/**
+ * Строгость статуса гейта: чем больше число, тем хуже исход.
+ *
+ * `⏭` строже `✅`, потому что «не запускался» роняет вердикт, а `❌` строже всего.
+ */
+const GATE_SEVERITY: Record<GateStatus, number> = { '✅': 0, '⏭': 1, '❌': 2 };
+
+/**
+ * Худший из двух статусов гейта — одно правило на всю кодовую базу.
+ *
+ * Берётся ХУДШИЙ, а не «источник X всегда прав»: правило «побеждает прогон» защищало от
+ * рецензента, перекрашивающего красное в зелёное, но работало и в обратную сторону —
+ * рецензент ставил `❌`, найдя расхождение, а фиктивный «прогон» гейта перебивал его
+ * зелёным. То же правило нужно там, где один гейт проверяет несколько модулей: `✅`
+ * допустим, только если проверены все.
+ */
+export function worstGateStatus(a: GateStatus, b: GateStatus): GateStatus {
+  return GATE_SEVERITY[a] >= GATE_SEVERITY[b] ? a : b;
+}
+
+/**
+ * Строгость статуса пункта приёмки. `⚠` хуже `✅`, `❌` хуже всего.
+ *
+ * Нужен там же, где и `worstGateStatus`: когда один и тот же пункт оценили несколько
+ * рецензентов ансамбля, в вердикт идёт худшая из оценок — иначе достаточно одного слабого
+ * рецензента, чтобы зелёный перебил найденный дефект.
+ */
+const CLAIM_SEVERITY: Record<ClaimStatus, number> = { '✅': 0, '⚠': 1, '❌': 2 };
+
+export function worstClaimStatus(a: ClaimStatus, b: ClaimStatus): ClaimStatus {
+  return CLAIM_SEVERITY[a] >= CLAIM_SEVERITY[b] ? a : b;
+}
 export type VerdictAction = 'continue' | 'retry' | 'escalate';
 
 export interface VerdictInput {
@@ -236,6 +310,42 @@ export interface Verdict {
   action: VerdictAction;
   /** По каким именно условиям вердикт упал — дословно, для отчёта. */
   reasons: string[];
+}
+
+/**
+ * Природа красной причины. Классификация отвечает на вопрос «куда возвращать виток» и на
+ * `passed` не влияет никак: `❌` остаётся `❌` при любой ветке.
+ */
+export type RedCauseKind =
+  /** Запись за пределы `files_to_touch`: переделывать надо план, а не chunk. */
+  | 'scope'
+  /** Рецензент разошёлся с фактическим прогоном — ошибка чтения фактов, а не кода. */
+  | 'reviewer'
+  /** Упал или не запускался гейт — работа на том же этапе. */
+  | 'gate'
+  /** Пункт приёмки опровергнут или не проверяем. */
+  | 'claim'
+  /** Инварианты, регрессии, расхождение diff с деревом, долг. */
+  | 'integrity';
+
+/**
+ * Предложение поднять модель этапа chunk. Предложение, а не переход: смена модели посреди
+ * витка меняет стоимость и поведение, и решает это человек.
+ */
+export type Escalation =
+  | { kind: 'none'; why: string }
+  | { kind: 'suggest'; toModelId: string; toRank: number; claims: string[]; why: string }
+  | { kind: 'blocked'; claims: string[]; why: string };
+
+export interface RedCause {
+  kind: RedCauseKind;
+  /**
+   * Предложение оператору, а не автоматический переход: возврат на план ломает
+   * предусловия следующих этапов, и решение о нём принимает человек.
+   */
+  suggest: 'fix-in-chunk' | 'back-to-plan' | 'escalate-model';
+  /** Все найденные причины: победившая первой, остальные следом. */
+  why: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -316,3 +426,34 @@ export type RunEvent =
   | { type: 'error'; runId: string; stage: StageId | null; message: string };
 
 export type EventSink = (e: RunEvent) => void;
+
+/**
+ * Форматирование стоимости прогона — ОДНО на все поверхности.
+ *
+ * Ноль стоимости означает разное, и путать эти случаи нельзя: до первого вызова модели
+ * тратить ещё нечего, а на локальном маршруте стоимости нет вовсе. «Ещё нечего» — это
+ * ноль ПРИ полном отсутствии токенов, включая кэшевые.
+ *
+ * Живёт в общем пакете, потому что одну и ту же цифру показывают и интерфейс, и пост-виток
+ * отчёт в `handoff.md`. Пока копия форматтера лежала в `run/postmortem.ts`, они уже
+ * разошлись: при нулевой стоимости и ненулевых токенах шапка печатала `$0`, а артефакт —
+ * `$0.0000`.
+ *
+ * `noCost` — как назвать отсутствие стоимости: в интерфейсе коротко, в артефакте
+ * развёрнуто. Это единственное, чем поверхности вправе отличаться.
+ */
+export function formatCost(usage: Usage, noCost = 'без стоимости'): string {
+  if (usage.costUsd === null) return noCost;
+  const tokens =
+    usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+  if (usage.costUsd === 0 && tokens === 0) return '—';
+  if (usage.costUsd === 0) return '$0';
+  return `$${usage.costUsd.toFixed(4)}`;
+}
+
+/** Длительность в человеческом виде. Одна копия — по той же причине, что и `formatCost`. */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} мс`;
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s} с` : `${Math.floor(s / 60)} мин ${s % 60} с`;
+}

@@ -1,5 +1,5 @@
 import { ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -10,13 +10,14 @@ import {
   decisionValue,
   placeholderRanges,
   readDecision,
+  readField,
   setDecision,
   writeArtifact,
 } from '../src/artifacts/artifact.ts';
 import { WitokPaths } from '../src/artifacts/paths.ts';
 import { checkPreconditions, stageById } from '../src/run/stages.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-test-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-test-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const paths = new WitokPaths(root, 'demo');
@@ -69,6 +70,27 @@ describe('поля решений человека', () => {
     strictEqual(readDecision(t, DECISION.accepted).state, 'declined');
   });
 
+  // Регрессия: DOUBLE_NEGATIVE_SAFE_WORD не включал корни самого NEGATIVE_TRIGGER
+  // (отклон/отказ/отверг/провал) — «не провален»/«не отклонён» читались как отказ,
+  // хотя это двойное отрицание с положительным итогом, как и «не пропущен».
+  it('двойное отрицание с корнем самого триггера — не отказ', () => {
+    for (const v of ['не отклонён', 'не отказано', 'не отвергнут', 'не провален']) {
+      const t = `- **Одобрение:** **${v}** — Иван · 2026-08-16`;
+      const d = readDecision(t, DECISION.approval);
+      strictEqual(d.state, 'granted', `«${v}» — двойное отрицание, не должно быть отказом`);
+    }
+  });
+
+  // Регрессия: NEGATIVE_TRIGGER ловил «не + любое слово», поэтому посторонняя реплика
+  // внутри поля («класс не переименовываем» — пояснение к сфере правки, не вердикт)
+  // читалась как отказ, хотя всё поле в целом — согласие человека.
+  it('«не» вне глагола решения не читается как отказ', () => {
+    const t =
+      '- **Подтвердил:** Иван · 2026-08-16 (через `mcp__sdlc__ask_human`: «Подтверждаю ' +
+      'как в плане» — точки правки как в плане, javadoc-ссылку правим, класс не переименовываем)';
+    strictEqual(readDecision(t, DECISION.confirmed).state, 'granted');
+  });
+
   it('заполненное поле читается как одобрение', () => {
     const t = setDecision(PLAN_UNAPPROVED, DECISION.approval, decisionValue('Иван', new Date('2026-08-16')));
     const d = readDecision(t, DECISION.approval);
@@ -100,6 +122,18 @@ describe('поля решений человека', () => {
   it('зачёркнутое прежнее решение не воскресает', () => {
     const t = `- **Одобрение:** ~~Иван · 2026-08-01~~ отозвано, план переписан`;
     strictEqual(readDecision(t, DECISION.approval).state, 'placeholder');
+  });
+});
+
+describe('readField: сырое значение простого поля', () => {
+  it('заполненное поле возвращается как есть', () => {
+    strictEqual(readField('- **Ветка витка:** sdlc/auth-104', 'Ветка витка'), 'sdlc/auth-104');
+  });
+
+  it('плейсхолдер, пусто и отсутствие поля — всё null', () => {
+    strictEqual(readField('- **Ветка витка:** ‹sdlc/слаг или по конвенции проекта›', 'Ветка витка'), null);
+    strictEqual(readField('- **Ветка витка:** ', 'Ветка витка'), null);
+    strictEqual(readField('# План\nбез поля', 'Ветка витка'), null);
   });
 });
 

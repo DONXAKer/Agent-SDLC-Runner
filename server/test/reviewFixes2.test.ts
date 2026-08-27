@@ -9,7 +9,7 @@
  */
 
 import { ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -28,7 +28,7 @@ import { configProblems, openDebt, parseCommand, parseGates } from '../src/gates
 import { evaluate, writeTargetPaths, writeTargetsOf } from '../src/policy/index.ts';
 import { collectVerdictInput, readReport } from '../src/verdict/collect.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-fixes2-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-fixes2-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const ctx = (over: Partial<PolicyContext> = {}): PolicyContext => ({
@@ -230,7 +230,7 @@ describe('вердикт при расхождении отчёта и прог�
       gates,
       gateResults: [run(actual)],
       runtimeAuthoritativeWhenGreen: ['ревью независимым агентом'],
-      report: reportWith(reported),
+      reports: [reportWith(reported)],
       attempt: 1,
       attemptBudget: 3,
       noProgress: false,
@@ -256,7 +256,7 @@ describe('вердикт при расхождении отчёта и прог�
         { name: 'Сборка', status: '❌', command: null, exitCode: 1, lastLine: '', durationMs: 0 },
       ],
       runtimeAuthoritativeWhenGreen: ['ревью независимым агентом'],
-      report: ['## Гейты', '', '| Гейт | Статус |', '|---|---|', '| Сборка | ✅ |'].join('\n'),
+      reports: [['## Гейты', '', '| Гейт | Статус |', '|---|---|', '| Сборка | ✅ |'].join('\n')],
       attempt: 1,
       attemptBudget: 3,
       noProgress: false,

@@ -8,83 +8,15 @@
  * Здесь нет ни файловой системы, ни git — только правило. I/O живёт в `index.ts`.
  */
 
+import { parseDiff } from '../../diff/parse.ts';
 import { normalizePlanPath } from '../../policy/paths.ts';
-
-export type BuildSystem = {
-  /** Команда сборки относительно каталога модуля. */
-  build: string;
-  /** Команда прогона тестов. `null` — раннера у этой системы нет. */
-  test: string | null;
-  /** Нужны ли установленные зависимости, чтобы команда вообще имела смысл. */
-  needsNodeModules: boolean;
-};
-
-/**
- * Детект build-системы по составу каталога.
- *
- * `package.json` идёт ПЕРЕД `tsconfig.json`: собственный build-скрипт проекта — то, чем
- * он реально собирается (esbuild/vite/webpack), тогда как `npx tsc --noEmit` тянет tsc
- * из сети и падает, если его нет локально. tsc остаётся запасным вариантом для проектов
- * с tsconfig, но без build-скрипта.
- */
-export function detectBuildSystem(
-  files: ReadonlySet<string>,
-  packageJson: string | null,
-): BuildSystem | null {
-  const has = (f: string): boolean => files.has(f);
-
-  if (has('gradlew')) {
-    return {
-      build: 'sh ./gradlew compileJava compileTestJava --console=plain -q',
-      test: 'sh ./gradlew test --console=plain -q',
-      needsNodeModules: false,
-    };
-  }
-  if (has('build.gradle') || has('build.gradle.kts')) {
-    return {
-      build: 'gradle compileJava compileTestJava --console=plain -q',
-      test: 'gradle test --console=plain -q',
-      needsNodeModules: false,
-    };
-  }
-  if (has('pom.xml')) {
-    return { build: 'mvn -q -B test-compile', test: 'mvn -q -B test', needsNodeModules: false };
-  }
-  if (has('go.mod')) {
-    return { build: 'go build ./...', test: 'go test ./...', needsNodeModules: false };
-  }
-  if (has('Cargo.toml')) {
-    return { build: 'cargo check --all-targets', test: 'cargo test', needsNodeModules: false };
-  }
-  if (has('package.json')) {
-    const scripts = packageJson ?? '';
-    const hasBuild = /"build"\s*:/.test(scripts);
-    const hasTest = /"test"\s*:/.test(scripts);
-    if (hasBuild || hasTest || has('tsconfig.json')) {
-      return {
-        build: hasBuild
-          ? 'npm run build'
-          : has('tsconfig.json')
-            ? 'npx --no-install tsc --noEmit'
-            : 'npm run build --if-present',
-        test: hasTest ? 'npm test --silent' : null,
-        needsNodeModules: true,
-      };
-    }
-    return { build: 'npm run build --if-present', test: null, needsNodeModules: true };
-  }
-  if (has('tsconfig.json')) {
-    return { build: 'npx --no-install tsc --noEmit', test: null, needsNodeModules: true };
-  }
-  if (has('pyproject.toml') || has('setup.py') || has('pytest.ini') || has('setup.cfg')) {
-    return {
-      build: 'python3 -m compileall -q .',
-      test: 'python3 -m pytest -q',
-      needsNodeModules: false,
-    };
-  }
-  return null;
-}
+// Знание о языках живёт в реестре экосистем: добавление языка не должно требовать правки
+// этого файла. Здесь остаются только правила, одинаковые для всех языков.
+import {
+  CODE_EXTENSIONS,
+  disableMarkersFor,
+  testDeclarationsFor,
+} from '../ecosystems/index.ts';
 
 /**
  * Каталог сборки выводится ИЗ ПЛАНА, а не перебором подкаталогов по алфавиту.
@@ -93,18 +25,53 @@ export function detectBuildSystem(
  * тогда как правки шли в `vscode-extension/` — и зеленел, не проверив ничего по существу.
  * Идём от первого файла плана вверх до первого каталога с манифестом.
  */
-export function moduleDirFromPlan(
+/**
+ * Единая форма пути модуля: без ведущего `./`, без хвостового слэша, корень — `.`.
+ *
+ * Нужна и конфигу, и детекту: сравнивать «путь из JSON, написанный человеком» с «путь,
+ * выведенный из плана» по сырой строке значит промахиваться на `./web` против `web`.
+ */
+export function normalizeModuleDir(dir: string): string {
+  const trimmed = dir.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  return trimmed === '' || trimmed === '.' ? '.' : trimmed;
+}
+
+/**
+ * ВСЕ каталоги-модули, затронутые планом, в порядке первого появления.
+ *
+ * `moduleDirFromPlan` возвращал первый и на этом останавливался — в моно-репо это ложный
+ * зелёный по построению: план трогает `server/` и `web/`, гейт собирает `server/`, а
+ * отчёт этапа 6 пишет «Сборка ✅». Прошлое лечение (замена алфавитного перебора на первый
+ * модуль плана) было правильным, но неполным: случайный модуль заменили на первый, а не на
+ * все затронутые.
+ */
+export function moduleDirsFromPlan(
   planFiles: readonly string[],
   isModule: (dir: string) => boolean,
-): string | null {
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (dir: string): void => {
+    if (seen.has(dir)) return;
+    seen.add(dir);
+    out.push(dir);
+  };
+
   for (const file of planFiles) {
     let dir = parentOf(file);
     while (dir !== null) {
-      if (isModule(dir)) return dir;
+      if (isModule(dir)) {
+        add(dir);
+        break;
+      }
       dir = parentOf(dir);
     }
   }
-  return isModule('.') ? '.' : null;
+
+  // Корень — запасной вариант, и только когда не нашлось ни одного модуля: иначе он
+  // добавлялся бы к каждому моно-репо вторым «модулем» и собирал бы всё дважды.
+  if (out.length === 0 && isModule('.')) add('.');
+  return out;
 }
 
 /**
@@ -171,8 +138,15 @@ export interface InvariantViolation {
   detail: string;
 }
 
-const CODE_EXT =
-  /\.(java|kt|kts|scala|groovy|ts|tsx|js|jsx|py|go|cs|rb|rs|php|swift)$/i;
+/**
+ * Расширение исходника проверяется по реестру, а не регуляркой: `\b` в JS не работает по
+ * кириллице, а закрытый список расширений в этом файле был четвёртым местом, куда надо
+ * было не забыть дописать новый язык.
+ */
+function isCode(file: string): boolean {
+  const dot = file.lastIndexOf('.');
+  return dot >= 0 && CODE_EXTENSIONS.has(file.slice(dot).toLowerCase());
+}
 
 /**
  * Проверки применяются только к некомментарным добавленным строкам: без этого гейт
@@ -181,36 +155,67 @@ const CODE_EXT =
  */
 const COMMENT = /^\+\s*(\/\/|#|\*|--|\/\*)/;
 
-const DISABLE_MARKERS =
-  /@Disabled|@Ignore|@pytest\.mark\.skip|\bit\.skip\(|\bdescribe\.skip\(|\bxit\(|\bxdescribe\(|\btest\.skip\(|\.only\(|t\.Skip\(|#\[ignore\]|@unittest\.skip/;
+/**
+ * Маркеры сравниваются подстрокой, а не регуляркой: они приходят из реестра как данные,
+ * и собирать из них регулярку значило бы экранировать `[`, `(` и `.` в каждой строке
+ * реестра — ровно тот класс ошибок, из-за которого вся обязательная пятёрка однажды молча
+ * числилась выключенной.
+ *
+ * Но подстрока обязана начинаться с ГРАНИЦЫ слова: без неё маркер `it ` находился внутри
+ * `submit(`, `limit `, `unit `, а `skip ` — внутри `let skip = …`, и обязательный гейт
+ * краснел на обычном коде. Граница считается по ASCII, и этого достаточно: маркеры —
+ * лексемы языков программирования, кириллицы в них нет.
+ */
+const WORD_CHAR = /[A-Za-z0-9_$]/;
 
-const TEST_DECL = /@Test|def test_|func Test|\bit\(|\btest\(|\[Fact\]|\[Test\]/;
+function hasAny(text: string, needles: readonly string[]): boolean {
+  return needles.some((n) => {
+    if (n === '') return false;
+    for (let at = text.indexOf(n); at >= 0; at = text.indexOf(n, at + 1)) {
+      const before = at === 0 ? '' : text[at - 1]!;
+      const startsWithWord = WORD_CHAR.test(n[0]!);
+      if (!startsWithWord || before === '' || !WORD_CHAR.test(before)) return true;
+    }
+    return false;
+  });
+}
 
-const TEST_FILE =
+/**
+ * Признак тестового файла — ОДИН на кодовую базу.
+ *
+ * Экспортируется, потому что вторая копия у гейта дублей уже разошлась с этой: там был
+ * потерян хвост `Tests?\.(java|kt|cs)$`, и `FooTest.java` считался продакшн-кодом.
+ */
+export const TEST_FILE =
   /(^|\/)(test|tests|spec)\/|[._-](test|spec)s?\.[a-z]+$|Tests?\.(java|kt|cs)$/i;
 
 const SECRET =
   /BEGIN [A-Z ]*PRIVATE KEY|(api[_-]?key|apikey|secret|password|passwd|access[_-]?token)\s*[:=]\s*["'][A-Za-z0-9/+_.=-]{16,}/i;
 
-interface DiffLine {
+export interface DiffLine {
   file: string;
   text: string;
   added: boolean;
 }
 
-/** Разбор unified diff в строки с именем файла — только то, что нужно проверкам. */
+/**
+ * Разбор unified diff в строки с именем файла — только то, что нужно проверкам.
+ *
+ * Раньше отличал заголовок от тела по префиксу `+++`/`---`, и на этом ломался: удалённая
+ * строка кода вида `--verbose` в diff'е выглядит как `---verbose` и молча терялась —
+ * ровно тот дефект, ради устранения которого написан `diff/parse.ts` («один разбор на всю
+ * кодовую базу»). Здесь используется он: границы тела считаются по счётчикам `@@`, а не
+ * по содержимому строки.
+ */
 export function diffLines(diff: string): DiffLine[] {
+  const { hunks } = parseDiff(diff);
   const out: DiffLine[] = [];
-  let file = '';
-  for (const line of diff.split(/\r?\n/)) {
-    const m = /^\+\+\+ (?:b\/)?(.+)$/.exec(line);
-    if (m !== null) {
-      file = m[1]!.trim();
-      continue;
+  for (const h of hunks) {
+    for (const line of h.lines) {
+      const head = line[0] ?? ' ';
+      if (head === '+') out.push({ file: h.file, text: line, added: true });
+      else if (head === '-') out.push({ file: h.file, text: line, added: false });
     }
-    if (/^(---|diff |index |@@|new file|deleted file|similarity|rename)/.test(line)) continue;
-    if (line.startsWith('+')) out.push({ file, text: line, added: true });
-    else if (line.startsWith('-')) out.push({ file, text: line, added: false });
   }
   return out;
 }
@@ -221,10 +226,10 @@ export function invariantViolations(
 ): InvariantViolation[] {
   const out: InvariantViolation[] = [];
   const all = diffLines(diff);
-  const code = all.filter((l) => CODE_EXT.test(l.file));
+  const code = all.filter((l) => isCode(l.file));
   const addedCode = code.filter((l) => l.added && !COMMENT.test(l.text));
 
-  const disabled = addedCode.filter((l) => DISABLE_MARKERS.test(l.text));
+  const disabled = addedCode.filter((l) => hasAny(l.text, disableMarkersFor(l.file)));
   if (disabled.length > 0) {
     out.push({
       kind: 'test-disabled',
@@ -244,9 +249,13 @@ export function invariantViolations(
 
   // Нетто-убыль деклараций: тесты не починили, а выкинули. Считаем только по коду и
   // только по некомментарным строкам — иначе закомментированный пример роняет гейт.
-  const added = addedCode.filter((l) => TEST_DECL.test(l.text)).length;
+  const added = addedCode.filter((l) => hasAny(l.text, testDeclarationsFor(l.file))).length;
+  // Раньше здесь ещё стоял `!l.text.startsWith('--')` — защита от заголовков, протекавших
+  // в `diffLines` через её старую эвристику. `diffLines` больше не эвристика: hunk-строка
+  // не может быть заголовком по построению, а фильтр вдобавок ошибочно вычёркивал
+  // настоящую удалённую строку, чьё содержимое само начиналось с «-».
   const removed = code.filter(
-    (l) => !l.added && !l.text.startsWith('--') && TEST_DECL.test(l.text),
+    (l) => !l.added && hasAny(l.text, testDeclarationsFor(l.file)),
   ).length;
   if (removed > added) {
     out.push({

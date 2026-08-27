@@ -1,8 +1,19 @@
 import { ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, existsSync} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+/**
+ * Эталон методологии — чужой каталог на машине оператора (`methodologyDir`/`skillsDir` из
+ * конфига), и на другой машине его просто нет. Такие кейсы ПРОПУСКАЮТСЯ с названной
+ * причиной, а не остаются вечно красными: набор, красный по умолчанию, приучает себя
+ * игнорировать, и настоящая регрессия в нём не видна. Там, где эталон есть, они работают
+ * как раньше. Герметичный двойник для сборки промпта — `promptEcosystem.test.ts`.
+ */
+function нетЭталона(dir: string): string | false {
+  return existsSync(dir) ? false : `нет эталона методологии на этой машине: ${dir}`;
+}
+
 
 import { writeArtifact } from '../src/artifacts/artifact.ts';
 import { WitokPaths } from '../src/artifacts/paths.ts';
@@ -10,7 +21,7 @@ import { loadConfig } from '../src/config/load.ts';
 import { buildPrompt, stripFrontmatter } from '../src/prompt/build.ts';
 import { stageById } from '../src/run/stages.ts';
 
-const root = mkdtempSync(join(tmpdir(), 'sdlc-prompt-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-prompt-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const paths = new WitokPaths(root, 'demo');
@@ -33,7 +44,7 @@ describe('stripFrontmatter', () => {
   });
 });
 
-describe('сборка промпта из эталона', () => {
+describe('сборка промпта из эталона', { skip: нетЭталона(loadConfig().runner.skillsDir) }, () => {
   const cfg = loadConfig();
 
   it('тело этапа берётся с диска, а не из копии в рантайме', () => {
@@ -144,3 +155,5 @@ describe('сборка промпта из эталона', () => {
     );
   });
 });
+
+

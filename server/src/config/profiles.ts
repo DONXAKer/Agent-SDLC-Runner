@@ -67,14 +67,27 @@ export function resolveProfile(
   }
 
   const routes: Partial<Record<StageId, ResolvedRoute>> = {};
+  const ensemble: Partial<Record<StageId, ResolvedRoute[]>> = {};
+
   for (const stage of STAGE_ORDER) {
-    const modelId = profile.stages[stage];
-    if (modelId === undefined || modelId === '') {
+    const raw = profile.stages[stage];
+    // Строка = список из одного: форма конфига остаётся обратно совместимой.
+    const ids = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+    const nonEmpty = ids.filter((v) => typeof v === 'string' && v !== '');
+
+    if (nonEmpty.length === 0) {
       problems.push(`этап «${stage}» не назначен ни на одну модель в профиле «${profileName}»`);
       continue;
     }
-    const route = resolveRoute(stage, modelId, models, problems);
-    if (route !== null) routes[stage] = route;
+
+    const resolved = nonEmpty
+      .map((id) => resolveRoute(stage, id, models, problems))
+      .filter((r): r is ResolvedRoute => r !== null);
+    if (resolved.length === 0) continue;
+
+    ensemble[stage] = resolved;
+    // Первый маршрут — основной: он определяет исполнителя и попадает в `stage_started`.
+    routes[stage] = resolved[0]!;
   }
 
   if (problems.length > 0) throw new ProfileError(problems);
@@ -83,6 +96,7 @@ export function resolveProfile(
     name: profileName,
     label: profile.label,
     routes: routes as Record<StageId, ResolvedRoute>,
+    ensemble: ensemble as Record<StageId, ResolvedRoute[]>,
   };
 }
 
@@ -98,19 +112,58 @@ export function resolveProfile(
  * модели (например, к Claude при локальном остальном).
  */
 export function checkReviewerRule(profile: ResolvedProfile): string[] {
-  const chunk = profile.routes.chunk;
-  const verify = profile.routes.verify;
-  if (chunk === undefined || verify === undefined) return [];
+  const chunkRoutes = profile.ensemble?.chunk ?? [profile.routes.chunk];
+  const verifyRoutes = profile.ensemble?.verify ?? [profile.routes.verify];
+  if (chunkRoutes.length === 0 || verifyRoutes.length === 0) return [];
+  if (chunkRoutes.some((r) => r === undefined) || verifyRoutes.some((r) => r === undefined)) {
+    return [];
+  }
+
+  // Сравниваются КРАЙНИЕ значения: минимальный rank среди рецензентов против максимального
+  // среди исполнителей. Иначе ансамбль становится способом протащить слабого рецензента
+  // рядом с сильным — правило выполнялось бы «в среднем», а слабый всё равно голосовал бы.
+  const chunk = chunkRoutes.reduce((a, b) => (a.rank >= b.rank ? a : b));
+  const verify = verifyRoutes.reduce((a, b) => (a.rank <= b.rank ? a : b));
 
   if (verify.rank > chunk.rank) return [];
 
   return [
     `профиль «${profile.name}»: рецензент этапа 6 не сильнее исполнителя этапа 5 ` +
-      `(verify=${verify.modelId} rank=${verify.rank}, chunk=${chunk.modelId} rank=${chunk.rank}).\n` +
+      `(слабейший verify=${verify.modelId} rank=${verify.rank}, сильнейший chunk=${chunk.modelId} rank=${chunk.rank}).\n` +
       `Методология требует строгого превосходства — иначе ревью становится декорацией, ` +
       `а «Ревью независимым агентом» входит в минимальную пятёрку гейтов и выключателя не имеет.\n` +
       `Подними модель на verify или заведи смешанный профиль, где verify идёт на более сильном маршруте.`,
   ];
+}
+
+/**
+ * Профиль, собранный оператором на один виток и НИКУДА не сохраняемый.
+ *
+ * Судьба правки названа явно: она применяется к создаваемому прогону и на диск не
+ * попадает. Писать `config/projects/*.json` из интерфейса — отдельное решение с отдельными
+ * рисками (файл правят и руками, и параллельно), и молча делать это здесь нельзя.
+ */
+export function resolveAdHocProfile(
+  project: ProjectConfig,
+  models: ModelsConfig,
+  stages: Record<string, string | string[]>,
+  baseProfileName: string,
+): ResolvedProfile {
+  const base = project.profiles[baseProfileName];
+  const merged: ProjectConfig = {
+    ...project,
+    profiles: {
+      ...project.profiles,
+      __adhoc: {
+        label: `${base?.label ?? baseProfileName} (правка оператора, не сохранена)`,
+        stages: { ...(base?.stages ?? {}), ...stages } as Record<StageId, string | string[]>,
+      },
+    },
+  };
+  const profile = resolveProfile(merged, models, '__adhoc');
+  const problems = checkReviewerRule(profile);
+  if (problems.length > 0) throw new ProfileError(problems);
+  return profile;
 }
 
 /** Профиль, пригодный к старту витка, либо исключение с полным списком причин. */

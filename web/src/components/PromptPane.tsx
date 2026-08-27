@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 
 import type { PreparedPrompt } from '@sdlc-runner/shared';
 
+import { PANEL_TONE } from '../lib/tones.ts';
+
 /**
  * Полный промпт с правкой перед отправкой.
  *
@@ -13,11 +15,17 @@ export function PromptPane({
   prompt,
   blockers,
   busy,
+  busyReason,
   onRun,
 }: {
   prompt: PreparedPrompt | null;
   blockers: string[];
   busy: boolean;
+  /**
+   * Причина занятости, когда она НЕ в выбранном этапе, — например идёт другой этап.
+   * Без неё кнопка утверждала «Этап выполняется…» про этап, который не выполняется.
+   */
+  busyReason?: string;
   onRun: (edited: { system: string; user: string }) => void;
 }): JSX.Element {
   const [system, setSystem] = useState('');
@@ -39,16 +47,21 @@ export function PromptPane({
 
   const edited = system !== prompt.system || user !== prompt.user;
 
-  return (
-    <div className="space-y-3">
-      {prompt.presetNote !== null ? (
-        <div className="rounded border border-neutral-700 bg-neutral-900/70 p-3 text-xs text-neutral-400">
-          {prompt.presetNote}
-        </div>
-      ) : null}
+  // Вне свёрнутой секции: пометка о скрытом системном пресете обязательна (см. doc-
+  // комментарий файла), и прятать её за клик в компакте значило бы показывать «полный»
+  // промпт, который на самом деле неполон, — ровно тот ложный зелёный, ради устранения
+  // которого этот блок и существует.
+  const presetNoteBlock =
+    prompt.presetNote !== null ? (
+      <div className="rounded border border-neutral-700 bg-neutral-900/70 p-3 text-xs text-neutral-400">
+        {prompt.presetNote}
+      </div>
+    ) : null;
 
+  const body = (
+    <div className="space-y-3">
       {blockers.length > 0 ? (
-        <div className="rounded border border-red-800 bg-red-950/30 p-3 text-sm">
+        <div className={`rounded border p-3 text-sm ${PANEL_TONE.fail}`}>
           <div className="mb-1 font-medium text-red-300">Этап не начинается:</div>
           <ul className="list-disc space-y-0.5 pl-5 text-red-200/90">
             {blockers.map((b) => (
@@ -109,18 +122,28 @@ export function PromptPane({
           </div>
         ) : null}
       </div>
+    </div>
+  );
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          disabled={busy || blockers.length > 0}
-          onClick={() => onRun({ system, user })}
-          className="rounded bg-emerald-700 px-4 py-2 text-sm font-medium hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
-        >
-          {busy ? 'Этап выполняется…' : 'Запустить этап'}
-        </button>
-        {edited ? <span className="text-xs text-amber-400">промпт отредактирован</span> : null}
-      </div>
+  const runRow = (
+    <div className="mt-3 flex items-center gap-3">
+      <button
+        type="button"
+        disabled={busy || blockers.length > 0}
+        onClick={() => onRun({ system, user })}
+        className="rounded bg-emerald-700 px-4 py-2 text-sm font-medium hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+      >
+        {busy ? (busyReason ?? 'Этап выполняется…') : 'Запустить этап'}
+      </button>
+      {edited ? <span className="text-xs text-amber-400">промпт отредактирован</span> : null}
+    </div>
+  );
+
+  return (
+    <div>
+      {presetNoteBlock}
+      {body}
+      {runRow}
     </div>
   );
 }

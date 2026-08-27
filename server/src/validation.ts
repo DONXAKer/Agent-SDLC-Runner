@@ -13,10 +13,22 @@
  */
 const SLUG_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 
+/**
+ * Зарезервированные в Windows имена устройств: slug становится и именем каталога
+ * артефактов, и (для проектов, добавленных через `/api/projects`) именем файла
+ * `<slug>.local.json` — а машина разработки, по CLAUDE.md, сегодня Windows. Матч без
+ * учёта регистра и расширения: `Con`, `NUL.txt` ведут к тому же зарезервированному
+ * устройству, что и `con`.
+ */
+const WINDOWS_RESERVED_RE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
+
 export function badSlug(slug: string): string | null {
   if (!SLUG_RE.test(slug)) {
     return 'slug может содержать только латиницу, цифры, точку, дефис и подчёркивание (до 64 символов)';
   }
   if (slug === '.' || slug === '..' || slug.includes('..')) return 'slug не может содержать «..»';
+  if (WINDOWS_RESERVED_RE.test(slug)) {
+    return 'slug не может совпадать с зарезервированным в Windows именем устройства (con, prn, aux, nul, comN, lptN)';
+  }
   return null;
 }

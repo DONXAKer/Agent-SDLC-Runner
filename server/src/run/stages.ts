@@ -254,7 +254,18 @@ export const STAGES: readonly StageDef[] = [
     id: 'chunk',
     skill: 'sdlc-chunk',
     title: 'Chunk',
-    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'Task', 'AskHuman', 'FinalizeArtifact'],
+    tools: [
+      'Read',
+      'Glob',
+      'Grep',
+      'Write',
+      'Edit',
+      'Bash',
+      'Task',
+      'AskHuman',
+      'FinalizeArtifact',
+      'RequestScopeExtension',
+    ],
     // Точечная разведка места правки — read-only по построению.
     subagents: ['sdlc-locator'],
     produces: (c) => [

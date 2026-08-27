@@ -48,9 +48,30 @@ export interface DebtRow {
   why: string;
 }
 
+/**
+ * Запись калибровки: посев дефекта известного класса и то, поймал ли его гейт.
+ *
+ * Непойманный посев — дефект процесса, а не прогона, и знать об этом надо в момент, когда
+ * гейт даёт зелёный.
+ */
+export interface CalibrationRow {
+  /** Имя гейта как в наборе. Сопоставляется через `gateKey`. */
+  name: string;
+  date: string;
+  /** Класс посеянного дефекта — словами человека. */
+  defectClass: string;
+  /**
+   * Пойман ли посев. `null` — значение не разобрано: непонятое считается «не калиброван»,
+   * а не «калиброван». Строгость здесь та же, что и в остальном разборе набора.
+   */
+  caught: boolean | null;
+}
+
 export interface GatesFile {
   rows: GateRow[];
   debt: DebtRow[];
+  /** Таблица «Калибровка», если она есть. Пусто — посевом никто не проверялся. */
+  calibration: CalibrationRow[];
 }
 
 /** `‹…›` формы — «не заполнено», а не значение. */
@@ -121,7 +142,13 @@ export function parseCommand(cell: string): string | null {
   // красил обязательный scope-гейт в ❌ на каждом витке, ни разу не вызвав встроенную
   // реализацию. Команда — это глагол с аргументами либо явный путь к исполняемому файлу;
   // одиночное имя без пробела и без пути командой не считается.
-  const looksLikeCommand = /\s/.test(cmd) || /^[.~/]|[\\/]/.test(cmd);
+  //
+  // Путь ГДЕ-ТО внутри фрагмента (не только в начале) раньше тоже считался признаком
+  // команды — «изменения в `backend/src/test/**` сверяются с планом» распознавалось как
+  // вызов `backend/src/test/**` и падало с «is a directory». Ссылка на путь в прозе —
+  // не то же самое, что явный вызов исполняемого файла: у последнего путь стоит в начале
+  // фрагмента (`./mvnw`, `~/tools/x`, `/usr/bin/x`), а не где-то в середине цитаты.
+  const looksLikeCommand = /\s/.test(cmd) || /^[.~/]/.test(cmd);
   return looksLikeCommand ? cmd : null;
 }
 
@@ -139,6 +166,28 @@ export function parseGates(text: string): GatesFile {
       reportsAt: parseReportsAt(cells[2] ?? ''),
       implementation,
       command: parseCommand(implementation),
+    });
+  }
+
+  const calibration: CalibrationRow[] = [];
+  for (const cells of tableRows(text, 'Калибровка')) {
+    const name = (cells[0] ?? '').replace(/`/g, '').trim();
+    if (name === '' || PLACEHOLDER.test(name)) continue;
+    const outcome = (cells[3] ?? '').toLowerCase().replace(/ё/g, 'е').trim();
+    // Окончания перечисляются явно: `\b` в JS не работает по кириллице, и на этом уже
+    // однажды молча выключилась вся обязательная пятёрка.
+    const caught = PLACEHOLDER.test(cells[3] ?? '')
+      ? null
+      : /^поймал|^пойман|^да(\s|[—–-]|$)/.test(outcome)
+        ? true
+        : /^не\s*поймал|^не\s*пойман|^нет(\s|[—–-]|$)|^пропустил/.test(outcome)
+          ? false
+          : null;
+    calibration.push({
+      name,
+      date: (cells[1] ?? '').trim(),
+      defectClass: (cells[2] ?? '').trim(),
+      caught,
     });
   }
 
@@ -170,7 +219,7 @@ export function parseGates(text: string): GatesFile {
     });
   }
 
-  return { rows, debt };
+  return { rows, debt, calibration };
 }
 
 /**
@@ -219,6 +268,65 @@ export function gateKey(name: string): string {
  * и из вердикта — виток зеленел с фактически отключённым гейтом минимума) и две строки
  * с одинаковым именем (их статусы схлопывались в один, и `❌` одной затирался другой).
  */
+/**
+ * Гейты, чья способность ловить НЕ подтверждена посевом.
+ *
+ * Возвращается для пометки в причинах вердикта, а не для отказа: некалиброванный гейт —
+ * это неизвестность, а не нарушение, и ронять по нему вердикт значило бы блокировать все
+ * проекты, где посев ещё не гоняли.
+ */
+export function uncalibratedGates(g: GatesFile): string[] {
+  const caught = new Set(
+    g.calibration.filter((c) => c.caught === true).map((c) => gateKey(c.name)),
+  );
+  return g.rows
+    .filter((r) => r.enabled && !caught.has(gateKey(r.name)))
+    .map((r) => r.name);
+}
+
+/**
+ * Включённые гейты «этапа 6», которым при реальном прогоне нечем исполниться: колонка
+ * «Чем реализован» не дала команды в обратных кавычках (проза, плейсхолдер, пусто), и
+ * встроенной реализации под это имя тоже нет.
+ *
+ * Раньше это узнавалось только фактом — гейт получал `⏭` с диагностикой «исполнить его
+ * нечем» посреди этапа 6, потратив прогон целиком на находку, которая была видна уже
+ * в тексте набора. `isBuiltin` передаётся параметром, а не импортируется отсюда: реестр
+ * встроенных реализаций живёт в `gates/builtin/index.ts`, который сам импортирует эту
+ * функцию (`gateKey`) — обратный импорт замкнул бы модули друг на друга.
+ *
+ * `alwaysImplemented` — гейты, у которых статус берётся НЕ отсюда и НЕ из `isBuiltin`, а из
+ * внешнего механизма рантайма (сегодня единственный такой — «Ревью независимым агентом»:
+ * статус ставит `Run.externalGateStatuses()` по факту вызова субагента, минуя
+ * `gates/run.ts` целиком). Раньше это исключение подмешивалось в саму лямбду `isBuiltin` НА
+ * МЕСТЕ ВЫЗОВА — предикат с этим именем лгал о своём контракте (не «есть builtin», а «есть
+ * builtin ИЛИ ещё какое-то другое условие»), и второй вызывающий, собравший `isBuiltin`
+ * буквально по этой доке, был обязан заново вспомнить и продублировать то же исключение.
+ * Теперь оно — часть сигнатуры, а не спрятанный побочный смысл параметра.
+ */
+export function unimplementedGates(
+  g: GatesFile,
+  isBuiltin: (name: string) => boolean,
+  alwaysImplemented: readonly string[] = [],
+): string[] {
+  const exempt = new Set(alwaysImplemented.map(gateKey));
+  return g.rows
+    .filter(
+      (row) =>
+        row.enabled &&
+        row.reportsAt === 'этап 6' &&
+        row.command === null &&
+        !isBuiltin(row.name) &&
+        !exempt.has(gateKey(row.name)),
+    )
+    .map(
+      (row) =>
+        `гейт «${row.name}» включён и отчитывается на этапе 6, но исполнить его нечем: в колонке ` +
+        `«Чем реализован» нет команды в обратных кавычках, встроенной реализации под это имя тоже ` +
+        `нет. На прогоне это даст ⏭ и уронит вердикт — почини набор до старта, не после этапа 6.`,
+    );
+}
+
 export function configProblems(g: GatesFile): string[] {
   const out = minimumProblems(g);
 

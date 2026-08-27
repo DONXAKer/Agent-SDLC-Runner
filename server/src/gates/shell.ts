@@ -8,11 +8,18 @@
  *
  * Вывод режется: гейт, уронивший сборку, печатает мегабайты, а вердикту нужна последняя
  * содержательная строка и хвост для диагноза.
+ *
+ * Исполнитель команды — `LocalSandbox` (спавн в процессе Runner'а, как всегда) или
+ * `DockerSandbox` проекта, если для него подготовлена песочница (`sandbox/registry.ts`).
+ * Выбор прозрачен для вызывающих: сигнатура и структура результата не меняются, а без
+ * `.sdlc/sandbox.json` у проекта реестр пуст и путь ровно тот же, что был до песочницы.
  */
 
 import { spawn } from 'node:child_process';
 
 import { checkBash } from '../policy/denyList.ts';
+import { findSandboxForCwd } from '../sandbox/registry.ts';
+import { cap } from '../sandbox/capture.ts';
 
 export interface ShellResult {
   exitCode: number | null;
@@ -26,8 +33,6 @@ export interface ShellResult {
   denied: string | null;
 }
 
-const MAX_CAPTURE = 200_000;
-
 export function lastMeaningfulLine(text: string): string {
   const lines = text.split(/\r?\n/);
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -35,13 +40,6 @@ export function lastMeaningfulLine(text: string): string {
     if (t !== '') return t;
   }
   return '';
-}
-
-function cap(chunks: string[]): string {
-  const joined = chunks.join('');
-  return joined.length <= MAX_CAPTURE
-    ? joined
-    : `${joined.slice(0, MAX_CAPTURE / 2)}\n…[обрезано рантаймом]…\n${joined.slice(-MAX_CAPTURE / 2)}`;
 }
 
 export interface ShellOptions {
@@ -64,6 +62,23 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
       timedOut: false,
       denied: guard.reason,
     });
+  }
+
+  const sandbox = findSandboxForCwd(opts.cwd);
+  if (sandbox !== null && sandbox.exec.kind === 'docker') {
+    return sandbox.exec
+      .exec(command, opts)
+      .then((r) => ({
+        exitCode: r.exitCode,
+        stdout: r.stdout,
+        stderr: r.stderr,
+        lastLine: r.timedOut
+          ? `команда не уложилась в ${opts.timeoutMs} мс`
+          : lastMeaningfulLine(r.stdout) || lastMeaningfulLine(r.stderr),
+        durationMs: r.durationMs,
+        timedOut: r.timedOut,
+        denied: null,
+      }));
   }
 
   return new Promise<ShellResult>((resolve) => {

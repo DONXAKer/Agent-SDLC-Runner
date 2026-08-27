@@ -1,22 +1,13 @@
 import { useState } from 'react';
 
-import type { Decision, DiffPreview, NormalizedCall, PolicyVerdict } from '@sdlc-runner/shared';
+import type { Decision, NormalizedCall } from '@sdlc-runner/shared';
 import { DiffView } from './DiffView.tsx';
+// Тип живёт в lib, а не здесь: его использует чистая `mergePending`, которую тесты
+// исполняют Node'ом напрямую, а `.tsx` Node без сборки не читает.
+import type { PendingCall } from '../lib/pending.ts';
+import { PANEL_TONE } from '../lib/tones.ts';
 
-export interface PendingCall {
-  requestId: string;
-  /**
-   * Аргументы инструмента в его собственной форме — то, что правит оператор.
-   *
-   * Не `call`: исполнителю уходит `updatedInput` дословно, в форме инструмента
-   * (`file_path`, `old_string`), а нормализованная форма (`path`, `oldStr`) на входе
-   * инструмента не значит ничего — правка молча теряла содержимое.
-   */
-  rawInput: Record<string, unknown>;
-  call: NormalizedCall;
-  policy: PolicyVerdict;
-  preview: DiffPreview | null;
-}
+export type { PendingCall };
 
 function title(call: NormalizedCall): string {
   switch (call.kind) {
@@ -40,6 +31,7 @@ const POLICY_LABEL: Record<string, string> = {
   denyList: 'запрещённая категория',
   planScope: 'вне files_to_touch плана',
   stageTools: 'инструмент не разрешён на этапе',
+  repeatFailure: 'команда повторно падает',
 };
 
 export function ToolApproval({
@@ -61,7 +53,7 @@ export function ToolApproval({
       </div>
 
       {blocked && !pending.policy.ok ? (
-        <div className="mb-3 rounded border border-red-800 bg-red-950/40 p-3 text-sm">
+        <div className={`mb-3 rounded border p-3 text-sm ${PANEL_TONE.fail}`}>
           <div className="mb-1 font-medium text-red-300">
             Отклонено политикой — {POLICY_LABEL[pending.policy.policy] ?? pending.policy.policy}
           </div>

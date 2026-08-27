@@ -1,4 +1,17 @@
-import type { ConfigInfo, Decision, PreparedPrompt, RunDetail, StageId } from '@sdlc-runner/shared';
+import type {
+  AutoApproveRules,
+  BrowseResult,
+  ConfigInfo,
+  Decision,
+  HistoryEntry,
+  PreparedPrompt,
+  ProjectInfo,
+  RunDetail,
+  RunDiff,
+  RunEvent,
+  RunSummary,
+  StageId,
+} from '@sdlc-runner/shared';
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -18,13 +31,53 @@ const post = (url: string, body?: unknown): Promise<Response> =>
 export const api = {
   config: (): Promise<ConfigInfo> => fetch('/api/config').then(json<ConfigInfo>),
 
-  createRun: (project: string, slug: string, profile?: string): Promise<{ runId: string }> =>
-    post('/api/runs', { project, slug, profile }).then(json<{ runId: string }>),
+  browse: (path?: string): Promise<BrowseResult> =>
+    fetch(`/api/browse${path !== undefined ? `?path=${encodeURIComponent(path)}` : ''}`).then(
+      json<BrowseResult>,
+    ),
+
+  addProject: (name: string, projectRoot: string): Promise<ProjectInfo> =>
+    post('/api/projects', { name, projectRoot }).then(json<ProjectInfo>),
+
+  /**
+   * `stages` — правка моделей на один виток. На диск не сохраняется: конфиг проекта правят
+   * и руками, и параллельно, и запись из интерфейса — отдельное решение.
+   */
+  createRun: (
+    project: string,
+    slug: string,
+    profile?: string,
+    stages?: Partial<Record<StageId, string>>,
+  ): Promise<{ runId: string }> =>
+    post('/api/runs', {
+      project,
+      slug,
+      profile,
+      ...(stages === undefined || Object.keys(stages).length === 0 ? {} : { stages }),
+    }).then(json<{ runId: string }>),
 
   run: (id: string): Promise<RunDetail> => fetch(`/api/runs/${id}`).then(json<RunDetail>),
 
-  runs: (): Promise<{ runId: string; slug: string; project: string; status: string }[]> =>
-    fetch('/api/runs').then((r) => json<{ runId: string; slug: string; project: string; status: string }[]>(r)),
+  /**
+   * Витки, живущие в памяти сервера. Своё описание формы здесь не держим: сервер отдаёт
+   * `RunSummary` целиком, а урезанный локальный тип скрывал от интерфейса и этап, и
+   * попытку, и расход — ровно то, ради чего список и нужен.
+   */
+  runs: (): Promise<RunSummary[]> => fetch('/api/runs').then(json<RunSummary[]>),
+
+  /** История витков проекта — с диска, а не из памяти: переживает перезапуск сервера. */
+  history: (project: string): Promise<HistoryEntry[]> =>
+    fetch(`/api/history?project=${encodeURIComponent(project)}`).then(json<HistoryEntry[]>),
+
+  /**
+   * Полная лента событий витка — АРХИВНЫЙ путь (с диска, `.events.ndjson`), не WS. Работает
+   * для любого статуса истории, не только `open`: закрытый/убранный виток не имеет живого
+   * `runId`, поэтому берётся по `project`+`slug`, не по `id`, как `run()` выше.
+   */
+  historyEvents: (project: string, slug: string): Promise<RunEvent[]> =>
+    fetch(`/api/history/${encodeURIComponent(slug)}/events?project=${encodeURIComponent(project)}`).then(
+      json<RunEvent[]>,
+    ),
 
   preparePrompt: (
     id: string,
@@ -99,8 +152,23 @@ export const api = {
   ): Promise<{ value: string }> =>
     post(`/api/runs/${id}/decision`, body).then((r) => json<{ value: string }>(r)),
 
-  autoApprove: (id: string, stage: StageId, on: boolean): Promise<unknown> =>
-    post(`/api/runs/${id}/auto-approve`, { stage, on }).then(json),
+  /**
+   * Правила автоодобрения на этап. Тумблер «одобрять всё» заменён ими: включавший его
+   * оператор соглашался в том числе на `Bash` и на запись вне плана.
+   */
+  autoApprove: (id: string, stage: StageId, rules: AutoApproveRules): Promise<unknown> =>
+    post(`/api/runs/${id}/auto-approve`, { stage, rules }).then(json),
+
+  /** Патч текущей попытки. Отдельной ручкой: он бывает в сотни килобайт. */
+  diff: (id: string): Promise<RunDiff> => fetch(`/api/runs/${id}/diff`).then(json<RunDiff>),
 
   cancel: (id: string): Promise<unknown> => post(`/api/runs/${id}/cancel`).then(json),
+
+  /**
+   * Убрать виток из памяти сервера. Артефакты на диске остаются — уходит только живой
+   * объект прогона. Сервер отвечает 409, пока этап выполняется, поэтому кнопка в списке
+   * не может оборвать работающий виток мимо отмены.
+   */
+  forget: (id: string): Promise<unknown> =>
+    fetch(`/api/runs/${id}`, { method: 'DELETE' }).then(json),
 };

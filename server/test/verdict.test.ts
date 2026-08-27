@@ -337,7 +337,7 @@ describe('сборка входа вердикта', () => {
     const { input } = collectVerdictInput({
       gates,
       gateResults: [],
-      report: REPORT,
+      reports: [REPORT],
       attempt: 1,
       attemptBudget: 3,
       noProgress: false,
@@ -349,7 +349,7 @@ describe('сборка входа вердикта', () => {
     const { input } = collectVerdictInput({
       gates,
       gateResults: [],
-      report: REPORT,
+      reports: [REPORT],
       attempt: 1,
       attemptBudget: 3,
       noProgress: false,
@@ -370,7 +370,7 @@ describe('сборка входа вердикта', () => {
       gateResults: [
         { name: 'Сборка', status: '❌', command: 'npm run build', exitCode: 1, lastLine: 'error', durationMs: 5 },
       ],
-      report: REPORT,
+      reports: [REPORT],
       attempt: 1,
       attemptBudget: 3,
       noProgress: false,
@@ -384,7 +384,7 @@ describe('сборка входа вердикта', () => {
     const { input } = collectVerdictInput({
       gates,
       gateResults: [],
-      report: REPORT,
+      reports: [REPORT],
       attempt: 1,
       attemptBudget: 3,
       noProgress: false,

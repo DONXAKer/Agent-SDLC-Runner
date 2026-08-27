@@ -13,7 +13,11 @@
  * запись не произошла, а содержимое приватного ключа утекло и осело в истории событий.
  */
 
+import { AUTO_APPROVE_OFF, policyDeny } from '@sdlc-runner/shared';
+import type { AutoApproveRules } from '@sdlc-runner/shared';
+
 import { evaluate, writeTargetPaths, writeTargetsOf } from '../policy/index.ts';
+import { normalizePlanPath } from '../policy/paths.ts';
 import { normalize } from '../exec/normalize.ts';
 import type {
   Decision,
@@ -88,10 +92,28 @@ export interface GateEvents {
  */
 const NO_HUMAN_STEP = new Set(['read', 'glob', 'grep', 'ask_human']);
 
+/**
+ * Столько раз подряд одна и та же команда обязана упасть, прежде чем гейт откажет
+ * в повторе сам, не дожидаясь оператора.
+ *
+ * Наблюдение живого витка: рецензент прогнал ~10 одинаковых падающих `jar xf`/`javap` по
+ * разным путям `.m2`, прерван вручную через reject. Три — это ещё «может, опечатка
+ * в пути», четвёртый одинаковый — уже не диагностика, а зацикливание.
+ */
+const MAX_REPEAT_BASH_FAILURES = 3;
+
 export class ApprovalGate {
   private readonly waiting = new Map<string, Waiting>();
-  /** Этапы, для которых оператор включил автоодобрение. */
-  private readonly autoStages = new Set<string>();
+  /** Правила автоодобрения по этапам. Отсутствие записи означает «спрашивать всегда». */
+  private readonly autoRules = new Map<string, AutoApproveRules>();
+  /**
+   * Сколько раз подряд упала последняя команда bash этого прогона, и какая именно.
+   *
+   * По `runId`, не по `runId+stage`: зацикливание не спрашивает, сменился ли этап — та же
+   * команда, повторённая после случайного перехода между этапами, всё ещё зацикливание.
+   * Успех или другая команда сбрасывают счётчик — см. `recordBashResult`.
+   */
+  private readonly bashFailures = new Map<string, { command: string; count: number }>();
   private readonly events: GateEvents;
 
   constructor(events: GateEvents) {
@@ -111,19 +133,55 @@ export class ApprovalGate {
     return `${runId}\u0000${requestId}`;
   }
 
-  setAutoApprove(runId: string, stage: StageId, on: boolean): void {
+  setAutoApprove(runId: string, stage: StageId, rules: AutoApproveRules): void {
     const k = this.stageKey(runId, stage);
-    if (on) this.autoStages.add(k);
-    else this.autoStages.delete(k);
+    if (rules.planWrites || rules.bash || rules.rest) this.autoRules.set(k, rules);
+    else this.autoRules.delete(k);
   }
 
-  isAutoApprove(runId: string, stage: StageId): boolean {
-    return this.autoStages.has(this.stageKey(runId, stage));
+  autoApproveRules(runId: string, stage: StageId): AutoApproveRules {
+    return this.autoRules.get(this.stageKey(runId, stage)) ?? AUTO_APPROVE_OFF;
+  }
+
+  /**
+   * Подпадает ли вызов под правило автоодобрения.
+   *
+   * Считается ПОСЛЕ политики и по нормализованному вызову: цели записи берутся из того же
+   * `writeTargetsOf`, которым пользуется политика, — второй способ определить «куда пишет
+   * вызов» разошёлся бы с первым, и разошёлся бы молча.
+   */
+  private matchesRule(
+    call: NormalizedCall,
+    ctx: PolicyContext,
+    rules: AutoApproveRules,
+  ): boolean {
+    if (call.kind === 'bash') return rules.bash;
+
+    // Расширение scope — решение о ГРАНИЦАХ плана, не о содержимом отдельной правки, и
+    // «остальное разрешаю» не должно снимать его молча: `rest`-правило думает про обычные
+    // MCP-вызовы вроде `finalize_artifact`, не про решение впустить chunk за пределы того,
+    // что человек уже одобрил.
+    if (call.kind === 'request_scope_extension') return false;
+
+    // `writeTargetPaths` возвращает `null` для вызовов, которые вообще не пишут: такой
+    // вызов «внутри плана» не бывает, и правило про правки к нему не относится.
+    const targets = writeTargetPaths(call);
+    const planFiles = ctx.planFiles;
+    const insidePlan =
+      targets !== null &&
+      targets.length > 0 &&
+      planFiles !== null &&
+      targets.every((t) => planFiles.includes(normalizePlanPath(ctx.projectRoot, t)));
+
+    // Правка целиком внутри плана — единственный случай, который оператор соглашался
+    // пропускать осознанно. Хоть одна цель вне плана — это «остальное».
+    if (insidePlan) return rules.planWrites;
+    return rules.rest;
   }
 
   /** Автоодобрение действует на один этап и снимается при его завершении. */
   clearAutoApprove(runId: string, stage: StageId): void {
-    this.autoStages.delete(this.stageKey(runId, stage));
+    this.autoRules.delete(this.stageKey(runId, stage));
   }
 
   list(): PendingApproval[] {
@@ -147,6 +205,22 @@ export class ApprovalGate {
     const writeTargets = writeTargetsOf(args.call);
     const base = { ...args, writeTargets, createdAt: Date.now() };
 
+    // Одна и та же bash-команда упала уже `MAX_REPEAT_BASH_FAILURES` раз подряд — отказ
+    // ЗДЕСЬ, до политики и до оператора: не находка политики (команда сама по себе
+    // разрешена), а факт истории этого прогона, которого чистая `evaluate` знать не может.
+    const call = args.call;
+    const loop = call.kind === 'bash' ? this.bashFailures.get(args.runId) : undefined;
+    if (loop !== undefined && call.kind === 'bash' && loop.command === call.command && loop.count >= MAX_REPEAT_BASH_FAILURES) {
+      const reason =
+        `эта команда уже упала ${loop.count} раз подряд без изменений — команда падает ` +
+        `повторно, смени подход, а не повторяй тот же вызов`;
+      const policy = policyDeny('repeatFailure', reason);
+      const decision: Decision = { allowed: false, reason: `[repeatFailure] ${reason}`, by: 'policy' };
+      this.events.onPending(visible({ ...base, policy, preview: null, resolve: () => {} }));
+      this.events.onResolved(info, decision);
+      return decision;
+    }
+
     const policy = this.checkAll(args.call, args.ctx);
     if (!policy.ok) {
       const decision: Decision = {
@@ -167,7 +241,7 @@ export class ApprovalGate {
 
     const preview = buildPreview(args.call, args.ctx.projectRoot);
 
-    if (this.isAutoApprove(args.runId, args.stage)) {
+    if (this.matchesRule(args.call, args.ctx, this.autoApproveRules(args.runId, args.stage))) {
       const decision: Decision = { allowed: true, updatedInput: null, by: 'auto' };
       this.events.onPending(visible({ ...base, policy, preview, resolve: () => {} }));
       this.events.onResolved(info, decision);
@@ -202,7 +276,7 @@ export class ApprovalGate {
 
     for (const path of paths) {
       const escape = symlinkEscape(ctx.projectRoot, path, ctx.readOnlyRoots);
-      if (escape !== null) return { ok: false, policy: 'pathScope', reason: escape };
+      if (escape !== null) return policyDeny('pathScope', escape);
     }
     return verdict;
   }
@@ -260,8 +334,27 @@ export class ApprovalGate {
       this.events.onResolved({ runId: w.runId, stage: w.stage, requestId: w.requestId }, decision);
       w.resolve(decision);
     }
-    for (const k of [...this.autoStages]) {
-      if (k.startsWith(`${runId}:`)) this.autoStages.delete(k);
+    for (const k of [...this.autoRules.keys()]) {
+      if (k.startsWith(`${runId}:`)) this.autoRules.delete(k);
     }
+    this.bashFailures.delete(runId);
+  }
+
+  /**
+   * Обновляет счётчик подряд идущих провалов bash-команды этого прогона.
+   *
+   * Зовёт `Run.onToolResult` — единственное место обоих флоу, которое узнаёт исход ПОСЛЕ
+   * исполнения; `request()` выше решает ДО исполнения и исхода знать не может. Успех или
+   * другая команда обнуляют счётчик: зацикливание — это одна и та же команда N раз подряд,
+   * не N провалов вперемешку с другими попытками.
+   */
+  recordBashResult(runId: string, command: string, ok: boolean): void {
+    if (ok) {
+      this.bashFailures.delete(runId);
+      return;
+    }
+    const prev = this.bashFailures.get(runId);
+    const count = prev !== undefined && prev.command === command ? prev.count + 1 : 1;
+    this.bashFailures.set(runId, { command, count });
   }
 }

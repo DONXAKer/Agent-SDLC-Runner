@@ -5,14 +5,14 @@
  * чужие правки оператора.
  */
 
+import { detectBuildSystem } from '../src/gates/ecosystems/index.ts';
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  detectBuildSystem,
   diffLines,
+  moduleDirsFromPlan,
   invariantViolations,
-  moduleDirFromPlan,
   publishProblems,
   scopeViolations,
 } from '../src/gates/builtin/logic.ts';
@@ -24,7 +24,7 @@ const ROOT = 'D:/work/proj';
 
 describe('детект build-системы', () => {
   it('gradle wrapper предпочитается системному gradle', () => {
-    strictEqual(detectBuildSystem(set('gradlew', 'build.gradle'), null)?.build.includes('./gradlew'), true);
+    strictEqual(detectBuildSystem(set('gradlew', 'build.gradle'), null)?.build?.includes('./gradlew'), true);
   });
 
   // Регрессия: `npx tsc --noEmit` тянет tsc из сети и падает, если его нет локально,
@@ -52,23 +52,28 @@ describe('детект build-системы', () => {
 describe('каталог модуля выводится из плана', () => {
   const isModule = (d: string): boolean => d === 'vscode-extension' || d === 'frontend';
 
+  // Проверки те же, что охраняли снятый `moduleDirFromPlan`: он вернул одиночный модуль и
+  // был ложным зелёным в моно-репо по построению, но выстраданные им регрессии остаются.
+  const first = (plan: string[], mod: (d: string) => boolean): string | null =>
+    moduleDirsFromPlan(plan, mod)[0] ?? null;
+
   // Регрессия: перебор подкаталогов по алфавиту брал frontend/, тогда как правки шли
   // в vscode-extension/ — гейт зеленел, не проверив ничего по существу.
   it('берётся модуль правки, а не первый по алфавиту', () => {
-    strictEqual(moduleDirFromPlan(['vscode-extension/src/a.ts'], isModule), 'vscode-extension');
+    strictEqual(first(['vscode-extension/src/a.ts'], isModule), 'vscode-extension');
   });
 
   it('поднимается вверх до ближайшего манифеста', () => {
-    strictEqual(moduleDirFromPlan(['vscode-extension/src/deep/b.ts'], isModule), 'vscode-extension');
+    strictEqual(first(['vscode-extension/src/deep/b.ts'], isModule), 'vscode-extension');
   });
 
   it('корень берётся, только если модуля по плану не нашлось', () => {
-    strictEqual(moduleDirFromPlan(['docs/x.md'], (d) => d === '.'), '.');
-    strictEqual(moduleDirFromPlan(['docs/x.md'], () => false), null);
+    strictEqual(first(['docs/x.md'], (d) => d === '.'), '.');
+    strictEqual(first(['docs/x.md'], () => false), null);
   });
 
   it('windows-разделители в плане не мешают', () => {
-    strictEqual(moduleDirFromPlan(['vscode-extension\\src\\a.ts'], isModule), 'vscode-extension');
+    strictEqual(first(['vscode-extension\\src\\a.ts'], isModule), 'vscode-extension');
   });
 });
 
@@ -102,7 +107,16 @@ describe('scope: файлы вне плана', () => {
 });
 
 describe('анти-обход тест-гейта', () => {
-  const diff = (body: string): string => `diff --git a/x b/x\n+++ b/src/FooTest.java\n${body}`;
+  // Настоящая граница тела hunk'а — счётчики `@@ -a,b +c,d @@`, а не факт присутствия
+  // `+++`-строки: `diffLines` разбирает патч так же, как весь остальной unified diff в
+  // кодовой базе (`server/src/diff/parse.ts`), и без честного заголовка тело для нашего
+  // разбора не начинается вовсе — счёт строится по самому body.
+  const diff = (body: string): string => {
+    const lines = body.split('\n').filter((l) => l !== '');
+    const dels = lines.filter((l) => l.startsWith('-')).length;
+    const adds = lines.filter((l) => l.startsWith('+')).length;
+    return `diff --git a/x b/x\n+++ b/src/FooTest.java\n@@ -1,${dels} +1,${adds} @@\n${body}`;
+  };
 
   it('добавленное отключение теста ловится', () => {
     const v = invariantViolations(diff('+    @Disabled("чиню позже")\n'), []);
@@ -128,7 +142,8 @@ describe('анти-обход тест-гейта', () => {
   });
 
   it('секрет в diff ловится в любом файле, не только в коде', () => {
-    const d = 'diff --git a/x b/x\n+++ b/deploy/config.yaml\n+  api_key: "sk-abcdefghijklmnop1234"\n';
+    const d =
+      'diff --git a/x b/x\n+++ b/deploy/config.yaml\n@@ -1,0 +1,1 @@\n+  api_key: "sk-abcdefghijklmnop1234"\n';
     strictEqual(invariantViolations(d, [])[0]?.kind, 'secret-in-diff');
   });
 

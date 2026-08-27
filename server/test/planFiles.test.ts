@@ -1,9 +1,20 @@
-import { deepStrictEqual } from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+import { readFileSync, existsSync} from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+/**
+ * Эталон методологии — чужой каталог на машине оператора (`methodologyDir`/`skillsDir` из
+ * конфига), и на другой машине его просто нет. Такие кейсы ПРОПУСКАЮТСЯ с названной
+ * причиной, а не остаются вечно красными: набор, красный по умолчанию, приучает себя
+ * игнорировать, и настоящая регрессия в нём не видна. Там, где эталон есть, они работают
+ * как раньше. Герметичный двойник для сборки промпта — `promptEcosystem.test.ts`.
+ */
+function нетЭталона(dir: string): string | false {
+  return existsSync(dir) ? false : `нет эталона методологии на этой машине: ${dir}`;
+}
 
-import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
+
+import { appendScopeExtension, extractFilesToTouch } from '../src/artifacts/planFiles.ts';
 import { loadConfig } from '../src/config/load.ts';
 
 describe('files_to_touch', () => {
@@ -59,7 +70,54 @@ describe('files_to_touch', () => {
     deepStrictEqual(extractFilesToTouch(plan), []);
   });
 
-  it('живой пример методологии разбирается целиком', () => {
+  it('appendScopeExtension дописывает путь после «Добавлено сверх разведки»', () => {
+    const plan = [
+      '## files_to_touch',
+      '| Путь | Что делаем |',
+      '|---|---|',
+      '| `src/a.java` | правим |',
+      '',
+      '- **Добавлено сверх разведки:** нет',
+      '- **Из задачи исключено:** нет',
+      '',
+      '## Дальше',
+    ].join('\n');
+    const updated = appendScopeExtension(plan, 'src/extra.java', 'расширено на этапе chunk · Иван · 2026-08-23 — понадобился под claim-3');
+    ok(updated !== null);
+    ok(updated.includes('src/extra.java'));
+    // Дописанный путь обязан реально попасть в allowlist — не просто лечь строкой в файл,
+    // а быть виден тому же парсеру, который читает files_to_touch для PlanScope.
+    deepStrictEqual(extractFilesToTouch(updated), ['src/a.java', 'src/extra.java']);
+  });
+
+  it('appendScopeExtension — null, если в plan.md нет строки «Добавлено сверх разведки»', () => {
+    const plan = '## files_to_touch\n| `src/a.java` | правим |\n';
+    strictEqual(appendScopeExtension(plan, 'src/extra.java', 'причина'), null);
+  });
+
+  it('appendScopeExtension — вторая запись встаёт ПОСЛЕ первой, не между маркером и ней', () => {
+    // Регресс на LIFO: раньше каждая вставка матчила статичный маркер, а не последнюю уже
+    // добавленную строку, и порядок в plan.md получался обратным хронологии одобрений.
+    const plan = [
+      '## files_to_touch',
+      '| `src/a.java` | правим |',
+      '',
+      '- **Добавлено сверх разведки:** нет',
+      '- **Из задачи исключено:** нет',
+    ].join('\n');
+    const afterFirst = appendScopeExtension(plan, 'src/first.java', 'первая');
+    ok(afterFirst !== null);
+    const afterSecond = appendScopeExtension(afterFirst, 'src/second.java', 'вторая');
+    ok(afterSecond !== null);
+
+    const firstAt = afterSecond.indexOf('src/first.java');
+    const secondAt = afterSecond.indexOf('src/second.java');
+    ok(firstAt >= 0 && secondAt >= 0);
+    ok(firstAt < secondAt, `порядок должен быть хронологическим: first=${firstAt}, second=${secondAt}`);
+    deepStrictEqual(extractFilesToTouch(afterSecond), ['src/a.java', 'src/first.java', 'src/second.java']);
+  });
+
+  it('живой пример методологии разбирается целиком', { skip: нетЭталона(loadConfig().runner.methodologyDir) }, () => {
     const cfg = loadConfig();
     const example = join(cfg.runner.methodologyDir, 'example', 'plan.md');
     const files = extractFilesToTouch(readFileSync(example, 'utf8'));
