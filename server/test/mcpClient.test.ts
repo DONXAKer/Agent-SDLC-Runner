@@ -163,6 +163,38 @@ describe('MCP: свёртка ответа', () => {
     ok(out.text.includes('изображение'));
   });
 
+  it('провал в конверте ответа не считается успехом', () => {
+    // Наблюдение с живого сервера WarCard при выключенном редакторе: `isError` он не
+    // ставит, а провал объявляет полем внутри JSON. Записать это успехом значило бы
+    // отдать в ленту витка тихий успех.
+    const out = foldContent({
+      content: [
+        {
+          type: 'text',
+          text: '{"ok": false, "error": {"message": "No Unreal connection"}, "success": false}',
+        },
+      ],
+    });
+    strictEqual(out.ok, false);
+    // Текст модели отдаётся как есть: причину она обязана прочитать целиком.
+    ok(out.text.includes('No Unreal connection'));
+  });
+
+  it('обычный успешный конверт успехом и остаётся', () => {
+    const out = foldContent({ content: [{ type: 'text', text: '{"ok": true, "exists": false}' }] });
+    strictEqual(out.ok, true);
+  });
+
+  it('не-JSON и вложенные поля разбором не трогаются', () => {
+    // Узкое правило: только весь ответ целиком и только верхний уровень. «ok: false»
+    // внутри данных — это данные, а не статус вызова.
+    strictEqual(foldContent({ content: [{ type: 'text', text: 'ok: false' }] }).ok, true);
+    strictEqual(
+      foldContent({ content: [{ type: 'text', text: '{"data": {"ok": false}}' }] }).ok,
+      true,
+    );
+  });
+
   it('пустой ответ называется пустым, а не выглядит успехом без содержимого', () => {
     const out = foldContent({ content: [] });
     ok(out.ok);

@@ -107,7 +107,37 @@ export function foldContent(
 
   const text = parts.join('\n').trim();
   return {
-    ok: result.isError !== true,
+    ok: result.isError !== true && !envelopeFailed(text),
     text: text === '' ? 'сервер вернул пустой ответ' : text,
   };
+}
+
+/**
+ * Провал, объявленный внутри текста ответа, а не флагом `isError`.
+ *
+ * Наблюдение с живого сервера WarCard: при выключенном редакторе `pie_status` возвращает
+ * конверт с `"ok": false` и текстом «No Unreal connection», но `isError` не ставит — и
+ * неудачный вызов приезжал бы в ленту витка успехом. Модель причину прочитает (текст
+ * отдаётся как есть), а вот рантайм записал бы тихий успех, от которого этот сервис
+ * защищается везде.
+ *
+ * Правило нарочно узкое: весь ответ целиком — объект JSON, и булево поле `ok` или
+ * `success` ВЕРХНЕГО уровня равно `false`. Ни поиска подстрок, ни разбора вложенного:
+ * там `ok` — это уже данные инструмента («ассета нет»), а не статус вызова, и трактовать
+ * их формы мы права не имеем.
+ */
+function envelopeFailed(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return false;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return false;
+
+  const env = parsed as { ok?: unknown; success?: unknown };
+  return env.ok === false || env.success === false;
 }
