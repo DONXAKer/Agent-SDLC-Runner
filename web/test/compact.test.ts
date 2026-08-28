@@ -39,6 +39,8 @@ function req(requestId: string, over: Partial<ToolRequestEvent> = {}): ToolReque
     policy: { ok: true },
     preview: null,
     writeTargets: null,
+    destructive: null,
+    createdAt: 0,
     ...over,
   };
 }
@@ -78,6 +80,8 @@ function pendingApproval(requestId: string, over: Partial<PendingApproval> = {})
     policy: { ok: true },
     preview: null,
     writeTargets: null,
+    destructive: null,
+    createdAt: 0,
     ...over,
   };
 }
@@ -196,10 +200,10 @@ describe('очередь решений mergePending', () => {
 describe('сводки', () => {
   it('счётчики гейтов покрывают все статусы и сходятся с длиной входа', () => {
     const results = [
-      { name: 'a', status: '✅', command: null, exitCode: null, lastLine: '', durationMs: 0 },
-      { name: 'b', status: '❌', command: null, exitCode: 1, lastLine: '', durationMs: 0 },
-      { name: 'c', status: '⏭', command: null, exitCode: null, lastLine: '', durationMs: 0 },
-      { name: 'd', status: '✅', command: null, exitCode: 0, lastLine: '', durationMs: 0 },
+      { name: 'a', status: '✅', command: null, exitCode: null, lastLine: '', durationMs: 0, envBlocked: false },
+      { name: 'b', status: '❌', command: null, exitCode: 1, lastLine: '', durationMs: 0, envBlocked: false },
+      { name: 'c', status: '⏭', command: null, exitCode: null, lastLine: '', durationMs: 0, envBlocked: false },
+      { name: 'd', status: '✅', command: null, exitCode: 0, lastLine: '', durationMs: 0, envBlocked: false },
     ] as const;
     const counts = gateSummary([...results]);
     strictEqual(

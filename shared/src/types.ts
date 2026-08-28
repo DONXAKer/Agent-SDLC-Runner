@@ -575,6 +575,13 @@ export type RunEvent =
        * пропадало бы ровно в тот момент, когда оператор решает быстрее всего.
        */
       destructive: string | null;
+      /**
+       * Когда запрос встал в очередь (epoch ms сервера). По той же причине, что и
+       * `destructive` выше: пока поле жило только в ответе `GET /api/runs/:id`, карточка
+       * из живой ленты не имела возраста ВСЁ время ожидания — `refresh()` по событиям,
+       * которых при стоящем на одобрении агенте не бывает, его не приносил.
+       */
+      createdAt: number;
     }
   | { type: 'tool_resolved'; runId: string; stage: StageId; requestId: string; decision: Decision }
   | {

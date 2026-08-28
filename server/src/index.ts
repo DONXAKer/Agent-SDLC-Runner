@@ -90,6 +90,7 @@ const gate = new ApprovalGate({
       preview: p.preview,
       writeTargets: p.writeTargets,
       destructive: p.destructive,
+      createdAt: p.createdAt,
     }),
   onResolved: (info, decision) =>
     emit({
@@ -115,6 +116,7 @@ const askGate = new AskGate({
       preview: null,
       writeTargets: null,
       destructive: null,
+      createdAt: p.createdAt,
     }),
   onAnswered: (info, answers) =>
     emit({
@@ -372,6 +374,7 @@ app.get('/api/runs/:id', async (req, reply) => {
   const { run, currentStage } = live;
   const detail: RunDetail = {
     runId: run.id,
+    serverNow: Date.now(),
     slug: run.slug,
     project: run.project.name,
     projectRoot: run.project.projectRoot,

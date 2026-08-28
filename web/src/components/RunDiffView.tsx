@@ -124,11 +124,16 @@ export const RunDiffView = memo(function RunDiffView({
         <>
           <div className="border-b border-neutral-900 px-3 py-2 text-xs">
             <ul className="space-y-0.5 font-mono text-[11px]">
-              {diff.files.map((f) => (
-                <li key={f.path} className={f.inPlan ? 'text-neutral-400' : 'text-amber-300'}>
-                  {f.inPlan ? '·' : '!'} {f.path}
-                </li>
-              ))}
+              {/* Файлы вне плана — наверху, как и в компактном списке: жёлтая строка в
+                  конце алфавита тонула в длинном списке, и нарушение scope замечалось
+                  только по красному гейту этапа 6, а не до него. */}
+              {[...diff.files]
+                .sort((a, b) => Number(a.inPlan) - Number(b.inPlan))
+                .map((f) => (
+                  <li key={f.path} className={f.inPlan ? 'text-neutral-400' : 'text-amber-300'}>
+                    {f.inPlan ? '·' : '!'} {f.path}
+                  </li>
+                ))}
             </ul>
           </div>
 

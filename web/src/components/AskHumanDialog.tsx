@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import type { Question } from '@sdlc-runner/shared';
 import { allQuestionsAnswered } from '../lib/askAnswers.ts';
+import { fmtWaitedFor } from '../lib/format.ts';
 
 /**
  * Вопрос человеку. Отдельно от одобрения вызова: там человек разрешает уже сформированное
@@ -10,10 +11,16 @@ import { allQuestionsAnswered } from '../lib/askAnswers.ts';
 export function AskHumanDialog({
   requestId,
   questions,
+  createdAt,
+  serverNow,
   onAnswer,
 }: {
   requestId: string;
   questions: Question[];
+  /** Когда вопрос задан. Возраст показывается тем же форматом, что у одобрений, — иначе
+   * «старейшее ждёт 2 ч» в шапке очереди не сопоставить с карточками глазами. */
+  createdAt: number | null;
+  serverNow: number;
   onAnswer: (requestId: string, answers: Record<string, string[]>) => void;
 }): JSX.Element {
   const [picked, setPicked] = useState<Record<string, string[]>>({});
@@ -48,7 +55,12 @@ export function AskHumanDialog({
 
   return (
     <div className="rounded-lg border border-sky-700/60 bg-sky-950/20 p-4">
-      <h3 className="mb-3 font-medium text-sky-200">Агент спрашивает</h3>
+      <div className="mb-3 flex items-baseline justify-between gap-4">
+        <h3 className="font-medium text-sky-200">Агент спрашивает</h3>
+        {createdAt !== null ? (
+          <span className="text-xs text-sky-400/80">ждёт {fmtWaitedFor(createdAt, serverNow)}</span>
+        ) : null}
+      </div>
 
       <div className="space-y-5">
         {questions.map((q) => (

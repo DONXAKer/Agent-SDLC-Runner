@@ -22,11 +22,19 @@ export interface PendingCall {
   preview: DiffPreview | null;
   /** Предупреждение о перезаписи с потерей содержимого. `null` — потери нет. */
   destructive: string | null;
+  /**
+   * Когда запрос встал в очередь (epoch ms сервера). `null` возможен только у события из
+   * старой ленты на диске, записанной до появления поля, — живые источники (ответ сервера
+   * и событие `tool_request`) несут его всегда.
+   */
+  createdAt: number | null;
 }
 
 export interface PendingAsk {
   requestId: string;
   questions: Question[];
+  /** То же, что у одобрений. */
+  createdAt: number | null;
 }
 
 /**
@@ -61,17 +69,27 @@ export function mergePending(
       policy: p.policy,
       preview: p.preview,
       destructive: p.destructive,
+      createdAt: p.createdAt,
     });
   }
   for (const q of detail?.pendingQuestions ?? []) {
-    asks.set(q.requestId, { requestId: q.requestId, questions: q.questions });
+    asks.set(q.requestId, {
+      requestId: q.requestId,
+      questions: q.questions,
+      createdAt: q.createdAt,
+    });
   }
 
   for (const e of events) {
     if (e.type !== 'tool_request') continue;
+    // `?? null` — на случай ленты, записанной сервером до появления поля в событии.
     if (e.call.kind === 'ask_human') {
       if (!answered.has(e.requestId)) {
-        asks.set(e.requestId, { requestId: e.requestId, questions: e.call.questions });
+        asks.set(e.requestId, {
+          requestId: e.requestId,
+          questions: e.call.questions,
+          createdAt: e.createdAt ?? null,
+        });
       }
     } else if (!resolved.has(e.requestId)) {
       approvals.set(e.requestId, {
@@ -81,6 +99,7 @@ export function mergePending(
         policy: e.policy,
         preview: e.preview,
         destructive: e.destructive,
+        createdAt: e.createdAt ?? null,
       });
     }
   }
@@ -93,7 +112,8 @@ export function mergePending(
 
 /**
  * Сколько карточек ждёт человека в очереди решений — одна формула для заголовка самой
- * очереди и для бейджа вкладки «Сейчас», иначе они расходятся при любой правке одного места.
+ * очереди и для машины фокуса (`computeNowFocus`), иначе они расходятся при любой правке
+ * одного места.
  */
 export function decisionQueueCount(
   asks: PendingAsk[],

@@ -26,6 +26,14 @@ export const BADGE_TONE = {
   red: 'border-red-800 text-red-300',
 } as const;
 
+/**
+ * Вторичная кнопка-«обводка». Ровно та копипаста, ради которой выше вынесены
+ * `PANEL_TONE`/`BADGE_TONE`: класс уже разошёлся по десятку файлов, новые места обязаны
+ * брать его отсюда.
+ */
+export const BTN_SECONDARY =
+  'rounded border border-neutral-700 text-neutral-300 hover:bg-neutral-800';
+
 /** Тон панели вердикта — одно правило для карточки этапа и строки в ленте. */
 export function verdictTone(passed: boolean): string {
   return passed ? PANEL_TONE.ok : PANEL_TONE.fail;

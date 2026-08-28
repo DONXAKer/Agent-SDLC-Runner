@@ -1,23 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { EventStream } from '../components/EventStream.tsx';
-import { AttemptsPanel } from '../components/AttemptsPanel.tsx';
-import { GatePanel } from '../components/GatePanel.tsx';
-import { McpPanel } from '../components/run/McpPanel.tsx';
 import { RunDiffView } from '../components/RunDiffView.tsx';
 import { StageRail } from '../components/StageRail.tsx';
 import { AdvanceBar } from '../components/run/AdvanceBar.tsx';
-import { CollapsibleSection } from '../components/run/CollapsibleSection.tsx';
+import { ContextColumn, ContextPanels, DrawerButtons } from '../components/run/ContextColumn.tsx';
+import type { DrawerKind } from '../components/run/ContextColumn.tsx';
 import { DecisionQueue } from '../components/run/DecisionQueue.tsx';
+import { Drawer } from '../components/run/Drawer.tsx';
 import { FocusSection } from '../components/run/FocusSection.tsx';
 import { LiveProgress } from '../components/run/LiveProgress.tsx';
 import { PromptColumn } from '../components/run/PromptColumn.tsx';
 import { RunHeader } from '../components/run/RunHeader.tsx';
 import { RunMetricsPanel } from '../components/run/RunMetricsPanel.tsx';
 import { RunSummaryStrip } from '../components/run/RunSummaryStrip.tsx';
-import type { RunTab } from '../components/run/RunTabs.tsx';
-import { RunTabs } from '../components/run/RunTabs.tsx';
-import { StageArtifacts } from '../components/run/StageArtifacts.tsx';
 import { VerdictCard } from '../components/run/VerdictCard.tsx';
 import { api } from '../lib/api.ts';
 import type {
@@ -25,6 +21,7 @@ import type {
   Decision,
   PreparedPrompt,
   RunDetail,
+  RunEvent,
   StageId,
 } from '@sdlc-runner/shared';
 import { AUTO_APPROVE_OFF, describeCall } from '@sdlc-runner/shared';
@@ -32,7 +29,7 @@ import { groupEvents } from '../lib/eventGroups.ts';
 import { computeNowFocus } from '../lib/nowFocus.ts';
 import { decisionQueueCount, mergePending } from '../lib/pending.ts';
 import { suggestedStage } from '../lib/stageProgress.ts';
-import { PANEL_TONE } from '../lib/tones.ts';
+import { BTN_SECONDARY, PANEL_TONE } from '../lib/tones.ts';
 import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
 
@@ -60,9 +57,16 @@ export function RunPage({
   const [error, setError] = useState<string | null>(null);
   /** Отмена прогона спрашивается вторым кликом: бюджет уже потрачен, отменить отмену нельзя. */
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [tab, setTab] = useState<RunTab>('now');
-  /** Один флаг на все секции вкладки «Ход» — вместо отдельного выбора по каждой. */
-  const [progressExpanded, setProgressExpanded] = useState(true);
+  /** Открытая поверх экрана полная поверхность: лента, дифф витка, метрики или контекст. */
+  const [drawer, setDrawer] = useState<DrawerKind | null>(null);
+  // Этап с диффом — одно вычисление на обе точки кнопок (колонка и узкая панель): пока
+  // условие было записано дважды, правка одного места разводила широкий и узкий экраны.
+  const diffStage = stage === 'verify' || stage === 'chunk';
+  // Панель диффа привязана к этапу так же, как её кнопка: смена этапа закрывает её,
+  // иначе она жила бы открытой там, где эта поверхность не предлагается.
+  useEffect(() => {
+    if (drawer === 'diff' && !diffStage) setDrawer(null);
+  }, [drawer, diffStage]);
   /**
    * Правила автоодобрения. Живут до конца этапа: сервер снимает их в `finally` запуска, и
    * обещать здесь большее (например «на весь виток») значило бы обещать не своё.
@@ -90,12 +94,21 @@ export function RunPage({
    * то есть на мгновение разблокировался запуск посреди работающего этапа.
    */
   const refreshGen = useRef(0);
+  /**
+   * Поправка часов клиент−сервер, снятая В МОМЕНТ ответа. Считать её при рендере от
+   * лежалого `detail` нельзя: staleness ответа читалась бы как уход часов, и возраст
+   * ожидания замирал бы на времени последнего refresh.
+   */
+  const clockOffsetMs = useRef(0);
   const refresh = useCallback(() => {
     const gen = ++refreshGen.current;
     api
       .run(runId)
       .then((d) => {
-        if (gen === refreshGen.current) setDetail(d);
+        if (gen === refreshGen.current) {
+          clockOffsetMs.current = Date.now() - d.serverNow;
+          setDetail(d);
+        }
       })
       .catch((e: Error) => setError(e.message));
   }, [runId]);
@@ -164,32 +177,34 @@ export function RunPage({
   // Строк в ленте после схлопывания троек tool_request→resolved→result меньше, чем сырых
   // событий: сводка «N событий» обязана называть то же число, что видно после разворота.
   const stageEventItems = useMemo(() => groupEvents(stageEvents), [stageEvents]);
-  // warning тонет в свёрнутой ленте так же, как гейт или очередь решений: держим секцию
-  // на виду, пока в текущей ленте есть хоть один непоказанный предупреждающий сигнал.
-  const hasWarning = stageEvents.some((e) => e.type === 'warning');
+  // warning не должен тонуть в закрытой ленте: его текст выталкивается на экран янтарной
+  // полосой в центре (см. рендер), а не только меткой ⚠ на кнопке — раньше это делала
+  // авторазворачивающаяся секция ленты, и потерять сигнал значит идти этапом без сервера,
+  // о недоступности которого прогон честно предупредил.
+  const warnings = useMemo(
+    () => stageEvents.filter((e): e is Extract<RunEvent, { type: 'warning' }> => e.type === 'warning'),
+    [stageEvents],
+  );
+  const hasWarning = warnings.length > 0;
 
-  /**
-   * Итоги гейтов — только из ответа сервера.
-   *
-   * Собирать их из ленты событий нельзя: `gate_result` копится за все попытки витка, а
-   * рантайм на новой попытке свои итоги честно обнуляет (`resetAttemptState`) — клиент,
-   * реконструирующий таблицу из ленты, показывал бы зелёные гейты попытки, которая ещё не
-   * запускалась. Ровно этот дефект на сервере уже чинили. Свежесть даёт `refresh()` по
-   * событию `gate_result`: рантайм копит итоги по одному, поэтому перечитанный ответ
-   * действительно новее предыдущего.
-   */
-  const gateResults = detail?.gateResults ?? [];
+  // Красный вердикт — тоже «виток стоит и ждёт человека», хотя это не decision-слот и не
+  // запрос от агента; без него ни счётчик в заголовке вкладки, ни уведомление о красном
+  // вердикте не срабатывали вовсе.
+  const verdictNeedsAction = detail !== null && detail.verdict !== null && !detail.verdict.passed;
 
   /** Всё, что стоит и ждёт человека прямо сейчас, — вход для оповещений и счётчика. */
   const waiting = useMemo(
     () => [
+      ...(verdictNeedsAction
+        ? [{ id: 'verdict-red', text: 'красный вердикт — виток стоит и ждёт решения' }]
+        : []),
       ...asks.map((a) => ({
         id: a.requestId,
         text: a.questions[0]?.question ?? 'вопрос от агента',
       })),
       ...approvals.map((p) => ({ id: p.requestId, text: describeCall(p.call) })),
     ],
-    [asks, approvals],
+    [asks, approvals, verdictNeedsAction],
   );
 
   const alerts = useOperatorAlerts({
@@ -326,9 +341,27 @@ export function RunPage({
     }
   };
 
-  const resolveApproval = (requestId: string, decision: Decision): void => {
-    void api.resolveApproval(runId, requestId, decision).catch((e: Error) => setError(e.message));
-  };
+  /**
+   * В useCallback — иначе keydown-эффект очереди решений пересоздаёт подписку на каждый
+   * рендер страницы, то есть на каждое событие ленты.
+   *
+   * Повторное решение по уже закрытому запросу — двойной клик, вторая вкладка, шорткат
+   * до обновления очереди — штатный исход, а не ошибка: сервер отвечает «запрос уже
+   * разрешён или устарел», и красный баннер здесь сообщал бы об успехе тоном поломки.
+   * Достаточно перечитать состояние.
+   */
+  const resolveApproval = useCallback(
+    (requestId: string, decision: Decision): void => {
+      void api.resolveApproval(runId, requestId, decision).catch((e: Error) => {
+        if (e.message.includes('уже разрешён')) {
+          refresh();
+          return;
+        }
+        setError(e.message);
+      });
+    },
+    [runId, refresh],
+  );
 
   const decide = async (granted: boolean): Promise<void> => {
     const d = stageInfo?.decision;
@@ -384,10 +417,6 @@ export function RunPage({
   // предусловие следующего этапа.
   const decision =
     stageInfo?.decision != null && !stageInfo.decisionRecorded ? stageInfo.decision : null;
-  // Красный вердикт — тоже повод заглянуть на «Сейчас»: виток стоит и ждёт «Новая
-  // попытка»/«Следующий chunk»/«Обрыв», хотя это не decision-слот и не запрос от агента.
-  const verdictNeedsAction = detail.verdict !== null && !detail.verdict.passed;
-  const nowCount = decisionQueueCount(asks, approvals, decision) + (verdictNeedsAction ? 1 : 0);
 
   // Что на «Сейчас» главное — считает чистая машина фокуса; здесь только рендер по ней.
   const focus = computeNowFocus({
@@ -398,6 +427,26 @@ export function RunPage({
   });
   const stageTitle = (id: StageId): string =>
     detail.stages.find((s) => s.id === id)?.title ?? id;
+
+  // Панель закрывает очередь целиком и съедает её видимость — второй сигнал ждущих
+  // решений лежит поверх неё. Спред-объект вместо `banner={undefined}` — требование
+  // exactOptionalPropertyTypes.
+  const nowCount = decisionQueueCount(asks, approvals, decision) + (verdictNeedsAction ? 1 : 0);
+  const drawerBanner =
+    nowCount === 0
+      ? {}
+      : {
+          banner: (
+            <button
+              type="button"
+              onClick={() => setDrawer(null)}
+              className="flex w-full items-center gap-2 border-b border-amber-900/60 bg-amber-950/30 px-4 py-2 text-left text-xs text-amber-300 hover:bg-amber-950/50"
+            >
+              <span className="rounded bg-amber-900/60 px-1.5 py-0.5 text-amber-200">{nowCount}</span>
+              Ждут решения — закрыть панель
+            </button>
+          ),
+        };
 
   return (
     <div className="flex h-full flex-col">
@@ -423,181 +472,147 @@ export function RunPage({
             </div>
           ) : null}
 
-          <RunTabs tab={tab} onSelect={setTab} nowCount={nowCount} />
-
-          {/* Вкладки «Ход»/«Метрики» размонтируют очередь решений вместе с «Сейчас» —
-              бейдж на неактивной вкладке легко потерять боковым зрением, а браузерные
-              уведомления decision-слот не покрывают (useOperatorAlerts.ts). Баннер —
-              второй, более настойчивый сигнал того же nowCount, а не новый источник. */}
-          {tab !== 'now' && nowCount > 0 ? (
+          {/* Узкий экран: правая колонка контекста скрыта, её содержимое и полные
+              поверхности открываются отсюда — панель «Контекст» держит гейты и MCP
+              достижимыми на любой ширине. */}
+          <div className="mb-3 flex gap-2 lg:hidden">
+            <DrawerButtons
+              eventRows={stageEventItems.length}
+              hasWarning={hasWarning}
+              diffStage={diffStage}
+              onOpen={setDrawer}
+            />
             <button
               type="button"
-              onClick={() => setTab('now')}
-              className="mb-3 flex w-full items-center gap-2 rounded border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-left text-xs text-amber-300 hover:bg-amber-950/40"
+              onClick={() => setDrawer('context')}
+              className={`${BTN_SECONDARY} flex-1 px-2 py-1.5 text-xs`}
             >
-              <span className="rounded bg-amber-900/60 px-1.5 py-0.5 text-amber-200">{nowCount}</span>
-              Ждёт решения на вкладке «Сейчас» → перейти
+              Контекст
             </button>
-          ) : null}
+          </div>
 
-          {tab === 'now' ? (
-            <div className="space-y-4">
-              {/* Очередь решений не заворачивается в FocusSection никогда: «молчание
-                  одобрением не считается» держится на видимости карточек. Пустая очередь
-                  рендерит null сама. */}
-              <DecisionQueue
-                asks={asks}
-                approvals={approvals}
-                decision={decision}
-                decisionNote={decisionNote}
-                onNoteChange={setDecisionNote}
-                onDecide={(granted) => void decide(granted)}
-                onAnswer={answer}
-                onResolve={resolveApproval}
-              />
-
-              {/* Красный вердикт в фокусе показывается прямо здесь (и не сворачивается),
-                  а не только на «Ходе»: виток стоит, и причина обязана быть перед глазами
-                  рядом с кнопками продвижения. На «Ходе» карточка остаётся как была. */}
-              {focus.kind === 'verdict-red' && detail.verdict !== null ? (
-                <VerdictCard
-                  verdict={detail.verdict}
-                  escalation={detail.escalation}
-                  redCause={detail.redCause}
-                />
-              ) : null}
-
-              {detail.stage !== null ? (
-                <FocusSection
-                  title={`Выполняется: ${stageTitle(detail.stage)}`}
-                  focused={focus.kind === 'running'}
-                  summary={<span className="text-amber-400">этап идёт</span>}
-                >
-                  <LiveProgress events={runningEvents} onOpenFull={() => setTab('progress')} />
-                </FocusSection>
-              ) : null}
-
-              <FocusSection
-                title={`Запрос к модели — ${stageTitle(stage)}`}
-                focused={focus.kind === 'prepare' || focus.kind === 'finished'}
-                summary={
-                  blockers.length > 0
-                    ? `этап заблокирован (${blockers.length})`
-                    : prompt === null
-                      ? 'промпт не собран'
-                      : 'промпт собран'
-                }
-              >
-                <PromptColumn
-                  stage={stage}
-                  prompt={prompt}
-                  blockers={blockers}
-                  uiBusy={uiBusy}
-                  busyReason={busyReason}
-                  autoRules={autoRules}
-                  onAutoRulesChange={setAutoRules}
-                  requirement={requirement}
-                  onRequirementChange={setRequirement}
-                  onBuild={() => void build()}
-                  onRun={(p) => void run(p)}
-                />
-              </FocusSection>
-
-              <AdvanceBar
-                attempt={detail.attempt}
-                attemptBudget={detail.attemptBudget}
-                uiBusy={uiBusy}
-                abortBlockers={abortBlockers}
-                prominent={focus.kind === 'verdict-red'}
-                onAdvance={(to) => void advance(to)}
-                onAbort={() => void abortWitok()}
-              />
-            </div>
-          ) : null}
-
-          {tab === 'progress' ? (
-            <section className="min-w-0">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-medium">Ход этапа</h2>
-                <button
-                  type="button"
-                  onClick={() => setProgressExpanded((v) => !v)}
-                  className="rounded border border-neutral-700 px-2 py-0.5 text-xs text-neutral-300 hover:bg-neutral-800"
-                >
-                  {progressExpanded ? 'Свернуть всё' : 'Развернуть всё'}
-                </button>
+          <div className="space-y-4">
+            {/* Текст предупреждений — на экране, а не за кликом: см. комментарий у
+                `warnings` выше. Показываются последние, самые свежие. */}
+            {hasWarning ? (
+              <div className={`rounded border p-3 text-xs text-amber-200 ${PANEL_TONE.warn}`}>
+                {warnings.slice(-3).map((w, i) => (
+                  <div key={i}>⚠ {w.message}</div>
+                ))}
               </div>
+            ) : null}
 
-              <CollapsibleSection
-                title="Лента событий"
-                compact={!progressExpanded}
-                defaultOpen={progressExpanded || hasWarning}
-                alert={hasWarning}
-                summary={
-                  <>
-                    <span className="text-neutral-500">{stageEventItems.length} строк</span>
-                    {hasWarning ? <span className="ml-2 text-amber-400">· есть предупреждение</span> : null}
-                  </>
-                }
-              >
-                <div className="max-h-[70vh] overflow-auto bg-neutral-950 p-3">
-                  <EventStream events={stageEvents} />
-                </div>
-              </CollapsibleSection>
+            {/* Очередь решений не заворачивается в FocusSection никогда: «молчание
+                одобрением не считается» держится на видимости карточек. Пустая очередь
+                рендерит null сама. */}
+            <DecisionQueue
+              asks={asks}
+              approvals={approvals}
+              decision={decision}
+              decisionNote={decisionNote}
+              clockOffsetMs={clockOffsetMs.current}
+              suspended={drawer !== null}
+              onNoteChange={setDecisionNote}
+              onDecide={(granted) => void decide(granted)}
+              onAnswer={answer}
+              onResolve={resolveApproval}
+            />
 
-              {/* Гейты стоят перед вердиктом и на экране: вердикт считается по этой
-                  таблице, и читать их в обратном порядке — читать вывод раньше входа.
-                  Условие по этапу то же, что у вердикта: гейты прогоняются на `verify` и
-                  под лентой `plan` читались бы как «план провалил сборку». */}
-              {stage === 'verify' ? (
-                <GatePanel
-                  results={gateResults}
-                  aborted={detail.gatesAborted}
-                  compact={!progressExpanded}
-                />
-              ) : null}
-
-              {/* Серверы MCP — рядом с гейтами, а не отдельной вкладкой: это наблюдение
-                  за прогоном, и недоступный сервер надо видеть там же, где упавший гейт. */}
-              <McpPanel
-                servers={detail.mcpServers}
-                stage={detail.mcpStage}
-                compact={!progressExpanded}
+            {/* Вердикт в центре и не сворачивается: красный — потому что виток стоит и
+                причина обязана быть рядом с кнопками продвижения (по verdictNeedsAction
+                напрямую, а не по focus.kind: порядок веток машины фокуса не должен молча
+                прятать карточку); на verify — потому что это главный вход решения
+                оператора, и прятать его — прятать смысл этапа 6. */}
+            {detail.verdict !== null && (verdictNeedsAction || stage === 'verify') ? (
+              <VerdictCard
+                verdict={detail.verdict}
+                escalation={detail.escalation}
+                redCause={detail.redCause}
               />
+            ) : null}
 
-              {/* Патч попытки — там же, где его чинят и где по нему судят. */}
-              {stage === 'verify' || stage === 'chunk' ? (
-                <RunDiffView runId={runId} compact={!progressExpanded} />
-              ) : null}
+            {detail.stage !== null ? (
+              <FocusSection
+                title={`Выполняется: ${stageTitle(detail.stage)}`}
+                focused={focus.kind === 'running'}
+                summary={<span className="text-amber-400">этап идёт</span>}
+              >
+                <LiveProgress events={runningEvents} onOpenFull={() => setDrawer('events')} />
+              </FocusSection>
+            ) : null}
 
-              {/* Попытки видны и на chunk, и на verify: чинят на первом, а решают по
-                  второму, и история нужна на обоих. */}
-              {stage === 'verify' || stage === 'chunk' ? (
-                <AttemptsPanel
-                  iterations={detail.iterations}
-                  attemptBudget={detail.attemptBudget}
-                  closenessWarn={detail.progressClosenessWarn}
-                  compact={!progressExpanded}
-                />
-              ) : null}
+            <FocusSection
+              title={`Запрос к модели — ${stageTitle(stage)}`}
+              focused={focus.kind === 'prepare' || focus.kind === 'finished'}
+              summary={
+                blockers.length > 0
+                  ? `этап заблокирован (${blockers.length})`
+                  : prompt === null
+                    ? 'промпт не собран'
+                    : 'промпт собран'
+              }
+            >
+              <PromptColumn
+                stage={stage}
+                prompt={prompt}
+                blockers={blockers}
+                uiBusy={uiBusy}
+                busyReason={busyReason}
+                autoRules={autoRules}
+                onAutoRulesChange={setAutoRules}
+                requirement={requirement}
+                onRequirementChange={setRequirement}
+                onBuild={() => void build()}
+                onRun={(p) => void run(p)}
+              />
+            </FocusSection>
 
-              {/* Вердикт не сворачивается никогда: это главный вход решения оператора, и
-                  прятать его — прятать сам смысл этапа 6. */}
-              {detail.verdict !== null && stage === 'verify' ? (
-                <VerdictCard
-                  verdict={detail.verdict}
-                  escalation={detail.escalation}
-                  redCause={detail.redCause}
-                />
-              ) : null}
-
-              {stageInfo !== null ? <StageArtifacts produces={stageInfo.produces} /> : null}
-            </section>
-          ) : null}
-
-          {tab === 'metrics' ? <RunMetricsPanel detail={detail} /> : null}
+            <AdvanceBar
+              attempt={detail.attempt}
+              attemptBudget={detail.attemptBudget}
+              uiBusy={uiBusy}
+              abortBlockers={abortBlockers}
+              prominent={focus.kind === 'verdict-red'}
+              onAdvance={(to) => void advance(to)}
+              onAbort={() => void abortWitok()}
+            />
+          </div>
         </main>
+
+        <ContextColumn
+          detail={detail}
+          stage={stage}
+          diffStage={diffStage}
+          eventRows={stageEventItems.length}
+          hasWarning={hasWarning}
+          onOpenDrawer={setDrawer}
+        />
       </div>
+
+      {drawer === 'events' ? (
+        <Drawer title="Лента событий" onClose={() => setDrawer(null)} {...drawerBanner}>
+          <EventStream events={stageEvents} precomputed={stageEventItems} />
+        </Drawer>
+      ) : null}
+      {/* Патч попытки доступен с обоих diff-этапов: чинят по нему на chunk, судят на
+          verify — история нужна на обоих. */}
+      {drawer === 'diff' ? (
+        <Drawer title="Diff витка" onClose={() => setDrawer(null)} {...drawerBanner}>
+          <RunDiffView runId={runId} compact={false} />
+        </Drawer>
+      ) : null}
+      {drawer === 'metrics' ? (
+        <Drawer title="Метрики витка" onClose={() => setDrawer(null)} {...drawerBanner}>
+          <RunMetricsPanel detail={detail} />
+        </Drawer>
+      ) : null}
+      {drawer === 'context' ? (
+        <Drawer title="Контекст этапа" onClose={() => setDrawer(null)} {...drawerBanner}>
+          <div className="space-y-3">
+            <ContextPanels detail={detail} stage={stage} diffStage={diffStage} />
+          </div>
+        </Drawer>
+      ) : null}
     </div>
   );
 }

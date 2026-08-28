@@ -201,13 +201,25 @@ function PlainEvent({ e }: { e: RunEvent }): JSX.Element | null {
   }
 }
 
-export function EventStream({ events }: { events: RunEvent[] }): JSX.Element {
+export function EventStream({
+  events,
+  precomputed,
+}: {
+  events: RunEvent[];
+  /**
+   * Уже сгруппированные строки, когда вызывающий посчитал их сам (RunPage считает ради
+   * счётчика на кнопке): без этого одна и та же лента группировалась дважды на каждый
+   * батч событий, а число на кнопке совпадало с лентой по совпадению реализаций, а не
+   * по построению.
+   */
+  precomputed?: EventItem[];
+}): JSX.Element {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [events.length]);
 
-  const items = useMemo(() => groupEvents(events), [events]);
+  const items = useMemo(() => precomputed ?? groupEvents(events), [events, precomputed]);
   // Раскрытые группы — по requestId и без localStorage: лента живая, помнить нечего.
   const [expanded, toggle] = useToggleSet();
 

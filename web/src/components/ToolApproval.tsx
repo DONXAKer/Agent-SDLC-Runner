@@ -5,6 +5,7 @@ import { DiffView } from './DiffView.tsx';
 // Тип живёт в lib, а не здесь: его использует чистая `mergePending`, которую тесты
 // исполняют Node'ом напрямую, а `.tsx` Node без сборки не читает.
 import type { PendingCall } from '../lib/pending.ts';
+import { fmtWaitedFor } from '../lib/format.ts';
 import { PANEL_TONE } from '../lib/tones.ts';
 
 export type { PendingCall };
@@ -38,20 +39,40 @@ const POLICY_LABEL: Record<string, string> = {
 
 export function ToolApproval({
   pending,
+  serverNow,
+  onEditingChange,
   onResolve,
 }: {
   pending: PendingCall;
+  /** Серверное «сейчас» тикающего таймера очереди — для возраста ожидания. */
+  serverNow: number;
+  /**
+   * Открыта ли правка аргументов — очереди это знание нужно, чтобы заглушить шорткат
+   * одобрения: A с открытой правкой одобрял бы ИСХОДНЫЕ аргументы, молча выбросив draft.
+   */
+  onEditingChange: (editing: boolean) => void;
   onResolve: (requestId: string, decision: Decision) => void;
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => JSON.stringify(pending.rawInput, null, 2));
   const blocked = !pending.policy.ok;
+  const toggleEditing = (): void => {
+    setEditing((v) => {
+      onEditingChange(!v);
+      return !v;
+    });
+  };
 
   return (
     <div className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-4">
       <div className="mb-2 flex items-baseline justify-between gap-4">
         <h3 className="font-medium text-amber-200">{title(pending.call)}</h3>
-        <span className="font-mono text-xs text-neutral-500">{pending.requestId.slice(0, 12)}</span>
+        <span className="flex items-baseline gap-3 text-xs">
+          {pending.createdAt !== null ? (
+            <span className="text-amber-400/80">ждёт {fmtWaitedFor(pending.createdAt, serverNow)}</span>
+          ) : null}
+          <span className="font-mono text-neutral-500">{pending.requestId.slice(0, 12)}</span>
+        </span>
       </div>
 
       {blocked && !pending.policy.ok ? (
@@ -130,7 +151,7 @@ export function ToolApproval({
           </button>
           <button
             type="button"
-            onClick={() => setEditing((v) => !v)}
+            onClick={toggleEditing}
             className="rounded border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800"
           >
             {editing ? 'Скрыть аргументы' : 'Править аргументы'}

@@ -132,6 +132,12 @@ export interface PendingApproval {
    * записано в событии, — иначе панель и журнал говорили бы разное об одном вызове.
    */
   destructive: string | null;
+  /**
+   * Когда запрос встал в очередь (epoch ms). Интерфейс показывает по нему возраст
+   * ожидания: виток многочасовой, и «ждёт 40 минут» — сигнал оператору, которого
+   * «ждёт» без числа не даёт.
+   */
+  createdAt: number;
 }
 
 export interface PendingQuestions {
@@ -139,6 +145,8 @@ export interface PendingQuestions {
   stage: StageId;
   requestId: string;
   questions: Question[];
+  /** Когда вопрос задан (epoch ms) — по той же причине, что у одобрений. */
+  createdAt: number;
 }
 
 /**
@@ -202,6 +210,13 @@ export interface IterationSummary {
 
 export interface RunDetail extends RunSummary {
   projectRoot: string;
+  /**
+   * Часы сервера в момент ответа (epoch ms). Возраст ожидания решений считается от
+   * `createdAt`, проставленного сервером, — вычитать из него клиентское `Date.now()`
+   * значит показывать рассинхрон часов как «ждёт 20 мин» на свежем запросе. Клиент
+   * выводит поправку `Date.now() - serverNow` и применяет её к каждому возрасту.
+   */
+  serverNow: number;
   routes: Record<StageId, RouteInfo>;
   attemptBudget: number;
   maxBudgetUsd: number;

@@ -18,3 +18,14 @@ export function fmtTokens(n: number): string {
 // пост-виток отчёт в `handoff.md`.
 export const fmtCost = (usage: Usage): string => formatCost(usage);
 export const fmtDuration = formatDuration;
+
+/**
+ * Возраст ожидания решения. Грубее `fmtDuration` намеренно: секунды здесь — шум,
+ * который заставлял бы строку мигать при каждом тике таймера.
+ */
+export function fmtWaitedFor(createdAt: number, now: number): string {
+  const min = Math.floor(Math.max(0, now - createdAt) / 60_000);
+  if (min < 1) return 'меньше минуты';
+  if (min < 60) return `${min} мин`;
+  return `${Math.floor(min / 60)} ч ${min % 60} мин`;
+}
