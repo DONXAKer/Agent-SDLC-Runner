@@ -45,6 +45,7 @@
   },
 
   "// profiles": "Профиль переводит весь виток целиком. Внутри профиля модель настраивается на каждом этапе. Флоу выводится из провайдера, отдельной настройки нет.",
+  "// profiles.alltokens-cheap": "Дешёвая облачная замена Claude через агрегатор alltokens.ru. Исполнитель этапа 5 и этапы 1–4 — Flash-модель фронтир-класса за копейки; рецензент этапа 6 строго сильнее (правило рецензента). Требует ALLTOKENS_API_KEY в окружении. id моделей сверены с каталогом — см. заметку в config/models.json.",
   "profiles": {
     "claude": {
       "label": "Claude (Max-подписка)",
@@ -69,6 +70,19 @@
         "chunk":   "ollama:qwen2.5-coder:7b-ctx16k",
         "verify":  "ollama:qwen2.5:14b-ctx16k",
         "handoff": "ollama:qwen3.5:4b-ctx16k"
+      }
+    },
+
+    "alltokens-cheap": {
+      "label": "alltokens.ru (дёшево, без подписки)",
+      "stages": {
+        "intent":  "alltokens:deepseek-v4-flash",
+        "explore": "alltokens:deepseek-v4-flash",
+        "ask":     "alltokens:deepseek-v4-flash",
+        "plan":    "alltokens:deepseek-v4-flash",
+        "chunk":   "alltokens:deepseek-v4-flash",
+        "verify":  "alltokens:glm-5.3",
+        "handoff": "alltokens:deepseek-v4-flash"
       }
     }
   }

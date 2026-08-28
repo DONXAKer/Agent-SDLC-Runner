@@ -12,7 +12,11 @@
     "ollama":     { "flow": "loop", "kind": "openai-compat", "baseUrl": "http://localhost:11434/v1", "swapsModels": true },
     "vllm":       { "flow": "loop", "kind": "openai-compat", "baseUrl": "http://host.docker.internal:8003/v1", "swapsModels": false },
     "lmstudio":   { "flow": "loop", "kind": "openai-compat", "baseUrl": "http://localhost:1234/v1", "swapsModels": true },
-    "openrouter": { "flow": "loop", "kind": "openai-compat", "baseUrl": "https://openrouter.ai/api/v1", "swapsModels": true }
+    "openrouter": { "flow": "loop", "kind": "openai-compat", "baseUrl": "https://openrouter.ai/api/v1", "swapsModels": true },
+    "// alltokens": "Российский openai-совместимый агрегатор (оплата в рублях). Тот же класс, что openrouter: облако, ключ обязателен (ALLTOKENS_API_KEY), tool-calling заявлен. swapsModels здесь не про выгрузку локальной модели, а формальность зеркала openrouter — облако модель не подгружает. Точные id моделей ниже сверяй запросом GET /api/v1/models с ключом: имена в каталоге и id в API различаются. ЗАМЕЧЕНО 2026-08-28: chat/completions флапает — plain-запросы то 200, то 500, а запросы С `tools` (их раннер шлёт всегда) давали 500 в 4/4 попытках на трёх моделях. Апстримы децентрализованные («Io Net»). Для прогона ненадёжен — см. polza ниже.",
+    "alltokens":  { "flow": "loop", "kind": "openai-compat", "baseUrl": "https://api.alltokens.ru/api/v1", "swapsModels": true },
+    "// polza": "Российский openai-совместимый агрегатор (polza.ai, оплата в рублях, 394 модели). ПРОВЕРЕНО 2026-08-28: endpoint здоров (быстрый ответ, не флапает как alltokens), запрос С `tools` принимается и оценивается — tool-calling держит. Ключ POLZA_API_KEY в окружении, провайдер платный (см. PAID в registry.ts). Минимум ~1 ₽ резерва на запрос: без баланса отдаёт 402.",
+    "polza":      { "flow": "loop", "kind": "openai-compat", "baseUrl": "https://api.polza.ai/api/v1", "swapsModels": true }
   },
 
   "models": [
@@ -26,6 +30,10 @@
     { "// окно": "Прогон обкатки: на «голом» теге ollama даёт 4096, и этап сгорает на промпте — 2050 вход + 2046 выход = ровно окно, без единого вызова инструмента. Поэтому в профилях только теги с зашитым num_ctx.",
       "id": "ollama:qwen3.5:4b-ctx16k",       "provider": "ollama", "model": "qwen3.5:4b-ctx16k",       "rank": 20 },
     { "id": "ollama:qwen2.5-coder:7b-ctx16k", "provider": "ollama", "model": "qwen2.5-coder:7b-ctx16k", "rank": 30 },
+    { "id": "ollama:qwen2.5-coder:7b-ctx32k", "provider": "ollama", "model": "qwen2.5-coder:7b-ctx32k", "rank": 30 },
+    { "// вызов инструментов": "Дообучены на агентные вызовы, а не на текст кода: проверка гипотезы, что порог этапа 5 лежит именно здесь.",
+      "id": "ollama:cline_roocode:8b-ctx16k", "provider": "ollama", "model": "cline_roocode:8b-ctx16k", "rank": 30 },
+    { "id": "ollama:hermes3:8b-ctx16k",       "provider": "ollama", "model": "hermes3:8b-ctx16k",       "rank": 30 },
     { "id": "ollama:qwen3:8b-ctx16k",         "provider": "ollama", "model": "qwen3:8b-ctx16k",        "rank": 32 },
     { "id": "ollama:qwen3.5:9b-ctx16k",       "provider": "ollama", "model": "qwen3.5:9b-ctx16k",       "rank": 35 },
     { "id": "ollama:qwen2.5:14b-ctx16k",      "provider": "ollama", "model": "qwen2.5:14b-ctx16k",      "rank": 40 },
@@ -36,6 +44,19 @@
     { "id": "lmstudio:qwen3.6-35b-a3b-opus-distill", "provider": "lmstudio", "model": "qwen3.6-35b-a3b-claude-4.6-opus-reasoning-distilled",      "rank": 65 },
 
     { "id": "vllm:Qwen/Qwen3-8B-AWQ", "provider": "vllm", "model": "Qwen/Qwen3-8B-AWQ", "rank": 30 },
-    { "id": "vllm:Qwen/Qwen3-4B-AWQ", "provider": "vllm", "model": "Qwen/Qwen3-4B-AWQ", "rank": 20 }
+    { "id": "vllm:Qwen/Qwen3-4B-AWQ", "provider": "vllm", "model": "Qwen/Qwen3-4B-AWQ", "rank": 20 },
+
+    { "// alltokens": "Дешёвая облачная замена Claude. Отбор — не «дёшево вообще», а «дёшево И надёжно в агентных вызовах»: журнал docs/model-runs.md показал, что порог этапа 5 — способность звать инструменты, а не размер. Flash-варианты (ранг 68–70) в исполнители этапа 5 и этапы 1–4; старшие (80–82) в рецензенты этапа 6 — правило рецензент>исполнитель требует строгого превосходства ранга. Поле model — id из каталога провайдера (формат `<вендор>/<модель>`), сверено через GET /api/v1/models 2026-08-28: все пять существуют и заявляют tools=true. Цены (₽/М вход·выход): flash 4/13, 4/17, 10/32; старшие 79/237, 168/527. Живой tool-call ещё не гонялся — см. протокол docs/model-runs.md.",
+      "id": "alltokens:deepseek-v4-flash", "provider": "alltokens", "model": "deepseek/deepseek-v4-flash-0731", "rank": 70 },
+    { "id": "alltokens:qwen3.7-flash",   "provider": "alltokens", "model": "qwen/qwen3.7-flash",              "rank": 68 },
+    { "id": "alltokens:glm-5.3-flash",   "provider": "alltokens", "model": "z-ai/glm-5.3-flash",             "rank": 69 },
+    { "id": "alltokens:deepseek-v4-pro", "provider": "alltokens", "model": "deepseek/deepseek-v4-pro-0813",  "rank": 80 },
+    { "id": "alltokens:glm-5.3",         "provider": "alltokens", "model": "z-ai/glm-5.3",                    "rank": 82 },
+
+    { "// локальные кандидаты через облако": "Открытые модели, которые в перспективе идут локально на 16–24 ГБ, но обкатываются сперва через облако — дёшево проверить поведение в раннере до покупки GPU. qwen3-30b-a3b-instruct: MoE ~3B активных, ~17–20 ГБ Q4 (24 ГБ целиком), tools=true. См. docs/model-runs.md, ось «локальные кандидаты». Через alltokens давал 500 (флап апстрима); тот же id через polza — рабочая проба.",
+      "id": "alltokens:qwen3-30b-a3b",   "provider": "alltokens", "model": "qwen/qwen3-30b-a3b-instruct-2507", "rank": 55 },
+    { "id": "polza:qwen3-30b-a3b",       "provider": "polza",     "model": "qwen/qwen3-30b-a3b-instruct-2507", "rank": 55 },
+    { "id": "polza:qwen3-32b",           "provider": "polza",     "model": "qwen/qwen3-32b",                    "rank": 58 },
+    { "id": "polza:gpt-oss-20b",         "provider": "polza",     "model": "openai/gpt-oss-20b",                "rank": 52 }
   ]
 }
