@@ -91,9 +91,13 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
     // поставить ✅ — только ⏭: её код возврата свидетельствует о среде, а не о предмете
     // гейта». Раньше такая команда давала ❌ и роняла вердикт по причине, к работе витка
     // отношения не имеющей.
-    // Три причины «не запустился» и одна «запустился и упал» — их и различает вердикт.
-    const envBlocked = r.denied !== null || r.timedOut || toolMissing(r.exitCode, r.lastLine);
-    const status: GateStatus = envBlocked ? '⏭' : r.exitCode === 0 ? '✅' : '❌';
+    // Средой считается ТОЛЬКО отсутствие инструмента. Таймаут — свойство самой команды
+    // (её можно ускорить или поднять лимит), а отказ оператора — решение человека; ни то,
+    // ни другое не «чинится на другой машине», и подмешивать их сюда значит объявлять
+    // окружением всё, что не дошло до кода возврата.
+    const envBlocked = toolMissing(r.exitCode, r.lastLine);
+    const status: GateStatus =
+      r.denied !== null || r.timedOut || envBlocked ? '⏭' : r.exitCode === 0 ? '✅' : '❌';
     return {
       name: row.name,
       status,
@@ -128,13 +132,14 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
   }
 
   const outcome = await builtin(ctx);
-  // Встроенная реализация сама различает «нечем проверять» и «проверил, не сошлось»:
-  // её `⏭` с нулевым кодом — отсутствие условий для проверки, то есть та же среда.
+  // Признак среды берётся у исхода дословно: встроенная реализация знает, почему она не
+  // смогла проверить, а восстанавливать это снаружи по паре «статус + код» — способ
+  // разойтись молча (и он разошёлся: «найдены дубли хелперов» метилось как поломка машины).
   return {
     name: row.name,
     ...outcome,
     durationMs: Date.now() - started,
-    envBlocked: outcome.status === '⏭' && outcome.exitCode === null,
+    envBlocked: outcome.envBlocked ?? false,
   };
 }
 
@@ -143,6 +148,28 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
  * а сборка и тесты ещё и конкурируют за память. Выигрыш от параллельности здесь мнимый,
  * а взаимные помехи — настоящие.
  */
+/**
+ * Прогон ОДНОЙ строки набора по имени — тем же путём, что и весь набор на этапе 6.
+ *
+ * Нужен этапу 5, который записывает улику о тестах. Пока он звал `BUILTIN.get('Тесты')`
+ * напрямую, он обходил приоритет команды из набора: проект, объявивший «Тесты» как
+ * `./gradlew test`, получал в улике результат встроенного автодетекта — другой прогон,
+ * другой каталог, иногда «тест-раннер не обнаружен». Файл при этом назывался «запись
+ * рантайма о фактическом прогоне тестов этой попытки».
+ *
+ * `null` — строки с таким именем в наборе нет либо она выключена.
+ */
+export async function runGateByName(
+  name: string,
+  i: RunGatesInput,
+  ctx: GateContext,
+): Promise<GateRunResult | null> {
+  const key = gateKey(name);
+  const row = i.gates.rows.find((r) => gateKey(r.name) === key && r.enabled);
+  if (row === undefined) return null;
+  return runOne(row, i, ctx);
+}
+
 export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
   // Готовим песочницу проекта ДО первого гейта — если у проекта есть `.sdlc/sandbox.json`,
   // «Сборка»/«Тесты» пойдут внутрь неё прозрачно через `runShell` (см. `sandbox/registry.ts`).

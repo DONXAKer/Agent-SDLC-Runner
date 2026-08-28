@@ -65,6 +65,17 @@ export interface BuiltinOutcome {
   command: string | null;
   exitCode: number | null;
   lastLine: string;
+  /**
+   * Гейт не смог ЗАПУСТИТЬСЯ по причине, лежащей в машине: нет инструмента, нет
+   * зависимостей, нет docker'а. Умолчание — `false`, и это важно: «проверять нечего»
+   * (`⏭` без плана, без git-репозитория, без изменённых файлов) средой НЕ является —
+   * это дефект набора или конфигурации, чинится правкой, а не другой машиной.
+   *
+   * Признак ставит тот, кто знает причину. Прежде он выводился снаружи эвристикой
+   * `⏭ && exitCode === null`, и она метила как «поломку машины» находку «похоже на
+   * переписанный хелпер — нужен ответ человека», а настоящий сбой git — не метила.
+   */
+  envBlocked?: boolean;
 }
 
 export type BuiltinGate = (ctx: GateContext) => Promise<BuiltinOutcome>;
@@ -570,6 +581,7 @@ async function testOne(
       lastLine:
         `в ${mod.dir} тест-раннер не обнаружен — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ. Пункты приёмки, ` +
         'проверяемые только тестом, остаются неподтверждёнными.',
+      envBlocked: true,
     };
   }
   if (system.depsDir !== null && !existsSync(join(ctx.projectRoot, mod.dir, system.depsDir))) {
@@ -578,6 +590,8 @@ async function testOne(
       command: system.test,
       exitCode: null,
       lastLine: `в ${mod.dir} нет ${system.depsDir} — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ (зависимости не установлены)`,
+      // Среда: чинится установкой зависимостей, а не правкой кода витка.
+      envBlocked: true,
     };
   }
 
@@ -933,6 +947,83 @@ const duplicatesGate: BuiltinGate = async (ctx) => {
   };
 };
 
+const untrackedGate: BuiltinGate = async (ctx) => {
+  if (!(await isRepo(ctx.projectRoot))) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: `${ctx.projectRoot} не git-репозиторий — нетракованные файлы НЕ проверялись`,
+    };
+  }
+
+  // `-- .` ограничивает вывод текущим каталогом и печатает пути относительно него: в
+  // монорепо, где projectRoot — подкаталог, без этого в отчёт приезжали бы чужие файлы.
+  const res = await git(
+    ['ls-files', '--others', '--exclude-standard', '--', '.'],
+    ctx.projectRoot,
+    ctx.signal,
+  );
+
+  if (res.code !== 0) {
+    return {
+      status: '⏭',
+      command: 'git ls-files --others --exclude-standard',
+      exitCode: res.code,
+      lastLine: `git не смог перечислить нетракованные файлы: ${res.stderr.trim() || 'без вывода'}`,
+      // Единственный случай среды в этом гейте: сам git не отработал. «Не репозиторий»
+      // средой не является — это конфигурация проекта, чинится не другой машиной.
+      envBlocked: true,
+    };
+  }
+
+  // База chunk'а вычитается ровно по той же причине, что и в scope-гейте: файл, лежавший
+  // в дереве ДО начала витка, — чужая незакоммиченная работа, а не выход исполнителя за
+  // план. Без вычитания гейт краснел на каждой попытке от чужого лога, который исполнитель
+  // не может ни завести в git, ни удалить: файл не его и вне `files_to_touch`.
+  const before = ctx.baseline;
+  const preexisting: string[] = [];
+
+  const untracked = res.stdout
+    .split('\n')
+    .map((l) => l.trim().replace(/\\/g, '/'))
+    .filter((l) => l !== '')
+    .filter((l) => !l.startsWith('.sdlc/'))
+    .filter((l) => {
+      if (before === null || !before.has(l)) return true;
+      preexisting.push(l);
+      return false;
+    });
+
+  /** Названная вслух чужая грязь: молча выкинутый файл читается как «его не было». */
+  const baselineNote =
+    preexisting.length === 0
+      ? ''
+      : `\nиз базы chunk'а (не работа этапа), не считается: ${preexisting.slice(0, 5).join(', ')}` +
+        `${preexisting.length > 5 ? ` и ещё ${preexisting.length - 5}` : ''}`;
+
+  if (untracked.length === 0) {
+    return {
+      status: '✅',
+      command: 'git ls-files --others --exclude-standard',
+      exitCode: 0,
+      lastLine: `нетракованных файлов вне .sdlc/ нет${baselineNote}`,
+    };
+  }
+
+  return {
+    status: '❌',
+    command: 'git ls-files --others --exclude-standard',
+    exitCode: 1,
+    // Перечень, а не число: «3 файла» оператор проверить не может, а имена — может.
+    lastLine:
+      `нетракованных файлов вне .sdlc/: ${untracked.length}\n` +
+      untracked.map((p) => `  ${p}`).join('\n') +
+      '\nкаждый обязан быть либо заведён в git, либо назван в .gitignore' +
+      baselineNote,
+  };
+};
+
 /**
  * «Scope: пути плана без правок» — сверка в обратную сторону.
  *
@@ -960,60 +1051,6 @@ const duplicatesGate: BuiltinGate = async (ctx) => {
  * молча. Артефакты витка исключены по той же причине, что и в соседних scope-гейтах: они
  * сопровождение работы, а не её предмет.
  */
-const untrackedGate: BuiltinGate = async (ctx) => {
-  if (!(await isRepo(ctx.projectRoot))) {
-    return {
-      status: '⏭',
-      command: null,
-      exitCode: null,
-      lastLine: `${ctx.projectRoot} не git-репозиторий — нетракованные файлы НЕ проверялись`,
-    };
-  }
-
-  // `-- .` ограничивает вывод текущим каталогом и печатает пути относительно него: в
-  // монорепо, где projectRoot — подкаталог, без этого в отчёт приезжали бы чужие файлы.
-  const res = await git(
-    ['ls-files', '--others', '--exclude-standard', '--', '.'],
-    ctx.projectRoot,
-    ctx.signal,
-  );
-
-  if (res.code !== 0) {
-    return {
-      status: '⏭',
-      command: 'git ls-files --others --exclude-standard',
-      exitCode: res.code,
-      lastLine: `git не смог перечислить нетракованные файлы: ${res.stderr.trim() || 'без вывода'}`,
-    };
-  }
-
-  const untracked = res.stdout
-    .split('\n')
-    .map((l) => l.trim().replace(/\\/g, '/'))
-    .filter((l) => l !== '')
-    .filter((l) => !l.startsWith('.sdlc/'));
-
-  if (untracked.length === 0) {
-    return {
-      status: '✅',
-      command: 'git ls-files --others --exclude-standard',
-      exitCode: 0,
-      lastLine: 'нетракованных файлов вне .sdlc/ нет',
-    };
-  }
-
-  return {
-    status: '❌',
-    command: 'git ls-files --others --exclude-standard',
-    exitCode: 1,
-    // Перечень, а не число: «3 файла» оператор проверить не может, а имена — может.
-    lastLine:
-      `нетракованных файлов вне .sdlc/: ${untracked.length}\n` +
-      untracked.map((p) => `  ${p}`).join('\n') +
-      '\nкаждый обязан быть либо заведён в git, либо назван в .gitignore',
-  };
-};
-
 const planCoverageGate: BuiltinGate = async (ctx) => {
   if (!(await isRepo(ctx.projectRoot))) {
     return {

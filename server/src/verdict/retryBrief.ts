@@ -41,7 +41,7 @@ export function buildRetryBrief(
 ): string | null {
   const sections: string[] = [];
 
-  const failedClaims = input.claims.filter((c) => c.status !== '✅');
+  const failedClaims = input.claims.filter((c) => c.status !== '✅' && c.status !== 'manual');
   if (failedClaims.length > 0) {
     sections.push(
       'Пункты приёмки, которые не закрыты:',

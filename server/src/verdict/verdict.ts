@@ -125,38 +125,44 @@ function nonStatusReasons(i: VerdictInput): string[] {
  * причину которого исполнитель может закрыть повторной попыткой в том же
  * `files_to_touch`.
  */
+/**
+ * Единственная ли причина красного — гейты, которые не смогли запуститься.
+ *
+ * Проверяются ВСЕ поля, из которых складывается `passed`: перечисление здесь обязано
+ * оставаться полным, поэтому оно и написано перечислением, а не выборкой «важного».
+ * Гейт со статусом `⏭` без подписи неприменимости тоже роняет вердикт — но если он в
+ * списке `blocked`, его красноту объясняет среда.
+ */
+function onlyBlockedGatesAreRed(
+  i: VerdictInput,
+  blocked: readonly { name: string }[],
+): boolean {
+  const blockedNames = new Set(blocked.map((g) => g.name));
+  const otherGateRed = i.gates.some((g) => {
+    if (blockedNames.has(g.name)) return false;
+    if (g.status === '❌') return true;
+    return g.status === '⏭' && g.inapplicableSignedBy === null;
+  });
+
+  return (
+    !otherGateRed &&
+    !i.claims.some((c) => c.status === '❌' || c.status === '⚠') &&
+    i.confirmedReviewFindings === 0 &&
+    i.brokenInvariants.length === 0 &&
+    i.regressions.length === 0 &&
+    i.plannedPathsUntouched.length === 0 &&
+    i.openDebtRows.length === 0 &&
+    i.enabledGatesMissingFromReport.length === 0 &&
+    i.diffMatchesTree
+  );
+}
+
 function decideAction(
   i: VerdictInput,
   passed: boolean,
   disagreements: readonly string[],
 ): { action: VerdictAction; why: string[] } {
   if (passed) return { action: 'continue', why: [] };
-
-  // Красный из-за окружения — раньше всех прочих разборов. Условие узкое намеренно: ни один
-  // гейт не провалился по существу (`❌`), а всё, что уронило вердикт, — гейты, которые не
-  // смогли ЗАПУСТИТЬСЯ. Повторная попытка на этой машине даст ровно то же, поэтому и
-  // «доработать» здесь нечего: чинится среда, а номер попытки остаётся за следующей
-  // настоящей попыткой (`SDLC.md` → этап 6, «Красный из-за окружения»).
-  const blockedGates = i.gates.filter((g) => g.envBlocked === true && g.inapplicableSignedBy === null);
-  const failedGates = i.gates.filter((g) => g.status === '❌');
-  const claimsBad = i.claims.some((c) => c.status === '❌' || c.status === '⚠');
-  if (
-    blockedGates.length > 0 &&
-    failedGates.length === 0 &&
-    !claimsBad &&
-    i.confirmedReviewFindings === 0 &&
-    i.brokenInvariants.length === 0
-  ) {
-    return {
-      action: 'blocked_env',
-      why: [
-        `красный из-за окружения: не смогли запуститься гейты ${blockedGates
-          .map((g) => `«${g.name}»`)
-          .join(', ')}. Их код возврата свидетельствует о машине, а не о работе — ` +
-          'чинится среда, номер попытки не занят',
-      ],
-    };
-  }
 
   const why: string[] = [];
   if (i.noProgress) {
@@ -169,6 +175,28 @@ function decideAction(
     why.push(`бюджет попыток исчерпан: ${i.attempt} из ${i.attemptBudget}`);
   }
   if (why.length > 0) return { action: 'escalate', why };
+
+  // Красный из-за окружения — ПОСЛЕ остановок, а не до них. «Две попытки подряд дали один
+  // и тот же diff» и «бюджет исчерпан» — это остановки витка, и они старше вопроса о том,
+  // чем именно красный вызван: иначе устойчивый дефект среды делал бы эскалацию физически
+  // недостижимой, а виток крутился бы бесконечно.
+  //
+  // Условие полное: `passed` уже посчитан по ДЕСЯТИ причинам (`statusReasons` +
+  // `nonStatusReasons`), и объявлять «дело в машине» можно, только если ни одной причины,
+  // кроме незапустившихся гейтов, нет. Первая версия смотрела на пять из десяти и
+  // маскировала под окружение подделанный патч, регрессию и открытый долг набора.
+  const blocked = i.gates.filter((g) => g.envBlocked === true && g.inapplicableSignedBy === null);
+  if (blocked.length > 0 && onlyBlockedGatesAreRed(i, blocked)) {
+    return {
+      action: 'blocked_env',
+      why: [
+        `красный из-за окружения: не смогли запуститься гейты ${blocked
+          .map((g) => `«${g.name}»`)
+          .join(', ')}. Их код возврата свидетельствует о машине, а не о работе — ` +
+          'чинится среда, а не повторная попытка',
+      ],
+    };
+  }
 
   const cause = classifyRedVerdict(i, disagreements);
   if (cause !== null && cause.suggest !== 'fix-in-chunk') {

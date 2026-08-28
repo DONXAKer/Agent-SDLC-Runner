@@ -67,13 +67,14 @@ import type { GatesFile } from '../gates/gatesFile.ts';
 import { configProblems, gateKey, parseGates, uncalibratedGates, unimplementedGates } from '../gates/gatesFile.ts';
 import { builtinFor, describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
-import { runGates } from '../gates/run.ts';
-import { BUILTIN } from '../gates/builtin/index.ts';
-import type { GateContext } from '../gates/builtin/index.ts';
+import { runGateByName, runGates } from '../gates/run.ts';
+import { workingDiff } from '../gates/git.ts';
+import type { BuiltinGate, GateContext } from '../gates/builtin/index.ts';
 import { recordAttemptEvidence } from './evidence.ts';
+import type { TreeChange } from './evidence.ts';
 import { salvageBlocks } from './salvage.ts';
 import { preflightBlockers } from '../sandbox/preflight.ts';
-import { collectVerdictInput } from '../verdict/collect.ts';
+import { collectVerdictInput, manualClaimIds } from '../verdict/collect.ts';
 import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief } from '../verdict/retryBrief.ts';
@@ -318,13 +319,21 @@ export class Run {
   /** Счётчик спасённых из текста записей: идентификатор вызова обязан быть уникальным. */
   private salvageSeq = 0;
   /**
-   * Патч последней попытки этапа 5 пуст — дерево не изменилось.
+   * Что стало с деревом за последнюю попытку этапа 5.
    *
-   * Отдельным полем, потому что это ИСХОД этапа, а не предупреждение по ходу: пока он был
-   * только предупреждением, этап без единой правки заканчивался зелёным, если артефакты
-   * оказывались на месте, — а класть их на место стал сам рантайм.
+   * Три значения, а не булево: «не знаем» (запись улик упала) обязано отличаться от
+   * «правки были», иначе попытка с неизвестным состоянием дерева проходит как нормальная —
+   * ровно та дыра, ради закрытия которой улики и отобраны у агента.
    */
-  private chunkEmptyDiff = false;
+  private chunkTree: TreeChange = 'unknown';
+  /**
+   * Сколько попыток этого chunk'а закончились «красным из-за окружения».
+   *
+   * Вычитается из счётчика при сверке с бюджетом: методология требует, чтобы дефект среды
+   * не занимал попытку, а хранение этого через НЕувеличение номера стоило бы перезаписи
+   * улик предыдущей попытки. Сбрасывается вместе с номером на новом chunk'е.
+   */
+  private envBlockedAttempts = 0;
   /** Формы, разложенные под артефакты текущего этапа, — их называет промпт. */
   private seeded: string[] = [];
   /**
@@ -587,13 +596,15 @@ export class Run {
       this.lastVerdictInput === null
         ? null
         : buildRetryBrief(this.lastVerdictInput, this.lastGateResults);
-    // `blocked_env` номер попытки НЕ занимает: красный, причина которого — машина, а не
-    // работа, не должен съедать бюджет итераций. Методология говорит это дословно
-    // (`SDLC.md` → этап 6): следующая строка журнала получает тот же `K`. Артефакты
-    // предыдущей попытки при этом перезапишутся — и правильно: улик о работе там нет,
-    // гейты не запускались.
-    const envOnly = this.verdict?.action === 'blocked_env';
-    if (!envOnly) this.attempt += 1;
+    // Средовой красный не должен съедать бюджет итераций — но и переиспользовать номер
+    // попытки нельзя: на момент `blocked_env` этап 5 уже отработал, и по этому номеру лежат
+    // НАСТОЯЩИЕ улики (патч, запись о тестах, отчёт приёмки). Первая версия не увеличивала
+    // счётчик, и следующий проход затирал их — вопреки докстрингу этого же метода.
+    //
+    // Поэтому номер растёт всегда, а «не занимает попытку» реализовано вычетом: бюджет
+    // считается по попыткам, где работа действительно проверялась.
+    if (this.verdict?.action === 'blocked_env') this.envBlockedAttempts += 1;
+    this.attempt += 1;
     this.resetAttemptState();
     this.notePeakAttempt();
     return this.attempt;
@@ -603,6 +614,7 @@ export class Run {
   nextChunk(): number {
     this.chunk += 1;
     this.attempt = 1;
+    this.envBlockedAttempts = 0;
     // Новый chunk — другая работа: причины красного по прошлому к нему не относятся.
     this.carryForward = null;
     this.failedClaimsByAttempt = [];
@@ -739,23 +751,22 @@ export class Run {
     return [...base, ...extra];
   }
 
-  private countFriction(stage: StageId, kind: FrictionKind): void {
-    const cur = this.friction.get(stage) ?? EMPTY_FRICTION();
-    cur[kind] += 1;
-    this.friction.set(stage, cur);
-  }
-
   /**
-   * Вызов инструмента и напоминание стража — не трение, а фон, на котором трение читается.
+   * Счётчик строки трения. Один на все шесть полей.
    *
-   * Считаются в той же таблице по одной причине: «этап сделал ноль вызовов за пятнадцать
-   * минут» и «этап дважды получил напоминание и всё равно не заполнил артефакт» — это то,
-   * что оператор ищет в постмортеме первым, и разносить их по двум таблицам значило бы
-   * заставить его сверять две.
+   * Вызовы инструментов и напоминания стража — не трение, а фон, на котором трение
+   * читается: «ноль вызовов за пятнадцать минут» и «два напоминания и пустой артефакт» —
+   * это то, что оператор ищет в постмортеме первым. Раньше их считал отдельный метод с
+   * дословно тем же телом; двух одинаковых счётчиков не бывает долго — правка попадает
+   * в один и забывается в другом.
    */
-  private countStageFact(stage: StageId, kind: 'toolCalls' | 'reminders'): void {
+  private countFriction(stage: StageId, kind: FrictionKind | 'toolCalls'): void {
     const cur = this.friction.get(stage) ?? EMPTY_FRICTION();
-    cur[kind] += 1;
+    // `reminder` в событии — единственное число в таблице; поле названо во множественном
+    // («сколько напоминаний»), и переименовывать его в контракте ради совпадения с именем
+    // события значило бы сломать чтение метрик у клиента.
+    const field = kind === 'reminder' ? 'reminders' : kind;
+    cur[field] += 1;
     this.friction.set(stage, cur);
   }
 
@@ -1168,7 +1179,13 @@ export class Run {
         ctx: this.policyContext(stage),
       });
       if (!decision.allowed) continue;
-      writeArtifact(b.path, b.content);
+      // Правка оператора применяется, как на любом другом пути записи: он открыл карточку,
+      // исправил содержимое и одобрил ИСПРАВЛЕННОЕ. Игнорировать `updatedInput` здесь
+      // значило бы записать на диск не то, что он подтвердил, — при том что сообщение в
+      // журнал утверждает «записано через гейт одобрения».
+      const edited = (decision.updatedInput as Record<string, unknown> | null)?.['content'];
+      const content = typeof edited === 'string' ? edited : b.content;
+      writeArtifact(b.path, content);
       written.push(b.path);
     }
 
@@ -1182,11 +1199,14 @@ export class Run {
   /**
    * Патч и запись о тестах этой попытки — из фактов, а не из слов исполнителя.
    *
-   * Тесты гоняются тем же встроенным гейтом, что и на этапе 6: два способа «запустить
-   * тесты проекта» разошлись бы молча, а строка «Тесты» набора — единственное место, где
-   * проект сказал, чем они запускаются.
+   * Тесты гоняются ТОЙ ЖЕ строкой набора, что и на этапе 6, через `runGateByName`: два
+   * способа «запустить тесты проекта» расходятся молча, и они уже разошлись — проект с
+   * `./gradlew test` в наборе получал в улике результат встроенного автодетекта.
+   *
+   * Возвращает, что стало с деревом. `unknown` — посчитать не удалось; вызывающий обязан
+   * обойтись с этим как с провалом, а не как с «правки были».
    */
-  private async recordEvidence(): Promise<void> {
+  private async recordEvidence(diffBefore: string): Promise<TreeChange> {
     const gateCtx: GateContext = {
       projectRoot: this.project.projectRoot,
       planFiles: this.planFilesFor('chunk') ?? [],
@@ -1196,29 +1216,59 @@ export class Run {
       ...(this.aborter === null ? {} : { signal: this.aborter.signal }),
     };
 
-    // Сброс до попытки: иначе исход предыдущей («дерево не изменилось») пережил бы её и
-    // покрасил следующую, если запись улик не дошла до вычисления патча.
-    this.chunkEmptyDiff = false;
+    // Гейт «Тесты» берётся из НАБОРА проекта, а не из реестра встроенных: приоритет
+    // команды в обратных кавычках — правило `runOne`, и улика обязана его соблюдать.
+    const gates = this.gatesFile;
+    const runTests: BuiltinGate | null =
+      gates === null
+        ? null
+        : async (c: GateContext) => {
+            const r = await runGateByName('Тесты', {
+              gates,
+              projectRoot: this.project.projectRoot,
+              projectName: this.project.name,
+              planFiles: c.planFiles,
+              baseline: c.baseline,
+              timeoutMs: c.timeoutMs,
+              ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
+              ...(c.signal === undefined ? {} : { signal: c.signal }),
+            }, c);
+            if (r === null) {
+              return {
+                status: '⏭',
+                command: null,
+                exitCode: null,
+                lastLine: 'строки «Тесты» в наборе нет или она выключена — прогон не назначен',
+              };
+            }
+            return {
+              status: r.status,
+              command: r.command,
+              exitCode: r.exitCode,
+              lastLine: r.lastLine,
+              envBlocked: r.envBlocked,
+            };
+          };
 
     try {
-      const { diff, testsNote } = await recordAttemptEvidence({
+      const { tree, testsNote } = await recordAttemptEvidence({
         projectRoot: this.project.projectRoot,
         diffPath: this.paths.chunkDiff(this.chunk, this.attempt),
         testsPath: this.paths.chunkTests(this.chunk, this.attempt),
+        diffBefore,
         gateCtx,
-        runTests: BUILTIN.get(gateKey('Тесты')) ?? null,
+        runTests,
         ...(this.aborter === null ? {} : { signal: this.aborter.signal }),
       });
 
       // Пустой патч называется вслух: «этап закончился, артефакты на месте» при нетронутом
       // дереве — тот самый правдоподобный успех, ради которого улики и отобраны у агента.
-      this.chunkEmptyDiff = diff.trim() === '';
-      if (this.chunkEmptyDiff) {
+      if (tree === 'empty') {
         this.emit({
           type: 'warning',
           runId: this.id,
           stage: 'chunk',
-          message: 'дерево не изменилось: патч попытки пуст — правки не было',
+          message: 'дерево не изменилось за эту попытку — правки не было',
         });
       }
       this.emit({
@@ -1227,14 +1277,15 @@ export class Run {
         stage: 'chunk',
         message: `свидетельства попытки перезаписаны рантаймом · тесты: ${testsNote}`,
       });
+      return tree;
     } catch (e) {
-      // Сбой записи улик не роняет этап: он и так закончился, а причина обязана быть видна.
       this.emit({
         type: 'warning',
         runId: this.id,
         stage: 'chunk',
         message: `не удалось записать свидетельства попытки: ${(e as Error).message}`,
       });
+      return 'unknown';
     }
   }
 
@@ -1318,8 +1369,13 @@ export class Run {
       // в отчёте не может опровергнуть состоявшийся вызов субагента. Красный отчёта при
       // этом всё равно побеждает — см. `collectVerdictInput`.
       runtimeAuthoritativeWhenGreen: [gateKey(REVIEW_GATE)],
+      // Ручные пункты приходят из ЗАДАЧИ, а не из отчёта: освобождение от автоматической
+      // проверки — решение человека, написавшего приёмочный лист.
+      manualClaims: manualClaimIds(readArtifact(this.paths.intent).text),
       reports,
-      attempt: this.attempt,
+      // Попытки, сгоревшие на среде, из счёта вычитаются: бюджет итераций тратится на
+      // работу, а не на машину. Номер попытки при этом растёт всегда — см. nextAttempt.
+      attempt: Math.max(1, this.attempt - this.envBlockedAttempts),
       attemptBudget: this.attemptBudget,
       noProgress,
     });
@@ -1381,8 +1437,11 @@ export class Run {
       if (this.redCause !== null) {
         this.redByCause.set(this.redCause.kind, (this.redByCause.get(this.redCause.kind) ?? 0) + 1);
       }
+      // `manual` сюда не идёт: пункт, освобождённый человеком от автоматической проверки,
+      // «не закрывается вторую попытку подряд» по построению, и предложение поднять модель
+      // из-за него — совет лечить то, что не болеет.
       this.failedClaimsByAttempt.push(
-        input.claims.filter((c) => c.status !== '✅').map((c) => c.id),
+        input.claims.filter((c) => c.status !== '✅' && c.status !== 'manual').map((c) => c.id),
       );
     }
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
@@ -1636,6 +1695,19 @@ export class Run {
     // Снимок отсутствующего берётся ДО раскладки: по нему потом видно, произвёл ли этап
     // хоть что-то, а существовавший ранее файл (набор гейтов проекта) доказательством не
     // считается.
+    // Снимок рабочего дерева ДО этапа: «дерево не изменилось» обязано считаться против
+    // него, а не против HEAD. Коммита до этапа 7 не бывает, поэтому правки прошлой попытки
+    // и прошлого chunk'а остаются в дереве, и сравнение с HEAD объявляло бы результативной
+    // любую попытку после первой удачной.
+    const diffBefore =
+      stage === 'chunk' ? await workingDiff(this.project.projectRoot, [], this.aborter?.signal) : '';
+
+    // Строка трения заводится ДО исполнителя. Пока она создавалась первым же счётчиком,
+    // этап, не сделавший ни одного вызова и не получивший ни одного напоминания, в метрики
+    // не попадал вовсе — то есть самый тяжёлый исход выглядел как отсутствие трения, а
+    // приписка в постмортеме обещала читателю строку «Вызовов: 0», которой не бывало.
+    if (!this.friction.has(stage)) this.friction.set(stage, EMPTY_FRICTION());
+
     const produced = def.produces(this.ctx);
     const missingBefore = missingNow(produced);
     const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
@@ -1769,7 +1841,7 @@ export class Run {
       },
 
       onToolResult: (meta) => {
-        this.countStageFact(stage, 'toolCalls');
+        this.countFriction(stage, 'toolCalls');
         // Гейт «Ревью независимым агентом» зеленеет только по факту состоявшегося
         // прогона рецензента, и вот он, этот факт: вызов дошёл до результата без ошибки.
         if (meta.ok && pendingReviewer.has(meta.requestId)) this.markReviewerRan();
@@ -1837,7 +1909,6 @@ export class Run {
           finishGuard: () => {
             const missing = notDone();
             if (missing.length === 0) return null;
-            this.countStageFact(stage, 'reminders');
             return (
               `артефакт этапа не заполнен: ${missing.join(', ')}. Ход не закончен — ` +
               `открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.`
@@ -1856,17 +1927,21 @@ export class Run {
 
       if (stage === 'verify') await this.runEnsembleReviewers(prompt, def, agents, hooks);
 
+      // Отмена проверяется ДО записи улик. Иначе отменённый этап затирал патч предыдущего
+      // состояния снимком наполовину сделанного дерева (а при прерванном сигнале git
+      // отдаёт пустой вывод, то есть улика подменялась ложным «правок нет») и запускал
+      // тест-сьют, который уже некому ждать.
+      const cancelled = this.aborter?.signal.aborted === true;
+
       // Свидетельства попытки — патч и запись о тестах — производит рантайм, перезаписывая
       // то, что записал агент. Иначе вход этапа 6 остаётся рассказом исполнителя о самом
       // себе; замер поймал ровно этот случай (см. `evidence.ts`).
-      if (stage === 'chunk') await this.recordEvidence();
+      if (stage === 'chunk' && !cancelled) {
+        this.chunkTree = await this.recordEvidence(diffBefore);
+      }
 
       this.reportArtifacts(stage);
 
-      // Отмена не переписывается исходом исполнителя. Пока статус выставлялся безусловно,
-      // отменённый оператором этап числился `failed`, а при удачном тайминге во флоу
-      // `sdk` (поток успел закрыться штатным result:success) — даже `done`.
-      const cancelled = this.aborter?.signal.aborted === true;
       if (cancelled) {
         this.status = 'cancelled';
         const note = 'этап отменён оператором';
@@ -1886,21 +1961,23 @@ export class Run {
       const missingAfter = notDone();
       const failedSilently = result.ok && missingAfter.length > 0;
       // Пустое дерево после этапа 5 — самостоятельный провал, наравне с незаполненным
-      // артефактом. Проверять его ОБЯЗАТЕЛЬНО отдельно: свидетельства теперь кладёт рантайм,
-      // то есть «файлы на месте» перестало быть признаком того, что работа была сделана.
-      const nothingChanged = result.ok && stage === 'chunk' && this.chunkEmptyDiff;
+      // артефактом: свидетельства теперь кладёт рантайм, то есть «файлы на месте» перестало
+      // быть признаком сделанной работы. `unknown` роняет этап по той же причине — состояние
+      // дерева неизвестно, и считать его успехом значит зеленеть на непроверенном.
+      const treeProblem =
+        result.ok && stage === 'chunk' && this.chunkTree !== 'changed'
+          ? this.chunkTree === 'empty'
+            ? 'этап закончился, но дерево не изменилось: правки не было'
+            : 'этап закончился, но состояние дерева неизвестно: свидетельства попытки не записаны'
+          : null;
       const outcome = failedSilently
         ? {
             ...result,
             ok: false,
             note: `этап закончился, но артефакт не заполнен: ${missingAfter.join(', ')}`,
           }
-        : nothingChanged
-          ? {
-              ...result,
-              ok: false,
-              note: 'этап закончился, но дерево не изменилось: правки не было',
-            }
+        : treeProblem !== null
+          ? { ...result, ok: false, note: treeProblem }
           : result;
 
       this.status = outcome.ok ? 'done' : 'failed';

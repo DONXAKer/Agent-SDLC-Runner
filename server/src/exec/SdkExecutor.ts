@@ -318,6 +318,16 @@ export class SdkExecutor implements StageExecutor {
       );
     }
 
+    // Спасение напечатанного артефакта — и здесь тоже. Цикл этого флоу крутит харнесс, и
+    // вмешаться в середину нельзя, но проверить исход по диску можно ровно так же: модель
+    // с равной вероятностью печатает содержимое артефакта текстом на любом маршруте, и
+    // исход этапа не должен зависеть от того, кто крутит цикл. Пока спасение жило только
+    // во флоу `loop`, один и тот же ответ давал там зелёный этап, а здесь — красный.
+    if (ok && req.finishGuard !== null && req.finishGuard() !== null && req.salvageFromText !== null) {
+      const saved = await req.salvageFromText(finalText);
+      if (saved !== null) hooks.onWarn(saved);
+    }
+
     return { ok, finalText, usage: latestUsage, note };
   }
 }

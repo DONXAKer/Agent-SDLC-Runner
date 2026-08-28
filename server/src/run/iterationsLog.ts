@@ -139,7 +139,11 @@ export function parseIterations(text: string): IterationSummary[] {
     // `retry`: это самый безобидный исход, и выдумывать `continue` за журнал нельзя.
     const rawAction = outcome.replace(/^[✅❌]\s*/, '').trim();
     const action: VerdictAction =
-      rawAction === 'continue' || rawAction === 'escalate' ? rawAction : passed ? 'continue' : 'retry';
+      rawAction === 'continue' || rawAction === 'escalate' || rawAction === 'blocked_env'
+        ? rawAction
+        : passed
+          ? 'continue'
+          : 'retry';
 
     const rawCloseness = (row[idx.closeness] ?? '').trim();
     const pct = /^(\d+)%$/.exec(rawCloseness);

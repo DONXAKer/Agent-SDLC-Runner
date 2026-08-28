@@ -195,6 +195,7 @@ export class LoopExecutor implements StageExecutor {
 
           if (complaint !== null && reminders < FINISH_REMINDERS) {
             reminders++;
+            hooks.onFriction('reminder');
             hooks.onWarn(`${complaint} (напоминание ${reminders} из ${FINISH_REMINDERS})`);
             messages.push({ role: 'assistant', content: answer.text, toolCalls: [] });
             messages.push({ role: 'user', content: complaint });

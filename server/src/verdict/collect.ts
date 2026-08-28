@@ -40,6 +40,11 @@ function parseClaimStatus(cell: string): ClaimStatus | null {
   // Слово, а не значок: `manual` пишется словом и в шаблоне отчёта, и в таблице вердикта
   // методологии. Проверяется ПОСЛЕ значков — ячейка «✅ (manual уже не нужен)» означает
   // доказанный пункт, а не ручной.
+  //
+  // ВАЖНО: одного слова в отчёте мало. Освобождение от гейта даёт ТЕГ `[manual]` в
+  // приёмочном листе задачи, который пишет человек; здесь только распознаётся заявка
+  // рецензента, а подтверждается она в `collectVerdictInput` сверкой с этим списком.
+  // Иначе слабый рецензент снимал бы пункт с проверки одним словом в собственном отчёте.
   if (/\bmanual\b/i.test(cell)) return 'manual';
   return null;
 }
@@ -312,6 +317,15 @@ export interface CollectInput {
    */
   runtimeAuthoritativeWhenGreen?: readonly string[];
   /**
+   * Пункты приёмки, помеченные в ЗАДАЧЕ тегом `[manual]` — id в канонической форме.
+   *
+   * Источник освобождения от автоматической проверки — приёмочный лист человека, а не
+   * отчёт рецензента. Пока список не передавался, `manual` в ячейке отчёта принимался на
+   * веру, и слабая модель могла снять любой пункт с проверки одним словом. Пусто —
+   * ручных пунктов в задаче нет, и любое «manual» в отчёте становится `⚠`.
+   */
+  manualClaims?: readonly string[];
+  /**
    * Отчёты приёмки этой попытки — по одному на маршрут ансамбля.
    *
    * Список, а не строка: маршрутов этапа 6 может быть несколько, и раньше все они писали
@@ -392,8 +406,28 @@ function mergeFacts(list: readonly ReportFacts[]): ReportFacts {
   };
 }
 
+/** Id пунктов с тегом `[manual]` из приёмочного листа задачи. */
+export function manualClaimIds(intentText: string): string[] {
+  const out: string[] = [];
+  // Строка таблицы приёмки: `| claim-3 [manual] | … |`. Тег ищется в той же ячейке, где
+  // стоит id, — тег в тексте пункта («проверяется manual-прогоном») освобождением не
+  // является, иначе формулировка пункта становилась бы способом снять его с проверки.
+  const row = /^\|([^|]+)\|/gm;
+  let m: RegExpExecArray | null;
+  while ((m = row.exec(intentText)) !== null) {
+    const cell = (m[1] ?? '').replace(/`/g, '').trim();
+    if (!/\[manual\]/i.test(cell)) continue;
+    const id = /^(claim-\d+)\b/i.exec(cell);
+    if (id !== null) out.push(id[1]!.toLowerCase());
+  }
+  return out;
+}
+
 export function collectVerdictInput(i: CollectInput): CollectResult {
   const facts = mergeFacts(i.reports.map(readReport));
+  // Заявка рецензента на `manual` подтверждается тегом в задаче. Не подтверждена —
+  // становится `⚠`: «доказательство держится на непройденной проверке», что и есть правда.
+  const manual = new Set(i.manualClaims ?? []);
   const expected = gatesExpectedInReport(i.gates);
   const byRun = new Map(i.gateResults.map((r) => [gateKey(r.name), r]));
 
@@ -453,7 +487,12 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
     disagreements,
     input: {
       gates,
-      claims: facts.claims,
+      // Заявленный рецензентом `manual` действителен только для пунктов, помеченных
+      // человеком в задаче. Неподтверждённая заявка понижается до `⚠` — не «почти да»,
+      // а честное «доказательство держится на непройденной проверке».
+      claims: facts.claims.map((c) =>
+        c.status === 'manual' && !manual.has(c.id) ? { ...c, status: '⚠' as const } : c,
+      ),
       confirmedReviewFindings: facts.confirmedReviewFindings,
       enabledGatesMissingFromReport: missing,
       openDebtRows: openDebt(i.gates),
