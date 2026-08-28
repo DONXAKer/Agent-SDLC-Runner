@@ -1,0 +1,193 @@
+diff --git a/server/src/gates/builtin/index.ts b/server/src/gates/builtin/index.ts
+index 004245f..1f8b750 100644
+--- a/server/src/gates/builtin/index.ts
++++ b/server/src/gates/builtin/index.ts
+@@ -947,6 +947,73 @@ const duplicatesGate: BuiltinGate = async (ctx) => {
+  * не должен зеленеть, пока строки в отчёте нет; там же лежит и путь снять её подписанной
+  * неприменимостью.
+  */
++/**
++ * «Scope: нетракованные файлы» — то, что этап 5 создал, но в git не завёл.
++ *
++ * Проекты закрывали эту строку набора командой `git status --porcelain`: она печатает
++ * список, но возвращает 0 при любом его содержимом. Гейт зеленел всегда — ложный зелёный
++ * по построению, ровно на той поверхности, которая от ложных зелёных и сторожит.
++ *
++ * Что считается нарушением: файл вне `.sdlc/`, не завёденный в индекс. Игнорируемые git'ом
++ * не считаются — их исключает сам `--exclude-standard`, а не наш список расширений: правило
++ * игнорирования принадлежит проекту, и дублировать его здесь значило бы разойтись с ним
++ * молча. Артефакты витка исключены по той же причине, что и в соседних scope-гейтах: они
++ * сопровождение работы, а не её предмет.
++ */
++const untrackedGate: BuiltinGate = async (ctx) => {
++  if (!(await isRepo(ctx.projectRoot))) {
++    return {
++      status: '⏭',
++      command: null,
++      exitCode: null,
++      lastLine: `${ctx.projectRoot} не git-репозиторий — нетракованные файлы НЕ проверялись`,
++    };
++  }
++
++  // `-- .` ограничивает вывод текущим каталогом и печатает пути относительно него: в
++  // монорепо, где projectRoot — подкаталог, без этого в отчёт приезжали бы чужие файлы.
++  const res = await git(
++    ['ls-files', '--others', '--exclude-standard', '--', '.'],
++    ctx.projectRoot,
++    ctx.signal,
++  );
++
++  if (res.code !== 0) {
++    return {
++      status: '⏭',
++      command: 'git ls-files --others --exclude-standard',
++      exitCode: res.code,
++      lastLine: `git не смог перечислить нетракованные файлы: ${res.stderr.trim() || 'без вывода'}`,
++    };
++  }
++
++  const untracked = res.stdout
++    .split('\n')
++    .map((l) => l.trim().replace(/\\/g, '/'))
++    .filter((l) => l !== '')
++    .filter((l) => !l.startsWith('.sdlc/'));
++
++  if (untracked.length === 0) {
++    return {
++      status: '✅',
++      command: 'git ls-files --others --exclude-standard',
++      exitCode: 0,
++      lastLine: 'нетракованных файлов вне .sdlc/ нет',
++    };
++  }
++
++  return {
++    status: '❌',
++    command: 'git ls-files --others --exclude-standard',
++    exitCode: 1,
++    // Перечень, а не число: «3 файла» оператор проверить не может, а имена — может.
++    lastLine:
++      `нетракованных файлов вне .sdlc/: ${untracked.length}\n` +
++      untracked.map((p) => `  ${p}`).join('\n') +
++      '\nкаждый обязан быть либо заведён в git, либо назван в .gitignore',
++  };
++};
++
+ const planCoverageGate: BuiltinGate = async (ctx) => {
+   if (!(await isRepo(ctx.projectRoot))) {
+     return {
+@@ -1210,6 +1277,7 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
+   ['тесты', testGate],
+   ['scope: файлы вне плана', scopeGate],
+   ['scope: пути плана без правок', planCoverageGate],
++  ['scope: нетракованные файлы', untrackedGate],
+   ['анти-обход тест-гейта', antiBypassGate],
+   ['секреты в diff', secretsGate],
+   ['линт экосистемы', lintGate],
+diff --git a/server/test/untrackedGate.test.ts b/server/test/untrackedGate.test.ts
+new file mode 100644
+index 0000000..6c55c64
+--- /dev/null
++++ b/server/test/untrackedGate.test.ts
+@@ -0,0 +1,101 @@
++/**
++ * Гейт «Scope: нетракованные файлы».
++ *
++ * Строка набора, которую проекты закрывали командой `git status --porcelain`: она печатает
++ * список, но возвращает 0 при любом его содержимом — гейт зеленел всегда. Тест проверяет то,
++ * ради чего встроенная реализация и заведена: что непустой список действительно роняет гейт.
++ *
++ * Репозиторий настоящий, а не мок: подделать вывод `git ls-files` значило бы проверить
++ * собственную константу, а не поведение git'а — включая то, как он обходится с `.gitignore`.
++ */
++
++import { ok, strictEqual } from 'node:assert/strict';
++import { execFileSync } from 'node:child_process';
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { after, describe, it } from 'node:test';
++
++import { BUILTIN } from '../src/gates/builtin/index.ts';
++
++const roots: string[] = [];
++after(() => {
++  for (const r of roots) rmSync(r, { recursive: true, force: true });
++});
++
++const gate = BUILTIN.get('scope: нетракованные файлы');
++
++/** Пустой каталог без git — вход для случая «не репозиторий». */
++function plainDir(): string {
++  const root = mkdtempSync(join(tmpdir(), 'sdlc-untracked-'));
++  roots.push(root);
++  return root;
++}
++
++/** Репозиторий с одним коммитом: без него `ls-files` работает, но состояние нетипично. */
++function repo(): string {
++  const root = plainDir();
++  const run = (args: string[]): void => {
++    execFileSync('git', args, { cwd: root, stdio: 'ignore' });
++  };
++  run(['init', '-q']);
++  run(['config', 'user.email', 'test@example.invalid']);
++  run(['config', 'user.name', 'test']);
++  writeFileSync(join(root, 'README.md'), 'проба\n');
++  run(['add', 'README.md']);
++  run(['commit', '-qm', 'первый']);
++  return root;
++}
++
++async function runGate(root: string): Promise<{ status: string; lastLine: string }> {
++  ok(gate !== undefined, 'гейт не зарегистрирован в BUILTIN');
++  const outcome = await gate({ projectRoot: root, planFiles: [], baseline: null, timeoutMs: 120_000 });
++  return { status: outcome.status, lastLine: outcome.lastLine };
++}
++
++describe('гейт «Scope: нетракованные файлы»', () => {
++  it('claim-1: не git-репозиторий — пропуск, а не провал', async () => {
++    const { status, lastLine } = await runGate(plainDir());
++    strictEqual(status, '⏭');
++    ok(lastLine.includes('не git-репозиторий'), lastLine);
++  });
++
++  it('claim-2: нетракованный файл вне .sdlc/ роняет гейт и называется по имени', async () => {
++    const root = repo();
++    writeFileSync(join(root, 'забытый.ts'), 'export const a = 1;\n');
++    const { status, lastLine } = await runGate(root);
++    strictEqual(status, '❌');
++    ok(lastLine.includes('забытый.ts'), lastLine);
++  });
++
++  it('claim-3: нетрак внутри .sdlc/ нарушением не считается', async () => {
++    const root = repo();
++    mkdirSync(join(root, '.sdlc', 'проба'), { recursive: true });
++    writeFileSync(join(root, '.sdlc', 'проба', 'plan.md'), '# план\n');
++    const { status } = await runGate(root);
++    strictEqual(status, '✅');
++  });
++
++  it('claim-4 [edge]: игнорируемый git-ом файл нарушением не считается', async () => {
++    const root = repo();
++    writeFileSync(join(root, '.gitignore'), 'build/\n');
++    execFileSync('git', ['add', '.gitignore'], { cwd: root, stdio: 'ignore' });
++    execFileSync('git', ['commit', '-qm', 'игнор'], { cwd: root, stdio: 'ignore' });
++    mkdirSync(join(root, 'build'));
++    writeFileSync(join(root, 'build', 'out.js'), 'console.log(1)\n');
++    const { status } = await runGate(root);
++    strictEqual(status, '✅');
++  });
++
++  it('claim-4 [edge]: заведённый в индекс файл нарушением не считается', async () => {
++    const root = repo();
++    writeFileSync(join(root, 'новый.ts'), 'export const b = 2;\n');
++    execFileSync('git', ['add', 'новый.ts'], { cwd: root, stdio: 'ignore' });
++    const { status } = await runGate(root);
++    strictEqual(status, '✅');
++  });
++
++  it('claim-5: гейт зарегистрирован под именем строки набора', () => {
++    ok(BUILTIN.has('scope: нетракованные файлы'));
++  });
++});

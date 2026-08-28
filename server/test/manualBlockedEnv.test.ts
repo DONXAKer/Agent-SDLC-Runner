@@ -13,9 +13,10 @@
  * а не имени. Пока id брался целиком, `claim-4 [edge]` и `claim-4` были разными пунктами.
  */
 
-import { deepStrictEqual, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { parseGates } from '../src/gates/gatesFile.ts';
 import { computeVerdict } from '../src/verdict/verdict.ts';
 import type { VerdictInput } from '@sdlc-runner/shared';
 
@@ -87,5 +88,45 @@ describe('красный из-за окружения', () => {
     );
     strictEqual(v.action, 'continue');
     strictEqual(v.passed, true);
+  });
+});
+
+/**
+ * Принятый риск без условия возврата (находка F6 ретро 2026-08-27: одна такая строка
+ * переехала через четыре витка, и условие возврата к тому моменту уже наступило).
+ */
+describe('долг: принятый риск обязан назвать, когда к нему вернуться', () => {
+  const gates = (how: string): string =>
+    [
+      '# Набор',
+      '',
+      '## Набор',
+      '',
+      '| Гейт | Вкл | Где отчитывается | Чем реализован |',
+      '|---|---|---|---|',
+      '| Линт экосистемы | нет | этап 6 | н/п — долг |',
+      '',
+      '## Долг',
+      '',
+      '| Гейт | Где должен стоять | Как закрывается | Дата | Кто |',
+      '|---|---|---|---|---|',
+      `| Линт экосистемы | этап 6 | ${how} | 2026-08-28 | Иван Петров |`,
+      '',
+    ].join('\n');
+
+  it('риск без условия возврата закрытым не считается', () => {
+    const g = parseGates(gates('риск принят: линтера нет'));
+    strictEqual(g.debt[0]?.closed, false);
+    ok(g.debt[0]!.why.includes('когда к нему вернуться'), g.debt[0]!.why);
+  });
+
+  it('риск с условием возврата закрыт', () => {
+    const g = parseGates(gates('риск принят: линтера нет, вернуться при втором разработчике'));
+    strictEqual(g.debt[0]?.closed, true);
+  });
+
+  it('ручная проверка условия возврата не требует', () => {
+    const g = parseGates(gates('проверяет руками: глазами по diff перед коммитом'));
+    strictEqual(g.debt[0]?.closed, true);
   });
 });

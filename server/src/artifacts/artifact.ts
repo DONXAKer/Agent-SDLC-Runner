@@ -136,6 +136,30 @@ function isBlockquoteLine(text: string, index: number): boolean {
   return text[i] === '>';
 }
 
+/**
+ * Позиции, закрытые кодом: тройные ограждения и однострочные обратные кавычки.
+ *
+ * Плейсхолдер внутри кода — не пустое поле, а ПРИМЕР. Ретро 2026-08-28 (P5) описывает
+ * ровно этот промах у прежней реализации: ячейка набора, сама объясняющая сканирование
+ * плейсхолдеров (`grep -c '‹'`), давала ложный провал на шести витках из шести. Скан,
+ * который не отличает упоминание символа от незаполненного места, приучает игнорировать
+ * себя — а это дороже, чем пропущенная дыра.
+ */
+function codeRanges(text: string): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+
+  const fence = /^\s*```[^\n]*\n([\s\S]*?)^\s*```/gm;
+  let m: RegExpExecArray | null;
+  while ((m = fence.exec(text)) !== null) out.push({ start: m.index, end: m.index + m[0].length });
+
+  // Инлайн-код: только в пределах строки — незакрытая кавычка не должна проглатывать
+  // остаток документа вместе с настоящими незаполненными полями.
+  const inline = /`[^`\n]+`/g;
+  while ((m = inline.exec(text)) !== null) out.push({ start: m.index, end: m.index + m[0].length });
+
+  return out;
+}
+
 export function countPlaceholders(text: string): number {
   return placeholderRanges(text).length;
 }
@@ -144,9 +168,11 @@ export function countPlaceholders(text: string): number {
 export function placeholderRanges(text: string): { start: number; end: number; text: string }[] {
   const out: { start: number; end: number; text: string }[] = [];
   const re = new RegExp(PLACEHOLDER_RE.source, 'g');
+  const code = codeRanges(text);
+  const inCode = (i: number): boolean => code.some((r) => i >= r.start && i < r.end);
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    if (!isBlockquoteLine(text, m.index)) {
+    if (!isBlockquoteLine(text, m.index) && !inCode(m.index)) {
       out.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
     }
   }
