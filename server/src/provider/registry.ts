@@ -14,7 +14,7 @@ import { OpenAiCompatProvider } from './OpenAiCompatProvider.ts';
  * Провайдеры, за которые платят по токенам. Список нужен ровно для одного: потребовать
  * ключ. Стоимость сюда не относится — её показывает только тот сервер, который её назвал.
  */
-const PAID = new Set(['openrouter', 'aitunnel', 'anthropic']);
+const PAID = new Set(['openrouter', 'aitunnel', 'anthropic', 'alltokens', 'polza']);
 
 /**
  * Имя переменной окружения для провайдера — единственное место, где оно строится.

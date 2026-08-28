@@ -33,6 +33,7 @@ const gate = (over: Partial<GateRunResult> = {}): GateRunResult => ({
   exitCode: 1,
   lastLine: '2 failing',
   durationMs: 10,
+  envBlocked: false,
   ...over,
 });
 

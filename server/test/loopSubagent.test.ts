@@ -34,7 +34,7 @@ function provider(
           arguments: c.arguments,
           rawArguments: JSON.stringify(c.arguments),
         })),
-        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, durationMs: 1 },
+        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, durationMs: 1, envBlocked: false },
         finishReason: 'end_turn' as const,
       };
     },

@@ -587,7 +587,13 @@ export class Run {
       this.lastVerdictInput === null
         ? null
         : buildRetryBrief(this.lastVerdictInput, this.lastGateResults);
-    this.attempt += 1;
+    // `blocked_env` номер попытки НЕ занимает: красный, причина которого — машина, а не
+    // работа, не должен съедать бюджет итераций. Методология говорит это дословно
+    // (`SDLC.md` → этап 6): следующая строка журнала получает тот же `K`. Артефакты
+    // предыдущей попытки при этом перезапишутся — и правильно: улик о работе там нет,
+    // гейты не запускались.
+    const envOnly = this.verdict?.action === 'blocked_env';
+    if (!envOnly) this.attempt += 1;
     this.resetAttemptState();
     this.notePeakAttempt();
     return this.attempt;

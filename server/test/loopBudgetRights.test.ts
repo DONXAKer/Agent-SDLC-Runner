@@ -55,7 +55,7 @@ function provider(
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           costUsd: costPerTurn,
-          durationMs: 1,
+          durationMs: 1, envBlocked: false
         },
         finishReason: 'end_turn' as const,
       };

@@ -37,7 +37,25 @@ function parseClaimStatus(cell: string): ClaimStatus | null {
   if (cell.includes('❌')) return '❌';
   if (cell.includes('⚠')) return '⚠';
   if (cell.includes('✅')) return '✅';
+  // Слово, а не значок: `manual` пишется словом и в шаблоне отчёта, и в таблице вердикта
+  // методологии. Проверяется ПОСЛЕ значков — ячейка «✅ (manual уже не нужен)» означает
+  // доказанный пункт, а не ручной.
+  if (/\bmanual\b/i.test(cell)) return 'manual';
   return null;
+}
+
+/**
+ * Идентификатор пункта в канонической форме `claim-N`.
+ *
+ * Теги задачи (`[edge]`, `[manual]`) и обратные кавычки в ячейке — часть текста пункта, а не
+ * его имени. Пока id брался ячейкой целиком, `claim-4 [edge]` и `claim-4` были РАЗНЫМИ
+ * пунктами: свод по маршрутам ансамбля их не объединял, а сверка с планом не находила.
+ * Тот же класс ошибки, что B1 ретро 2026-08-27 (регулярка не принимала строку с тегом).
+ */
+function claimId(cell: string): string {
+  const raw = cell.replace(/`/g, '').trim();
+  const m = /^(claim-\d+)\b/i.exec(raw);
+  return m === null ? raw : m[1]!.toLowerCase();
 }
 
 /**
@@ -195,7 +213,7 @@ export function readReport(report: string): ReportFacts {
     if (idCol >= 0) {
       const passedCol = columnIndex(t.header, 'passed');
       for (const row of t.rows) {
-        const id = (row[idCol] ?? '').replace(/`/g, '').trim();
+        const id = claimId(row[idCol] ?? '');
         if (id === '' || PLACEHOLDER.test(id)) continue;
         const st = passedCol >= 0 ? parseClaimStatus(row[passedCol] ?? '') : null;
         // Пункт без статуса — доказательства нет. Это `⚠`, а не пропуск строки.
@@ -397,6 +415,7 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
           name: row.name,
           status: run.status,
           inapplicableSignedBy: facts.inapplicable.get(key) ?? null,
+          envBlocked: run.envBlocked,
         });
       }
       continue;
@@ -424,6 +443,9 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       name: row.name,
       status,
       inapplicableSignedBy: facts.inapplicable.get(key) ?? null,
+      // Признак берётся у ПРОГОНА, а не у отчёта: рецензент о причине отказа среды знать
+      // не обязан, а рантайм её видел сам.
+      envBlocked: run?.envBlocked ?? false,
     });
   }
 

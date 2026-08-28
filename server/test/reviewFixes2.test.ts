@@ -214,7 +214,7 @@ describe('вердикт при расхождении отчёта и прог�
     command: null,
     exitCode: null,
     lastLine: '',
-    durationMs: 0,
+    durationMs: 0, envBlocked: false
   });
 
   const reportWith = (status: string): string =>
@@ -254,7 +254,7 @@ describe('вердикт при расхождении отчёта и прог�
     const st = collectVerdictInput({
       gates,
       gateResults: [
-        { name: 'Сборка', status: '❌', command: null, exitCode: 1, lastLine: '', durationMs: 0 },
+        { name: 'Сборка', status: '❌', command: null, exitCode: 1, lastLine: '', durationMs: 0, envBlocked: false },
       ],
       runtimeAuthoritativeWhenGreen: ['ревью независимым агентом'],
       reports: [['## Гейты', '', '| Гейт | Статус |', '|---|---|', '| Сборка | ✅ |'].join('\n')],

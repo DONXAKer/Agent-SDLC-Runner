@@ -59,6 +59,9 @@ function statusReasons(i: VerdictInput): string[] {
     if (c.status === '❌') out.push(`пункт приёмки ${c.id} опровергнут (❌)`);
     // ⚠ — доказательство держится на непройденной проверке. Это не «почти да».
     else if (c.status === '⚠') out.push(`пункт приёмки ${c.id} не проверяем (⚠)`);
+    // `manual` вердикт не роняет по построению — причины здесь нет. Пункт не исчезает:
+    // он обязан появиться в `handoff.md` как открытая ручная проверка, и это проверяет
+    // этап 7, а не этот список.
   }
 
   return out;
@@ -128,6 +131,32 @@ function decideAction(
   disagreements: readonly string[],
 ): { action: VerdictAction; why: string[] } {
   if (passed) return { action: 'continue', why: [] };
+
+  // Красный из-за окружения — раньше всех прочих разборов. Условие узкое намеренно: ни один
+  // гейт не провалился по существу (`❌`), а всё, что уронило вердикт, — гейты, которые не
+  // смогли ЗАПУСТИТЬСЯ. Повторная попытка на этой машине даст ровно то же, поэтому и
+  // «доработать» здесь нечего: чинится среда, а номер попытки остаётся за следующей
+  // настоящей попыткой (`SDLC.md` → этап 6, «Красный из-за окружения»).
+  const blockedGates = i.gates.filter((g) => g.envBlocked === true && g.inapplicableSignedBy === null);
+  const failedGates = i.gates.filter((g) => g.status === '❌');
+  const claimsBad = i.claims.some((c) => c.status === '❌' || c.status === '⚠');
+  if (
+    blockedGates.length > 0 &&
+    failedGates.length === 0 &&
+    !claimsBad &&
+    i.confirmedReviewFindings === 0 &&
+    i.brokenInvariants.length === 0
+  ) {
+    return {
+      action: 'blocked_env',
+      why: [
+        `красный из-за окружения: не смогли запуститься гейты ${blockedGates
+          .map((g) => `«${g.name}»`)
+          .join(', ')}. Их код возврата свидетельствует о машине, а не о работе — ` +
+          'чинится среда, номер попытки не занят',
+      ],
+    };
+  }
 
   const why: string[] = [];
   if (i.noProgress) {

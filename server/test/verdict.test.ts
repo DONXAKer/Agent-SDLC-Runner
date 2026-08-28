@@ -368,7 +368,7 @@ describe('сборка входа вердикта', () => {
     const { input, disagreements } = collectVerdictInput({
       gates,
       gateResults: [
-        { name: 'Сборка', status: '❌', command: 'npm run build', exitCode: 1, lastLine: 'error', durationMs: 5 },
+        { name: 'Сборка', status: '❌', command: 'npm run build', exitCode: 1, lastLine: 'error', durationMs: 5, envBlocked: false },
       ],
       reports: [REPORT],
       attempt: 1,

@@ -66,6 +66,8 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
       exitCode: null,
       lastLine: `статус получен не скриптом: ${row.implementation || 'источник не назван'}`,
       durationMs: 0,
+      // Не среда: статус пришёл из прогона субагента или иного внешнего источника.
+      envBlocked: false,
     };
   }
 
@@ -89,12 +91,9 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
     // поставить ✅ — только ⏭: её код возврата свидетельствует о среде, а не о предмете
     // гейта». Раньше такая команда давала ❌ и роняла вердикт по причине, к работе витка
     // отношения не имеющей.
-    const status: GateStatus =
-      r.denied !== null || r.timedOut || toolMissing(r.exitCode, r.lastLine)
-        ? '⏭'
-        : r.exitCode === 0
-          ? '✅'
-          : '❌';
+    // Три причины «не запустился» и одна «запустился и упал» — их и различает вердикт.
+    const envBlocked = r.denied !== null || r.timedOut || toolMissing(r.exitCode, r.lastLine);
+    const status: GateStatus = envBlocked ? '⏭' : r.exitCode === 0 ? '✅' : '❌';
     return {
       name: row.name,
       status,
@@ -106,6 +105,7 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
           ? `инструмента нет в среде (код ${r.exitCode}): ${r.lastLine}`
           : r.lastLine,
       durationMs: r.durationMs,
+      envBlocked,
     };
   }
 
@@ -122,11 +122,20 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
         `гейт включён, но исполнить его нечем: в наборе нет команды в обратных кавычках, ` +
         `встроенной реализации под это имя тоже нет`,
       durationMs: 0,
+      // Это дефект НАБОРА, а не среды: чинится правкой строки, а не другой машиной.
+      envBlocked: false,
     };
   }
 
   const outcome = await builtin(ctx);
-  return { name: row.name, ...outcome, durationMs: Date.now() - started };
+  // Встроенная реализация сама различает «нечем проверять» и «проверил, не сошлось»:
+  // её `⏭` с нулевым кодом — отсутствие условий для проверки, то есть та же среда.
+  return {
+    name: row.name,
+    ...outcome,
+    durationMs: Date.now() - started,
+    envBlocked: outcome.status === '⏭' && outcome.exitCode === null,
+  };
 }
 
 /**

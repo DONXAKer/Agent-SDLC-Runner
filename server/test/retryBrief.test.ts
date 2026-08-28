@@ -38,6 +38,7 @@ function gate(over: Partial<GateRunResult> = {}): GateRunResult {
     exitCode: 1,
     lastLine: '2 failing',
     durationMs: 1200,
+    envBlocked: false,
     ...over,
   };
 }

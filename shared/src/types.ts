@@ -347,7 +347,17 @@ export interface PreparedPrompt {
 
 /** Статусы из таблицы вердикта методологии. */
 export type GateStatus = '✅' | '❌' | '⏭';
-export type ClaimStatus = '✅' | '❌' | '⚠';
+/**
+ * Статус пункта приёмки в отчёте.
+ *
+ * `manual` — пункт с тегом `[manual]` в задаче: по построению не проверяется этапом 6 и
+ * вердикт не роняет, а переносится в `handoff.md` как открытая ручная проверка. Не путать
+ * с `⚠`: тот про НЕсостоявшуюся автоматическую проверку, `manual` — про проверку, которой
+ * на этом этапе и не должно было быть. Пока значения не существовало, разбор отчёта не
+ * узнавал слово «manual» в ячейке, ставил `⚠` и ронял вердикт ровно на том пункте, который
+ * методология освобождает от автоматики (находка M2 ретро 2026-08-27).
+ */
+export type ClaimStatus = '✅' | '❌' | '⚠' | 'manual';
 
 /**
  * Строгость статуса гейта: чем больше число, тем хуже исход.
@@ -376,15 +386,34 @@ export function worstGateStatus(a: GateStatus, b: GateStatus): GateStatus {
  * рецензентов ансамбля, в вердикт идёт худшая из оценок — иначе достаточно одного слабого
  * рецензента, чтобы зелёный перебил найденный дефект.
  */
-const CLAIM_SEVERITY: Record<ClaimStatus, number> = { '✅': 0, '⚠': 1, '❌': 2 };
+// `manual` мягче зелёного намеренно: если один маршрут ансамбля счёл пункт ручным, а другой
+// сумел его доказать, в свод идёт доказательство. Обратное («ручной перебивает зелёный»)
+// прятало бы состоявшуюся проверку за пометкой.
+const CLAIM_SEVERITY: Record<ClaimStatus, number> = { manual: -1, '✅': 0, '⚠': 1, '❌': 2 };
 
 export function worstClaimStatus(a: ClaimStatus, b: ClaimStatus): ClaimStatus {
   return CLAIM_SEVERITY[a] >= CLAIM_SEVERITY[b] ? a : b;
 }
-export type VerdictAction = 'continue' | 'retry' | 'escalate';
+/**
+ * Что делать после вердикта.
+ *
+ * `blocked_env` — красный из-за окружения: гейт не смог ЗАПУСТИТЬСЯ (нет инструмента, нет
+ * докера, нет прав), и его код возврата свидетельствует о машине, а не о работе. Методология
+ * (`SDLC.md` → этап 6, «Красный из-за окружения») требует отличать его от `retry` в двух
+ * местах: чинится он вне витка, и номер попытки он не занимает — следующая строка журнала
+ * получает тот же `K`. Пока значения не было, каждый такой красный съедал попытку из бюджета
+ * (находка M1 ретро 2026-08-27).
+ */
+export type VerdictAction = 'continue' | 'retry' | 'escalate' | 'blocked_env';
 
 export interface VerdictInput {
-  gates: { name: string; status: GateStatus; inapplicableSignedBy: string | null }[];
+  gates: {
+    name: string;
+    status: GateStatus;
+    inapplicableSignedBy: string | null;
+    /** Гейт не смог запуститься из-за среды — см. `GateRunResult.envBlocked`. */
+    envBlocked?: boolean;
+  }[];
   claims: { id: string; status: ClaimStatus }[];
   /** Условия вне статусов — каждое роняет вердикт само по себе. */
   confirmedReviewFindings: number;
@@ -461,6 +490,15 @@ export interface GateRunResult {
   exitCode: number | null;
   lastLine: string;
   durationMs: number;
+  /**
+   * Гейт не смог ЗАПУСТИТЬСЯ: нет инструмента, вышло время, вызов отклонён политикой.
+   *
+   * Отдельным полем, а не разбором `lastLine` теми же регулярками во второй раз: причину
+   * знает тот, кто её создал, и восстанавливать её потом по тексту — способ разойтись
+   * молча. По этому полю вердикт отличает «красный из-за окружения» (чинится вне витка и
+   * не занимает номер попытки) от обычного красного.
+   */
+  envBlocked: boolean;
 }
 
 /**
