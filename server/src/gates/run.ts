@@ -84,14 +84,27 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
       timeoutMs: i.timeoutMs,
       ...(i.signal === undefined ? {} : { signal: i.signal }),
     });
+    // Отказ инструмента — не провал гейта. Методология (этап 6): «команда, упавшая на
+    // отказ инструмента (`git: not found`, `java: command not found`), не даёт права
+    // поставить ✅ — только ⏭: её код возврата свидетельствует о среде, а не о предмете
+    // гейта». Раньше такая команда давала ❌ и роняла вердикт по причине, к работе витка
+    // отношения не имеющей.
     const status: GateStatus =
-      r.denied !== null || r.timedOut ? '⏭' : r.exitCode === 0 ? '✅' : '❌';
+      r.denied !== null || r.timedOut || toolMissing(r.exitCode, r.lastLine)
+        ? '⏭'
+        : r.exitCode === 0
+          ? '✅'
+          : '❌';
     return {
       name: row.name,
       status,
       command: row.command,
       exitCode: r.exitCode,
-      lastLine: r.timedOut ? `команда не уложилась в ${i.timeoutMs} мс` : r.lastLine,
+      lastLine: r.timedOut
+        ? `команда не уложилась в ${i.timeoutMs} мс`
+        : toolMissing(r.exitCode, r.lastLine)
+          ? `инструмента нет в среде (код ${r.exitCode}): ${r.lastLine}`
+          : r.lastLine,
       durationMs: r.durationMs,
     };
   }
@@ -155,4 +168,21 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
     i.onResult?.(r);
   }
   return out;
+}
+
+/**
+ * Код возврата, означающий «инструмента нет», а не «проверка провалилась».
+ *
+ * 127 — команда не найдена, 126 — найдена, но не исполняется, 9009 — то же самое от
+ * командного процессора Windows. Отличать это от настоящего провала обязала методология:
+ * иначе отсутствие `java` в контейнере роняет вердикт витка, который к java не имеет
+ * отношения.
+ */
+function toolMissing(exitCode: number | null, lastLine: string): boolean {
+  if (exitCode === 127 || exitCode === 126 || exitCode === 9009) return true;
+  // Windows-`cmd` на отсутствующую команду отдаёт код 1 — по нему её не отличить от
+  // настоящего провала, — но пишет узнаваемую строку. По-русски она приходит в чужой
+  // кодировке и признаком служить не может: там гейт останется ❌, и это ограничение
+  // названо, а не замаскировано подгонкой под мусорные байты.
+  return /is not recognized as an internal or external command/i.test(lastLine);
 }
