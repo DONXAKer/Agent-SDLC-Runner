@@ -19,6 +19,7 @@ import {
   detectEcosystem,
   syntaxCheckerFor,
 } from '../ecosystems/index.ts';
+import { normalizePlanPath } from '../../policy/paths.ts';
 import { addedFunctionNames, findDuplicates } from './duplicates.ts';
 import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
@@ -932,6 +933,68 @@ const duplicatesGate: BuiltinGate = async (ctx) => {
   };
 };
 
+/**
+ * «Scope: пути плана без правок» — сверка в обратную сторону.
+ *
+ * Основной scope-гейт ловит файл в diff'е, которого нет в плане. Этот — путь в плане,
+ * которого нет в diff'е. Разница не косметическая: непокрытый путь означает либо
+ * «передумали и не сказали», либо «забыли», и оба случая методология требует объяснить
+ * в отчёте строкой «не потребовалось, потому что X» или «не сделано».
+ *
+ * Отсюда статус: непокрытый путь — не нарушение и не успех, а требование объяснения.
+ * Автоматически отличить «не потребовалось» от «забыли» рантайм не может и не делает вид:
+ * он называет пути, а судит по объяснению рецензент. Формально это `❌` — вердикт
+ * не должен зеленеть, пока строки в отчёте нет; там же лежит и путь снять её подписанной
+ * неприменимостью.
+ */
+const planCoverageGate: BuiltinGate = async (ctx) => {
+  if (!(await isRepo(ctx.projectRoot))) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: `${ctx.projectRoot} не git-репозиторий — покрытие плана НЕ проверялось`,
+    };
+  }
+
+  if (ctx.planFiles.length === 0) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: 'в плане нет files_to_touch — сверять нечего',
+    };
+  }
+
+  const changed = (await changedPaths(ctx.projectRoot, ctx.signal)).map((f) =>
+    normalizePlanPath(ctx.projectRoot, f),
+  );
+  const touched = new Set(changed);
+
+  const uncovered = ctx.planFiles
+    .map((p) => normalizePlanPath(ctx.projectRoot, p))
+    .filter((p) => !touched.has(p));
+
+  if (uncovered.length === 0) {
+    return {
+      status: '✅',
+      command: null,
+      exitCode: 0,
+      lastLine: `все ${ctx.planFiles.length} путей плана тронуты`,
+    };
+  }
+
+  return {
+    status: '❌',
+    command: null,
+    exitCode: 1,
+    lastLine:
+      `путей плана без правок: ${uncovered.length} из ${ctx.planFiles.length}\n` +
+      uncovered.map((p) => `  ${p}`).join('\n') +
+      '\nкаждый обязан получить в отчёте «не потребовалось, потому что X» либо «не сделано»',
+  };
+};
+
 const scopeGate: BuiltinGate = async (ctx) => {
   if (!(await isRepo(ctx.projectRoot))) {
     return {
@@ -1146,6 +1209,7 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
   ['сборка', buildGate],
   ['тесты', testGate],
   ['scope: файлы вне плана', scopeGate],
+  ['scope: пути плана без правок', planCoverageGate],
   ['анти-обход тест-гейта', antiBypassGate],
   ['секреты в diff', secretsGate],
   ['линт экосистемы', lintGate],
