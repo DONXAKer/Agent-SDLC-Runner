@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 
+import { chmodSkip } from './platform.ts';
+
 import { buildDockerfile, imageTag, projectSlug, specHash } from '../src/sandbox/dockerfile.ts';
 import { hostMountSource, legacyCacheVolumeName, legacyContainerName } from '../src/sandbox/dockerSandbox.ts';
 import {
@@ -421,7 +423,7 @@ describe('detectSandboxSpec: черновик спеки по составу р�
     );
   });
 
-  it('нечитаемый манифест не роняет весь детект — best-effort, не всё-или-ничего', () => {
+  it('нечитаемый манифест не роняет весь детект — best-effort, не всё-или-ничего', { skip: chmodSkip ?? false }, () => {
     withFixture(
       {
         'backend/pom.xml': '<project><properties><java.version>21</java.version></properties></project>',

@@ -10,6 +10,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
+import { toPosix } from '../src/policy/paths.ts';
+import { symlinkSkip } from './platform.ts';
+
 import { listDir } from '../src/fs/browse.ts';
 import { createProject } from '../src/config/createProject.ts';
 import type { LoadedConfig } from '../src/config/load.ts';
@@ -37,14 +40,17 @@ describe('listDir', () => {
 
   it('поднимается по parent от вложенного каталога', () => {
     const r = listDir(browseRoot, inside);
-    strictEqual(r.parent, browseRoot);
+    // Пути наружу отдаются в одной форме — с прямыми слэшами (`policy/paths.ts`), — и
+    // сравнивать их с нативным видом нельзя: на Windows тест падал на разделителе, а не
+    // на поведении.
+    strictEqual(r.parent, toPosix(browseRoot));
   });
 
   it('отклоняет путь вне browseRoot', () => {
     throws(() => listDir(browseRoot, outside), /вне разрешённого дерева/);
   });
 
-  it('симлинк, ведущий вне browseRoot, не попадает в листинг', () => {
+  it('симлинк, ведущий вне browseRoot, не попадает в листинг', { skip: symlinkSkip ?? false }, () => {
     const link = join(browseRoot, 'escape-link');
     symlinkSync(outside, link);
     try {

@@ -19,6 +19,8 @@ import { join } from 'node:path';
 import { ok, strictEqual } from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 
+import { symlinkSkip } from './platform.ts';
+
 import { symlinkEscape } from '../src/approval/symlink.ts';
 
 /** Дерево: `proj/` рядом с `secrets/`, и `proj/vendor` — ссылка на `secrets/`. */
@@ -27,18 +29,23 @@ after(() => rmSync(base, { recursive: true, force: true }));
 
 const root = join(base, 'proj');
 const secrets = join(base, 'secrets');
-mkdirSync(root);
-mkdirSync(join(root, 'src'), { recursive: true });
-mkdirSync(secrets);
-writeFileSync(join(secrets, 'id_rsa'), 'ключ');
-writeFileSync(join(root, 'src', 'a.ts'), 'const a = 1;\n');
-symlinkSync(secrets, join(root, 'vendor'));
-
 /** Тот же проект, но открытый через ссылку на его корень. */
 const linkedRoot = join(base, 'link');
-symlinkSync(root, linkedRoot);
 
-describe('побег через symlink ловится', () => {
+// Дерево готовится ТОЛЬКО если ссылки создавать можно. Пометка `skip` на `describe` от
+// падения здесь не спасает: этот код выполняется при импорте модуля, то есть раньше любого
+// теста, и файл валился целиком там, где должен был честно пропуститься.
+if (symlinkSkip === null) {
+  mkdirSync(root);
+  mkdirSync(join(root, 'src'), { recursive: true });
+  mkdirSync(secrets);
+  writeFileSync(join(secrets, 'id_rsa'), 'ключ');
+  writeFileSync(join(root, 'src', 'a.ts'), 'const a = 1;\n');
+  symlinkSync(secrets, join(root, 'vendor'));
+  symlinkSync(root, linkedRoot);
+}
+
+describe('побег через symlink ловится', { skip: symlinkSkip ?? false }, () => {
   it('ссылка на каталог вне проекта — отказ с названной причиной', () => {
     const r = symlinkEscape(root, 'vendor/id_rsa', []);
     ok(r !== null, 'подменённый каталог пропущен');
@@ -51,7 +58,7 @@ describe('побег через symlink ловится', () => {
   });
 });
 
-describe('ложных отказов нет', () => {
+describe('ложных отказов нет', { skip: symlinkSkip ?? false }, () => {
   it('обычный путь внутри проекта проходит', () => {
     strictEqual(symlinkEscape(root, 'src/a.ts', []), null);
   });

@@ -12,6 +12,7 @@
  */
 
 import { sep } from 'node:path';
+import { toPosix } from '../policy/paths.ts';
 
 import { loadSandboxSpec } from './spec.ts';
 import { createDockerSandbox, stopDockerSandbox } from './dockerSandbox.ts';
@@ -23,15 +24,24 @@ const pending = new Map<string, Promise<SandboxHandle | null>>();
  * новый: см. `stopSandboxForProject`. */
 const stopping = new Map<string, Promise<void>>();
 
+/** Ключ реестра: прямые слэши, без хвостового разделителя — одна форма на все платформы. */
 function normalize(p: string): string {
-  return p.endsWith(sep) ? p.slice(0, -1) : p;
+  const posix = toPosix(p);
+  return posix.length > 1 && posix.endsWith('/') ? posix.slice(0, -1) : posix;
 }
 
 export function findSandboxForCwd(cwd: string): SandboxHandle | null {
+  // Сравнение идёт в ОДНОЙ форме пути. Разделитель платформы (`sep`) здесь не годится:
+  // корни проектов приходят из конфига с прямыми слэшами (`D:/Проекты/X`), а рабочий
+  // каталог команды собирается через `join` и на Windows получает обратные (`D:\Проекты\X
+  // \server`). Строковое сравнение с `sep` их не сводило, и подкаталог проекта не находил
+  // песочницу СВОЕГО корня — команда молча уходила на локальный исполнитель мимо контейнера.
+  const target = toPosix(cwd);
   let best: { root: string; handle: SandboxHandle } | null = null;
   for (const [root, handle] of active) {
-    if (cwd === root || cwd.startsWith(root + sep)) {
-      if (best === null || root.length > best.root.length) best = { root, handle };
+    const r = toPosix(root);
+    if (target === r || target.startsWith(`${r}/`)) {
+      if (best === null || r.length > best.root.length) best = { root: r, handle };
     }
   }
   return best?.handle ?? null;

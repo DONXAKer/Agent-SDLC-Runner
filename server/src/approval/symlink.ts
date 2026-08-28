@@ -51,6 +51,22 @@ export function symlinkEscape(
   }
   if (!existsSync(probe)) return null;
 
+  // Найденный предок обязан лежать ВНУТРИ одной из известных границ. Иначе канонизировать
+  // нечего: сравнивать канонический путь будет не с чем, и любой ответ окажется выдумкой.
+  //
+  // Случай не теоретический и ловится на Windows. Там `/` существует — это корень текущего
+  // диска, — поэтому подъём от несуществующего корня проекта (`/proj`) останавливался на
+  // `/`, канонизировал его в `D:/` и объявлял `src/a.ts` побегом через символическую ссылку.
+  // Проверка границы стоит ПОСЛЕ подъёма, а не внутри него, чтобы не потерять защиту для
+  // чтения из каталогов, открытых только на чтение: они лежат вне проекта законно.
+  const insideKnownRoot =
+    relativizeWithin(projectRoot, probe) !== null ||
+    relativizeWithin(canonicalize(projectRoot), probe) !== null ||
+    readOnlyRoots.some(
+      (r) => relativizeWithin(r, probe) !== null || relativizeWithin(canonicalize(r), probe) !== null,
+    );
+  if (!insideKnownRoot) return null;
+
   let real: string;
   try {
     real = toPosix(realpathSync(probe));
