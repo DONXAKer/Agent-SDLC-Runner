@@ -46,6 +46,15 @@ describe('аргументы бенчмарка', () => {
     throws(() => parseArgs(['--model', '--all']), /ключу --model нужно значение/);
   });
 
+  it('бюджет по умолчанию не ноль', () => {
+    // Проверка исполнителя написана как «потрачено >= потолок», поэтому бюджет 0 исчерпан
+    // до первого хода и обрывает каждый этап флоу loop с «$0.0000 из $0».
+    const o = parseArgs(['--model', 'x', '--all']);
+    strictEqual(o.maxBudgetUsd > 0, true);
+    strictEqual(parseArgs(['--model', 'x', '--all', '--budget', '12']).maxBudgetUsd, 12);
+    throws(() => parseArgs(['--model', 'x', '--all', '--budget', '0']), /больше нуля/);
+  });
+
   it('потолки задаются в минутах и переводятся в миллисекунды', () => {
     const o = parseArgs(['--model', 'x', '--all', '--stage-timeout', '5', '--run-timeout', '90']);
     strictEqual(o.stageTimeoutMs, 300_000);

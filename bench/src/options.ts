@@ -27,7 +27,16 @@ export interface BenchOptions {
   stageTimeoutMs: number;
   runTimeoutMs: number;
   maxIterationsPerStage: number;
-  maxBudgetUsd: number | null;
+  /**
+   * Потолок стоимости витка.
+   *
+   * Ноль сюда попасть не может, и это не придирка: проверка исполнителя написана как
+   * `потрачено >= потолок`, поэтому бюджет 0 исчерпан ещё до первого хода, и каждый этап
+   * флоу `loop` обрывался бы с «бюджет прогона исчерпан: $0.0000 из $0». На локальных
+   * провайдерах `costUsd` приходит null, и бюджет не действует вообще — ограничителями
+   * остаются ходы и стенные часы.
+   */
+  maxBudgetUsd: number;
   attempts: number;
   keepWorkspace: boolean;
   /** Готовит рабочую копию и печатает блокеры, не вызывая модель ни разу. */
@@ -41,6 +50,8 @@ const DEFAULTS = {
   runTimeoutMs: 3 * 60 * 60_000,
   // Ниже штатных 40: застрявшая модель сжигает бюджет попыток по целому этапу каждая.
   maxIterationsPerStage: 25,
+  // Виток целиком с рецензентом на opus. Ноль запрещён — см. BenchOptions.maxBudgetUsd.
+  maxBudgetUsd: 5,
   attempts: 3,
 };
 
@@ -57,7 +68,7 @@ export const USAGE = `
   --stage-timeout <мин> потолок стенных часов на этап (умолчание 30)
   --run-timeout <мин>   потолок на весь виток (умолчание 180)
   --max-turns <n>       ходов на этап (умолчание 25)
-  --budget <usd>        бюджет витка; на локальных провайдерах НЕ действует
+  --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
   --keep-workspace      не удалять рабочую копию в tmp
   --dry-run             подготовить копию и напечатать блокеры, модель не вызывать
@@ -81,7 +92,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let stageTimeoutMs = DEFAULTS.stageTimeoutMs;
   let runTimeoutMs = DEFAULTS.runTimeoutMs;
   let maxIterationsPerStage = DEFAULTS.maxIterationsPerStage;
-  let maxBudgetUsd: number | null = null;
+  let maxBudgetUsd = DEFAULTS.maxBudgetUsd;
   let attempts = DEFAULTS.attempts;
   let keepWorkspace = false;
   let dryRun = false;

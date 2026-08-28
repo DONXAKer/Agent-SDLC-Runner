@@ -74,7 +74,7 @@ export function buildProfile(args: {
     activeProfile: 'control',
     // На локальных маршрутах costUsd приходит null, и бюджет не действует вообще —
     // ограничителями остаются ходы и стенные часы. Здесь это только верхняя планка.
-    maxBudgetUsd: opts.maxBudgetUsd ?? 0,
+    maxBudgetUsd: opts.maxBudgetUsd,
     profiles: {
       control: { label: control.label, stages: control.stages },
     },
