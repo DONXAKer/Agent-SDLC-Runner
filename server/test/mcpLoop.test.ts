@@ -68,6 +68,7 @@ function request(mcp: McpAccess | null, over: Partial<ExecRequest> = {}): ExecRe
     allowedTools: ['Read', 'McpRead', 'McpWrite'],
     mcp,
     finishGuard: null,
+    salvageFromText: null,
     readOnlyDirs: [],
     subagents: [],
     maxTurns: 8,

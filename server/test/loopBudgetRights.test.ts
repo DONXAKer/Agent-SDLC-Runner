@@ -131,6 +131,7 @@ function request(over: Partial<ExecRequest> = {}): ExecRequest {
     allowedTools: ['Read', 'Grep', 'Write', 'Task'] as ToolName[],
   mcp: null,
   finishGuard: null,
+  salvageFromText: null,
     readOnlyDirs: [],
     subagents: [locator, inherits, nothing],
     maxTurns: 8,

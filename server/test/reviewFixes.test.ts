@@ -214,6 +214,7 @@ function request(over: Partial<ExecRequest> = {}): ExecRequest {
     allowedTools: ['Read'],
   mcp: null,
   finishGuard: null,
+  salvageFromText: null,
     readOnlyDirs: [],
     subagents: [],
     maxTurns: 10,

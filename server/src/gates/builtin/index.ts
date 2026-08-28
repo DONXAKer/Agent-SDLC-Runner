@@ -947,6 +947,73 @@ const duplicatesGate: BuiltinGate = async (ctx) => {
  * не должен зеленеть, пока строки в отчёте нет; там же лежит и путь снять её подписанной
  * неприменимостью.
  */
+/**
+ * «Scope: нетракованные файлы» — то, что этап 5 создал, но в git не завёл.
+ *
+ * Проекты закрывали эту строку набора командой `git status --porcelain`: она печатает
+ * список, но возвращает 0 при любом его содержимом. Гейт зеленел всегда — ложный зелёный
+ * по построению, ровно на той поверхности, которая от ложных зелёных и сторожит.
+ *
+ * Что считается нарушением: файл вне `.sdlc/`, не завёденный в индекс. Игнорируемые git'ом
+ * не считаются — их исключает сам `--exclude-standard`, а не наш список расширений: правило
+ * игнорирования принадлежит проекту, и дублировать его здесь значило бы разойтись с ним
+ * молча. Артефакты витка исключены по той же причине, что и в соседних scope-гейтах: они
+ * сопровождение работы, а не её предмет.
+ */
+const untrackedGate: BuiltinGate = async (ctx) => {
+  if (!(await isRepo(ctx.projectRoot))) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: `${ctx.projectRoot} не git-репозиторий — нетракованные файлы НЕ проверялись`,
+    };
+  }
+
+  // `-- .` ограничивает вывод текущим каталогом и печатает пути относительно него: в
+  // монорепо, где projectRoot — подкаталог, без этого в отчёт приезжали бы чужие файлы.
+  const res = await git(
+    ['ls-files', '--others', '--exclude-standard', '--', '.'],
+    ctx.projectRoot,
+    ctx.signal,
+  );
+
+  if (res.code !== 0) {
+    return {
+      status: '⏭',
+      command: 'git ls-files --others --exclude-standard',
+      exitCode: res.code,
+      lastLine: `git не смог перечислить нетракованные файлы: ${res.stderr.trim() || 'без вывода'}`,
+    };
+  }
+
+  const untracked = res.stdout
+    .split('\n')
+    .map((l) => l.trim().replace(/\\/g, '/'))
+    .filter((l) => l !== '')
+    .filter((l) => !l.startsWith('.sdlc/'));
+
+  if (untracked.length === 0) {
+    return {
+      status: '✅',
+      command: 'git ls-files --others --exclude-standard',
+      exitCode: 0,
+      lastLine: 'нетракованных файлов вне .sdlc/ нет',
+    };
+  }
+
+  return {
+    status: '❌',
+    command: 'git ls-files --others --exclude-standard',
+    exitCode: 1,
+    // Перечень, а не число: «3 файла» оператор проверить не может, а имена — может.
+    lastLine:
+      `нетракованных файлов вне .sdlc/: ${untracked.length}\n` +
+      untracked.map((p) => `  ${p}`).join('\n') +
+      '\nкаждый обязан быть либо заведён в git, либо назван в .gitignore',
+  };
+};
+
 const planCoverageGate: BuiltinGate = async (ctx) => {
   if (!(await isRepo(ctx.projectRoot))) {
     return {
@@ -1210,6 +1277,7 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
   ['тесты', testGate],
   ['scope: файлы вне плана', scopeGate],
   ['scope: пути плана без правок', planCoverageGate],
+  ['scope: нетракованные файлы', untrackedGate],
   ['анти-обход тест-гейта', antiBypassGate],
   ['секреты в diff', secretsGate],
   ['линт экосистемы', lintGate],

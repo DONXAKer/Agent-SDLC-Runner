@@ -30,6 +30,7 @@ import type {
   StageId,
 } from '@sdlc-runner/shared';
 import { buildPreview } from './preview.ts';
+import { destructiveNote, destructiveOverwrite } from './destructive.ts';
 import { symlinkEscape } from './symlink.ts';
 
 export interface PendingApproval {
@@ -49,6 +50,13 @@ export interface PendingApproval {
   policy: PolicyVerdict;
   preview: DiffPreview | null;
   writeTargets: string[] | null;
+  /**
+   * Предупреждение о потере содержимого при перезаписи целиком. `null` — потери нет.
+   *
+   * Отдельным полем, а не строкой внутри превью: по нему оператор решает, а панель обязана
+   * показать его до того, как он дочитает диф. См. `destructive.ts`.
+   */
+  destructive: string | null;
   createdAt: number;
 }
 
@@ -174,6 +182,12 @@ export class ApprovalGate {
     // оператор, включивший его ради темпа на этапе 5, молча подписался бы на `delete_asset`.
     if (call.kind === 'mcp') return rules.mcpWrites;
 
+    // Разрушающая перезапись выходит из-под ЛЮБОГО правила автоодобрения, включая
+    // «правки внутри плана»: файл из плана — это разрешение писать в него, а не разрешение
+    // стереть его целиком. Замер поймал ровно этот случай — 1235 строк заменены заглушкой,
+    // и все проверки отработали как написаны (см. `destructive.ts`).
+    if (destructiveOverwrite(call, ctx.projectRoot) !== null) return false;
+
     // `writeTargetPaths` возвращает `null` для вызовов, которые вообще не пишут: такой
     // вызов «внутри плана» не бывает, и правило про правки к нему не относится.
     const targets = writeTargetPaths(call, ctx);
@@ -227,7 +241,7 @@ export class ApprovalGate {
         `повторно, смени подход, а не повторяй тот же вызов`;
       const policy = policyDeny('repeatFailure', reason);
       const decision: Decision = { allowed: false, reason: `[repeatFailure] ${reason}`, by: 'policy' };
-      this.events.onPending(visible({ ...base, policy, preview: null, resolve: () => {} }));
+      this.events.onPending(visible({ ...base, policy, preview: null, destructive: null, resolve: () => {} }));
       this.events.onResolved(info, decision);
       return decision;
     }
@@ -241,7 +255,7 @@ export class ApprovalGate {
       };
       // Предпросмотра здесь нет намеренно: отклонённый вызов не должен приводить к
       // чтению файла, ради которого он и был отклонён.
-      this.events.onPending(visible({ ...base, policy, preview: null, resolve: () => {} }));
+      this.events.onPending(visible({ ...base, policy, preview: null, destructive: null, resolve: () => {} }));
       this.events.onResolved(info, decision);
       return decision;
     }
@@ -259,15 +273,21 @@ export class ApprovalGate {
 
     const preview = buildPreview(args.call, args.ctx.projectRoot);
 
+    // Предупреждение о потере содержимого считается здесь, а не в панели: оператор
+    // принимает решение по тому, что ему показали, и «−1233 строки» обязано быть в самом
+    // запросе, а не выводиться клиентом заново из превью.
+    const loss = destructiveOverwrite(args.call, args.ctx.projectRoot);
+    const destructive = loss === null ? null : destructiveNote(loss);
+
     if (this.matchesRule(args.call, args.ctx, this.autoApproveRules(args.runId, args.stage))) {
       const decision: Decision = { allowed: true, updatedInput: null, by: 'auto' };
-      this.events.onPending(visible({ ...base, policy, preview, resolve: () => {} }));
+      this.events.onPending(visible({ ...base, policy, preview, destructive, resolve: () => {} }));
       this.events.onResolved(info, decision);
       return decision;
     }
 
     return new Promise<Decision>((resolve) => {
-      const pending: Waiting = { ...base, policy, preview, resolve };
+      const pending: Waiting = { ...base, policy, preview, destructive, resolve };
       this.waiting.set(this.key(args.runId, args.requestId), pending);
       this.events.onPending(visible(pending));
     });

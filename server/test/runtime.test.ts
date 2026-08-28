@@ -60,6 +60,7 @@ describe('шина событий', () => {
         policy: { ok: true },
         preview: { path: 'a.txt', before: null, after: big },
         writeTargets: ['a.txt'],
+        destructive: null,
       });
     }
     const kept = bus.replay('r1');

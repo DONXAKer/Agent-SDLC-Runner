@@ -179,7 +179,20 @@ export class LoopExecutor implements StageExecutor {
         // «Завершила ход» — не то же самое, что «сделала работу». Пока артефакт этапа не
         // на диске, ход не закончен, и это проверяется, а не выспрашивается у модели.
         if (done && req.finishGuard !== null) {
-          const complaint = req.finishGuard();
+          let complaint = req.finishGuard();
+
+          // Модель напечатала содержимое артефакта вместо того, чтобы его записать. Это
+          // не редкость и не ошибка формата: на всех замеренных локальных моделях именно
+          // здесь ход и сгорал. Спасение идёт ДО напоминания — напоминать о том, что уже
+          // написано в этом же ответе, значит гонять модель по кругу за свой счёт.
+          if (complaint !== null && req.salvageFromText !== null) {
+            const saved = await req.salvageFromText(answer.text);
+            if (saved !== null) {
+              hooks.onWarn(saved);
+              complaint = req.finishGuard();
+            }
+          }
+
           if (complaint !== null && reminders < FINISH_REMINDERS) {
             reminders++;
             hooks.onWarn(`${complaint} (напоминание ${reminders} из ${FINISH_REMINDERS})`);

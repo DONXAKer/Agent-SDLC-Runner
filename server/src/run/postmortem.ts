@@ -58,11 +58,16 @@ export function postmortemBlock(m: RunMetrics): string | null {
   if (m.friction.length > 0) {
     lines.push(
       '',
-      '| Этап | Повторов вызова | Битый JSON | Отказов политики | Обрезано результатов |',
-      '|---|---|---|---|---|',
+      '| Этап | Вызовов | Напоминаний | Повторов вызова | Битый JSON | Отказов политики | Обрезано |',
+      '|---|---|---|---|---|---|---|',
       ...m.friction.map(
-        (f) => `| ${f.stage} | ${f.repeat} | ${f.badJson} | ${f.denied} | ${f.truncated} |`,
+        (f) =>
+          `| ${f.stage} | ${f.toolCalls} | ${f.reminders} | ${f.repeat} | ${f.badJson} | ` +
+          `${f.denied} | ${f.truncated} |`,
       ),
+      '',
+      'Ноль в колонке «Вызовов» означает, что этап не сделал ни одного действия — что бы',
+      'ни было написано в его тексте.',
     );
   }
 

@@ -125,6 +125,13 @@ export interface PendingApproval {
   policy: PolicyVerdict;
   preview: { path: string; before: string | null; after: string } | null;
   writeTargets: string[] | null;
+  /**
+   * Предупреждение о перезаписи файла целиком с потерей содержимого. `null` — потери нет.
+   *
+   * Считает рантайм, а не клиент: решение оператора обязано опираться на то же число, что
+   * записано в событии, — иначе панель и журнал говорили бы разное об одном вызове.
+   */
+  destructive: string | null;
 }
 
 export interface PendingQuestions {
@@ -157,14 +164,25 @@ export interface RunMetrics {
   /** Попыток на chunk: ключ — номер chunk'а. */
   attemptsByChunk: { chunk: number; attempts: number }[];
   /**
-   * Трение цикла по этапам: на чём модель буксовала.
+   * Трение цикла по этапам: на чём модель буксовала — и фон, на котором оно читается.
    *
    * Отдельно от расхода и вердиктов, потому что отвечает на другой вопрос. Расход говорит
    * «сколько сгорело», трение — «на чём»: на повторах одного вызова, на сломанном JSON в
-   * аргументах, на отказах политики или на обрезанных результатах. Для слабой модели это
-   * и есть диагноз; пусто — трения не было или этап не запускался.
+   * аргументах, на отказах политики или на обрезанных результатах.
+   *
+   * `toolCalls` и `reminders` добавлены после замеров на локальных моделях: строка «ноль
+   * вызовов инструментов, два напоминания» — точный портрет этапа, который «отработал» и
+   * не сделал ничего, а прежний набор счётчиков такой этап показывал пустым.
    */
-  friction: { stage: StageId; repeat: number; badJson: number; denied: number; truncated: number }[];
+  friction: {
+    stage: StageId;
+    repeat: number;
+    badJson: number;
+    denied: number;
+    truncated: number;
+    toolCalls: number;
+    reminders: number;
+  }[];
 }
 
 /**

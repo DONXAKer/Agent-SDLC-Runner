@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type {
+  NormalizedCall,
   Decision,
   EventSink,
   GateRunResult,
@@ -67,6 +68,10 @@ import { configProblems, gateKey, parseGates, uncalibratedGates, unimplementedGa
 import { builtinFor, describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGates } from '../gates/run.ts';
+import { BUILTIN } from '../gates/builtin/index.ts';
+import type { GateContext } from '../gates/builtin/index.ts';
+import { recordAttemptEvidence } from './evidence.ts';
+import { salvageBlocks } from './salvage.ts';
 import { preflightBlockers } from '../sandbox/preflight.ts';
 import { collectVerdictInput } from '../verdict/collect.ts';
 import { diffCloseness } from './diffDistance.ts';
@@ -221,6 +226,18 @@ function restoreAttemptFromJournal(journalPath: string): number | null {
   return max > 0 ? max : null;
 }
 
+/** Пустая строка трения. Функция, а не константа: объект здесь мутируется на месте. */
+function EMPTY_FRICTION(): {
+  repeat: number;
+  badJson: number;
+  denied: number;
+  truncated: number;
+  toolCalls: number;
+  reminders: number;
+} {
+  return { repeat: 0, badJson: 0, denied: 0, truncated: 0, toolCalls: 0, reminders: 0 };
+}
+
 export class Run {
   readonly id = randomUUID();
   readonly project: ProjectConfig;
@@ -279,7 +296,16 @@ export class Run {
    */
   private readonly friction = new Map<
     StageId,
-    { repeat: number; badJson: number; denied: number; truncated: number }
+    {
+      repeat: number;
+      badJson: number;
+      denied: number;
+      truncated: number;
+      /** Сколько вызовов инструментов этап сделал ВСЕГО. Ноль — сам по себе диагноз. */
+      toolCalls: number;
+      /** Сколько раз страж завершения возвращал модель доделывать артефакт. */
+      reminders: number;
+    }
   >();
 
   /** Внешние MCP-серверы витка: набор задан конфигом проекта, соединения — ленивые. */
@@ -289,6 +315,8 @@ export class Run {
   private mcpSelected: McpToolInfo[] = [];
   /** Счётчик сохранённых картинок витка: имена файлов не должны затирать друг друга. */
   private mcpImageSeq = 0;
+  /** Счётчик спасённых из текста записей: идентификатор вызова обязан быть уникальным. */
+  private salvageSeq = 0;
   /** Формы, разложенные под артефакты текущего этапа, — их называет промпт. */
   private seeded: string[] = [];
   /**
@@ -368,9 +396,10 @@ export class Run {
         chunk,
         attempts,
       })),
-      friction: [...this.friction.entries()]
-        .filter(([, v]) => v.repeat + v.badJson + v.denied + v.truncated > 0)
-        .map(([stage, v]) => ({ stage, ...v })),
+      // Фильтра «показывать только там, где что-то случилось» здесь больше нет: этап,
+      // не сделавший НИ ОДНОГО вызова инструмента, по прежнему условию не попадал в
+      // метрики вовсе — то есть самый тяжёлый исход выглядел как отсутствие трения.
+      friction: [...this.friction.entries()].map(([stage, v]) => ({ stage, ...v })),
     };
   }
 
@@ -697,7 +726,21 @@ export class Run {
   }
 
   private countFriction(stage: StageId, kind: FrictionKind): void {
-    const cur = this.friction.get(stage) ?? { repeat: 0, badJson: 0, denied: 0, truncated: 0 };
+    const cur = this.friction.get(stage) ?? EMPTY_FRICTION();
+    cur[kind] += 1;
+    this.friction.set(stage, cur);
+  }
+
+  /**
+   * Вызов инструмента и напоминание стража — не трение, а фон, на котором трение читается.
+   *
+   * Считаются в той же таблице по одной причине: «этап сделал ноль вызовов за пятнадцать
+   * минут» и «этап дважды получил напоминание и всё равно не заполнил артефакт» — это то,
+   * что оператор ищет в постмортеме первым, и разносить их по двум таблицам значило бы
+   * заставить его сверять две.
+   */
+  private countStageFact(stage: StageId, kind: 'toolCalls' | 'reminders'): void {
+    const cur = this.friction.get(stage) ?? EMPTY_FRICTION();
     cur[kind] += 1;
     this.friction.set(stage, cur);
   }
@@ -869,6 +912,8 @@ export class Run {
             // Стража нет: канонический файл отчёта здесь намеренно опустошён перед каждым
             // маршрутом ансамбля, и «артефакт на месте» тут не признак сделанной работы.
             finishGuard: null,
+        // Субагент артефактов этапа не производит — спасать нечего.
+        salvageFromText: null,
             readOnlyDirs: this.readOnlyRoots,
             subagents: agents,
             maxTurns: this.config.runner.limits.maxIterationsPerStage,
@@ -1075,6 +1120,103 @@ export class Run {
     this.lastGatesAborted = signal?.aborted === true;
     this.lastGateResults = results;
     return results;
+  }
+
+  /**
+   * Принять содержимое артефакта, напечатанное в ответ вместо вызова инструмента.
+   *
+   * Три вещи, которые здесь важнее самой возможности:
+   *
+   *  1. Запись идёт **через гейт одобрения**, как любая другая: рантайм не доверяет тексту,
+   *     он предлагает оператору вызов, который тот видит и может отклонить.
+   *  2. Пишутся только файлы из `produces` этого этапа — не «всё, что похоже на файл».
+   *  3. Вызывается только когда страж уже сказал, что артефакт пуст: это спасение хода,
+   *     а не второй, тихий способ записи в обход инструментов.
+   */
+  private async salvageFromText(
+    text: string,
+    produced: readonly string[],
+    stage: StageId,
+  ): Promise<string | null> {
+    const blocks = salvageBlocks(text, produced);
+    if (blocks.length === 0) return null;
+
+    const written: string[] = [];
+    for (const b of blocks) {
+      const call: NormalizedCall = { kind: 'write', path: b.path, content: b.content };
+      const decision = await this.gate.request({
+        runId: this.id,
+        stage,
+        requestId: `salvage-${this.salvageSeq++}`,
+        toolName: 'Write',
+        rawInput: { file_path: b.path, content: b.content },
+        call,
+        ctx: this.policyContext(stage),
+      });
+      if (!decision.allowed) continue;
+      writeArtifact(b.path, b.content);
+      written.push(b.path);
+    }
+
+    if (written.length === 0) return null;
+    return (
+      `содержимое артефакта было напечатано в ответ, а не записано инструментом — ` +
+      `рантайм записал его через гейт одобрения: ${written.join(', ')}`
+    );
+  }
+
+  /**
+   * Патч и запись о тестах этой попытки — из фактов, а не из слов исполнителя.
+   *
+   * Тесты гоняются тем же встроенным гейтом, что и на этапе 6: два способа «запустить
+   * тесты проекта» разошлись бы молча, а строка «Тесты» набора — единственное место, где
+   * проект сказал, чем они запускаются.
+   */
+  private async recordEvidence(): Promise<void> {
+    const gateCtx: GateContext = {
+      projectRoot: this.project.projectRoot,
+      planFiles: this.planFilesFor('chunk') ?? [],
+      baseline: this.readBaseline(),
+      timeoutMs: this.config.runner.limits.gateTimeoutMs,
+      ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
+      ...(this.aborter === null ? {} : { signal: this.aborter.signal }),
+    };
+
+    try {
+      const { diff, testsNote } = await recordAttemptEvidence({
+        projectRoot: this.project.projectRoot,
+        diffPath: this.paths.chunkDiff(this.chunk, this.attempt),
+        testsPath: this.paths.chunkTests(this.chunk, this.attempt),
+        gateCtx,
+        runTests: BUILTIN.get(gateKey('Тесты')) ?? null,
+        ...(this.aborter === null ? {} : { signal: this.aborter.signal }),
+      });
+
+      // Пустой патч называется вслух: «этап закончился, артефакты на месте» при нетронутом
+      // дереве — тот самый правдоподобный успех, ради которого улики и отобраны у агента.
+      if (diff.trim() === '') {
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage: 'chunk',
+          message: 'дерево не изменилось: патч попытки пуст — правки не было',
+        });
+      }
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: 'chunk',
+        message: `свидетельства попытки перезаписаны рантаймом · тесты: ${testsNote}`,
+      });
+    } catch (e) {
+      // Сбой записи улик не роняет этап: он и так закончился, а причина обязана быть видна.
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: 'chunk',
+        message: `не удалось записать свидетельства попытки: ${(e as Error).message}`,
+      });
+    }
   }
 
   /**
@@ -1608,6 +1750,7 @@ export class Run {
       },
 
       onToolResult: (meta) => {
+        this.countStageFact(stage, 'toolCalls');
         // Гейт «Ревью независимым агентом» зеленеет только по факту состоявшегося
         // прогона рецензента, и вот он, этот факт: вызов дошёл до результата без ошибки.
         if (meta.ok && pendingReviewer.has(meta.requestId)) this.markReviewerRan();
@@ -1675,11 +1818,15 @@ export class Run {
           finishGuard: () => {
             const missing = notDone();
             if (missing.length === 0) return null;
+            this.countStageFact(stage, 'reminders');
             return (
               `артефакт этапа не заполнен: ${missing.join(', ')}. Ход не закончен — ` +
               `открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.`
             );
           },
+          // Спасение напечатанного артефакта: модель составила его правильно, но не
+          // записала. Идёт тем же путём, что обычная запись — политика и гейт одобрения.
+          salvageFromText: (text) => this.salvageFromText(text, produced, stage),
           maxTurns: this.config.runner.limits.maxIterationsPerStage,
           maxBudgetUsd: this.project.maxBudgetUsd,
           spentUsdBefore: this.totalUsage.costUsd ?? 0,
@@ -1689,6 +1836,11 @@ export class Run {
       );
 
       if (stage === 'verify') await this.runEnsembleReviewers(prompt, def, agents, hooks);
+
+      // Свидетельства попытки — патч и запись о тестах — производит рантайм, перезаписывая
+      // то, что записал агент. Иначе вход этапа 6 остаётся рассказом исполнителя о самом
+      // себе; замер поймал ровно этот случай (см. `evidence.ts`).
+      if (stage === 'chunk') await this.recordEvidence();
 
       this.reportArtifacts(stage);
 

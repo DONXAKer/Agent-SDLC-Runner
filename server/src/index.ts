@@ -89,6 +89,7 @@ const gate = new ApprovalGate({
       policy: p.policy,
       preview: p.preview,
       writeTargets: p.writeTargets,
+      destructive: p.destructive,
     }),
   onResolved: (info, decision) =>
     emit({
@@ -113,6 +114,7 @@ const askGate = new AskGate({
       policy: { ok: true },
       preview: null,
       writeTargets: null,
+      destructive: null,
     }),
   onAnswered: (info, answers) =>
     emit({

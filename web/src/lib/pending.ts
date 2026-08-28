@@ -20,6 +20,8 @@ export interface PendingCall {
   call: NormalizedCall;
   policy: PolicyVerdict;
   preview: DiffPreview | null;
+  /** Предупреждение о перезаписи с потерей содержимого. `null` — потери нет. */
+  destructive: string | null;
 }
 
 export interface PendingAsk {
@@ -58,6 +60,7 @@ export function mergePending(
       call: p.call,
       policy: p.policy,
       preview: p.preview,
+      destructive: p.destructive,
     });
   }
   for (const q of detail?.pendingQuestions ?? []) {
@@ -77,6 +80,7 @@ export function mergePending(
         call: e.call,
         policy: e.policy,
         preview: e.preview,
+        destructive: e.destructive,
       });
     }
   }

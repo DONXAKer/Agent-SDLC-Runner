@@ -82,6 +82,14 @@ export function ToolApproval({
         </pre>
       ) : null}
 
+      {/* Потеря содержимого — над диффом, а не внутри него: оператор должен увидеть её до
+          того, как начнёт читать сотни строк удалений, а не вывести из их количества. */}
+      {pending.destructive !== null ? (
+        <div className="mb-3 rounded border border-amber-700 bg-amber-950/40 p-2 text-xs text-amber-200">
+          {pending.destructive}
+        </div>
+      ) : null}
+
       {pending.preview !== null ? (
         <div className="mb-3">
           <div className="mb-1 font-mono text-xs text-neutral-400">{pending.preview.path}</div>

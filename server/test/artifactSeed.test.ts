@@ -127,6 +127,7 @@ function request(guard: (() => string | null) | null): ExecRequest {
     allowedTools: ['Read'],
     mcp: null,
     finishGuard: guard,
+    salvageFromText: null,
     readOnlyDirs: [],
     subagents: [],
     maxTurns: 8,
