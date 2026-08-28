@@ -317,6 +317,14 @@ export class Run {
   private mcpImageSeq = 0;
   /** Счётчик спасённых из текста записей: идентификатор вызова обязан быть уникальным. */
   private salvageSeq = 0;
+  /**
+   * Патч последней попытки этапа 5 пуст — дерево не изменилось.
+   *
+   * Отдельным полем, потому что это ИСХОД этапа, а не предупреждение по ходу: пока он был
+   * только предупреждением, этап без единой правки заканчивался зелёным, если артефакты
+   * оказывались на месте, — а класть их на место стал сам рантайм.
+   */
+  private chunkEmptyDiff = false;
   /** Формы, разложенные под артефакты текущего этапа, — их называет промпт. */
   private seeded: string[] = [];
   /**
@@ -1182,6 +1190,10 @@ export class Run {
       ...(this.aborter === null ? {} : { signal: this.aborter.signal }),
     };
 
+    // Сброс до попытки: иначе исход предыдущей («дерево не изменилось») пережил бы её и
+    // покрасил следующую, если запись улик не дошла до вычисления патча.
+    this.chunkEmptyDiff = false;
+
     try {
       const { diff, testsNote } = await recordAttemptEvidence({
         projectRoot: this.project.projectRoot,
@@ -1194,7 +1206,8 @@ export class Run {
 
       // Пустой патч называется вслух: «этап закончился, артефакты на месте» при нетронутом
       // дереве — тот самый правдоподобный успех, ради которого улики и отобраны у агента.
-      if (diff.trim() === '') {
+      this.chunkEmptyDiff = diff.trim() === '';
+      if (this.chunkEmptyDiff) {
         this.emit({
           type: 'warning',
           runId: this.id,
@@ -1866,13 +1879,23 @@ export class Run {
       // во флоу `sdk` цикл крутит харнесс, и другого места для этой проверки нет.
       const missingAfter = notDone();
       const failedSilently = result.ok && missingAfter.length > 0;
+      // Пустое дерево после этапа 5 — самостоятельный провал, наравне с незаполненным
+      // артефактом. Проверять его ОБЯЗАТЕЛЬНО отдельно: свидетельства теперь кладёт рантайм,
+      // то есть «файлы на месте» перестало быть признаком того, что работа была сделана.
+      const nothingChanged = result.ok && stage === 'chunk' && this.chunkEmptyDiff;
       const outcome = failedSilently
         ? {
             ...result,
             ok: false,
             note: `этап закончился, но артефакт не заполнен: ${missingAfter.join(', ')}`,
           }
-        : result;
+        : nothingChanged
+          ? {
+              ...result,
+              ok: false,
+              note: 'этап закончился, но дерево не изменилось: правки не было',
+            }
+          : result;
 
       this.status = outcome.ok ? 'done' : 'failed';
       this.emit({ type: 'stage_done', runId: this.id, stage, ok: outcome.ok, note: outcome.note });
