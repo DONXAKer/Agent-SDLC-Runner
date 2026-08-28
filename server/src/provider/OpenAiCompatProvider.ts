@@ -17,6 +17,9 @@
  *    «посчитали и вышло даром».
  */
 
+import http from 'node:http';
+import https from 'node:https';
+
 import type { Usage } from '@sdlc-runner/shared';
 import { emptyUsage } from '@sdlc-runner/shared';
 
@@ -209,21 +212,18 @@ export class OpenAiCompatProvider implements ChatProvider {
     const timeout = AbortSignal.timeout(this.o.timeoutMs);
     const signal = AbortSignal.any([req.signal, timeout]);
 
-    const res = await fetch(`${this.o.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
+    const { status, text } = await postJson(
+      `${this.o.baseUrl.replace(/\/+$/, '')}/chat/completions`,
+      {
         'content-type': 'application/json',
         ...(this.o.apiKey === null ? {} : { authorization: `Bearer ${this.o.apiKey}` }),
       },
-      body: JSON.stringify(body),
+      JSON.stringify(body),
       signal,
-    });
+    );
 
-    const text = await res.text();
-    if (!res.ok) {
-      throw new Error(
-        `${this.name}: HTTP ${res.status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`,
-      );
+    if (status < 200 || status >= 300) {
+      throw new Error(`${this.name}: HTTP ${status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`);
     }
 
     let data: OpenAiResponse;
@@ -268,4 +268,62 @@ export class OpenAiCompatProvider implements ChatProvider {
       usage,
     };
   }
+}
+
+/**
+ * POST JSON через `node:http` — намеренно НЕ через `fetch`.
+ *
+ * У встроенного `fetch` (undici) свой потолок ожидания заголовков — 300 секунд, и он не
+ * настраивается из `RequestInit`. Ответ мы просим НЕ потоковый, поэтому сервер шлёт
+ * заголовки только когда весь ответ готов: любая генерация дольше пяти минут умирала
+ * `fetch failed` независимо от нашего `chatTimeoutMs`.
+ *
+ * Поймано измерением: 14B через ollama и 35B-A3B через LM Studio — разные серверы, разные
+ * модели, обе умерли на 303 секундах. Это выглядело как «железо не тянет», а было чужим
+ * таймаутом: единственный видимый признак — слово «failed» без кода и без причины.
+ *
+ * Здесь ожиданием управляет только переданный сигнал: наш таймаут уже сложен из
+ * `chatTimeoutMs` и отмены прогона.
+ */
+function postJson(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  signal: AbortSignal,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const transport = target.protocol === 'https:' ? https : http;
+
+    const request = transport.request(
+      target,
+      {
+        method: 'POST',
+        headers: { ...headers, 'content-length': String(Buffer.byteLength(body)) },
+        // Ноль — «ждать столько, сколько скажет сигнал»: генерация локальной модели
+        // легально идёт минутами, и своего потолка у транспорта быть не должно.
+        timeout: 0,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            text: Buffer.concat(chunks).toString('utf8'),
+          });
+        });
+        res.on('error', reject);
+      },
+    );
+
+    const onAbort = (): void => {
+      request.destroy(new Error('запрос к модели отменён'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    request.on('close', () => signal.removeEventListener('abort', onAbort));
+
+    request.on('error', reject);
+    request.end(body);
+  });
 }
