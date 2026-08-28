@@ -1,0 +1,23 @@
+{
+  "// зачем свой проект": "bench не workspace: иначе он попал бы в npm install, в npm test и в образ. Настройки скопированы с server/tsconfig.json — обвязка живёт по тем же правилам, что и код, который она дёргает.",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "// фикстура исключена намеренно": "bench/fixture — чужой проект, который правит модель. Он не обязан проходить наш typecheck, и его поломка не должна ронять проверку обвязки.",
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
