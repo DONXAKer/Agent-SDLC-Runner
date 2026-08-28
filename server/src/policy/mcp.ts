@@ -32,7 +32,7 @@ function matches(rule: McpToolRule, call: McpCall): boolean {
  * Конфиг такое сочетание отвергает при загрузке, но политика не имеет права опираться на
  * то, что его отвергли: класс вызова решает, спросят ли человека вообще.
  */
-function effectiveMode(rule: McpToolRule): McpToolRule['mode'] {
+export function effectiveMode(rule: McpToolRule): McpToolRule['mode'] {
   if (rule.mode === 'read' && rule.pathArgs.some((a) => a.access === 'write')) return 'write';
   return rule.mode;
 }

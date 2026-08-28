@@ -15,6 +15,7 @@ import type { McpToolRule, NormalizedCall, PolicyContext, ToolName } from '@sdlc
 import { ApprovalGate } from '../src/approval/gate.ts';
 import { normalize } from '../src/exec/normalize.ts';
 import { evaluate, writeTargetPaths } from '../src/policy/index.ts';
+import { effectiveMode } from '../src/policy/mcp.ts';
 
 const ROOT = 'D:/proj';
 
@@ -118,6 +119,37 @@ describe('политика: инструменты внешних MCP-серве
       allowedTools: ['McpRead'],
     });
     ok(!evaluate(call('import_texture', { file: 'src/a.ts' }), c).ok);
+  });
+});
+
+describe('права на MCP выдаёт конфиг, а не определение этапа', () => {
+  // Дыра, найденная живым прогоном: инструменты модели выдавались, вызов доходил до
+  // политики и отклонялся ею — прав `McpRead`/`McpWrite` не выдавал никто, потому что
+  // `stages.ts` общий для всех проектов и про MCP не знает.
+  it('правило read требует McpRead, правило write — McpWrite', () => {
+    const onlyRead = ctx({
+      mcpTools: [rule({ tool: 'pie_status', mode: 'read' })],
+      allowedTools: ['Read'],
+    });
+    ok(!evaluate(call('pie_status'), onlyRead).ok, 'без McpRead читающий вызов не проходит');
+
+    const withRead = ctx({
+      mcpTools: [rule({ tool: 'pie_status', mode: 'read' })],
+      allowedTools: ['Read', 'McpRead'],
+    });
+    strictEqual(evaluate(call('pie_status'), withRead).ok, true);
+  });
+
+  it('класс правила считается одинаково правами и политикой', () => {
+    // `read` с записывающим аргументом-путём — на деле `write`: если права выдать по
+    // объявленному классу, а политика посчитает по фактическому, вызов будет отклонён
+    // при формально выданном праве.
+    const r = rule({
+      tool: 'import_texture',
+      mode: 'read',
+      pathArgs: [{ key: 'file', access: 'write' }],
+    });
+    strictEqual(effectiveMode(r), 'write');
   });
 });
 

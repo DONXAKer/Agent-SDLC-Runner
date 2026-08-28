@@ -14,6 +14,7 @@ import type {
   GateRunResult,
   GateStatus,
   McpServerInfo,
+  ToolName,
   PolicyContext,
   PreparedPrompt,
   RunStatus,
@@ -39,6 +40,7 @@ import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
+import { effectiveMode } from '../policy/mcp.ts';
 import { missingNow, seedArtifacts, stillMissing, untouchedSeeds } from './seed.ts';
 import type { McpSetup } from '../config/mcp.ts';
 import { McpHub } from '../mcp/McpHub.ts';
@@ -670,9 +672,28 @@ export class Run {
       planFiles: this.planFilesFor(stage),
       protectedArtifacts: def.protectedArtifacts(this.ctx),
       readOnlyRoots: this.readOnlyRoots,
-      allowedTools: def.tools,
+      allowedTools: this.toolsFor(stage),
       mcpTools: rulesForStage(this.mcpSetup, stage),
     };
+  }
+
+  /**
+   * Права этапа плюс права на MCP, если оператор выдал этому этапу инструменты.
+   *
+   * Само определение этапа про MCP не знает и знать не должно: набор инструментов задаётся
+   * конфигом ПРОЕКТА, а `stages.ts` общий для всех. Поймано живым прогоном: инструменты
+   * модели выдавались, вызов доходил до политики и отклонялся ею — «читающие вызовы MCP не
+   * разрешены на этапе», потому что права не выдавал никто.
+   */
+  private toolsFor(stage: StageId): readonly ToolName[] {
+    const base = stageById(stage).tools;
+    const rules = rulesForStage(this.mcpSetup, stage);
+    if (rules.length === 0) return base;
+
+    const extra: ToolName[] = [];
+    if (rules.some((r) => effectiveMode(r) === 'read')) extra.push('McpRead');
+    if (rules.some((r) => effectiveMode(r) === 'write')) extra.push('McpWrite');
+    return [...base, ...extra];
   }
 
   private countFriction(stage: StageId, kind: FrictionKind): void {
@@ -842,7 +863,7 @@ export class Run {
             prompt,
             cwd: this.project.projectRoot,
             model: other.model,
-            allowedTools: def.tools,
+            allowedTools: this.toolsFor('verify'),
             // Тот же набор, что у первого маршрута: соединения уже подняты, отбор посчитан.
             mcp: await this.mcpAccess('verify'),
             // Стража нет: канонический файл отчёта здесь намеренно опустошён перед каждым
@@ -1627,7 +1648,7 @@ export class Run {
           prompt,
           cwd: this.project.projectRoot,
           model: route.model,
-          allowedTools: def.tools,
+          allowedTools: this.toolsFor(stage),
           readOnlyDirs: this.readOnlyRoots,
           subagents: agents,
           mcp,
