@@ -18,7 +18,13 @@ import { emptyUsage } from '@sdlc-runner/shared';
 import { LoopExecutor } from '../src/exec/LoopExecutor.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import type { ChatProvider, ChatRequest, ChatTurn } from '../src/provider/ChatProvider.ts';
-import { missingNow, seedArtifacts, stillMissing, templateNameFor } from '../src/run/seed.ts';
+import {
+  missingNow,
+  seedArtifacts,
+  stillMissing,
+  templateNameFor,
+  untouchedSeeds,
+} from '../src/run/seed.ts';
 
 const dirs: string[] = [];
 after(() => {
@@ -176,6 +182,27 @@ const executor = (p: ChatProvider): LoopExecutor =>
     bashTimeoutMs: 30_000,
     temperature: null,
   });
+
+describe('нетронутый бланк работой не считается', () => {
+  it('файл есть, но байт в байт равен форме', () => {
+    // Ловушка, найденная на первом же прогоне после раскладки форм: проверка «файла нет»
+    // стала бессмысленной ровно потому, что файл кладёт сам рантайм.
+    const { methodology, witok } = world();
+    const intent = join(witok, 'intent.md');
+    const seeded = seedArtifacts([intent], methodology);
+
+    strictEqual(untouchedSeeds(seeded).join(), intent);
+  });
+
+  it('стоит модели что-то дописать — бланк перестаёт быть бланком', () => {
+    const { methodology, witok } = world();
+    const intent = join(witok, 'intent.md');
+    const seeded = seedArtifacts([intent], methodology);
+
+    writeFileSync(intent, '# Задача: обкатка (заполнено)', 'utf8');
+    strictEqual(untouchedSeeds(seeded).length, 0);
+  });
+});
 
 describe('«ход завершён» не принимается без артефакта', () => {
   it('модель получает замечание и ещё один шанс', async () => {

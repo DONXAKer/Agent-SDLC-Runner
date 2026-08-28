@@ -11,7 +11,7 @@
  * решение, которое уже принято.
  */
 
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
 /**
@@ -61,6 +61,22 @@ export function seedArtifacts(
   }
 
   return seeded;
+}
+
+/**
+ * Бланк, который так и остался бланком: файл есть, но байт в байт равен форме.
+ *
+ * Поймано на первом же прогоне после раскладки форм: проверка «файла нет» стала
+ * бессмысленной ровно потому, что рантайм сам его и создал. Незаполненный бланк — это не
+ * сделанная работа, и признак у него точный, без догадок по содержимому.
+ */
+export function untouchedSeeds(seeded: readonly SeededArtifact[]): string[] {
+  return seeded
+    .filter((s) => {
+      if (!existsSync(s.path) || !existsSync(s.template)) return false;
+      return readFileSync(s.path, 'utf8') === readFileSync(s.template, 'utf8');
+    })
+    .map((s) => s.path);
 }
 
 /**

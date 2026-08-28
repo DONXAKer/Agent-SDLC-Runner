@@ -39,7 +39,7 @@ import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
-import { missingNow, seedArtifacts, stillMissing } from './seed.ts';
+import { missingNow, seedArtifacts, stillMissing, untouchedSeeds } from './seed.ts';
 import type { McpSetup } from '../config/mcp.ts';
 import { McpHub } from '../mcp/McpHub.ts';
 import { imageSaver } from '../mcp/content.ts';
@@ -1438,7 +1438,15 @@ export class Run {
     // считается.
     const produced = def.produces(this.ctx);
     const missingBefore = missingNow(produced);
-    this.seeded = seedArtifacts(produced, this.config.runner.methodologyDir).map((s) => s.path);
+    const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
+    this.seeded = seeded.map((s) => s.path);
+
+    // Что считается «этап ничего не произвёл»: файла нет ИЛИ он остался бланком байт в
+    // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.
+    const notDone = (): string[] => [
+      ...stillMissing(produced, missingBefore),
+      ...untouchedSeeds(seeded),
+    ];
     for (const path of this.seeded) {
       this.emit({
         type: 'warning',
@@ -1626,11 +1634,11 @@ export class Run {
           // «Ход завершён» и «работа сделана» — разные утверждения, и второе проверяется
           // диском. Замечание даёт модели доделать в том же этапе, а не отчитаться пустым.
           finishGuard: () => {
-            const missing = stillMissing(produced, missingBefore);
+            const missing = notDone();
             if (missing.length === 0) return null;
             return (
-              `артефакт этапа не записан: ${missing.join(', ')}. Ход не закончен — ` +
-              `открой файл, заполни поля вместо «‹…›» и сохрани его инструментом Write или Edit.`
+              `артефакт этапа не заполнен: ${missing.join(', ')}. Ход не закончен — ` +
+              `открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.`
             );
           },
           maxTurns: this.config.runner.limits.maxIterationsPerStage,
@@ -1665,13 +1673,13 @@ export class Run {
       // ход завершённым и не записавшая ни одного из объявленных этапом артефактов,
       // прошедшим этап не считается: во флоу `loop` она уже получила два напоминания, а
       // во флоу `sdk` цикл крутит харнесс, и другого места для этой проверки нет.
-      const missingAfter = stillMissing(produced, missingBefore);
+      const missingAfter = notDone();
       const failedSilently = result.ok && missingAfter.length > 0;
       const outcome = failedSilently
         ? {
             ...result,
             ok: false,
-            note: `этап закончился, но артефакт не записан: ${missingAfter.join(', ')}`,
+            note: `этап закончился, но артефакт не заполнен: ${missingAfter.join(', ')}`,
           }
         : result;
 
