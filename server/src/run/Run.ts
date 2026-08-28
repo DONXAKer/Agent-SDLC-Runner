@@ -1250,6 +1250,24 @@ export class Run {
     if (readArtifact(path).exists) return;
     const snapshot = await snapshotBaseline(this.project.projectRoot);
     writeArtifact(path, JSON.stringify(snapshot, null, 2));
+
+    // Грязное дерево называется человеку. Методология (этап 5): «дерево грязное чужими
+    // правками — назови их человеку одной строкой… молча продолжать нельзя, эти файлы
+    // попадут в diff попытки и в гейт „Scope: файлы вне плана“ как твоя работа». База
+    // отличит чужое от своего, но оператор должен знать, что она вообще понадобилась.
+    const dirty = Object.keys(snapshot);
+    if (dirty.length === 0) return;
+    const shown = dirty.slice(0, 5).join(', ');
+    this.emit({
+      type: 'warning',
+      runId: this.id,
+      stage: 'chunk',
+      message:
+        `дерево грязное до начала chunk'а: ${dirty.length} файл(ов) — ${shown}` +
+        `${dirty.length > 5 ? ` и ещё ${dirty.length - 5}` : ''}. Их правки в diff попытки ` +
+        `не войдут: база chunk ${this.chunk} записана. Решение — чинить дерево или ` +
+        `продолжать с базой — за вами.`,
+    });
   }
 
   /**

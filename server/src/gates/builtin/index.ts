@@ -944,14 +944,32 @@ const scopeGate: BuiltinGate = async (ctx) => {
 
   let changed = await changedPaths(ctx.projectRoot, ctx.signal);
 
+  // Файлы, изменённые ДО начала chunk'а и с тех пор не тронутые: чужая незакоммиченная
+  // работа в дереве, а не выход исполнителя за план. Методология требует не просто их
+  // исключить, но и НАЗВАТЬ отдельной строкой — молча выкинутый файл выглядит как «его не
+  // было», и оператор не узнает, что база вообще понадобилась.
+  const fromBaseline: string[] = [];
+
   if (ctx.baseline !== null) {
     const before = ctx.baseline;
     changed = changed.filter((f) => {
-      const was = before.get(f.replace(/\\/g, '/'));
+      const key = f.split('\\').join('/');
+      const was = before.get(key);
       if (was === undefined) return true;
-      return hashOf(join(ctx.projectRoot, f)) !== was;
+      if (hashOf(join(ctx.projectRoot, f)) === was) {
+        fromBaseline.push(key);
+        return false;
+      }
+      return true;
     });
   }
+
+  /** Приписка про чужую грязь: не `✅` и не `❌`, а названный факт рядом с исходом. */
+  const baselineNote =
+    fromBaseline.length === 0
+      ? ''
+      : `\nвне плана, из базы chunk'а (не работа этапа): ${fromBaseline.slice(0, 5).join(', ')}` +
+        `${fromBaseline.length > 5 ? ` и ещё ${fromBaseline.length - 5}` : ''}`;
 
   // Этап 5 обязан менять файлы. Нулевой diff после chunk'а — это не «чисто», это
   // «правки ушли мимо репозитория либо гейт смотрит не в тот каталог».
@@ -973,7 +991,8 @@ const scopeGate: BuiltinGate = async (ctx) => {
       status: '✅',
       command: null,
       exitCode: 0,
-      lastLine: `все изменения в пределах files_to_touch (файлов: ${outsideSdlc.length})`,
+      lastLine:
+        `все изменения в пределах files_to_touch (файлов: ${outsideSdlc.length})${baselineNote}`,
     };
   }
   const detail = violations
