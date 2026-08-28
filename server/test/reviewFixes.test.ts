@@ -213,6 +213,7 @@ function request(over: Partial<ExecRequest> = {}): ExecRequest {
     model: 'test',
     allowedTools: ['Read'],
   mcp: null,
+  finishGuard: null,
     readOnlyDirs: [],
     subagents: [],
     maxTurns: 10,

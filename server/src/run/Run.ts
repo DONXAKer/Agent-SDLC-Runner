@@ -39,6 +39,7 @@ import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
+import { missingNow, seedArtifacts, stillMissing } from './seed.ts';
 import type { McpSetup } from '../config/mcp.ts';
 import { McpHub } from '../mcp/McpHub.ts';
 import { imageSaver } from '../mcp/content.ts';
@@ -286,6 +287,8 @@ export class Run {
   private mcpSelected: McpToolInfo[] = [];
   /** Счётчик сохранённых картинок витка: имена файлов не должны затирать друг друга. */
   private mcpImageSeq = 0;
+  /** Формы, разложенные под артефакты текущего этапа, — их называет промпт. */
+  private seeded: string[] = [];
   /**
    * Проваленные пункты приёмки по попыткам текущего chunk'а — вход эскалации.
    * Живёт на chunk: `resetAttemptState` обнуляет состояние ПОПЫТКИ, а история попыток
@@ -842,6 +845,9 @@ export class Run {
             allowedTools: def.tools,
             // Тот же набор, что у первого маршрута: соединения уже подняты, отбор посчитан.
             mcp: await this.mcpAccess('verify'),
+            // Стража нет: канонический файл отчёта здесь намеренно опустошён перед каждым
+            // маршрутом ансамбля, и «артефакт на месте» тут не признак сделанной работы.
+            finishGuard: null,
             readOnlyDirs: this.readOnlyRoots,
             subagents: agents,
             maxTurns: this.config.runner.limits.maxIterationsPerStage,
@@ -879,7 +885,9 @@ export class Run {
     const limits = this.config.runner.limits;
     return new LoopExecutor({
       provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
-      maxResultBytes: limits.maxToolResultBytes,
+      // Свой потолок у локального контура: общий рассчитан на большое окно, а здесь один
+      // `Read` по нему забирал почти весь контекст 16K — измерено на прогоне.
+      maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
       readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
       bashTimeoutMs: limits.gateTimeoutMs,
       // Температуру не задаём: у части серверов «не задано» и «0» ведут себя по-разному,
@@ -934,6 +942,7 @@ export class Run {
       // панель промпта показывала ровно то, что уходит в модель.
       ...(this.mcpSelected.length === 0 ? {} : { mcpTools: this.mcpSelected }),
       ...(this.mcpUnavailable().length === 0 ? {} : { mcpUnavailable: this.mcpUnavailable() }),
+      ...(this.seeded.length === 0 ? {} : { seededArtifacts: this.seeded }),
     });
     this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     return prompt;
@@ -1422,6 +1431,23 @@ export class Run {
     // серверы реально ответили.
     const mcp = await this.mcpAccess(stage);
 
+    // Формы раскладываются ДО этапа: «заполни бланк» — задача другого класса, чем «создай
+    // документ по форме», и на локальных моделях это ровно тот шаг, где они вставали.
+    // Снимок отсутствующего берётся ДО раскладки: по нему потом видно, произвёл ли этап
+    // хоть что-то, а существовавший ранее файл (набор гейтов проекта) доказательством не
+    // считается.
+    const produced = def.produces(this.ctx);
+    const missingBefore = missingNow(produced);
+    this.seeded = seedArtifacts(produced, this.config.runner.methodologyDir).map((s) => s.path);
+    for (const path of this.seeded) {
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage,
+        message: `форма разложена под артефакт ${path} — этап заполняет её, а не создаёт заново`,
+      });
+    }
+
     // Промпт пересобирается, когда есть что подклеить: иначе правка оператора и факты
     // прогона исключали бы друг друга. Правка человека при этом сохраняется — она
     // приходит отдельными полями `system`/`user`.
@@ -1597,6 +1623,16 @@ export class Run {
           readOnlyDirs: this.readOnlyRoots,
           subagents: agents,
           mcp,
+          // «Ход завершён» и «работа сделана» — разные утверждения, и второе проверяется
+          // диском. Замечание даёт модели доделать в том же этапе, а не отчитаться пустым.
+          finishGuard: () => {
+            const missing = stillMissing(produced, missingBefore);
+            if (missing.length === 0) return null;
+            return (
+              `артефакт этапа не записан: ${missing.join(', ')}. Ход не закончен — ` +
+              `открой файл, заполни поля вместо «‹…›» и сохрани его инструментом Write или Edit.`
+            );
+          },
           maxTurns: this.config.runner.limits.maxIterationsPerStage,
           maxBudgetUsd: this.project.maxBudgetUsd,
           spentUsdBefore: this.totalUsage.costUsd ?? 0,
@@ -1624,9 +1660,24 @@ export class Run {
       // и по прогону гейтов, который был до ревью. Отдельной кнопки у него нет: вердикт,
       // который надо не забыть посчитать, рано или поздно не считают.
       if (stage === 'verify') this.computeStageVerdict(this.detectNoProgress());
-      this.status = result.ok ? 'done' : 'failed';
-      this.emit({ type: 'stage_done', runId: this.id, stage, ok: result.ok, note: result.note });
-      return result;
+
+      // Последнее слово об исходе — за диском, а не за исполнителем. Модель, объявившая
+      // ход завершённым и не записавшая ни одного из объявленных этапом артефактов,
+      // прошедшим этап не считается: во флоу `loop` она уже получила два напоминания, а
+      // во флоу `sdk` цикл крутит харнесс, и другого места для этой проверки нет.
+      const missingAfter = stillMissing(produced, missingBefore);
+      const failedSilently = result.ok && missingAfter.length > 0;
+      const outcome = failedSilently
+        ? {
+            ...result,
+            ok: false,
+            note: `этап закончился, но артефакт не записан: ${missingAfter.join(', ')}`,
+          }
+        : result;
+
+      this.status = outcome.ok ? 'done' : 'failed';
+      this.emit({ type: 'stage_done', runId: this.id, stage, ok: outcome.ok, note: outcome.note });
+      return outcome;
     } catch (e) {
       const message = (e as Error).message;
       this.status = 'failed';

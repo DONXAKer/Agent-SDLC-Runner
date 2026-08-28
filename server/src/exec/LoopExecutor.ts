@@ -56,6 +56,14 @@ export interface LoopOptions {
 const REPEAT_LIMIT = 3;
 
 /**
+ * Сколько раз напоминаем про незаписанный артефакт, прежде чем признать этап неудавшимся.
+ *
+ * Два, а не «пока не сделает»: модель, которая не поняла с двух напоминаний, не поймёт и с
+ * десятого, а ходы стоят времени оператора.
+ */
+const FINISH_REMINDERS = 2;
+
+/**
  * Имена инструментов субагента приходят строками из его YAML-шапки — файл пишет человек.
  * Незнакомое имя не превращается в право: оно просто не попадает в пересечение.
  */
@@ -125,6 +133,7 @@ export class LoopExecutor implements StageExecutor {
     let finalText = '';
     let lastFingerprint: string | null = null;
     let repeats = 0;
+    let reminders = 0;
 
     for (let turn = 1; turn <= req.maxTurns; turn++) {
       if (req.signal.aborted) {
@@ -167,6 +176,22 @@ export class LoopExecutor implements StageExecutor {
         const done =
           answer.finishReason === 'end_turn' ||
           (answer.finishReason === 'other' && answer.text.trim() !== '');
+        // «Завершила ход» — не то же самое, что «сделала работу». Пока артефакт этапа не
+        // на диске, ход не закончен, и это проверяется, а не выспрашивается у модели.
+        if (done && req.finishGuard !== null) {
+          const complaint = req.finishGuard();
+          if (complaint !== null && reminders < FINISH_REMINDERS) {
+            reminders++;
+            hooks.onWarn(`${complaint} (напоминание ${reminders} из ${FINISH_REMINDERS})`);
+            messages.push({ role: 'assistant', content: answer.text, toolCalls: [] });
+            messages.push({ role: 'user', content: complaint });
+            continue;
+          }
+          if (complaint !== null) {
+            return { ok: false, finalText, usage, note: complaint };
+          }
+        }
+
         const note = done
           ? 'модель завершила ход'
           : answer.finishReason === 'max_tokens'
@@ -394,6 +419,10 @@ export class LoopExecutor implements StageExecutor {
         model: def.model ?? req.model,
         allowedTools,
         subagents: [],
+        // Страж завершения — про артефакт ЭТАПА, а его пишет вызывающий, не субагент:
+        // `sdlc-locator` вообще не имеет прав записи, и требовать с него файл значило бы
+        // обрывать вложенный прогон за чужую недоделку.
+        finishGuard: null,
         // Свой потолок ходов: вложенный прогон не должен съесть бюджет этапа целиком.
         maxTurns: Math.max(4, Math.floor(req.maxTurns / 2)),
         // Бюджет ОБЩИЙ с родителем: свой полный потолок у каждого субагента означал бы,

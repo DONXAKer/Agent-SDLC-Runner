@@ -82,6 +82,7 @@ function request(over: Partial<ExecRequest> = {}): ExecRequest {
     model: 'm',
     allowedTools: ['Read', 'Grep', 'Task'] as ToolName[],
   mcp: null,
+  finishGuard: null,
     readOnlyDirs: [],
     subagents: [reviewer],
     maxTurns: 8,

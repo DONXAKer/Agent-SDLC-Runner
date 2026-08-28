@@ -67,6 +67,7 @@ function request(mcp: McpAccess | null, over: Partial<ExecRequest> = {}): ExecRe
     model: 'test-model',
     allowedTools: ['Read', 'McpRead', 'McpWrite'],
     mcp,
+    finishGuard: null,
     readOnlyDirs: [],
     subagents: [],
     maxTurns: 8,

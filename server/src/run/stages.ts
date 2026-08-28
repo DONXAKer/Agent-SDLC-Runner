@@ -159,7 +159,11 @@ export const STAGES: readonly StageDef[] = [
     // литеральные примеры приёмки исполнением. Без ветки git diff этапа 5 подхватывает
     // чужую незакоммиченную работу, и scope-гейт краснеет на файлах, которых агент
     // не трогал.
-    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'AskHuman', 'FinalizeArtifact'],
+    // `Bash` здесь нет намеренно. Прогон локальных моделей: имея оболочку, модель решает
+    // задачу оболочкой — копирует форму в проект и перебирает команды вместо того, чтобы
+    // заполнить документ (у 35B двенадцать вызовов из четырнадцати были shell'ом). Этап 1
+    // читает, спрашивает человека и пишет артефакт — команда ему не нужна ни для чего.
+    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact'],
     subagents: [],
     produces: (c) => [c.paths.gates, c.paths.intent, c.paths.readiness],
     requires: [],
@@ -230,7 +234,10 @@ export const STAGES: readonly StageDef[] = [
     skill: 'sdlc-plan',
     title: 'План витка',
     // Bash — для `git rev-parse HEAD` в поле «База».
-    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'AskHuman', 'FinalizeArtifact'],
+    // Оболочки нет по той же причине, что на этапе 1: план — это документ, а не прогон
+    // команд. Разведка, которой нужно смотреть в дерево, идёт этапом раньше и своими
+    // инструментами чтения.
+    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact'],
     subagents: [],
     produces: (c) => [c.paths.plan, c.paths.readiness],
     requires: [
