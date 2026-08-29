@@ -177,7 +177,7 @@ describe('предусловия этапов', () => {
   it('разведка запускается, когда пуста только секция «Что придётся тронуть»', () => {
     writeArtifact(
       paths.intent,
-      '# Задача\n- Коротко: делаем штуку\n\n## Что придётся тронуть\n- ‹path/to/file› — ‹что здесь меняем›\n',
+      '# Задача\n- Коротко: делаем штуку\n\n| claim-1 | пункт | тест |\n| claim-2 | [edge] пункт | тест |\n| claim-3 | [edge] пункт | тест |\n\n## Что придётся тронуть\n- ‹path/to/file› — ‹что здесь меняем›\n',
     );
     writeArtifact(paths.readiness, '# Готовность\nвердикт: готова\n');
     const r = checkPreconditions(stageById('explore'), ctx);
@@ -221,6 +221,75 @@ describe('предусловия этапов', () => {
   it('обрыв витка передачу открывает — но только объявленный явно', () => {
     const r = checkPreconditions(stageById('handoff'), ctx, { abortHandoff: true });
     ok(r.ok, r.problems.join('; '));
+  });
+
+  // Живой прогон ta-13: интент-модель сжала входную задачу с четырьмя клеймами до одного
+  // и сама отчиталась «готова» — минимум листа теперь конструкция, а не самопроверка.
+  it('разведка не идёт с листом короче минимума (полный контур: <3 пунктов)', () => {
+    writeArtifact(paths.intent, [
+      '# Задача',
+      '- **Контур:** полный',
+      '| id | Пункт | Как проверить |',
+      '| claim-1 | один пункт | тест |',
+    ].join('\n'));
+    writeArtifact(paths.readiness, '# Готовность\nготова\n');
+    const r = checkPreconditions(stageById('explore'), ctx);
+    ok(!r.ok);
+    ok(r.problems.some((p) => /короче минимума/.test(p)), r.problems.join('; '));
+  });
+
+  it('разведка идёт с полным листом (3 пункта, 2 edge)', () => {
+    writeArtifact(paths.intent, [
+      '# Задача',
+      '- **Контур:** полный',
+      '| id | Пункт | Как проверить |',
+      '| claim-1 | пункт | тест |',
+      '| claim-2 | [edge] пункт | тест |',
+      '| claim-3 | [edge] пункт | тест |',
+    ].join('\n'));
+    writeArtifact(paths.readiness, '# Готовность\nготова\n');
+    const r = checkPreconditions(stageById('explore'), ctx);
+    ok(!r.problems.some((p) => /короче минимума/.test(p)), r.problems.join('; '));
+  });
+
+  // Живой прогон ta-13: разведчик сочинил карту с несуществующими путями и финализировал —
+  // «заполненность» его пропустила. Существование путей карты — детектор сочинённого отчёта.
+  it('вопросы/план не идут по карте с несуществующими путями', () => {
+    writeArtifact(paths.intent, [
+      '# Задача', '- **Контур:** полный',
+      '| claim-1 | пункт | тест |', '| claim-2 | [edge] пункт | тест |', '| claim-3 | [edge] пункт | тест |',
+    ].join('\n'));
+    writeArtifact(paths.explorationReport, [
+      '# Отчёт разведки', '## Карта кодовой базы',
+      '| Путь от корня | Что там сейчас | Что меняем |', '|---|---|---|',
+      '| frontend/components/undo-toast.jsx | пусто | реализовать |',
+    ].join('\n'));
+    const r = checkPreconditions(stageById('ask'), ctx);
+    ok(r.problems.some((p) => /несуществующие пути/.test(p)), r.problems.join('; '));
+  });
+
+  it('строка карты с пометкой «новый» не считается несуществующим путём', () => {
+    writeArtifact(paths.explorationReport, [
+      '# Отчёт разведки', '## Карта кодовой базы',
+      '| Путь от корня | Что там сейчас | Что меняем |', '|---|---|---|',
+      '| frontend/src/NewToast.tsx | новый файл | создать |',
+    ].join('\n'));
+    const r = checkPreconditions(stageById('ask'), ctx);
+    ok(!r.problems.some((p) => /несуществующие пути/.test(p)), r.problems.join('; '));
+  });
+
+  // Регрессия: сама форма методологии пишет `- **passed:** true`, а прежний regex не
+  // переваривал markdown-жирность — канонический зелёный отчёт не открывал передачу.
+  it('канонический зелёный отчёт (`- **passed:** true`) открывает передачу', () => {
+    writeArtifact(
+      paths.verificationReport(ctx.chunk, ctx.attempt),
+      '# Отчёт приёмки\n\n## Вердикт\n\n- **passed:** true\n- **action:** continue\n',
+    );
+    const r = checkPreconditions(stageById('handoff'), ctx);
+    ok(
+      !r.problems.some((p) => /не passed=true/.test(p)),
+      r.problems.join('; '),
+    );
   });
 });
 

@@ -20,7 +20,7 @@ export interface NowFocusInput {
   runningStage: StageId | null;
   /** Вердикт последней попытки есть и красный. */
   verdictRed: boolean;
-  /** Самый дальний этап без блокеров — `suggestedStage(null, stages)`. */
+  /** Следующий шаг конвейера — `suggestedStage(null, stages)`: первый доступный без готовых артефактов. */
   nextRunnable: StageId | null;
 }
 

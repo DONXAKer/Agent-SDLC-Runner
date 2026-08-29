@@ -14,9 +14,9 @@
     "lmstudio":   { "flow": "loop", "kind": "openai-compat", "baseUrl": "http://localhost:1234/v1", "swapsModels": true },
     "openrouter": { "flow": "loop", "kind": "openai-compat", "baseUrl": "https://openrouter.ai/api/v1", "swapsModels": true },
     "// alltokens": "Российский openai-совместимый агрегатор (оплата в рублях). Тот же класс, что openrouter: облако, ключ обязателен (ALLTOKENS_API_KEY), tool-calling заявлен. swapsModels здесь не про выгрузку локальной модели, а формальность зеркала openrouter — облако модель не подгружает. Точные id моделей ниже сверяй запросом GET /api/v1/models с ключом: имена в каталоге и id в API различаются. ЗАМЕЧЕНО 2026-08-28: chat/completions флапает — plain-запросы то 200, то 500, а запросы С `tools` (их раннер шлёт всегда) давали 500 в 4/4 попытках на трёх моделях. Апстримы децентрализованные («Io Net»). Для прогона ненадёжен — см. polza ниже.",
-    "alltokens":  { "flow": "loop", "kind": "openai-compat", "baseUrl": "https://api.alltokens.ru/api/v1", "swapsModels": true },
+    "alltokens":  { "flow": "loop", "kind": "openai-compat", "baseUrl": "https://api.alltokens.ru/api/v1", "swapsModels": true, "currency": "RUB" },
     "// polza": "Российский openai-совместимый агрегатор (polza.ai, оплата в рублях, 394 модели). ПРОВЕРЕНО 2026-08-28: endpoint здоров (быстрый ответ, не флапает как alltokens), запрос С `tools` принимается и оценивается — tool-calling держит. Ключ POLZA_API_KEY в окружении, провайдер платный (см. PAID в registry.ts). Минимум ~1 ₽ резерва на запрос: без баланса отдаёт 402.",
-    "polza":      { "flow": "loop", "kind": "openai-compat", "baseUrl": "https://api.polza.ai/api/v1", "swapsModels": true }
+    "polza":      { "flow": "loop", "kind": "openai-compat", "baseUrl": "https://api.polza.ai/api/v1", "swapsModels": true, "currency": "RUB" }
   },
 
   "models": [
@@ -57,6 +57,18 @@
       "id": "alltokens:qwen3-30b-a3b",   "provider": "alltokens", "model": "qwen/qwen3-30b-a3b-instruct-2507", "rank": 55 },
     { "id": "polza:qwen3-30b-a3b",       "provider": "polza",     "model": "qwen/qwen3-30b-a3b-instruct-2507", "rank": 55 },
     { "id": "polza:qwen3-32b",           "provider": "polza",     "model": "qwen/qwen3-32b",                    "rank": 58 },
-    { "id": "polza:gpt-oss-20b",         "provider": "polza",     "model": "openai/gpt-oss-20b",                "rank": 52 }
+    { "id": "polza:gpt-oss-20b",         "provider": "polza",     "model": "openai/gpt-oss-20b",                "rank": 52 },
+
+    { "// deepseek-v4-pro": "Добавлена 2026-08-29 как рецензент для polza-профилей: правило «verify строго сильнее chunk» требует ранга выше qwen3-32b (58). Id сверен запросом GET /api/v1/models.",
+      "id": "polza:deepseek-v4-pro",     "provider": "polza",     "model": "deepseek/deepseek-v4-pro",          "rank": 75 },
+
+    { "// дешёвые аналоги": "Добавлены 2026-08-29 по итогам витка ta-01 (600-700 ₽): v4-pro-0813 — та же линейка рецензента, вход в ~7 раз дешевле (78 против 529 ₽/M); qwen3-coder-next — кодовая, в 4 раза дешевле kimi-k2.7-code (21/107 против 90/416). Ранги: 0813 держим 74 (verify всё ещё сильнее любого chunk), coder-next 62 — не обкатана, поднять после успешного витка.",
+      "id": "polza:deepseek-v4-pro-0813","provider": "polza",     "model": "deepseek/deepseek-v4-pro-0813",     "rank": 74 },
+    { "id": "polza:qwen3-coder-next",    "provider": "polza",     "model": "qwen/qwen3-coder-next",             "rank": 62 },
+    { "// deepseek-v4-flash": "Добавлена 2026-08-29: qwen3-32b дважды сочинила отчёт разведки на ta-13 — обкатка дешёвой альтернативы (17/33 ₽/M) на этапах 1–4.",
+      "id": "polza:deepseek-v4-flash",   "provider": "polza",     "model": "deepseek/deepseek-v4-flash",        "rank": 60 },
+
+    { "// kimi-k2.7-code": "Добавлена 2026-08-29 для этапа chunk: обе qwen-модели polza за 5 попыток не применили ни одной правки (промахи Edit, потери содержимого при Write). Кодовая модель с сильным tool-calling; rank ниже deepseek-v4-pro — рецензент остаётся сильнее.",
+      "id": "polza:kimi-k2.7-code",      "provider": "polza",     "model": "moonshotai/kimi-k2.7-code",         "rank": 68 }
   ]
 }

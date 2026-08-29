@@ -21,6 +21,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { isAbsolute, join } from 'node:path';
 
 import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
@@ -36,6 +37,7 @@ import type {
 } from './StageExecutor.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
 import { TOOL_SPECS, specsFor } from './toolSpecs.ts';
+import { readArtifact } from '../artifacts/artifact.ts';
 
 export interface LoopOptions {
   provider: ChatProvider;
@@ -54,6 +56,13 @@ export interface LoopOptions {
  * счётчик начинался с нуля, — лишний полный round-trip к серверу на каждом залипании.
  */
 const REPEAT_LIMIT = 3;
+
+/**
+ * Алиасы моделей Claude Code в frontmatter определений субагентов (`model: opus`).
+ * Определения написаны для реализации claude-code; OpenAI-совместимому провайдеру такой
+ * алиас неизвестен и падает «модель не найдена» — на verify это валило рецензента.
+ */
+const CLAUDE_MODEL_ALIASES = new Set(['opus', 'sonnet', 'haiku', 'inherit']);
 
 /**
  * Сколько раз напоминаем про незаписанный артефакт, прежде чем признать этап неудавшимся.
@@ -403,6 +412,19 @@ export class LoopExecutor implements StageExecutor {
    * Вложенность одноуровневая: субагенту субагенты не выдаются. Рекурсия означала бы
    * неограниченную глубину прав и бюджета.
    */
+  /** Модель вложенного прогона: своя у субагента, если это не алиас чужого флоу. */
+  private subagentModel(def: SubagentDef, req: ExecRequest, hooks: ExecHooks): string {
+    if (def.model === null || def.model === undefined) return req.model;
+    if (CLAUDE_MODEL_ALIASES.has(def.model)) {
+      hooks.onWarn(
+        `модель «${def.model}» из определения субагента «${def.name}» — алиас Claude Code, ` +
+          'флоу loop им не пользуется: субагент идёт на модели этапа',
+      );
+      return req.model;
+    }
+    return def.model;
+  }
+
   private async runSubagent(
     req: ExecRequest,
     hooks: ExecHooks,
@@ -430,7 +452,12 @@ export class LoopExecutor implements StageExecutor {
           editedByOperator: false,
         },
         // Модель субагента, если он её назвал: рецензент бывает сильнее исполнителя.
-        model: def.model ?? req.model,
+        // Но алиасы Claude Code — имена ЧУЖОГО флоу: определения агентов написаны для
+        // claude-code, и `model: opus`, отданный OpenAI-совместимому провайдеру буквально,
+        // падал «Модель "opus" не найдена» ровно на рецензенте — самом сторожевом месте.
+        // Алиас игнорируется с предупреждением: маршрут verify уже выбран профилем, и
+        // правило «рецензент сильнее исполнителя» держит он, а не строка определения.
+        model: this.subagentModel(def, req, hooks),
         allowedTools,
         subagents: [],
         // Страж завершения — про артефакт ЭТАПА, а его пишет вызывающий, не субагент:
@@ -471,10 +498,26 @@ export class LoopExecutor implements StageExecutor {
           : JSON.stringify(answers, null, 2);
       }
 
-      case 'finalize_artifact':
-        // Проверку заполненности делает рантайм при чтении артефакта; здесь только
-        // подтверждение, что заявка принята.
+      case 'finalize_artifact': {
+        // Заявка «готово» проверяется ЗДЕСЬ, а не только предусловием следующего этапа:
+        // слабая модель финализирует шаблон с плейсхолдерами и честно считает работу
+        // сделанной (наблюдалось трижды подряд на живом витке — журнал chunk'а уходил
+        // «готовым» нетронутым). Замечание вместо результата — та же конструкция, что
+        // у повторных вызовов: просьбам модель верит хуже, чем отказам инструмента.
+        const p = isAbsolute(call.artifact) ? call.artifact : join(toolCtx.projectRoot, call.artifact);
+        const a = readArtifact(p);
+        if (!a.exists) {
+          return `ошибка: артефакт ${call.artifact} не существует — сначала запиши его, потом финализируй`;
+        }
+        if (a.placeholders > 0) {
+          return (
+            `ошибка: в ${call.artifact} осталось незаполненных мест ‹…›: ${a.placeholders} — ` +
+            `финализировать нельзя. Прочитай артефакт, заполни каждый плейсхолдер по факту ` +
+            `и вызови FinalizeArtifact снова`
+          );
+        }
         return `артефакт заявлен готовым: ${call.artifact}`;
+      }
 
       case 'request_scope_extension':
         // Само расширение `plan.md` и пересчёт политики уже произошли в `onToolRequest`

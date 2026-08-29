@@ -319,6 +319,7 @@ app.get('/api/runs', (): RunSummary[] =>
     slug: run.slug,
     project: run.project.name,
     profile: run.profile.name,
+    currency: profileCurrency(run.profile.routes),
     status: run.status,
     stage: currentStage,
     chunk: run.chunk,
@@ -326,6 +327,16 @@ app.get('/api/runs', (): RunSummary[] =>
     usage: run.totalUsage,
   })),
 );
+
+/**
+ * Единая валюта маршрутов профиля — см. `RunSummary.currency`. Смешанный профиль отдаёт
+ * USD: сумма в двух валютах честной подписи не имеет, статус-кво остаётся как был.
+ */
+function profileCurrency(routes: Record<string, { providerDef: { currency?: string } }>): string {
+  const set = new Set(Object.values(routes).map((r) => r.providerDef.currency ?? 'USD'));
+  const only = [...set];
+  return only.length === 1 && only[0] !== undefined ? only[0] : 'USD';
+}
 
 app.get('/api/history', (req, reply) => {
   const { project } = req.query as { project?: unknown };
@@ -379,6 +390,7 @@ app.get('/api/runs/:id', async (req, reply) => {
     project: run.project.name,
     projectRoot: run.project.projectRoot,
     profile: run.profile.name,
+    currency: profileCurrency(run.profile.routes),
     routes: run.profile.routes,
     status: run.status,
     stage: currentStage,
@@ -395,6 +407,13 @@ app.get('/api/runs/:id', async (req, reply) => {
       // У handoff'а вход двойной, и предусловия у входов разные — см. `abortBlockers`.
       abortBlockers: s.id === 'handoff' ? run.blockers(s.id, { abortHandoff: true }) : null,
       produces: s.produces(run.ctx),
+      // Факт с диска тем же чтением, что блокеры: клиентская эвристика «дальний этап без
+      // блокеров = всё до него пройдено» врала на этапах с общими предусловиями (ask и
+      // plan разблокированы сразу после intent, до всякой разведки) — см. StageInfo.produced.
+      produced: (() => {
+        const out = s.produces(run.ctx);
+        return out.length > 0 && out.every((p) => existsSync(p));
+      })(),
       decision: s.humanGate,
       // Тем же разбором, что и предусловие следующего этапа (`granted()` в stages.ts):
       // «записано» — это `readDecision(...).state === 'granted'`, а не факт, что поле

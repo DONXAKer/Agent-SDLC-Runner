@@ -11,10 +11,12 @@ const FLOW_BADGE: Record<FlowId, string> = {
 };
 
 // Ключ — `StageState`: новое состояние без своего вида кружка должно ловиться сборкой.
+// «Доступен» — голубой, а не зелёный: зелёный у пройденных, и одинаковый цвет в двух
+// значениях («сделано» и «можно запускать») и был той путаницей, ради которой легенда.
 const CIRCLE: Record<StageState, string> = {
   done: 'bg-emerald-900/70 text-emerald-300',
   running: 'animate-pulse bg-amber-600 text-black',
-  available: 'bg-emerald-800 text-emerald-100 ring-2 ring-emerald-500/50',
+  available: 'bg-sky-800 text-sky-100 ring-2 ring-sky-500/50',
   blocked: 'bg-neutral-800 text-neutral-500',
 };
 
@@ -23,6 +25,14 @@ const TITLE: Record<StageState, string> = {
   running: 'text-neutral-200',
   available: 'text-neutral-200',
   blocked: 'text-neutral-500',
+};
+
+// Подпись состояния справа от названия — цветом своего кружка. Показывается всем
+// состояниям, кроме blocked: у того вместо подписи список причин.
+const STATE_LABEL: Record<Exclude<StageState, 'blocked'>, { text: string; cls: string }> = {
+  done: { text: 'пройден', cls: 'text-emerald-500' },
+  running: { text: 'выполняется', cls: 'text-amber-400' },
+  available: { text: 'доступен', cls: 'text-sky-400' },
 };
 
 export function StageRail({
@@ -68,9 +78,11 @@ export function StageRail({
                 {state === 'done' ? '✓' : idx + 1}
               </span>
               <span className={TITLE[state]}>{s.title}</span>
-              {state === 'available' ? (
-                <span className="ml-auto text-[10px] uppercase tracking-wide text-emerald-500">
-                  вы здесь
+              {state !== 'blocked' ? (
+                <span
+                  className={`ml-auto text-[10px] uppercase tracking-wide ${STATE_LABEL[state].cls}`}
+                >
+                  {STATE_LABEL[state].text}
                 </span>
               ) : null}
             </div>
@@ -108,6 +120,23 @@ export function StageRail({
           </button>
         );
       })}
+
+      {/* Легенда — та же палитра, что у кружков (CIRCLE), чтобы не разъехались. Доступных
+          этапов может быть несколько сразу: у ask и plan общие предусловия с разведкой. */}
+      <div className="mt-auto space-y-1 border-t border-neutral-800 px-1 pt-2 text-[10px] text-neutral-500">
+        <div className="flex items-center gap-1.5">
+          <span className={`h-2.5 w-2.5 rounded-full ${CIRCLE.done}`} /> пройден — артефакты на диске
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`h-2.5 w-2.5 rounded-full ${CIRCLE.running}`} /> выполняется сейчас
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`h-2.5 w-2.5 rounded-full ${CIRCLE.available}`} /> доступен к запуску
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`h-2.5 w-2.5 rounded-full ${CIRCLE.blocked}`} /> заблокирован предусловиями
+        </div>
+      </div>
     </nav>
   );
 }

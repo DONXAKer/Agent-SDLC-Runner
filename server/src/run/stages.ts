@@ -152,11 +152,89 @@ export function isSmallContour(c: StageContext): boolean {
   return small && !full;
 }
 
+/**
+ * Минимум приёмочного листа задачи — конструкцией, а не самопроверкой модели.
+ *
+ * Правило этапа 1 («полный контур: пунктов ≥ 3, из них ≥ 2 с [edge]») держалось только
+ * на галочках, которые модель ставила сама себе в readiness.md. Живой прогон: интент-модель
+ * сжала входную задачу с четырьмя клеймами до одного — и сама же отчиталась «готова».
+ * Проверка на входе в разведку останавливает такой лист до того, как он съест этапы 2–6.
+ * На мелком контуре минимум — один пункт (норма методологии «Мелкий виток»).
+ */
+function claimsMinimum(): Precondition {
+  return {
+    describe: 'приёмочный лист не короче минимума этапа 1',
+    check: (c) => {
+      const intent = readArtifact(c.paths.intent);
+      if (!intent.exists) return `нет файла ${c.paths.intent}`;
+      const rows = intent.text
+        .split(/\r?\n/)
+        .filter((l) => /^\s*\|\s*claim-\d+\s*\|/.test(l));
+      const edges = rows.filter((l) => /\[edge\]/i.test(l)).length;
+      const small = isSmallContour(c);
+      const needRows = small ? 1 : 3;
+      const needEdges = small ? 0 : 2;
+      if (rows.length < needRows || edges < needEdges) {
+        return (
+          `приёмочный лист короче минимума этапа 1: пунктов ${rows.length} (нужно ≥ ${needRows}), ` +
+          `с [edge] ${edges} (нужно ≥ ${needEdges}) — верни недостающие пункты в intent.md ` +
+          `(если задача принесла свой лист, из него ничего не выбрасывается без решения человека)`
+        );
+      }
+      return null;
+    },
+  };
+}
+
+/**
+ * Пути из карты кодовой базы отчёта разведки существуют в дереве — фактичность конструкцией.
+ *
+ * Живой прогон ta-13: разведчик-модель СОЧИНИЛА отчёт, не открыв ни файла, — Flask вместо
+ * FastAPI и несуществующие пути (`frontend/components/undo-toast.jsx`), а «заполненность»
+ * гейт прошла: плейсхолдеров-то не осталось. Существование пути — самый дешёвый детектор
+ * сочинённой карты. Строка с пометкой «нов…» (новый файл/модуль) законно указывает на
+ * ещё не существующий путь и пропускается.
+ */
+function explorationPathsExist(): Precondition {
+  return {
+    describe: 'пути из карты кодовой базы существуют в дереве',
+    check: (c) => {
+      if (isSmallContour(c)) return null;
+      const report = readArtifact(c.paths.explorationReport);
+      if (!report.exists) return null; // отсутствие отчёта ловит соседнее предусловие
+      const missing: string[] = [];
+      let inMap = false;
+      for (const line of report.text.split(/\r?\n/)) {
+        if (/^##\s/.test(line)) inMap = /кодов(ая|ой) база|карта/i.test(line);
+        if (!inMap || !line.trim().startsWith('|')) continue;
+        const cells = line.split('|').map((s) => s.trim());
+        const first = (cells[1] ?? '').replace(/`/g, '').trim();
+        if (first === '' || /^[-: ]+$/.test(first) || /путь/i.test(first)) continue;
+        if (/нов/i.test(cells[2] ?? '') || /нов/i.test(first)) continue;
+        const rel = first.split(/\s/)[0] ?? '';
+        if (rel === '' || rel.includes('‹')) continue;
+        if (!artifactExists(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+      }
+      if (missing.length > 0) {
+        return (
+          `карта кодовой базы в отчёте разведки называет несуществующие пути: ${missing.join(', ')} — ` +
+          `отчёт сочинён, а не прочитан из кода. Разведку нужно переделать по реальным файлам`
+        );
+      }
+      return null;
+    },
+  };
+}
+
 /** Отчёт приёмки последней попытки говорит, что виток принят. */
 function verificationPassed(c: StageContext): boolean {
   const report = readArtifact(c.paths.verificationReport(c.chunk, c.attempt));
   if (!report.exists) return false;
-  return /(^|\s)passed\s*[:=]\s*true/i.test(report.text);
+  // Markdown-жирность обязана прощаться: сама форма методологии пишет `- **passed:** true`
+  // (templates/verification-report.template.md, секция «Вердикт») — прежний regex не
+  // признавал КАНОНИЧЕСКИЙ зелёный отчёт зелёным, и handoff отказывался от передачи
+  // ровно на первом же успешном витке.
+  return /(^|\s)[*_]*passed[*_]*\s*[:=]\s*[*_]*\s*true/i.test(report.text);
 }
 
 const RUNTIME_PROTECTED = (c: StageContext): string[] => [
@@ -208,6 +286,7 @@ export const STAGES: readonly StageDef[] = [
     requires: [
       filledExceptTouchSection('задача заполнена без плейсхолдеров', (c) => c.paths.intent),
       exists('проверка готовности пройдена (прогон 1)', (c) => c.paths.readiness),
+      claimsMinimum(),
     ],
     protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.plan)],
     humanGate: { artifact: 'exploration', label: DECISION.checklistComplete },
@@ -239,6 +318,7 @@ export const STAGES: readonly StageDef[] = [
             : `нет отчёта разведки ${c.paths.explorationReport}. На полном контуре ` +
               `«открытых вопросов нет» без разведки означает, что искать их было некому.`,
       },
+      explorationPathsExist(),
     ],
     protectedArtifacts: RUNTIME_PROTECTED,
     humanGate: null,
@@ -273,6 +353,7 @@ export const STAGES: readonly StageDef[] = [
               `запускается — тогда пометь это в поле «Контур» задачи.`,
       },
       filled('задача заполнена без плейсхолдеров', (c) => c.paths.intent),
+      explorationPathsExist(),
     ],
     // План здесь и создаётся, поэтому защищены только задача и набор гейтов.
     protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.intent)],

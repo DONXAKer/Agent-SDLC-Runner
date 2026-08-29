@@ -51,6 +51,16 @@ export interface ChatRequest {
    * ведут себя по-разному, и подставлять своё значение молча нельзя.
    */
   temperature: number | null;
+  /**
+   * Сырые поля тела запроса из конфига модели (`ModelDef.params`): temperature,
+   * max_tokens, top_p, seed, response_format, tool_choice и прочее, что понимает сервер.
+   *
+   * Одно generic-поле вместо ручки на каждый параметр: журнал замеров требует менять
+   * «одну настройку за прогон», и каждая новая ручка иначе означала бы правку кода.
+   * Служебные ключи (model, messages, tools, stream) слиянием не перекрываются —
+   * их подмена ломала бы разбор ответа, а не поведение модели.
+   */
+  params?: Record<string, unknown> | null;
 }
 
 export interface ChatProvider {

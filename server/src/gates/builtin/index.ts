@@ -76,6 +76,26 @@ export interface BuiltinOutcome {
    * переписанный хелпер — нужен ответ человека», а настоящий сбой git — не метила.
    */
   envBlocked?: boolean;
+  /**
+   * Хвост фактического вывода команды — для свидетельства попытки (`…-tests.txt`).
+   *
+   * Без него запись рантайма несла только сводку «4 failed, 149 passed», и исполнитель
+   * следующей попытки чинил тесты ВСЛЕПУЮ: имена упавших и трейсбеки не были видны ни
+   * ему, ни рецензенту (наблюдалось на живом витке — попытка 2 не сдвинула счёт падений).
+   * В строку гейта (`lastLine`) хвост не идёт — там сводка; полный вывод только в улике.
+   */
+  outputTail?: string;
+}
+
+/** Хвост вывода для улики: последние строки, с потолком по байтам. */
+export function outputTailOf(stdout: string, stderr: string, maxLines = 200, maxBytes = 20000): string {
+  const joined = [stdout, stderr].filter((s) => s.trim() !== '').join('\n--- stderr ---\n');
+  const lines = joined.split(/\r?\n/);
+  let tail = lines.slice(-maxLines).join('\n');
+  if (Buffer.byteLength(tail, 'utf8') > maxBytes) {
+    tail = Buffer.from(tail, 'utf8').subarray(-maxBytes).toString('utf8');
+  }
+  return lines.length > maxLines ? `[рантайм обрезал: показаны последние ${maxLines} строк]\n${tail}` : tail;
 }
 
 export type BuiltinGate = (ctx: GateContext) => Promise<BuiltinOutcome>;
@@ -245,6 +265,15 @@ function aggregate(
       `модулей проверено: ${parts.length}`,
       ...parts.map((p) => `  ${p.outcome.status} ${p.dir}: ${p.outcome.lastLine}`),
     ].join('\n'),
+    // Хвосты модулей склеиваются с заголовками: улика моно-репо обязана говорить, чей вывод.
+    ...(parts.some((p) => p.outcome.outputTail !== undefined)
+      ? {
+          outputTail: parts
+            .filter((p) => p.outcome.outputTail !== undefined)
+            .map((p) => `=== ${p.dir} ===\n${p.outcome.outputTail}`)
+            .join('\n\n'),
+        }
+      : {}),
   };
 }
 
@@ -608,6 +637,8 @@ async function testOne(
     command: system.test,
     exitCode: r.exitCode,
     lastLine: r.timedOut ? `тесты не уложились в ${ctx.timeoutMs} мс` : r.lastLine,
+    // Хвост нужен и на зелёном прогоне: «какие тесты прошли» — тоже свидетельство.
+    outputTail: outputTailOf(r.stdout, r.stderr),
   };
 }
 

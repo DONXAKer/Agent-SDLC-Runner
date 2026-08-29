@@ -7,54 +7,50 @@ export type StageState = 'done' | 'running' | 'available' | 'blocked';
 export interface StageProgressInput {
   id: StageId;
   blockers: string[];
+  /** Все артефакты этапа существуют на диске — факт от сервера, см. `StageInfo.produced`. */
+  produced: boolean;
 }
 
 /**
- * Вывести состояние каждого этапа из блокеров.
+ * Состояние каждого этапа: `produced` с сервера + блокеры, без угадывания.
  *
- * «Пройден» сервер не отдаёт, но он выводим: блокеры считаются чтением артефактов с
- * диска, и если этап k разблокирован — артефакты всех предыдущих на месте. Берётся
- * САМЫЙ ДАЛЬНИЙ разблокированный (frontier): всё до него — `done`, он сам — `available`,
- * дальше — `blocked`. Выводить пройденность из ленты событий нельзя: буфер шины
- * ограничен и вытесняет с начала, а при реконнекте лента сбрасывается — тот же урок,
- * что у `mergePending`.
+ * Раньше «пройден» выводился эвристикой «самый дальний этап без блокеров — frontier,
+ * всё до него done». Она врала на этапах с общими предусловиями: у ask и plan блокеры
+ * пусты сразу после intent (им нужен только intent.md, не отчёт разведки) — и во время
+ * работающей разведки ask красился пройденным, а plan — текущим. Теперь пройденность —
+ * это факт «артефакты на диске», который сервер считает тем же чтением, что и блокеры.
  *
- * Оговорка: условный этап (`ask` — «нет развилок, нет шага») перед frontier'ом тоже
- * помечается `done`, хотя мог не запускаться, — по файлам «выполнен» и «не понадобился»
- * неразличимы, и различать их здесь значило бы угадывать.
+ * Доступных к запуску этапов может быть несколько одновременно — это правда конвейера,
+ * а не дефект раскраски; какой из них «текущий», решает `suggestedStage`.
  */
 export function computeStageStates(
   stages: readonly StageProgressInput[],
   runningStage: StageId | null,
 ): Partial<Record<StageId, StageState>> {
-  let frontier = -1;
-  stages.forEach((s, i) => {
-    if (s.blockers.length === 0) frontier = i;
-  });
-
   const out: Partial<Record<StageId, StageState>> = {};
-  stages.forEach((s, i) => {
+  for (const s of stages) {
     if (s.id === runningStage) out[s.id] = 'running';
-    else if (i < frontier) out[s.id] = 'done';
-    else if (i === frontier) out[s.id] = 'available';
+    else if (s.produced) out[s.id] = 'done';
+    else if (s.blockers.length === 0) out[s.id] = 'available';
     else out[s.id] = 'blocked';
-  });
+  }
   return out;
 }
 
 /**
  * На какой этап вставать открытому витку — туда, где он реально находится, а не на `intent`.
  *
- * `runningStage` не пуст ровно тогда, когда этап крутится прямо сейчас, — а виток чаще
- * всего открывают, когда он СТОИТ между этапами, и сид по одному этому полю не срабатывал
- * именно в самом частом случае. Запасной признак — самый дальний этап без блокеров: до
- * него виток уже дошёл.
+ * Идёт этап — на него. Иначе — первый доступный, чьи артефакты ещё не готовы: это
+ * следующий шаг конвейера. Все доступные уже отработали (перезапускаемы, но сделаны) —
+ * самый дальний из них: виток стоит у своего фронта.
  */
 export function suggestedStage(
   runningStage: StageId | null,
   stages: readonly StageProgressInput[],
 ): StageId | null {
   if (runningStage !== null) return runningStage;
+  const next = stages.find((s) => s.blockers.length === 0 && !s.produced);
+  if (next !== undefined) return next.id;
   const runnable = [...stages].reverse().find((s) => s.blockers.length === 0);
   return runnable?.id ?? null;
 }

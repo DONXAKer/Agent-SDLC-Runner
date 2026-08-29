@@ -59,7 +59,7 @@ export function RunHeader({
       <div className="ml-auto flex items-center gap-4">
         {/* Бюджет берётся из конфига проекта, а не из константы: до этого полоса
             сравнивала расход с чужим числом и краснела не тогда, когда надо. */}
-        <CostBar usage={detail.usage} budgetUsd={detail.maxBudgetUsd} />
+        <CostBar usage={detail.usage} budgetUsd={detail.maxBudgetUsd} currency={detail.currency} />
 
         {/* При `denied` кнопки нет, и её отсутствие читалось как «уведомления включены»:
             оператор полагался на них и пропускал ожидание. Говорим прямо. */}

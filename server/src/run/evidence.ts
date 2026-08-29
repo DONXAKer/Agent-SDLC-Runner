@@ -84,6 +84,11 @@ export async function recordAttemptEvidence(args: {
       '',
       outcome.lastLine,
       '',
+      // Хвост фактического вывода: без него следующая попытка чинила падения вслепую —
+      // имена упавших тестов и трейсбеки не были видны ни исполнителю, ни рецензенту.
+      ...(outcome.outputTail === undefined || outcome.outputTail.trim() === ''
+        ? []
+        : ['## Вывод команды (хвост, записан рантаймом)', '', outcome.outputTail, '']),
     ].join('\n');
     writeFileSync(args.testsPath, text, 'utf8');
   }

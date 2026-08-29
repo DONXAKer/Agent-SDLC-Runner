@@ -8,15 +8,18 @@
  */
 
 import type { Usage } from '@sdlc-runner/shared';
-import { formatCost, formatDuration } from '@sdlc-runner/shared';
+import { formatCost, formatDuration, money } from '@sdlc-runner/shared';
 
 export function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
 }
 
 // Правило одно на кодовую базу и живёт в общем пакете: его читает и интерфейс, и
-// пост-виток отчёт в `handoff.md`.
-export const fmtCost = (usage: Usage): string => formatCost(usage);
+// пост-виток отчёт в `handoff.md`. `currency` — валюта профиля витка
+// (`RunSummary.currency`): рублёвый провайдер не должен подписываться долларом.
+export const fmtCost = (usage: Usage, currency?: string): string =>
+  formatCost(usage, 'без стоимости', currency ?? 'USD');
+export const fmtMoney = money;
 export const fmtDuration = formatDuration;
 
 /**

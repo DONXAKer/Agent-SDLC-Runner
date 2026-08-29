@@ -637,13 +637,25 @@ export type EventSink = (e: RunEvent) => void;
  * `noCost` — как назвать отсутствие стоимости: в интерфейсе коротко, в артефакте
  * развёрнуто. Это единственное, чем поверхности вправе отличаться.
  */
-export function formatCost(usage: Usage, noCost = 'без стоимости'): string {
+export function formatCost(usage: Usage, noCost = 'без стоимости', currency = 'USD'): string {
   if (usage.costUsd === null) return noCost;
   const tokens =
     usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
   if (usage.costUsd === 0 && tokens === 0) return '—';
-  if (usage.costUsd === 0) return '$0';
-  return `$${usage.costUsd.toFixed(4)}`;
+  if (usage.costUsd === 0) return money(0, currency);
+  return money(usage.costUsd, currency);
+}
+
+/**
+ * Число в валюте провайдера. Само значение не пересчитывается: рублёвые агрегаторы
+ * (polza, alltokens) считают в рублях, и подпись `$` завышала трату в глазах оператора
+ * ~в 90 раз. Доллар — префиксом (как принято), остальное — суффиксом с символом или кодом.
+ */
+export function money(value: number, currency = 'USD'): string {
+  const n = value === 0 ? '0' : value.toFixed(4);
+  if (currency === 'USD') return `$${n}`;
+  const sym: Record<string, string> = { RUB: '₽', EUR: '€' };
+  return `${n} ${sym[currency] ?? currency}`;
 }
 
 /** Длительность в человеческом виде. Одна копия — по той же причине, что и `formatCost`. */

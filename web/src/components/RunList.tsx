@@ -68,7 +68,7 @@ export function RunList({
                     Поэтому подпись говорит про занятость, а не про прогресс витка: «этап не
                     начат» на пустом `stage` соврало бы про виток, дошедший до verify. */}
                 {r.stage === null ? 'сейчас ничего не выполняется' : `выполняется ${r.stage}`} ·
-                chunk {r.chunk} · попытка {r.attempt} · профиль {r.profile} · {fmtCost(r.usage)}
+                chunk {r.chunk} · попытка {r.attempt} · профиль {r.profile} · {fmtCost(r.usage, r.currency)}
               </div>
             </button>
 

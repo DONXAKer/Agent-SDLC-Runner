@@ -214,3 +214,76 @@ describe('параллельный запуск субагентов', () => {
     ok(seen.calls.some((c) => c.kind === 'read'));
   });
 });
+
+describe('модель субагента во флоу loop', () => {
+  it('алиас Claude Code (`model: opus`) не уходит провайдеру — субагент идёт на модели этапа', async () => {
+    const withOpus: SubagentDef = { ...reviewer, model: 'opus' };
+    const seenModels: string[] = [];
+    let i = 0;
+    const p = {
+      async chat(req: { model: string }) {
+        seenModels.push(req.model);
+        const turns = [
+          { text: '', toolCalls: [callTask('sdlc-reviewer')] },
+          { text: 'отчёт' },
+          { text: 'готово' },
+        ];
+        const t = turns[Math.min(i++, turns.length - 1)];
+        return {
+          text: t?.text ?? '',
+          toolCalls: (t?.toolCalls ?? []).map((c) => ({
+            id: c.id, name: c.name, arguments: c.arguments, rawArguments: JSON.stringify(c.arguments),
+          })),
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const seen = emptySeen();
+    const exec = new LoopExecutor({
+      provider: p,
+      maxResultBytes: 1000,
+      readRangeRequiredAboveBytes: 1000,
+      bashTimeoutMs: 1000,
+      temperature: null,
+    });
+    await exec.run(request({ subagents: [withOpus] }), hooks(seen));
+    ok(!seenModels.includes('opus'), 'алиас opus утёк провайдеру');
+    ok(seen.warns.some((w) => w.includes('алиас Claude Code')), 'нет предупреждения об алиасе');
+  });
+
+  it('настоящая модель из определения субагента используется как есть', async () => {
+    const withReal: SubagentDef = { ...reviewer, model: 'deepseek/deepseek-v4-pro' };
+    const seenModels: string[] = [];
+    let i = 0;
+    const p = {
+      async chat(req: { model: string }) {
+        seenModels.push(req.model);
+        const turns = [
+          { text: '', toolCalls: [callTask('sdlc-reviewer')] },
+          { text: 'отчёт' },
+          { text: 'готово' },
+        ];
+        const t = turns[Math.min(i++, turns.length - 1)];
+        return {
+          text: t?.text ?? '',
+          toolCalls: (t?.toolCalls ?? []).map((c) => ({
+            id: c.id, name: c.name, arguments: c.arguments, rawArguments: JSON.stringify(c.arguments),
+          })),
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const seen = emptySeen();
+    const exec = new LoopExecutor({
+      provider: p,
+      maxResultBytes: 1000,
+      readRangeRequiredAboveBytes: 1000,
+      bashTimeoutMs: 1000,
+      temperature: null,
+    });
+    await exec.run(request({ subagents: [withReal] }), hooks(seen));
+    ok(seenModels.includes('deepseek/deepseek-v4-pro'), 'настоящая модель определения не применилась');
+  });
+});
