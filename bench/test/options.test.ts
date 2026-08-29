@@ -60,6 +60,24 @@ describe('аргументы бенчмарка', () => {
     strictEqual(o.stageTimeoutMs, 300_000);
     strictEqual(o.runTimeoutMs, 5_400_000);
   });
+
+  it('снимок не задан по умолчанию', () => {
+    const o = parseArgs(['--model', 'x', '--all']);
+    strictEqual(o.makeSnapshot, null);
+    strictEqual(o.fromSnapshot, null);
+  });
+
+  it('--make-snapshot и --from-snapshot разбираются', () => {
+    strictEqual(parseArgs(['--model', 'x', '--all', '--make-snapshot', 'oversize-plan']).makeSnapshot, 'oversize-plan');
+    strictEqual(parseArgs(['--model', 'x', '--stage', 'chunk', '--from-snapshot', 'oversize-plan']).fromSnapshot, 'oversize-plan');
+  });
+
+  it('--make-snapshot и --from-snapshot взаимоисключающие', () => {
+    throws(
+      () => parseArgs(['--model', 'x', '--all', '--make-snapshot', 'a', '--from-snapshot', 'a']),
+      /взаимоисключающие/,
+    );
+  });
 });
 
 describe('раскладка измеряемых этапов', () => {

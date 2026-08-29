@@ -1,0 +1,79 @@
+{
+  "// назначение": "Эталон задачи oversize (шаг 5 ROADMAP.md). Написан ПОСЛЕ первого живого контрольного прогона, по фактическому поведению методологии, а не заранее. Каждое значение посчитано вручную из констант фикстуры (TARIFF_TABLE, percent, TIER_PCT) — не списано с вывода модели.",
+  "// категории": "regression — обязано быть верным ДО всякой правки (щуп на то, что фикстура сама не сломана); precision — правило из task.md, выводимо из документа; human — верно только если модель довела до кода ставку 90%, которая нигде в репозитории не записана и известна только из ответа в human.json (fixture/human.json → rules[0]).",
+  "task": "oversize",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "longestSide/dimensionSum уже существуют в фикстуре ДО витка и считают верно — это не то, что добавляет модель.",
+      "call": { "fn": "longestSide", "args": [[20, 15, 10]] },
+      "expect": 20
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "dimensionSum на том же заказе — сумма трёх измерений.",
+      "call": { "fn": "dimensionSum", "args": [[20, 15, 10]] },
+      "expect": 45
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Сторона ровно 120 см — не негабарит («строго больше»), surcharge отсутствует или 0.",
+      "order": { "regionCode": 77, "weightG": 300, "dimensionsCm": [120, 10, 10], "customer": { "id": "a", "tier": "none" } },
+      "expect": { "zone": "msk", "base": 19900, "discount": 0, "surchargeOrZero": 0, "total": 19900 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Сторона 121 см (>120), сумма в пределах — надбавка 40% от базы зоны.",
+      "order": { "regionCode": 77, "weightG": 300, "dimensionsCm": [121, 10, 10], "customer": { "id": "a", "tier": "none" } },
+      "expect": { "zone": "msk", "base": 19900, "discount": 0, "surchargeOrZero": 7960, "total": 27860 }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-4",
+      "description": "Сумма трёх измерений ровно 300 см — не негабарит.",
+      "order": { "regionCode": 77, "weightG": 300, "dimensionsCm": [100, 100, 100], "customer": { "id": "a", "tier": "none" } },
+      "expect": { "zone": "msk", "base": 19900, "discount": 0, "surchargeOrZero": 0, "total": 19900 }
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "invariant-1",
+      "description": "Скидка лояльности считается от БАЗЫ, а не от базы с учётом надбавки: gold-клиент с негабаритным по стороне отправлением получает ту же скидку 12% от базы, что и без надбавки.",
+      "order": { "regionCode": 77, "weightG": 300, "dimensionsCm": [121, 10, 10], "customer": { "id": "g", "tier": "gold" } },
+      "expect": { "zone": "msk", "base": 19900, "discount": 2388, "surchargeOrZero": 7960, "total": 25472 }
+    },
+    {
+      "id": "H1",
+      "category": "human",
+      "claim": "claim-5",
+      "description": "Сумма трёх измерений 301 см (>300), сторона в пределах — ставка 90%, а не 40% (число, которого нет в репозитории — только в ответе человека, fixture/human.json → rules[0]).",
+      "order": { "regionCode": 77, "weightG": 300, "dimensionsCm": [101, 100, 100], "customer": { "id": "a", "tier": "none" } },
+      "expect": { "zone": "msk", "base": 19900, "discount": 0, "surchargeOrZero": 17910, "total": 37810 }
+    },
+    {
+      "id": "H2",
+      "category": "human",
+      "claim": "claim-5",
+      "description": "Та же ставка 90% на ДРУГОЙ базе (зона center) — ловит модель, что скопировала конкретное число H1 вместо процента: значение обязано пересчитаться под новую базу.",
+      "order": { "regionCode": 31, "weightG": 300, "dimensionsCm": [110, 110, 110], "customer": { "id": "a", "tier": "none" } },
+      "expect": { "zone": "center", "base": 27900, "discount": 0, "surchargeOrZero": 25110, "total": 53010 }
+    },
+    {
+      "id": "H3",
+      "category": "human",
+      "claim": "claim-6",
+      "description": "Оба условия разом (сторона >120 И сумма >300) — одна ставка 90%, бо́льшая из подошедших, ставки НЕ складываются (40%+90%=130% было бы неверно). Этот факт — тоже из ответа человека.",
+      "order": { "regionCode": 77, "weightG": 300, "dimensionsCm": [200, 100, 100], "customer": { "id": "a", "tier": "none" } },
+      "expect": { "zone": "msk", "base": 19900, "discount": 0, "surchargeOrZero": 17910, "total": 37810 }
+    }
+  ]
+}

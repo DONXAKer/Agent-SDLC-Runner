@@ -1,0 +1,126 @@
+/**
+ * Снимки рабочей копии (шаг 6 ROADMAP.md).
+ *
+ * Состояние снимается ПОСЛЕ этапа `plan` контрольного прогона: дальше `--stage chunk`
+ * перестаёт оплачивать этапы 1–4 на каждом прогоне модели, и — важнее экономии — все
+ * модели получают побайтово одинаковый вход. Снимок — полная копия рабочей копии
+ * (рабочее дерево, `.git`, `.sdlc/<slug>/`), не диф и не архив: восстановление обязано
+ * дать то же самое дерево, каким его увидел бы следующий этап живого прогона.
+ */
+
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import type { StageId } from '@sdlc-runner/shared';
+
+import { git } from '../../server/src/gates/git.ts';
+import { SDLC_DIR } from '../../server/src/artifacts/paths.ts';
+
+export class SnapshotError extends Error {}
+
+export interface SnapshotMeta {
+  /** Слаг витка контрольного прогона, с которого снят снимок. */
+  slug: string;
+  branch: string;
+  /** Этап, после которого сделан снимок — дальше начинает `--from-snapshot`. */
+  stoppedAfterStage: StageId;
+  createdAt: string;
+}
+
+function metaPath(dir: string): string {
+  return join(dir, 'snapshot.json');
+}
+
+/**
+ * Снимает рабочую копию целиком в `<snapshotsDir>/<name>/`. Прежний снимок под тем же
+ * именем стирается — имя это слот, а не история версий: история — дело git, не бенчмарка.
+ */
+export function makeSnapshot(args: {
+  workspaceRoot: string;
+  snapshotsDir: string;
+  name: string;
+  slug: string;
+  branch: string;
+  stoppedAfterStage: StageId;
+}): void {
+  const dest = join(args.snapshotsDir, args.name);
+  rmSync(dest, { recursive: true, force: true });
+  mkdirSync(args.snapshotsDir, { recursive: true });
+  cpSync(args.workspaceRoot, dest, { recursive: true });
+
+  const meta: SnapshotMeta = {
+    slug: args.slug,
+    branch: args.branch,
+    stoppedAfterStage: args.stoppedAfterStage,
+    createdAt: new Date().toISOString(),
+  };
+  writeFileSync(metaPath(dest), `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
+}
+
+export interface RestoredSnapshot {
+  root: string;
+  slug: string;
+  branch: string;
+  stoppedAfterStage: StageId;
+  dispose(): void;
+}
+
+/**
+ * Восстанавливает снимок в свежий каталог tmp — снимок сам остаётся нетронутым, чтобы
+ * им могли независимо воспользоваться несколько прогонов подряд (разные модели на одном
+ * и том же побайтово одинаковом входе).
+ *
+ * `targetSlug` обязателен, когда он отличается от слага, под которым снимок сделан:
+ * артефакты витка лежат на диске под `.sdlc/<слаг>/` (`WitokPaths`), и новый прогон со
+ * своим слагом искал бы `plan.md` там, где его нет — блокер «нет файла» на первом же
+ * этапе, ДО единого вызова модели, неотличимый по виду от честного результата (поймано
+ * первым же живым прогоном со снимка: `bench-local-qwen` «провалил» chunk, ни разу не
+ * дойдя до модели). Каталог `.sdlc/<исходный слаг>/` переименовывается в
+ * `.sdlc/<targetSlug>/` внутри копии — снимка это не касается, копия одноразовая.
+ */
+export function restoreSnapshot(args: { snapshotsDir: string; name: string; targetSlug: string }): RestoredSnapshot {
+  const src = join(args.snapshotsDir, args.name);
+  if (!existsSync(src)) {
+    throw new SnapshotError(`снимка «${args.name}» нет в ${args.snapshotsDir}`);
+  }
+  const metaFile = metaPath(src);
+  if (!existsSync(metaFile)) {
+    throw new SnapshotError(`${src}: нет snapshot.json — это не снимок бенчмарка`);
+  }
+  const meta = JSON.parse(readFileSync(metaFile, 'utf8')) as SnapshotMeta;
+
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-snap-')));
+  try {
+    cpSync(src, root, { recursive: true });
+    if (args.targetSlug !== meta.slug) {
+      const from = join(root, SDLC_DIR, meta.slug);
+      const to = join(root, SDLC_DIR, args.targetSlug);
+      if (existsSync(from)) renameSync(from, to);
+    }
+    return {
+      root,
+      slug: args.targetSlug,
+      branch: meta.branch,
+      stoppedAfterStage: meta.stoppedAfterStage,
+      dispose: () => rmSync(root, { recursive: true, force: true }),
+    };
+  } catch (e) {
+    rmSync(root, { recursive: true, force: true });
+    throw e;
+  }
+}
+
+/**
+ * Ветка восстановленного снимка — обязана совпасть с текущей веткой дерева. Снимок берёт
+ * рабочую копию как есть, но `git` не гарантирует, что checkout переживает `cp` байт в
+ * байт на всех платформах (symlink `.git/HEAD` в некоторых конфигурациях) — дешёвая
+ * перепроверка дешевле, чем непонятный `branchMismatchBlocker` посреди чужого этапа.
+ */
+export async function verifyRestoredBranch(root: string, expected: string): Promise<void> {
+  const r = await git(['rev-parse', '--abbrev-ref', 'HEAD'], root);
+  const actual = r.stdout.trim();
+  if (actual !== expected) {
+    throw new SnapshotError(`восстановленный снимок на ветке «${actual}», ожидалась «${expected}»`);
+  }
+}

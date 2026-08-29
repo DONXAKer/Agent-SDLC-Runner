@@ -79,6 +79,23 @@ function sdlcMcpServer(hooks: ExecHooks) {
   });
 }
 
+/**
+ * Текст ошибки инструмента из `tool_result.content` — SDK отдаёт его либо строкой, либо
+ * массивом блоков (обычно один `{type:'text', text}`). Схема, провалившая валидацию (как
+ * `AskHuman` без `options`), не доходит до `onToolRequest` вовсе — этот текст единственный
+ * след причины.
+ */
+export function toolResultErrorText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((b) => (typeof b === 'object' && b !== null && 'text' in b ? String((b as { text: unknown }).text) : ''))
+      .filter((s) => s !== '')
+      .join('\n');
+  }
+  return '';
+}
+
 function usageFromResult(m: {
   total_cost_usd?: number;
   duration_ms?: number;
@@ -164,6 +181,13 @@ export class SdkExecutor implements StageExecutor {
         // Внешние серверы соседствуют с нашим in-process. Соединения к ним держит SDK, а
         // не наш хаб: два клиента к одному редактору спорили бы за одну PIE-сессию.
         mcpServers: { sdlc: sdlcMcpServer(hooks), ...(req.mcp?.sdkServers ?? {}) },
+        // `settingSources: []` не перекрывает автоподключение личных claude.ai-коннекторов
+        // (Gmail/Drive/Calendar) — это отдельный канал SDK, живущий вне «настроек».
+        // Контрольный прогон бенчмарка поймал их подключенными к сессии витка: агент
+        // методологии получал бы личную почту и диск оператора, ничего для этого не
+        // объявляя и не спрашивая. `strictMcpConfig` — задокументированный флаг именно
+        // для этого случая: MCP только из `mcpServers` выше, ничего сверх.
+        strictMcpConfig: true,
         // Каталоги форм методологии и текстов этапов: промпт велит их читать, а лежат
         // они вне целевого проекта.
         ...(req.readOnlyDirs.length > 0 ? { additionalDirectories: [...req.readOnlyDirs] } : {}),
@@ -265,11 +289,13 @@ export class SdkExecutor implements StageExecutor {
             for (const block of content) {
               if (block.type !== 'tool_result') continue;
               const started = startedAt.get(block.tool_use_id) ?? Date.now();
+              const isError = block.is_error === true;
               hooks.onToolResult({
                 requestId: block.tool_use_id,
-                ok: block.is_error !== true,
+                ok: !isError,
                 summary: attempted.get(block.tool_use_id) ?? 'инструмент отработал',
                 durationMs: Date.now() - started,
+                ...(isError ? { detail: toolResultErrorText(block.content) } : {}),
               });
             }
             break;

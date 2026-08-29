@@ -11,7 +11,13 @@
  *   журнал исполнителя: журнал это и есть рассказ о том, как шла работа.
  */
 
-import { DECISION, artifactExists, readArtifact, readDecision } from '../artifacts/artifact.ts';
+import {
+  DECISION,
+  artifactExists,
+  countPlaceholdersExceptSections,
+  readArtifact,
+  readDecision,
+} from '../artifacts/artifact.ts';
 import type { ArtifactKey, WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_DIR } from '../artifacts/paths.ts';
 import type { StageId, ToolName } from '@sdlc-runner/shared';
@@ -81,6 +87,23 @@ function filled(describe: string, file: (c: StageContext) => string): Preconditi
       if (a.placeholders > 0) {
         return `в ${a.path} осталось незаполненных мест: ${a.placeholders} — артефакт не готов`;
       }
+      return null;
+    },
+  };
+}
+
+/**
+ * Вариант `filled` для входа в разведку: секция «Что придётся тронуть» интента законно
+ * пустая на первом проходе — её заполняет сама разведка (см. `countPlaceholdersExceptSections`).
+ */
+function filledExceptTouchSection(describe: string, file: (c: StageContext) => string): Precondition {
+  return {
+    describe,
+    check: (c) => {
+      const a = readArtifact(file(c));
+      if (!a.exists) return `нет файла ${a.path}`;
+      const n = countPlaceholdersExceptSections(a.text, ['Что придётся тронуть']);
+      if (n > 0) return `в ${a.path} осталось незаполненных мест: ${n} — артефакт не готов`;
       return null;
     },
   };
@@ -183,7 +206,7 @@ export const STAGES: readonly StageDef[] = [
     subagents: ['sdlc-claims'],
     produces: (c) => [c.paths.explorationReport],
     requires: [
-      filled('задача заполнена без плейсхолдеров', (c) => c.paths.intent),
+      filledExceptTouchSection('задача заполнена без плейсхолдеров', (c) => c.paths.intent),
       exists('проверка готовности пройдена (прогон 1)', (c) => c.paths.readiness),
     ],
     protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.plan)],

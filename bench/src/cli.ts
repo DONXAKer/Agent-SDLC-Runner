@@ -7,27 +7,43 @@
  * набор гейтов, несовпавшую ветку, отсутствующий эталон методологии.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { RunEvent, StageId } from '@sdlc-runner/shared';
+import { WitokPaths } from '../../server/src/artifacts/paths.ts';
+import { readPersistedEvents } from '../../server/src/eventLog.ts';
 
-import { AskGate } from '../../server/src/approval/askGate.ts';
 import { ApprovalGate } from '../../server/src/approval/gate.ts';
+import { AskGate } from '../../server/src/approval/askGate.ts';
 import { loadConfig } from '../../server/src/config/load.ts';
 import { ProfileError } from '../../server/src/config/profiles.ts';
 import type { LoadedConfig } from '../../server/src/config/load.ts';
 import { Run } from '../../server/src/run/Run.ts';
+import { ApprovalBus, AskBus, attachOperator, emptyOperatorLog, readHumanScript } from './operator.ts';
+import { createCollector } from './collector.ts';
+import { runBench } from './driver.ts';
+import { buildResult, writeResult } from './result.ts';
 import { OptionsError, USAGE, parseArgs } from './options.ts';
 import type { BenchOptions } from './options.ts';
 import { ControlError, buildProfile, readControl } from './profile.ts';
 import { WorkspaceError, prepareWorkspace } from './workspace.ts';
+import { makeSnapshot, restoreSnapshot, verifyRestoredBranch } from './snapshot.ts';
+import { runHiddenTests } from './hiddenTests.ts';
+import { checkHonesty } from './honesty.ts';
+import { buildReport } from './report.ts';
+import { draftJournalEntry } from './journal.ts';
 
 const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const RESULTS_DIR = join(BENCH_DIR, 'results');
+const SNAPSHOTS_DIR = join(BENCH_DIR, 'snapshots');
 const FIXTURE_DIR = join(BENCH_DIR, 'fixture');
 const CONTROL_FILE = join(BENCH_DIR, 'control.json');
+// Единственная фикстура на сегодня (см. «Долги» в ROADMAP.md — вторая задача не заведена).
+// Когда их станет больше, это станет полем задачи, а не константой.
+const HIDDEN_FILE = join(BENCH_DIR, 'checks', 'hidden', 'oversize.hidden.mjs');
 
 /**
  * Ветка витка берётся из текста задачи, а не из отдельной настройки.
@@ -120,6 +136,216 @@ async function dryRun(opts: BenchOptions): Promise<number> {
   return intentBlocked ? 2 : 0;
 }
 
+/**
+ * Живой прогон (шаг 3 ROADMAP.md): готовит рабочую копию, поднимает `Run` с автоответчиком
+ * человека вместо живого оператора, ведёт виток драйвером и пишет `result.json`.
+ *
+ * `ApprovalBus`/`AskBus` — фан-аут вокруг штатных конструкторов `ApprovalGate`/`AskGate`
+ * (см. `operator.ts`): один поток событий уходит в коллектор (лента на диск + числа
+ * рантайма), второй — автоответчику, который отвечает вместо человека.
+ */
+async function liveRun(opts: BenchOptions): Promise<number> {
+  const base = loadConfig();
+  const config = benchConfig(base, opts);
+  const control = readControl(CONTROL_FILE);
+  const branch = branchFromTask(join(FIXTURE_DIR, 'task.md'));
+  const script = readHumanScript(join(FIXTURE_DIR, 'human.json'));
+
+  // Снимок (шаг 6 ROADMAP.md) заменяет `intent → … → plan` восстановленным деревом —
+  // побайтово тем же для всех моделей, которые с него стартуют. `ws*` ниже — общая форма
+  // для обоих источников рабочей копии, чтобы дальше по функции путь не разветвлялся.
+  let wsRoot: string;
+  let wsBranch: string;
+  let wsDispose: () => void;
+  let startStage: StageId | undefined;
+
+  if (opts.fromSnapshot !== null) {
+    const restored = restoreSnapshot({ snapshotsDir: SNAPSHOTS_DIR, name: opts.fromSnapshot, targetSlug: opts.slug });
+    await verifyRestoredBranch(restored.root, restored.branch);
+    wsRoot = restored.root;
+    wsBranch = restored.branch;
+    wsDispose = restored.dispose;
+    startStage = 'chunk';
+    console.log(`снимок:        ${opts.fromSnapshot} (после ${restored.stoppedAfterStage})`);
+    console.log(`рабочая копия: ${wsRoot}`);
+  } else {
+    const ws = await prepareWorkspace({ fixtureDir: FIXTURE_DIR, slug: opts.slug, branch });
+    wsRoot = ws.root;
+    wsBranch = ws.branch;
+    wsDispose = ws.dispose;
+    console.log(`рабочая копия: ${ws.root}`);
+    console.log(`ветка витка:   ${ws.branch} (база ${ws.baseCommit.slice(0, 8)})`);
+  }
+
+  const built = buildProfile({ projectRoot: wsRoot, models: config.models, control, opts });
+  console.log(`профиль:       ${built.profile.label}`);
+  for (const stage of STAGE_ORDER) {
+    const measured = built.measured.includes(stage);
+    console.log(`  ${measured ? '→' : ' '} ${stage.padEnd(8)} ${built.routes[stage]}${measured ? '   (под измерением)' : ''}`);
+  }
+
+  const approvalBus = new ApprovalBus();
+  const askBus = new AskBus();
+  const operatorLog = emptyOperatorLog();
+
+  let runId = '';
+  const collector = createCollector({
+    projectRoot: () => wsRoot,
+    slug: () => opts.slug,
+  });
+
+  // Коллектор и автоответчик — два независимых подписчика ОДНОГО и того же потока
+  // событий гейта; ни один не подменяет собой другого.
+  approvalBus.onPending((p) =>
+    collector.emit({
+      type: 'tool_request',
+      runId: p.runId,
+      stage: p.stage,
+      requestId: p.requestId,
+      toolName: p.toolName,
+      rawInput: p.rawInput,
+      call: p.call,
+      policy: p.policy,
+      preview: p.preview,
+      writeTargets: p.writeTargets,
+      destructive: p.destructive,
+      createdAt: p.createdAt,
+    }),
+  );
+  approvalBus.onResolved((info, decision) =>
+    collector.emit({ type: 'tool_resolved', runId: info.runId, stage: info.stage, requestId: info.requestId, decision }),
+  );
+  askBus.onPending((p) =>
+    collector.emit({
+      type: 'tool_request',
+      runId: p.runId,
+      stage: p.stage,
+      requestId: p.requestId,
+      toolName: 'AskHuman',
+      rawInput: { questions: p.questions },
+      call: { kind: 'ask_human', questions: p.questions },
+      policy: { ok: true },
+      preview: null,
+      writeTargets: null,
+      destructive: null,
+      createdAt: p.createdAt,
+    }),
+  );
+  askBus.onAnswered((info, answers) =>
+    collector.emit({
+      type: 'tool_result',
+      runId: info.runId,
+      stage: info.stage,
+      requestId: info.requestId,
+      ok: true,
+      summary: `ответы получены: ${Object.keys(answers).length}`,
+      durationMs: 0,
+    }),
+  );
+
+  const operatorHandle = attachOperator({
+    gate: approvalBus,
+    askGate: askBus,
+    runId: () => runId,
+    script,
+    log: operatorLog,
+  });
+
+  const run = new Run({
+    config,
+    project: built.project,
+    profile: built.profile,
+    slug: opts.slug,
+    gate: approvalBus.gate,
+    askGate: askBus.gate,
+    emit: collector.emit,
+  });
+  runId = run.id;
+
+  collector.emit({ type: 'run_started', runId: run.id, slug: opts.slug, profile: built.profile.label, projectRoot: wsRoot });
+
+  const startedAt = new Date();
+  try {
+    const driverResult = await runBench({
+      run,
+      stageTimeoutMs: opts.stageTimeoutMs,
+      runTimeoutMs: opts.runTimeoutMs,
+      attempts: opts.attempts,
+      ...(startStage === undefined ? {} : { startStage }),
+      // `--make-snapshot` останавливает драйвер сразу после `plan` — снимок пишется НИЖЕ,
+      // из уже остановленного дерева, а не из драйвера: он про виток, не про файлы снимка.
+      ...(opts.makeSnapshot === null ? {} : { stopAfterStage: 'plan' as const }),
+    });
+    const finishedAt = new Date();
+
+    if (opts.makeSnapshot !== null && driverResult.stopped === 'snapshot-point') {
+      makeSnapshot({
+        workspaceRoot: wsRoot,
+        snapshotsDir: SNAPSHOTS_DIR,
+        name: opts.makeSnapshot,
+        slug: opts.slug,
+        branch: wsBranch,
+        stoppedAfterStage: 'plan',
+      });
+      console.log(`\nснимок сохранён: ${opts.makeSnapshot} (после plan)`);
+      return 0;
+    }
+
+    const result = buildResult({
+      opts,
+      built,
+      startedAt,
+      finishedAt,
+      driver: driverResult,
+      metrics: run.metrics,
+      operator: operatorLog,
+      observed: collector.state,
+    });
+
+    const resultPath = join(RESULTS_DIR, `${opts.slug}.json`);
+    writeResult(resultPath, result);
+    console.log(`\nостановка: ${driverResult.stopped}`);
+    console.log(`вердикт:   ${driverResult.finalVerdict === null ? '—' : JSON.stringify(driverResult.finalVerdict)}`);
+    console.log(`результат: ${resultPath}`);
+
+    // Отчёт (шаг 7 ROADMAP.md): скрытые тесты и честность считаются здесь, пока рабочая
+    // копия ещё жива (finally ниже её удалит, если не --keep-workspace) — вне liveRun им
+    // взять дерево неоткуда.
+    const paths = new WitokPaths(wsRoot, opts.slug);
+    // `run.chunk`, не жёсткая единица: driver мог дойти до retry и уйти на chunk 2+.
+    const journalPath = paths.chunkJournal(run.chunk);
+    const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : '';
+    const events = readPersistedEvents(wsRoot, opts.slug);
+
+    const hasFeature = existsSync(HIDDEN_FILE) && existsSync(join(wsRoot, 'src', 'index.ts'));
+    const chunkRan = driverResult.stages.some((s) => s.stage === 'chunk');
+    const hidden = hasFeature && chunkRan ? await runHiddenTests({ hiddenFile: HIDDEN_FILE, targetDir: wsRoot }) : null;
+
+    const honesty = checkHonesty({
+      journalText,
+      events,
+      verdictReasons: result.finalVerdict?.reasons ?? null,
+      hiddenTests: hidden,
+      operatorLog: operatorLog,
+    });
+
+    const report = buildReport({ result, hidden, honesty });
+    const reportPath = join(RESULTS_DIR, `${opts.slug}.report.md`);
+    writeFileSync(reportPath, `${report.markdown}\n`, 'utf8');
+    console.log(`отчёт:     ${reportPath}${report.dangerous ? '  ⚠️ ОПАСНА' : ''}`);
+
+    console.log('\n--- черновик docs/model-runs.md (вклеить руками) ---\n');
+    console.log(draftJournalEntry({ result, report }));
+
+    return report.exitCode;
+  } finally {
+    operatorHandle.detach();
+    await run.dispose();
+    if (opts.keepWorkspace) console.log(`\nрабочая копия оставлена: ${wsRoot}`);
+    else wsDispose();
+  }
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   let opts: BenchOptions;
   try {
@@ -134,8 +360,7 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   try {
     if (opts.dryRun) return await dryRun(opts);
-    console.error('живой прогон ещё не реализован — доступен только --dry-run');
-    return 2;
+    return await liveRun(opts);
   } catch (e) {
     // Три причины «измерение не состоялось» называются отдельно: у каждой свой способ
     // починки, и слив их в один текст стоил бы времени на следующем прогоне.

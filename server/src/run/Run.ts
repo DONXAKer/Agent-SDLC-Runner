@@ -33,7 +33,14 @@ import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { decisionValue, readArtifact, readField, setDecision, writeArtifact } from '../artifacts/artifact.ts';
+import {
+  branchNameFromField,
+  decisionValue,
+  readArtifact,
+  readField,
+  setDecision,
+  writeArtifact,
+} from '../artifacts/artifact.ts';
 import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
@@ -1502,8 +1509,9 @@ export class Run {
    * этапе 7, когда правка уже легла на неверную ветку.
    */
   private async branchMismatchBlocker(): Promise<string | null> {
-    const declared = readField(readArtifact(this.paths.intent).text, 'Ветка витка');
-    if (declared === null) return null;
+    const rawField = readField(readArtifact(this.paths.intent).text, 'Ветка витка');
+    if (rawField === null) return null;
+    const declared = branchNameFromField(rawField);
     if (!(await isRepo(this.project.projectRoot))) return null;
 
     const actual = await currentBranch(this.project.projectRoot);
@@ -1861,6 +1869,7 @@ export class Run {
           ok: meta.ok,
           summary: meta.summary,
           durationMs: meta.durationMs,
+          ...(meta.detail === undefined ? {} : { detail: meta.detail }),
         });
       },
 

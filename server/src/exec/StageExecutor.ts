@@ -50,6 +50,8 @@ export interface ExecHooks {
     ok: boolean;
     summary: string;
     durationMs: number;
+    /** Текст ошибки инструмента, когда исполнитель его знает — см. `RunEvent.tool_result.detail`. */
+    detail?: string;
   }) => void;
   /** Вопрос человеку из инструмента `AskHuman`. Возвращает ответы по id вопроса. */
   onAskHuman: (call: NormalizedCall) => Promise<Record<string, string[]>>;

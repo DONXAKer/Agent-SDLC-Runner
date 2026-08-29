@@ -72,6 +72,9 @@ function ToolLine({
           {result !== undefined ? (
             <div className={result.ok ? 'text-neutral-500' : 'text-red-400'}>
               {`${result.ok ? '·' : '✗'} ${result.summary} (${fmtDuration(result.durationMs)})`}
+              {!result.ok && result.detail !== undefined && result.detail !== '' ? (
+                <div className="whitespace-pre-wrap pl-4 text-red-300">{result.detail}</div>
+              ) : null}
             </div>
           ) : null}
           {resolved === undefined && result === undefined ? (
@@ -107,6 +110,9 @@ function PlainEvent({ e }: { e: RunEvent }): JSX.Element | null {
       return (
         <div className={e.ok ? 'text-neutral-500' : 'text-red-400'}>
           {`  ${e.ok ? '·' : '✗'} ${e.summary} (${fmtDuration(e.durationMs)})`}
+          {!e.ok && e.detail !== undefined && e.detail !== '' ? (
+            <div className="whitespace-pre-wrap pl-4 text-red-300">{e.detail}</div>
+          ) : null}
         </div>
       );
 

@@ -41,6 +41,18 @@ export interface BenchOptions {
   keepWorkspace: boolean;
   /** Готовит рабочую копию и печатает блокеры, не вызывая модель ни разу. */
   dryRun: boolean;
+  /**
+   * Имя снимка (шаг 6 ROADMAP.md), который сделать сразу после успешного `plan` этого
+   * прогона, вместо того чтобы идти дальше к `chunk`. Прогон останавливается на снимке —
+   * это отдельный режим, не довесок к измерению.
+   */
+  makeSnapshot: string | null;
+  /**
+   * Имя снимка, с которого восстановить рабочую копию вместо `intent → … → plan`.
+   * Восстановленное дерево уже стоит на состоянии сразу после `plan` — driver стартует
+   * с `chunk` независимо от `--stage`/`--all`: этапы 1–4 снимок уже прошёл побайтово.
+   */
+  fromSnapshot: string | null;
 }
 
 export class OptionsError extends Error {}
@@ -72,6 +84,8 @@ export const USAGE = `
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
   --keep-workspace      не удалять рабочую копию в tmp
   --dry-run             подготовить копию и напечатать блокеры, модель не вызывать
+  --make-snapshot <имя> остановиться сразу после plan и сохранить снимок под этим именем
+  --from-snapshot <имя> начать с этого снимка (сразу с chunk, этапы 1–4 не идут)
 `.trimStart();
 
 function isStageId(v: string): v is StageId {
@@ -96,6 +110,8 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let attempts = DEFAULTS.attempts;
   let keepWorkspace = false;
   let dryRun = false;
+  let makeSnapshot: string | null = null;
+  let fromSnapshot: string | null = null;
 
   const next = (i: number, key: string): string => {
     const v = argv[i + 1];
@@ -168,6 +184,14 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
       case '--dry-run':
         dryRun = true;
         break;
+      case '--make-snapshot':
+        makeSnapshot = next(i, key);
+        i++;
+        break;
+      case '--from-snapshot':
+        fromSnapshot = next(i, key);
+        i++;
+        break;
       default:
         throw new OptionsError(`неизвестный ключ «${key}»`);
     }
@@ -177,6 +201,9 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   // то, что не будет использовано.
   if (model === null && !dryRun) throw new OptionsError('не задана измеряемая модель: --model <id>');
   if (mode === null && !dryRun) throw new OptionsError('не задан режим: --stage <этап> либо --all');
+  if (makeSnapshot !== null && fromSnapshot !== null) {
+    throw new OptionsError('--make-snapshot и --from-snapshot взаимоисключающие: один делает снимок, другой его читает');
+  }
 
   const resolvedMode: BenchMode = mode ?? { kind: 'all' };
   const resolvedModel = model ?? '';
@@ -194,5 +221,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     attempts,
     keepWorkspace,
     dryRun,
+    makeSnapshot,
+    fromSnapshot,
   };
 }

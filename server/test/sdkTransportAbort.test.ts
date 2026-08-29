@@ -14,7 +14,7 @@
 import { strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { isSdkTransportAbort } from '../src/exec/SdkExecutor.ts';
+import { isSdkTransportAbort, toolResultErrorText } from '../src/exec/SdkExecutor.ts';
 
 describe('isSdkTransportAbort: разрыв канала SDK vs обычная ошибка', () => {
   it('DOMException AbortError — канал SDK, не обычная ошибка', () => {
@@ -33,5 +33,34 @@ describe('isSdkTransportAbort: разрыв канала SDK vs обычная �
     strictEqual(isSdkTransportAbort('AbortError'), false);
     strictEqual(isSdkTransportAbort(undefined), false);
     strictEqual(isSdkTransportAbort(null), false);
+  });
+});
+
+/**
+ * Текст ошибки провалившегося инструмента (найдено контрольным прогоном бенчмарка:
+ * `AskHuman` без `options` падает валидацией схемы ДО гейта одобрений — `tool_request`/
+ * `tool_resolved` для такого вызова не бывает, и единственный след причины — этот текст).
+ */
+describe('toolResultErrorText: текст ошибки инструмента из tool_result.content', () => {
+  it('строка возвращается как есть', () => {
+    strictEqual(toolResultErrorText('invalid input: options required'), 'invalid input: options required');
+  });
+
+  it('массив текстовых блоков склеивается переводом строки', () => {
+    strictEqual(
+      toolResultErrorText([{ type: 'text', text: 'первая строка' }, { type: 'text', text: 'вторая строка' }]),
+      'первая строка\nвторая строка',
+    );
+  });
+
+  it('блоки без текстового поля отбрасываются, не роняя остальные', () => {
+    strictEqual(toolResultErrorText([{ type: 'image' }, { type: 'text', text: 'текст' }]), 'текст');
+  });
+
+  it('пусто, null и посторонние типы дают пустую строку', () => {
+    strictEqual(toolResultErrorText(undefined), '');
+    strictEqual(toolResultErrorText(null), '');
+    strictEqual(toolResultErrorText(42), '');
+    strictEqual(toolResultErrorText([]), '');
   });
 });

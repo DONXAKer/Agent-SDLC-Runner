@@ -6,7 +6,9 @@ import { after, describe, it } from 'node:test';
 
 import {
   DECISION,
+  branchNameFromField,
   countPlaceholders,
+  countPlaceholdersExceptSections,
   decisionValue,
   placeholderRanges,
   readDecision,
@@ -168,6 +170,31 @@ describe('предусловия этапов', () => {
     ok(r.problems.some((p) => /осталось незаполненных мест: 1/.test(p)), r.problems.join('; '));
   });
 
+  // Регрессия: шаблон интента сам объявляет секцию «Что придётся тронуть» законно пустой
+  // на первом проходе («заполняет разведка на этапе 2»), но предусловие разведки считало
+  // и её — разведка не запускалась НИ РАЗУ на живом первом проходе (поймано контрольным
+  // прогоном бенчмарка).
+  it('разведка запускается, когда пуста только секция «Что придётся тронуть»', () => {
+    writeArtifact(
+      paths.intent,
+      '# Задача\n- Коротко: делаем штуку\n\n## Что придётся тронуть\n- ‹path/to/file› — ‹что здесь меняем›\n',
+    );
+    writeArtifact(paths.readiness, '# Готовность\nвердикт: готова\n');
+    const r = checkPreconditions(stageById('explore'), ctx);
+    ok(r.ok, r.problems.join('; '));
+  });
+
+  it('план по-прежнему требует секцию «Что придётся тронуть» заполненной', () => {
+    writeArtifact(
+      paths.intent,
+      '# Задача\n- Коротко: делаем штуку\n\n## Что придётся тронуть\n- ‹path/to/file› — ‹что здесь меняем›\n',
+    );
+    writeArtifact(paths.explorationReport, '# Разведка\nготово\n');
+    const r = checkPreconditions(stageById('plan'), ctx);
+    ok(!r.ok);
+    ok(r.problems.some((p) => /осталось незаполненных мест/.test(p)), r.problems.join('; '));
+  });
+
   it('условный этап «вопросы» пропускается, когда развилок нет', () => {
     writeArtifact(paths.intent, '# Задача\nвсё ясно\n');
     writeArtifact(paths.explorationReport, '# Разведка\nвопросов не осталось\n');
@@ -234,5 +261,57 @@ describe('плейсхолдеры и код', () => {
   it('незакрытая кавычка не глотает остаток документа', () => {
     const text = 'строка с ` одной кавычкой\n- **Кто:** ‹имя›';
     strictEqual(countPlaceholders(text), 1);
+  });
+});
+
+describe('плейсхолдеры без секции', () => {
+  it('плейсхолдер внутри названной секции не считается', () => {
+    const text = '## Что придётся тронуть\n- ‹path/to/file› — ‹что здесь меняем›\n';
+    strictEqual(countPlaceholdersExceptSections(text, ['Что придётся тронуть']), 0);
+  });
+
+  it('плейсхолдер вне названной секции считается как обычно', () => {
+    const text = '## Коротко\n‹что делаем›\n\n## Что придётся тронуть\n- ‹path/to/file›\n';
+    strictEqual(countPlaceholdersExceptSections(text, ['Что придётся тронуть']), 1);
+  });
+
+  it('секция обрывается на следующем заголовке того же уровня', () => {
+    const text = '## Что придётся тронуть\n- ‹path/to/file›\n\n## Открытые вопросы\n‹кто ответит›\n';
+    strictEqual(countPlaceholdersExceptSections(text, ['Что придётся тронуть']), 1);
+  });
+
+  it('отсутствующая секция не роняет подсчёт', () => {
+    const text = '## Коротко\n‹что делаем›\n';
+    strictEqual(countPlaceholdersExceptSections(text, ['Что придётся тронуть']), 1);
+  });
+});
+
+// Регрессия: живой контрольный прогон бенчмарка объявлял поле «Ветка витка» как
+// «sdlc/oversize (уже заведена)» / «sdlc/oversize (заведена заранее, зафиксирована в
+// task.md)» — модель добавляла пояснение в скобках, как сделал бы и человек в интервью.
+// `branchMismatchBlocker` сравнивал это ЦЕЛИКОМ с `git branch --show-current` и блокировал
+// этап 4 на собственной пунктуации поля, а не на реальном расхождении с деревом.
+describe('имя ветки из поля «Ветка витка»', () => {
+  it('голое имя ветки возвращается как есть', () => {
+    strictEqual(branchNameFromField('sdlc/oversize'), 'sdlc/oversize');
+  });
+
+  it('пояснение в скобках отбрасывается', () => {
+    strictEqual(branchNameFromField('sdlc/oversize (уже заведена)'), 'sdlc/oversize');
+  });
+
+  it('пояснение в скобках без пробела перед ним тоже отбрасывается', () => {
+    strictEqual(
+      branchNameFromField('sdlc/oversize (заведена заранее, зафиксирована в task.md)'),
+      'sdlc/oversize',
+    );
+  });
+
+  it('внешние пробелы не влияют на результат', () => {
+    strictEqual(branchNameFromField('  sdlc/oversize  '), 'sdlc/oversize');
+  });
+
+  it('markdown-бэктики вокруг имени отбрасываются', () => {
+    strictEqual(branchNameFromField('`sdlc/oversize`'), 'sdlc/oversize');
   });
 });

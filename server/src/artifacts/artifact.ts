@@ -164,6 +164,38 @@ export function countPlaceholders(text: string): number {
   return placeholderRanges(text).length;
 }
 
+/**
+ * Диапазон markdown-секции `## heading` — от заголовка до следующего заголовка того же
+ * уровня или конца текста. `null`, если секции нет.
+ */
+function sectionRange(text: string, heading: string): { start: number; end: number } | null {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const start = new RegExp(`^##\\s+${escaped}\\s*$`, 'm').exec(text);
+  if (start === null) return null;
+  const bodyStart = start.index + start[0].length;
+  const next = /^##\s+/m.exec(text.slice(bodyStart));
+  return { start: start.index, end: next === null ? text.length : bodyStart + next.index };
+}
+
+/**
+ * Плейсхолдеры вне названных секций верхнего уровня (`## …`).
+ *
+ * Ровно один случай методологии требует этого исключения: секция «Что придётся тронуть»
+ * интента заполняется агентом разведки на этапе 2 — шаблон объявляет это дословно тремя
+ * абзацами ниже собственной шапки «остался `‹…›` — не готово». Пока предусловие этапа 2
+ * считало и её, разведка не запускалась НИКОГДА при живом первом проходе (обнаружено
+ * контрольным прогоном бенчмарка на живой модели, до этого сквозной виток не гонялся ни
+ * разу). Исключение узкое и применяется только к предусловию входа в разведку — к плану,
+ * которому эта секция уже обязана быть заполнена разведкой, применяется обычный
+ * `countPlaceholders`.
+ */
+export function countPlaceholdersExceptSections(text: string, headings: readonly string[]): number {
+  const excluded = headings
+    .map((h) => sectionRange(text, h))
+    .filter((r): r is { start: number; end: number } => r !== null);
+  return placeholderRanges(text).filter((p) => !excluded.some((r) => p.start >= r.start && p.start < r.end)).length;
+}
+
 /** Позиции незаполненных мест — для подсветки в редакторе артефакта. */
 export function placeholderRanges(text: string): { start: number; end: number; text: string }[] {
   const out: { start: number; end: number; text: string }[] = [];
@@ -226,6 +258,23 @@ export function readField(text: string, label: string): string | null {
   const raw = (m[2] ?? '').trim();
   if (raw === '' || hasPlaceholder(raw)) return null;
   return raw;
+}
+
+/**
+ * Имя ветки из значения поля «Ветка витка».
+ *
+ * Значение — не обязательно голое имя: модель нередко приписывает пояснение в скобках
+ * («sdlc/oversize (уже заведена)», «sdlc/oversize (заведена заранее, зафиксирована в
+ * task.md)») или оборачивает его в markdown-код («`sdlc/oversize`») — люди в интервью делают
+ * так же. Сравнивать с деревом нужно именем ветки, а не фразой целиком: иначе поле,
+ * заполненное добровольно и верно, ловило бы виток на собственной пунктуации, а не на
+ * настоящем расхождении с git (обнаружено контрольным прогоном бенчмарка — первый живой
+ * сквозной виток блокировался на этапе 4 всегда, дважды на двух РАЗНЫХ вариантах пунктуации).
+ */
+export function branchNameFromField(raw: string): string {
+  const m = /^\S+/.exec(raw.trim());
+  const token = m === null ? raw.trim() : m[0];
+  return token.replace(/^`+|`+$/g, '');
 }
 
 function escapeRe(s: string): string {
