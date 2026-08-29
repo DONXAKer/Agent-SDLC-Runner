@@ -18,6 +18,12 @@ describe('аргументы бенчмарка', () => {
     strictEqual(o.model, 'ollama:qwen3:8b-ctx16k');
   });
 
+  it('задача по умолчанию — oversize, --task меняет её', () => {
+    strictEqual(parseArgs(['--model', 'x', '--all']).task, 'oversize');
+    strictEqual(parseArgs(['--model', 'x', '--all', '--task', 'freeship']).task, 'freeship');
+    throws(() => parseArgs(['--model', 'x', '--all', '--task', 'нет-такой']), /неизвестная задача/);
+  });
+
   it('форма --ключ=значение равноправна с парой', () => {
     const pair = parseArgs(['--model', 'x', '--stage', 'plan', '--attempts', '5']);
     const eq = parseArgs(['--model=x', '--stage=plan', '--attempts=5']);
@@ -25,8 +31,12 @@ describe('аргументы бенчмарка', () => {
     strictEqual(eq.attempts, 5);
   });
 
-  it('слаг выводится из модели и режима, если не задан', () => {
-    strictEqual(parseArgs(['--model', 'ollama:qwen3:8b', '--all']).slug, 'bench-ollama-qwen3-8b-all');
+  it('слаг выводится из задачи, модели и режима, если не задан', () => {
+    strictEqual(parseArgs(['--model', 'ollama:qwen3:8b', '--all']).slug, 'bench-oversize-ollama-qwen3-8b-all');
+    strictEqual(
+      parseArgs(['--model', 'ollama:qwen3:8b', '--all', '--task', 'freeship']).slug,
+      'bench-freeship-ollama-qwen3-8b-all',
+    );
   });
 
   it('неизвестный этап называется вместе со списком допустимых', () => {

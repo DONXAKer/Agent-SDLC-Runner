@@ -1,0 +1,79 @@
+{
+  "// назначение": "Эталон задачи freeship (шаг 5 ROADMAP.md, вторая задача — 'ловушки и точка правки меняются местами' относительно oversize). Каждое значение посчитано вручную из констант фикстуры (TARIFF_TABLE, percent, TIER_PCT) — не списано с вывода модели.",
+  "// категории": "regression — обязано быть верным ДО всякой правки; precision — правило из task-freeship.md, выводимо из документа; human — верно только если модель довела до кода факт про silver (весовая ступень 2), который нигде в репозитории не записан, только в ответе человека (fixture/human-freeship.json → rules[0]).",
+  "task": "freeship",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "discountFor для клиента без уровня лояльности не меняется — 0 до и после витка.",
+      "call": { "fn": "discountFor", "args": [{ "id": "a", "tier": "none" }, 19900] },
+      "expect": 0
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "discountFor для gold ВНЕ льготной весовой ступени (эта функция веса не знает и не должна — regression на буквальном значении из test/tariffs.test.ts) не меняется.",
+      "call": { "fn": "discountFor", "args": [{ "id": "g", "tier": "gold" }, 24900] },
+      "expect": 2988
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "gold, весовая ступень 3 (вес строго больше 2000 г и не больше 5000 г) — бесплатная доставка: discount = base целиком, total = 0.",
+      "order": { "regionCode": 77, "weightG": 3000, "dimensionsCm": [20, 15, 10], "customer": { "id": "g", "tier": "gold" } },
+      "expect": { "zone": "msk", "base": 44900, "discount": 44900, "total": 0 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "gold, весовая ступень 2 (вес 2000 г ровно — граница, ступень 3 начинается СТРОГО после 2000) — льгота не действует, обычная скидка лояльности.",
+      "order": { "regionCode": 77, "weightG": 2000, "dimensionsCm": [20, 15, 10], "customer": { "id": "g", "tier": "gold" } },
+      "expect": { "zone": "msk", "base": 31900, "discount": 3828, "total": 28072 }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Ступень 3 сама по себе льготу не даёт — нужен именно уровень gold. Клиент без уровня лояльности на той же ступени — без льготы.",
+      "order": { "regionCode": 77, "weightG": 3000, "dimensionsCm": [20, 15, 10], "customer": { "id": "a", "tier": "none" } },
+      "expect": { "zone": "msk", "base": 44900, "discount": 0, "total": 44900 }
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Зона far участвует в льготе на общих основаниях (задокументировано в task-freeship.md, не требует вопроса человеку) — gold на ступени 3 в far тоже бесплатно.",
+      "order": { "regionCode": 14, "weightG": 3000, "dimensionsCm": [20, 15, 10], "customer": { "id": "g", "tier": "gold" } },
+      "expect": { "zone": "far", "base": 114900, "discount": 114900, "total": 0 }
+    },
+    {
+      "id": "H1",
+      "category": "human",
+      "claim": "claim-1",
+      "description": "silver на весовой ступени 2 (вес 1000 г строго больше и не больше 2000 г) — бесплатная доставка. Порог для silver нигде в репозитории не записан, только в ответе человека.",
+      "order": { "regionCode": 77, "weightG": 1500, "dimensionsCm": [20, 15, 10], "customer": { "id": "s", "tier": "silver" } },
+      "expect": { "zone": "msk", "base": 31900, "discount": 31900, "total": 0 }
+    },
+    {
+      "id": "H2",
+      "category": "human",
+      "claim": "claim-1",
+      "description": "silver на весовой ступени 3 (порог gold, НЕ silver) — льгота не действует: пороги двух уровней разные, и модель не вправе смешать их.",
+      "order": { "regionCode": 77, "weightG": 2001, "dimensionsCm": [20, 15, 10], "customer": { "id": "s", "tier": "silver" } },
+      "expect": { "zone": "msk", "base": 44900, "discount": 2245, "total": 42655 }
+    },
+    {
+      "id": "H3",
+      "category": "human",
+      "claim": "claim-1",
+      "description": "silver на своей ступени (2) в зоне far — та же ставка порога, что и H1, но на другой базе: ловит модель, скопировавшую конкретное значение H1 вместо правила «база минус льгота».",
+      "order": { "regionCode": 14, "weightG": 1500, "dimensionsCm": [20, 15, 10], "customer": { "id": "s", "tier": "silver" } },
+      "expect": { "zone": "far", "base": 82900, "discount": 82900, "total": 0 }
+    }
+  ]
+}

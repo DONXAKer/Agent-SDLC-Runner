@@ -17,10 +17,20 @@ export type BenchMode =
    */
   | { kind: 'all' };
 
+/**
+ * Задачи фикстуры `parcel-price` — по имени собираются пути `task-<task>.md`,
+ * `human-<task>.json`, `<task>.hidden.mjs` (кроме `oversize`, у неё имена без суффикса по
+ * историческим причинам — первая задача, заведена раньше многозадачности).
+ */
+export const TASKS = ['oversize', 'freeship'] as const;
+export type Task = (typeof TASKS)[number];
+
 export interface BenchOptions {
   mode: BenchMode;
   /** Измеряемая модель — id из `config/models.json`. */
   model: string;
+  /** Какая задача фикстуры измеряется — щупы и ловушки у задач разные (см. `TASKS`). */
+  task: Task;
   slug: string;
   /** Точечная замена контрольного маршрута: `--control-chunk=<id>`. */
   controlOverrides: Partial<Record<StageId, string>>;
@@ -73,6 +83,7 @@ export const USAGE = `
   npm run bench -- --model <id> (--stage <этап> | --all) [ключи]
 
   --model <id>          измеряемая модель, id из config/models.json
+  --task <имя>          задача фикстуры (умолчание oversize): ${TASKS.join('|')}
   --stage <этап>        измерять один этап: intent|explore|ask|plan|chunk|verify|handoff
   --all                 измерять все этапы, КРОМЕ verify (правило рецензента)
   --slug <имя>          слаг витка (умолчание: bench-<модель>-<режим>)
@@ -92,6 +103,10 @@ function isStageId(v: string): v is StageId {
   return (STAGE_ORDER as readonly string[]).includes(v);
 }
 
+function isTask(v: string): v is Task {
+  return (TASKS as readonly string[]).includes(v);
+}
+
 function positiveNumber(raw: string, what: string): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) throw new OptionsError(`${what}: ожидалось число больше нуля, получено «${raw}»`);
@@ -101,6 +116,7 @@ function positiveNumber(raw: string, what: string): number {
 export function parseArgs(argv: readonly string[]): BenchOptions {
   let mode: BenchMode | null = null;
   let model: string | null = null;
+  let task: Task = 'oversize';
   let slug: string | null = null;
   const controlOverrides: Partial<Record<StageId, string>> = {};
   let stageTimeoutMs = DEFAULTS.stageTimeoutMs;
@@ -142,6 +158,13 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         model = next(i, key);
         i++;
         break;
+      case '--task': {
+        const t = next(i, key);
+        if (!isTask(t)) throw new OptionsError(`неизвестная задача «${t}»; допустимы: ${TASKS.join(', ')}`);
+        task = t;
+        i++;
+        break;
+      }
       case '--stage': {
         const stage = next(i, key);
         if (!isStageId(stage)) {
@@ -212,7 +235,8 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   return {
     mode: resolvedMode,
     model: resolvedModel,
-    slug: slug ?? `bench-${(resolvedModel || 'dry').replace(/[^\w.-]+/g, '-')}-${modeTag}`,
+    task,
+    slug: slug ?? `bench-${task}-${(resolvedModel || 'dry').replace(/[^\w.-]+/g, '-')}-${modeTag}`,
     controlOverrides,
     stageTimeoutMs,
     runTimeoutMs,

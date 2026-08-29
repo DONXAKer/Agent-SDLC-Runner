@@ -65,6 +65,7 @@ describe('buildResult', () => {
       opts: {
         mode: { kind: 'stage', stage: 'intent' },
         model: 'claude-sdk:haiku',
+        task: 'oversize',
         slug: 'bench-x',
         controlOverrides: {},
         stageTimeoutMs: 1,

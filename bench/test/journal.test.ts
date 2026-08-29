@@ -42,6 +42,7 @@ function result(stagesOk: boolean) {
     opts: {
       mode: { kind: 'all' },
       model: 'ollama:qwen2.5-coder:7b',
+      task: 'oversize',
       slug: 'bench-test',
       controlOverrides: {},
       stageTimeoutMs: 1,

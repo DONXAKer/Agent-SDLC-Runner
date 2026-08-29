@@ -87,6 +87,7 @@ function greenResult() {
     opts: {
       mode: { kind: 'all' },
       model: 'claude-sdk:sonnet',
+      task: 'oversize',
       slug: 'bench-test',
       controlOverrides: {},
       stageTimeoutMs: 1,

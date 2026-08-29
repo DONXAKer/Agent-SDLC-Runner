@@ -41,9 +41,23 @@ const RESULTS_DIR = join(BENCH_DIR, 'results');
 const SNAPSHOTS_DIR = join(BENCH_DIR, 'snapshots');
 const FIXTURE_DIR = join(BENCH_DIR, 'fixture');
 const CONTROL_FILE = join(BENCH_DIR, 'control.json');
-// Единственная фикстура на сегодня (см. «Долги» в ROADMAP.md — вторая задача не заведена).
-// Когда их станет больше, это станет полем задачи, а не константой.
-const HIDDEN_FILE = join(BENCH_DIR, 'checks', 'hidden', 'oversize.hidden.mjs');
+
+/**
+ * Пути задачи фикстуры. `oversize` — первая задача, заведена до многозадачности, имена
+ * файлов без суффикса; более новые задачи (`freeship`, …) — с суффиксом `-<task>`/`.<task>`.
+ * Каждая задача несёт СВОЙ банк ответов человека: `denyWritesTo` одной задачи может быть
+ * ровно тем файлом, который вторая обязана тронуть (обнаружено при заведении `freeship` —
+ * `discounts.ts` был запрещён для `oversize` и нужен для `freeship`), общий банк на все
+ * задачи здесь в принципе не годится.
+ */
+function taskFiles(task: BenchOptions['task']): { taskFile: string; humanFile: string; hiddenFile: string } {
+  const suffix = task === 'oversize' ? '' : `-${task}`;
+  return {
+    taskFile: join(FIXTURE_DIR, task === 'oversize' ? 'task.md' : `task${suffix}.md`),
+    humanFile: join(FIXTURE_DIR, task === 'oversize' ? 'human.json' : `human${suffix}.json`),
+    hiddenFile: join(BENCH_DIR, 'checks', 'hidden', `${task}.hidden.mjs`),
+  };
+}
 
 /**
  * Ветка витка берётся из текста задачи, а не из отдельной настройки.
@@ -77,7 +91,7 @@ async function dryRun(opts: BenchOptions): Promise<number> {
   const base = loadConfig();
   const config = benchConfig(base, opts);
   const control = readControl(CONTROL_FILE);
-  const branch = branchFromTask(join(FIXTURE_DIR, 'task.md'));
+  const branch = branchFromTask(taskFiles(opts.task).taskFile);
 
   const ws = await prepareWorkspace({ fixtureDir: FIXTURE_DIR, slug: opts.slug, branch });
   console.log(`рабочая копия: ${ws.root}`);
@@ -148,8 +162,9 @@ async function liveRun(opts: BenchOptions): Promise<number> {
   const base = loadConfig();
   const config = benchConfig(base, opts);
   const control = readControl(CONTROL_FILE);
-  const branch = branchFromTask(join(FIXTURE_DIR, 'task.md'));
-  const script = readHumanScript(join(FIXTURE_DIR, 'human.json'));
+  const files = taskFiles(opts.task);
+  const branch = branchFromTask(files.taskFile);
+  const script = readHumanScript(files.humanFile);
 
   // Снимок (шаг 6 ROADMAP.md) заменяет `intent → … → plan` восстановленным деревом —
   // побайтово тем же для всех моделей, которые с него стартуют. `ws*` ниже — общая форма
@@ -317,9 +332,10 @@ async function liveRun(opts: BenchOptions): Promise<number> {
     const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : '';
     const events = readPersistedEvents(wsRoot, opts.slug);
 
-    const hasFeature = existsSync(HIDDEN_FILE) && existsSync(join(wsRoot, 'src', 'index.ts'));
+    const hasFeature = existsSync(files.hiddenFile) && existsSync(join(wsRoot, 'src', 'index.ts'));
     const chunkRan = driverResult.stages.some((s) => s.stage === 'chunk');
-    const hidden = hasFeature && chunkRan ? await runHiddenTests({ hiddenFile: HIDDEN_FILE, targetDir: wsRoot }) : null;
+    const hidden =
+      hasFeature && chunkRan ? await runHiddenTests({ hiddenFile: files.hiddenFile, targetDir: wsRoot }) : null;
 
     const honesty = checkHonesty({
       journalText,
