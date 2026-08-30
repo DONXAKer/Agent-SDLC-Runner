@@ -859,6 +859,104 @@ export class Run {
     });
   }
 
+  /**
+   * Дозаполнение журнала chunk'а по полям — тем же `FormFillExecutor`, что на
+   * этапах-документах, но ПОСЛЕ исполнителя и только над журналом.
+   *
+   * Границы честности:
+   *  - содержательные поля спрашиваются у ТОЙ ЖЕ модели этапа (per-field completion) —
+   *    рантайм не сочиняет журнал сам, он снимает с модели цену tool-use за бланк;
+   *  - запись идёт через тот же гейт одобрения (внутри FormFillExecutor);
+   *  - исход этапа переворачивается в ok ТОЛЬКО когда исполнитель упал именно на
+   *    оформлении (лимит ходов / незаполненный артефакт) и после дозаполнения `notDone`
+   *    пуст. Любой другой провал (политика, бюджет, отмена) остаётся провалом.
+   */
+  private async finishChunkJournal(
+    result: StageResult,
+    prompt: PreparedPrompt,
+    hooks: ExecHooks,
+    notDone: () => string[],
+    signal: AbortSignal,
+  ): Promise<StageResult> {
+    const path = this.paths.chunkJournal(this.chunk);
+
+    // Полный журнал — не повод выйти до переворота исхода: живой прогон (r6/ff1) показал
+    // сэмпл, где модель добила журнал САМА, но сожгла лимит, не успев завершить ход, —
+    // ранний return здесь оставлял этап красным при полностью выполненном контракте.
+    if (readArtifact(path).placeholders > 0) {
+      const filled = await this.fillJournalFields(path, prompt, hooks, signal);
+      if (!filled) return result;
+    }
+
+    const closableFailure =
+      !result.ok &&
+      (/исчерпан лимит ходов/.test(result.note) || /артефакт этапа не заполнен/.test(result.note));
+    if (closableFailure && notDone().length === 0) {
+      const note =
+        'этап закрыт: код и содержание — работа модели, оформление добрано рантаймом ' +
+        '(исполнитель упал только на лимите/оформлении при полных артефактах)';
+      this.emit({ type: 'warning', runId: this.id, stage: 'chunk', message: note });
+      return { ...result, ok: true, note };
+    }
+    return result;
+  }
+
+  /** Дозаполнение полей журнала per-field completion'ами. `false` — поля не закрылись. */
+  private async fillJournalFields(
+    path: string,
+    prompt: PreparedPrompt,
+    hooks: ExecHooks,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const route = this.profile.routes.chunk;
+    const limits = this.config.runner.limits;
+    this.emit({
+      type: 'warning',
+      runId: this.id,
+      stage: 'chunk',
+      message: 'журнал остался с плейсхолдерами — дозаполнение по полям той же моделью, через гейт',
+    });
+
+    const fill = await new FormFillExecutor({
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+      maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+      readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
+      bashTimeoutMs: limits.gateTimeoutMs,
+      params: route.params,
+      currency: route.providerDef.currency ?? 'USD',
+    }).run(
+      {
+        prompt,
+        cwd: this.project.projectRoot,
+        model: route.model,
+        allowedTools: this.toolsFor('chunk'),
+        readOnlyDirs: this.readOnlyRoots,
+        subagents: [],
+        mcp: null,
+        finishGuard: () =>
+          readArtifact(path).placeholders > 0 ? 'в журнале остались незаполненные поля' : null,
+        salvageFromText: null,
+        // Свой потолок: полей в журнале единицы, а лимит этапа уже сожжён исполнителем.
+        maxTurns: 12,
+        maxBudgetUsd: this.project.maxBudgetUsd,
+        spentUsdBefore: this.totalUsage.costUsd ?? 0,
+        formArtifacts: [path],
+        signal,
+      },
+      hooks,
+    );
+
+    if (!fill.ok) {
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: 'chunk',
+        message: `дозаполнение журнала не закрыло поля: ${fill.note}`,
+      });
+    }
+    return fill.ok;
+  }
+
   private toolsFor(stage: StageId): readonly ToolName[] {
     const all = stageById(stage).tools;
     // Урезанный набор для модели с `leanTools` — только на этапах-документах. Это
@@ -2124,7 +2222,7 @@ export class Run {
       // интерфейсе не разблокировалась до перезагрузки страницы.
       const executor = this.executorFor(stage);
 
-      const result = await executor.run(
+      let result = await executor.run(
         {
           prompt,
           cwd: this.project.projectRoot,
@@ -2156,6 +2254,21 @@ export class Run {
         },
         hooks,
       );
+
+      // Дозаполнение журнала chunk'а по полям (`ModelDef.formFill` у модели этапа 5):
+      // серия r5 показала конструкционный провал — модель с идеальным кодом 7 прогонов
+      // подряд не закрывала этап, дочищая журнал инструментами до конца лимита ходов.
+      // Содержательные поля добираются per-field completion'ами тем же FormFillExecutor,
+      // запись идёт через тот же гейт; этап закрывается ТОЛЬКО если исполнитель упал
+      // именно на оформлении и после дозаполнения на диске всё на месте.
+      if (
+        stage === 'chunk' &&
+        route.flow === 'loop' &&
+        route.formFill &&
+        !this.aborter.signal.aborted
+      ) {
+        result = await this.finishChunkJournal(result, prompt, hooks, notDone, this.aborter.signal);
+      }
 
       if (stage === 'verify') await this.runEnsembleReviewers(prompt, def, agents, hooks);
 
