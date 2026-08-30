@@ -15,7 +15,7 @@ import { after, describe, it } from 'node:test';
 
 import type { NormalizedCall, ToolName } from '@sdlc-runner/shared';
 
-import { FormFillExecutor, cleanFieldAnswer } from '../src/exec/FormFillExecutor.ts';
+import { FormFillExecutor, cleanFieldAnswer, groupFields } from '../src/exec/FormFillExecutor.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 
@@ -90,6 +90,28 @@ function setup(): { root: string; artifact: string } {
 
 const exec = (provider: ChatProvider): FormFillExecutor =>
   new FormFillExecutor({ provider, maxResultBytes: 10_000, readRangeRequiredAboveBytes: 10_000, bashTimeoutMs: 1000 });
+
+describe('groupFields: строка таблицы — одно поле-образец', () => {
+  it('два плейсхолдера в строке таблицы схлопываются в одно поле-строку', () => {
+    const text = '| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | ‹поведение› | ‹критерий› |\n';
+    const fields = groupFields(text);
+    strictEqual(fields.length, 1);
+    strictEqual(fields[0]?.kind, 'row');
+    strictEqual(text.slice(fields[0]!.start, fields[0]!.end), '| claim-1 | ‹поведение› | ‹критерий› |');
+  });
+
+  it('поле с меткой в списке остаётся одиночным плейсхолдером, а не строкой', () => {
+    const fields = groupFields('- **Ветка витка:** ‹sdlc/слаг›\n');
+    strictEqual(fields.length, 1);
+    strictEqual(fields[0]?.kind, 'cell');
+    strictEqual(fields[0]?.text, '‹sdlc/слаг›');
+  });
+
+  it('две разные строки таблицы — два поля', () => {
+    const text = '| 1 | ‹дата› |\n| 2 | ‹дата› |\n';
+    strictEqual(groupFields(text).length, 2);
+  });
+});
 
 describe('заполнение бланка по полям', () => {
   it('плейсхолдеры заполняются, запись идёт через гейт, этап зелёный', async () => {

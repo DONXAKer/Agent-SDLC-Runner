@@ -70,6 +70,41 @@ export function cleanFieldAnswer(raw: string): string {
   return text;
 }
 
+/** Поле бланка: одиночный плейсхолдер либо строка-образец таблицы целиком. */
+export interface FormField {
+  start: number;
+  end: number;
+  /** `cell` — заменяется сам плейсхолдер; `row` — вся строка-образец, ответ может быть несколькими строками. */
+  kind: 'cell' | 'row';
+  /** Текст плейсхолдера (`cell`) либо строка-образец (`row`) — уходит в подсказку модели. */
+  text: string;
+}
+
+/**
+ * Плейсхолдеры → поля. Строка ТАБЛИЦЫ с плейсхолдерами схлопывается в одно поле-строку:
+ * это образец, один на весь будущий список, и несколько его плейсхолдеров — не несколько
+ * независимых полей, а колонки одного элемента. Списки с маркером `-` сюда не входят:
+ * `- **Ветка витка:** ‹…›` — обычное поле с меткой, а не образец списка.
+ */
+export function groupFields(text: string): FormField[] {
+  const out: FormField[] = [];
+  let lastRowStart = -1;
+  for (const r of placeholderRanges(text)) {
+    const lineStart = text.lastIndexOf('\n', r.start - 1) + 1;
+    const lineEndIdx = text.indexOf('\n', r.start);
+    const lineEnd = lineEndIdx < 0 ? text.length : lineEndIdx;
+    const line = text.slice(lineStart, lineEnd);
+    if (line.trimStart().startsWith('|')) {
+      if (lineStart === lastRowStart) continue; // колонка того же образца — уже учтён
+      lastRowStart = lineStart;
+      out.push({ start: lineStart, end: lineEnd, kind: 'row', text: line });
+    } else {
+      out.push({ start: r.start, end: r.end, kind: 'cell', text: r.text });
+    }
+  }
+  return out;
+}
+
 /** Строка текста, содержащая позицию `index`, — контекст поля для модели. */
 function lineAt(text: string, index: number): string {
   const start = text.lastIndexOf('\n', index - 1) + 1;
@@ -124,7 +159,12 @@ export class FormFillExecutor implements StageExecutor {
 
       let text = artifact.text;
       // С конца к началу: сплайс не сдвигает позиции ещё не обработанных диапазонов.
-      const ranges = [...placeholderRanges(text)].reverse();
+      // Поля считаются НЕ по одному плейсхолдеру: строка таблицы с плейсхолдерами — это
+      // строка-ОБРАЗЕЦ, одна на весь будущий список (пункты приёмки, вопросы), и спрошенная
+      // «по одному полю» она давала список из одного пункта — сквозной прогон дважды встал
+      // на «приёмочный лист короче минимума» у двух разных моделей. Такая строка
+      // заполняется целиком, ответ может быть НЕСКОЛЬКИМИ строками того же формата.
+      const ranges = groupFields(text).reverse();
       let changed = false;
 
       // Поля независимы и идут пачками: последовательное дозаполнение журнала занимало
@@ -165,10 +205,16 @@ export class FormFillExecutor implements StageExecutor {
                     lineAt(text, range.start),
                     '```',
                     '',
-                    `Верни ТОЛЬКО текст, которым надо заменить плейсхолдер \`${range.text}\` в этой ` +
-                      'строке — без самих скобок ‹›, без пояснений вокруг, по факту задачи и входных ' +
-                      'артефактов. Если поле требует решения человека, которого у тебя нет, верни ' +
-                      '«требует решения человека: <что именно>» вместо выдуманного ответа.',
+                    range.kind === 'row'
+                      ? 'Эта строка — ОБРАЗЕЦ строки таблицы, один на весь список. Верни ' +
+                        'заполненные строки таблицы того же формата — столько, сколько нужно ' +
+                        'по факту задачи и входных артефактов (каждая начинается с `|`), без ' +
+                        'скобок ‹› и без пояснений вокруг. Если по задаче элемент ровно один — ' +
+                        'верни одну строку.'
+                      : `Верни ТОЛЬКО текст, которым надо заменить плейсхолдер \`${range.text}\` в этой ` +
+                        'строке — без самих скобок ‹›, без пояснений вокруг, по факту задачи и входных ' +
+                        'артефактов. Если поле требует решения человека, которого у тебя нет, верни ' +
+                        '«требует решения человека: <что именно>» вместо выдуманного ответа.',
                   ].join('\n'),
                 },
               ],
@@ -205,7 +251,13 @@ export class FormFillExecutor implements StageExecutor {
           const filled = cleanFieldAnswer(answers[idx]?.text ?? '');
           // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся как
           // был, и его честно назовут страж завершения и предусловие следующего этапа.
+          // Ответ на строку-образец обязан состоять из строк таблицы: прозу вместо строк
+          // впускать нельзя — она разломала бы таблицу молча.
           if (filled === '' || filled.includes('‹')) {
+            fieldsLeft++;
+            continue;
+          }
+          if (range.kind === 'row' && !filled.split('\n').every((l) => l.trim().startsWith('|'))) {
             fieldsLeft++;
             continue;
           }
