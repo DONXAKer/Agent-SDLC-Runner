@@ -197,6 +197,7 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
     timeoutMs: i.timeoutMs,
     ...(i.modules === undefined ? {} : { modules: i.modules }),
     ...(i.signal === undefined ? {} : { signal: i.signal }),
+    ...(i.clarificationPath === undefined ? {} : { clarificationPath: i.clarificationPath }),
   };
 
   const out: GateRunResult[] = [];

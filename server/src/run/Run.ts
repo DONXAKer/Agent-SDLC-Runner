@@ -81,6 +81,7 @@ import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName, runGates } from '../gates/run.ts';
 import { git, hasCommits, stageNewPlanFiles, workingDiff } from '../gates/git.ts';
 import { autofillChunkJournal } from './journalAutofill.ts';
+import { autofillVerificationReport } from './verifyAutofill.ts';
 import type { BuiltinGate, GateContext } from '../gates/builtin/index.ts';
 import { recordAttemptEvidence } from './evidence.ts';
 import type { TreeChange } from './evidence.ts';
@@ -860,6 +861,39 @@ export class Run {
   }
 
   /**
+   * Заполняет отчёт приёмки фактами рантайма — см. `verifyAutofill.ts`.
+   *
+   * Результат ревью сюда не передаётся намеренно: на момент автозаполнения рецензент ещё
+   * не запускался, и его строка в таблице остаётся модели.
+   */
+  private autofillVerification(seeded: { path: string; snapshot?: string }[]): void {
+    const path = this.paths.verificationReport(this.chunk, this.attempt);
+    const report = readArtifact(path);
+    if (!report.exists || report.placeholders === 0) return;
+
+    const gates = this.lastGateResults.filter((g) => gateKey(g.name) !== gateKey(REVIEW_GATE));
+    const { text, filled } = autofillVerificationReport(report.text, gates, {
+      chunk: this.chunk,
+      attempt: this.attempt,
+      slug: this.slug,
+      attemptBudget: this.attemptBudget,
+    });
+    if (filled === 0) return;
+
+    writeArtifact(path, text);
+    const seed = seeded.find((s) => s.path === path);
+    if (seed !== undefined) seed.snapshot = text;
+    this.emit({
+      type: 'warning',
+      runId: this.id,
+      stage: 'verify',
+      message:
+        `рантайм заполнил отчёт приёмки фактами прогона (${filled}): таблица «Гейты» и ` +
+        'механика шапки — рецензенту остались выводы, ревью и вердикт',
+    });
+  }
+
+  /**
    * Дозаполнение журнала chunk'а по полям — тем же `FormFillExecutor`, что на
    * этапах-документах, но ПОСЛЕ исполнителя и только над журналом.
    *
@@ -871,20 +905,20 @@ export class Run {
    *    оформлении (лимит ходов / незаполненный артефакт) и после дозаполнения `notDone`
    *    пуст. Любой другой провал (политика, бюджет, отмена) остаётся провалом.
    */
-  private async finishChunkJournal(
+  private async finishFormArtifact(
+    stage: StageId,
+    path: string,
     result: StageResult,
     prompt: PreparedPrompt,
     hooks: ExecHooks,
     notDone: () => string[],
     signal: AbortSignal,
   ): Promise<StageResult> {
-    const path = this.paths.chunkJournal(this.chunk);
-
     // Полный журнал — не повод выйти до переворота исхода: живой прогон (r6/ff1) показал
     // сэмпл, где модель добила журнал САМА, но сожгла лимит, не успев завершить ход, —
     // ранний return здесь оставлял этап красным при полностью выполненном контракте.
     if (readArtifact(path).placeholders > 0) {
-      const filled = await this.fillJournalFields(path, prompt, hooks, signal);
+      const filled = await this.fillFormFields(stage, path, prompt, hooks, signal);
       if (!filled) return result;
     }
 
@@ -895,26 +929,27 @@ export class Run {
       const note =
         'этап закрыт: код и содержание — работа модели, оформление добрано рантаймом ' +
         '(исполнитель упал только на лимите/оформлении при полных артефактах)';
-      this.emit({ type: 'warning', runId: this.id, stage: 'chunk', message: note });
+      this.emit({ type: 'warning', runId: this.id, stage, message: note });
       return { ...result, ok: true, note };
     }
     return result;
   }
 
-  /** Дозаполнение полей журнала per-field completion'ами. `false` — поля не закрылись. */
-  private async fillJournalFields(
+  /** Дозаполнение полей артефакта per-field completion'ами. `false` — поля не закрылись. */
+  private async fillFormFields(
+    stage: StageId,
     path: string,
     prompt: PreparedPrompt,
     hooks: ExecHooks,
     signal: AbortSignal,
   ): Promise<boolean> {
-    const route = this.profile.routes.chunk;
+    const route = this.profile.routes[stage];
     const limits = this.config.runner.limits;
     this.emit({
       type: 'warning',
       runId: this.id,
-      stage: 'chunk',
-      message: 'журнал остался с плейсхолдерами — дозаполнение по полям той же моделью, через гейт',
+      stage,
+      message: 'артефакт остался с плейсхолдерами — дозаполнение по полям той же моделью, через гейт',
     });
 
     const fill = await new FormFillExecutor({
@@ -929,12 +964,12 @@ export class Run {
         prompt,
         cwd: this.project.projectRoot,
         model: route.model,
-        allowedTools: this.toolsFor('chunk'),
+        allowedTools: this.toolsFor(stage),
         readOnlyDirs: this.readOnlyRoots,
         subagents: [],
         mcp: null,
         finishGuard: () =>
-          readArtifact(path).placeholders > 0 ? 'в журнале остались незаполненные поля' : null,
+          readArtifact(path).placeholders > 0 ? 'в артефакте остались незаполненные поля' : null,
         salvageFromText: null,
         // Свой потолок: полей в журнале единицы, а лимит этапа уже сожжён исполнителем.
         maxTurns: 12,
@@ -950,8 +985,8 @@ export class Run {
       this.emit({
         type: 'warning',
         runId: this.id,
-        stage: 'chunk',
-        message: `дозаполнение журнала не закрыло поля: ${fill.note}`,
+        stage,
+        message: `дозаполнение артефакта не закрыло поля: ${fill.note}`,
       });
     }
     return fill.ok;
@@ -1380,6 +1415,8 @@ export class Run {
       timeoutMs: this.config.runner.limits.gateTimeoutMs,
       // Описание модулей проекта: человек знает про свой моно-репо больше, чем детект.
       ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
+      // Вход гейта «Ответы человека в коде»: слаг витка знает только рантайм.
+      clarificationPath: this.paths.clarificationReport,
       ...(signal === undefined ? {} : { signal }),
       externalStatuses: this.externalGateStatuses(),
       onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage: 'verify', message }),
@@ -2039,6 +2076,11 @@ export class Run {
     // не сделавший ничего, по-прежнему виден.
     if (stage === 'chunk') await this.autofillJournal(seeded);
 
+    // Отчёт приёмки: механику шапки и таблицу «Гейты» заполняет рантайм фактами только
+    // что прогнанных гейтов — рецензенту остаются выводы и ревью. Замер r9: все
+    // расхождения «отчёт/факт» дешёвого рецензента были в переписанной от себя таблице.
+    if (stage === 'verify') this.autofillVerification(seeded);
+
     // Что считается «этап ничего не произвёл»: файла нет ИЛИ он остался бланком байт в
     // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.
     const notDone = (): string[] => [
@@ -2261,13 +2303,30 @@ export class Run {
       // Содержательные поля добираются per-field completion'ами тем же FormFillExecutor,
       // запись идёт через тот же гейт; этап закрывается ТОЛЬКО если исполнитель упал
       // именно на оформлении и после дозаполнения на диске всё на месте.
+      // Тот же механизм — и для отчёта приёмки (замер r9: рецензенту 14B при лимите 40
+      // не хватало ходов именно на оформление отчёта). До ансамбля: дополнительные
+      // маршруты снимают копию канонического отчёта, и она обязана быть полной.
+      const formFinishPath =
+        stage === 'chunk'
+          ? this.paths.chunkJournal(this.chunk)
+          : stage === 'verify'
+            ? this.paths.verificationReport(this.chunk, this.attempt)
+            : null;
       if (
-        stage === 'chunk' &&
+        formFinishPath !== null &&
         route.flow === 'loop' &&
         route.formFill &&
         !this.aborter.signal.aborted
       ) {
-        result = await this.finishChunkJournal(result, prompt, hooks, notDone, this.aborter.signal);
+        result = await this.finishFormArtifact(
+          stage,
+          formFinishPath,
+          result,
+          prompt,
+          hooks,
+          notDone,
+          this.aborter.signal,
+        );
       }
 
       if (stage === 'verify') await this.runEnsembleReviewers(prompt, def, agents, hooks);

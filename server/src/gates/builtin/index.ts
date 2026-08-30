@@ -19,14 +19,15 @@ import {
   detectEcosystem,
   syntaxCheckerFor,
 } from '../ecosystems/index.ts';
-import { normalizePlanPath } from '../../policy/paths.ts';
+import { normalizePlanPath, toPosix } from '../../policy/paths.ts';
 import { addedFunctionNames, findDuplicates } from './duplicates.ts';
+import { extractHumanFacts } from '../../artifacts/humanFacts.ts';
 import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 import type { GateStatus } from '@sdlc-runner/shared';
 
@@ -54,6 +55,12 @@ export interface GateContext {
   moduleParallel?: number;
   /** `files_to_touch` одобренного плана — вход scope-гейта и детекта модуля. */
   planFiles: readonly string[];
+  /**
+   * Путь к clarification-report.md текущего витка — вход гейта «Ответы человека в коде».
+   * Опционален: слаг витка знает рантайм, а не набор гейтов; без пути гейт честно
+   * говорит, что проверять нечего.
+   */
+  clarificationPath?: string;
   /** Снимок грязного дерева до этапа 5: путь → хеш. `null` — снимка нет. */
   baseline: ReadonlyMap<string, string> | null;
   timeoutMs: number;
@@ -1302,6 +1309,100 @@ const antiBypassGate = makeDiffGate(
 const secretsGate = makeDiffGate(new Set(['secret-in-diff']), 'секреты в diff');
 
 // ---------------------------------------------------------------------------
+// Ответы человека в коде
+// ---------------------------------------------------------------------------
+
+/**
+ * Гейт «Ответы человека в коде»: литералы из ответов человека (clarification-report.md)
+ * ищутся в добавленных строках diff.
+ *
+ * Порог, который он сторожит, замерен (`docs/model-runs.md`, серии r7–r8): слабая модель
+ * пишет корректный код, но теряет факт из диалога — «ставка 90%» из ответа не доезжает до
+ * кода, и это видно только на этапе 6 по существу. Гейт превращает потерю в названный
+ * красный ДО рецензента.
+ *
+ * Проверяются только механические литералы (числа, цитаты) — см. `humanFacts.ts`. Ответ
+ * без литералов («на общих основаниях») машиной не сверяется, и гейт не изображает
+ * обратного. Литерал, осевший не в коде, а в комментарии или тесте, гейт тоже засчитает —
+ * это осознанная цена: строже значило бы парсить языки, а лгать «не найдено» на найденное
+ * нельзя. Ложный красный снимается строкой неприменимости, подписанной именем.
+ */
+const humanAnswersGate: BuiltinGate = async (ctx) => {
+  if (!(await isRepo(ctx.projectRoot))) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: `${ctx.projectRoot} не git-репозиторий — ответы человека в diff НЕ проверялись`,
+    };
+  }
+
+  const report = ctx.clarificationPath === undefined ? null : readIfExists(ctx.clarificationPath);
+  if (report === null) {
+    return {
+      status: '✅',
+      command: null,
+      exitCode: 0,
+      lastLine: 'clarification-report.md в витке нет — ответов человека не было, сверять нечего',
+    };
+  }
+
+  const checkable = extractHumanFacts(report).filter((f) => f.literals.length > 0);
+  if (checkable.length === 0) {
+    return {
+      status: '✅',
+      command: null,
+      exitCode: 0,
+      lastLine: 'в ответах человека нет проверяемых литералов (чисел, цитат) — сверять нечего',
+    };
+  }
+
+  // Только добавленные строки — и БЕЗ артефактов витка: `workingDiff` включает
+  // нетракованные файлы, то есть сам clarification-report.md, и гейт зеленел бы от
+  // литералов вопроса, процитированных в отчёте, а не от кода (пойман тестом).
+  const clarRel = toPosix(relative(ctx.projectRoot, ctx.clarificationPath ?? '')).toLowerCase();
+  const added = diffLines(await cachedWorkingDiff(ctx))
+    .filter((l) => l.added)
+    .filter((l) => {
+      const file = toPosix(l.file).toLowerCase();
+      return !file.startsWith('.sdlc/') && file !== clarRel;
+    })
+    .map((l) => l.text)
+    .join('\n');
+
+  const lost: string[] = [];
+  for (const fact of checkable) {
+    const found = fact.literals.some((lit) =>
+      lit.accepted.some((form) =>
+        // Число ищется как отдельный токен: «90» не должен зеленеть от «190» или «903».
+        /^\d/.test(form)
+          ? new RegExp(`(^|[^\\d.])${form.replace('.', '\\.')}([^\\d.]|$)`, 'm').test(added)
+          : added.includes(form),
+      ),
+    );
+    if (!found) {
+      const lits = fact.literals.map((l) => l.shown).join(', ');
+      lost.push(`  «${fact.question}» → «${fact.answer}»: литералы (${lits}) в добавленных строках не найдены`);
+    }
+  }
+
+  if (lost.length === 0) {
+    return {
+      status: '✅',
+      command: null,
+      exitCode: 0,
+      lastLine: `все ${checkable.length} ответов человека с литералами отражены в diff`,
+    };
+  }
+  return {
+    status: '❌',
+    command: null,
+    exitCode: 1,
+    lastLine: `потерянные ответы человека: ${lost.length} из ${checkable.length}\n${lost.join('\n')}`,
+  };
+};
+
+// ---------------------------------------------------------------------------
 // Предусловия публикации (этап 7)
 // ---------------------------------------------------------------------------
 
@@ -1364,6 +1465,7 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
   ['анти-обход тест-гейта', antiBypassGate],
   ['секреты в diff', secretsGate],
   ['линт экосистемы', lintGate],
+  ['ответы человека в коде', humanAnswersGate],
   ['дубли хелперов', duplicatesGate],
   ['проверка предусловий публикации', publishGate],
 ]);

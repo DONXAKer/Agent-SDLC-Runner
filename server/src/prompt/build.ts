@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
+import { extractHumanFacts } from '../artifacts/humanFacts.ts';
 import type { RunnerConfig } from '../config/schema.ts';
 import { specsFor } from '../exec/toolSpecs.ts';
 import { toPosix } from '../policy/paths.ts';
@@ -328,6 +329,33 @@ function userMessage(i: BuildPromptInput): string {
       '',
       `Эти обязательные артефакты не найдены: ${missing.join(', ')}. Не додумывай их содержимое.`,
     );
+  }
+
+  // Карточка фактов от человека — только на этапе 5 и ПОСЛЕ входных артефактов: у слабой
+  // модели решает recency, и ответ, утонувший в середине clarification-report.md, здесь
+  // повторён коротко у самого конца промпта. Замер (серии r7–r8, `docs/model-runs.md`):
+  // human-кейсы — единственный порог, где 8B проигрывает 14B по существу.
+  if (i.stage.id === 'chunk') {
+    const clar = readArtifact(i.ctx.paths.clarificationReport);
+    const facts = clar.exists ? extractHumanFacts(clar.text) : [];
+    if (facts.length > 0) {
+      parts.push(
+        '## Факты от человека — обязаны попасть в код',
+        '',
+        'Это ответы человека из clarification-report.md, дословно. Каждое число и каждая ' +
+          'цитата из ответа обязаны быть отражены в правке; потерянный ответ человека — ' +
+          'прямой путь к красному вердикту этапа 6.',
+        facts
+          .map(
+            (f) =>
+              `- **${f.question}** → ${f.answer}` +
+              (f.literals.length === 0
+                ? ''
+                : ` _(проверяемые литералы: ${f.literals.map((l) => l.shown).join(', ')})_`),
+          )
+          .join('\n'),
+      );
+    }
   }
 
   if (i.extra !== undefined && i.extra.trim() !== '') {
