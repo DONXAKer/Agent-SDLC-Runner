@@ -1,0 +1,144 @@
+{
+  "run": {
+    "slug": "bench-freeship-polza",
+    "model": "polza:qwen3-30b-a3b",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:qwen3-30b-a3b",
+      "explore": "polza:qwen3-30b-a3b",
+      "ask": "polza:qwen3-30b-a3b",
+      "plan": "polza:qwen3-30b-a3b",
+      "chunk": "polza:qwen3-30b-a3b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:qwen3-30b-a3b"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-08-29T20:34:37.026Z",
+    "finishedAt": "2026-08-29T20:35:03.935Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "polza: HTTP 502 от https://api.polza.ai/api/v1 — {\"error\":{\"code\":\"BAD_GATEWAY\",\"message\":\"Сервис временно недоступен. Попробуйте позже.\",\"metadata\":{\"raw\":\"Провайдер вернул некорректный вызов инструмента\"}},\"trace_id\":\"54e43872-564c-4ee9-ad98-3ee593346843\"}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 129562,
+          "outputTokens": 576,
+          "cacheReadTokens": 77841,
+          "cacheWriteTokens": 0,
+          "costUsd": 1.26361943,
+          "durationMs": 23241
+        },
+        "durationMs": 26909
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 13,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Какой slug витка вы хотите использовать? Например: bench-freeship-polza. Если вы не уверены, я могу предложить стандартный."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Контур витка: полный или мелкий? Критерий: правка в один файл или только документация/конфигурация, без смены контрактов и миграций, без новых зависимостей. Если не уверены — спросите у Бенчмарка."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 9866,
+        "userChars": 2165,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-c506b2f4-b079-4f8b-a6e5-4a3ed8ba98b8-1",
+        "questionId": "q1",
+        "text": "Какой slug витка вы хотите использовать? Например: bench-freeship-polza. Если вы не уверены, я могу предложить стандартный."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-c506b2f4-b079-4f8b-a6e5-4a3ed8ba98b8-2",
+        "questionId": "q1",
+        "text": "Контур витка: полный или мелкий? Критерий: правка в один файл или только документация/конфигурация, без смены контрактов и миграций, без новых зависимостей. Если не уверены — спросите у Бенчмарка."
+      }
+    ]
+  }
+}

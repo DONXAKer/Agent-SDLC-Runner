@@ -1,0 +1,406 @@
+{
+  "run": {
+    "slug": "bench-r2-polza-qwen3-14b",
+    "model": "polza:qwen3-14b",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "polza:qwen3-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-08-30T07:36:57.796Z",
+    "finishedAt": "2026-08-30T07:54:08.833Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап закончился, но артефакт не заполнен: /private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-wxZaKH/.sdlc/bench-r2-polza-qwen3-14b/verification-report-1-attempt-1.md",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "escalate",
+      "reasons": [
+        "гейт «Сборка» провалился (❌)",
+        "гейт «Тесты» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+        "гейт «Scope: файлы вне плана» провалился (❌)",
+        "гейт «Анти-обход тест-гейта» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+        "гейт «Ревью независимым агентом» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+        "гейт «Scope: пути плана без правок» провалился (❌)",
+        "гейт «Scope: нетракованные файлы» провалился (❌)",
+        "пункт приёмки claim-1 не проверяем (⚠)",
+        "включённый гейт «Scope: пути плана без правок» в отчёте не отчитался ни одной строкой",
+        "включённый гейт «Scope: нетракованные файлы» в отчёте не отчитался ни одной строкой",
+        "включённый гейт «Секреты в diff» в отчёте не отчитался ни одной строкой",
+        "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+        "причина красного вердикта — «scope» (back-to-plan): это не то, что чинится повторной попыткой в пределах текущего плана",
+        "гейт «Сборка»: в отчёте ⏭, фактический прогон дал ❌ — в вердикт идёт худший из двух (❌)",
+        "гейт «Тесты»: в отчёте ⏭, фактический прогон дал ✅ — в вердикт идёт худший из двух (⏭)",
+        "гейт «Scope: файлы вне плана»: в отчёте ⏭, фактический прогон дал ❌ — в вердикт идёт худший из двух (❌)",
+        "гейт «Анти-обход тест-гейта»: в отчёте ⏭, фактический прогон дал ✅ — в вердикт идёт худший из двух (⏭)",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 320612,
+          "outputTokens": 11384,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 8.646874720000001,
+          "durationMs": 249631
+        },
+        "durationMs": 250011
+      },
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 16,
+          "outputTokens": 34612,
+          "cacheReadTokens": 580950,
+          "cacheWriteTokens": 44511,
+          "costUsd": 3.0824964999999995,
+          "durationMs": 494239
+        },
+        "durationMs": 780987
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "scope",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 0,
+        "toolCalls": 18,
+        "reminders": 0
+      },
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 38,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "escalate",
+    "reasons": [
+      "гейт «Сборка» провалился (❌)",
+      "гейт «Тесты» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+      "гейт «Scope: файлы вне плана» провалился (❌)",
+      "гейт «Анти-обход тест-гейта» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+      "гейт «Ревью независимым агентом» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+      "гейт «Scope: пути плана без правок» провалился (❌)",
+      "гейт «Scope: нетракованные файлы» провалился (❌)",
+      "пункт приёмки claim-1 не проверяем (⚠)",
+      "включённый гейт «Scope: пути плана без правок» в отчёте не отчитался ни одной строкой",
+      "включённый гейт «Scope: нетракованные файлы» в отчёте не отчитался ни одной строкой",
+      "включённый гейт «Секреты в diff» в отчёте не отчитался ни одной строкой",
+      "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+      "причина красного вердикта — «scope» (back-to-plan): это не то, что чинится повторной попыткой в пределах текущего плана",
+      "гейт «Сборка»: в отчёте ⏭, фактический прогон дал ❌ — в вердикт идёт худший из двух (❌)",
+      "гейт «Тесты»: в отчёте ⏭, фактический прогон дал ✅ — в вердикт идёт худший из двух (⏭)",
+      "гейт «Scope: файлы вне плана»: в отчёте ⏭, фактический прогон дал ❌ — в вердикт идёт худший из двух (❌)",
+      "гейт «Анти-обход тест-гейта»: в отчёте ⏭, фактический прогон дал ✅ — в вердикт идёт худший из двух (⏭)",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:e149f584-6419-4919-b888-f0161504aeef",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:a50c233d-5530-4cb3-9daf-7168b61b49b2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-r2-polza-qwen3-14b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:d56f5b64-8c68-4429-a857-a077ad83abd1",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-r2-polza-qwen3-14b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:6002a3c2-674c-4cb3-a070-bb91e66ee288",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-r2-polza-qwen3-14b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:793dfbd2-cf95-47c0-bcbf-f74eb848808c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-r2-polza-qwen3-14b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:3e74fd35-8e68-49b8-838a-16e665405b6f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-r2-polza-qwen3-14b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:e3a5bc37-9ea1-41a5-a11a-cbf0c869e510",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r2-polza-qwen3-14b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:c8cb283d-cf32-4df5-b952-a3b7c57278ae",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r2-polza-qwen3-14b/.chunk-1-baseline.json"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:79a2264f-9d6c-4f6b-b652-b2fcbd6ff4ee",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "src/oversize.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:4792d4d1-b7da-4c4e-8cbb-aeedc896ab0f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "src/tariffs.ts"
+        ],
+        "destructive": "перезапись src/tariffs.ts целиком: было 156 строк, станет 48 (−108). Автоодобрение на такой вызов не распространяется",
+        "outcome": "denied",
+        "why": "destructiveOverwrite → deny (перезапись src/tariffs.ts целиком: было 156 строк, станет 48 (−108). Автоодобрение на такой вызов не распространяется)",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите, что файл `src/oversize.ts` будет создан в рамках этого chunk'а."
+          },
+          {
+            "id": "q2",
+            "question": "Подтвердите, что файл `src/tariffs.ts` будет расширен для поддержки негабаритных отправлений."
+          },
+          {
+            "id": "q3",
+            "question": "Подтвердите, что файл `test/oversize.test.ts` будет создан для тестирования логики негабаритов."
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.rate"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12586,
+        "userChars": 12776,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 15405,
+        "userChars": 28268,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "chunk",
+        "requestId": "ask-1a90cadb-8ccf-4709-879e-e4b92c49d916-1",
+        "questionId": "q1",
+        "text": "Подтвердите, что файл `src/oversize.ts` будет создан в рамках этого chunk'а."
+      },
+      {
+        "stage": "chunk",
+        "requestId": "ask-1a90cadb-8ccf-4709-879e-e4b92c49d916-1",
+        "questionId": "q2",
+        "text": "Подтвердите, что файл `src/tariffs.ts` будет расширен для поддержки негабаритных отправлений."
+      },
+      {
+        "stage": "chunk",
+        "requestId": "ask-1a90cadb-8ccf-4709-879e-e4b92c49d916-1",
+        "questionId": "q3",
+        "text": "Подтвердите, что файл `test/oversize.test.ts` будет создан для тестирования логики негабаритов."
+      }
+    ]
+  }
+}
