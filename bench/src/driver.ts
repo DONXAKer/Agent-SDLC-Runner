@@ -58,6 +58,13 @@ export interface DriverArgs {
   /** Потолок повторов chunk↔verify — уже с учётом `--attempts` бенчмарка. */
   attempts: number;
   /**
+   * Текст задачи (`task.md` фикстуры) — уходит в промпт этапа 1 полем «Задача от
+   * человека». Пока его не было, sdk-модели вычитывали задачу из дерева инструментами,
+   * а исполнитель режима `formFill` (без цикла и инструментов) сочинял задачу ИЗ СЛАГА
+   * прогона — «oversizeRuble, 1000000 рублей» из `bench-oversize-ruble-all` (живой прогон).
+   */
+  requirement?: string;
+  /**
    * Первый этап, с которого начинать (шаг 6 ROADMAP.md — прогон со снимка). `undefined` —
    * с самого начала `STAGE_ORDER`. Снимок восстанавливает дерево в состояние ПОСЛЕ этого
    * этапа не будучи, сам этап driver не перепрогоняет — предусловия следующего уже
@@ -179,7 +186,12 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       return { stages, finalVerdict: run.lastVerdict, stopped: 'blocked' };
     }
 
-    const { result, timedOut } = await runStageWithTimeout(run, stage, {}, stageTimeoutMs);
+    const { result, timedOut } = await runStageWithTimeout(
+      run,
+      stage,
+      stage === 'intent' && args.requirement !== undefined ? { requirement: args.requirement } : {},
+      stageTimeoutMs,
+    );
     // `runStage` возвращает пропуск этапа тем же `StageResult`, что и настоящий прогон —
     // отличает их только то, что пропуск не тратит ни ход, ни время: пустой `finalText`
     // и нулевая длительность видны лишь при пропуске, реальный ход всегда что-то стоит.

@@ -307,6 +307,8 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       stageTimeoutMs: opts.stageTimeoutMs,
       runTimeoutMs: opts.runTimeoutMs,
       attempts: opts.attempts,
+      // Текст задачи — в промпт этапа 1: исполнитель formFill без него сочинял задачу из слага.
+      requirement: readFileSync(files.taskFile, 'utf8'),
       ...(startStage === undefined ? {} : { startStage }),
       // `--make-snapshot` останавливает драйвер сразу после точки снимка (`--snapshot-after`,
       // умолчание plan) — снимок пишется НИЖЕ, из уже остановленного дерева, а не из
