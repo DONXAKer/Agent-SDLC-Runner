@@ -95,7 +95,7 @@ describe('гейт «Ответы человека в коде»', () => {
     const { root, clarificationPath } = repo();
     writeFileSync(
       clarificationPath,
-      '## Вопросы и ответы\n| # | В | Б | О | И |\n|---|---|---|---|---|\n| 1 | Как в far? | да | на общих основаниях | claim-7 |\n',
+      '## Вопросы и ответы\n| # | Вопрос | Блокирующий | Ответ человека | Что изменилось |\n|---|---|---|---|---|\n| 1 | Как в far? | да | на общих основаниях | claim-7 |\n',
     );
     writeFileSync(join(root, 'tariffs.ts'), 'export const base = 100;\nexport const y = 1;\n');
     const { status, lastLine } = await outcomeOf(root, clarificationPath);
@@ -109,7 +109,7 @@ describe('гейт «Ответы человека в коде»', () => {
     const { root, clarificationPath } = repo();
     writeFileSync(
       clarificationPath,
-      '## Вопросы и ответы\n| # | В | Б | О | И |\n|---|---|---|---|---|\n| 1 | Какой случай? | да | «2) особый случай» | claim-1 |\n',
+      '## Вопросы и ответы\n| # | Вопрос | Блокирующий | Ответ человека | Что изменилось |\n|---|---|---|---|---|\n| 1 | Какой случай? | да | «2) особый случай» | claim-1 |\n',
     );
     writeFileSync(join(root, 'tariffs.ts'), 'export const base = 100;\n// 2) особый случай\n');
     const { status } = await outcomeOf(root, clarificationPath);
@@ -122,7 +122,7 @@ describe('гейт «Ответы человека в коде»', () => {
     const { root, clarificationPath } = repo();
     writeFileSync(
       clarificationPath,
-      '## Вопросы и ответы\n| # | В | Б | О | И |\n|---|---|---|---|---|\n| 1 | Порог и ставка? | да | порог 300 см, ставка 1.5 | claim-1 |\n',
+      '## Вопросы и ответы\n| # | Вопрос | Блокирующий | Ответ человека | Что изменилось |\n|---|---|---|---|---|\n| 1 | Порог и ставка? | да | порог 300 см, ставка 1.5 | claim-1 |\n',
     );
     writeFileSync(join(root, 'tariffs.ts'), 'export const base = 100;\nexport const LIMIT = 300;\n');
     const { status, lastLine } = await outcomeOf(root, clarificationPath);

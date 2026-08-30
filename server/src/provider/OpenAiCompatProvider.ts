@@ -179,11 +179,22 @@ function objectEnd(text: string, start: number): number {
 const CHAT_RETRIES = 2;
 const CHAT_RETRY_DELAY_MS = 3_000;
 
-/** Пауза, прерываемая отменой: оператор не должен ждать конца сна ретрая. */
+/** Сетевые коды, которые чинятся повтором. ENOTFOUND (опечатка в BASE_URL) — постоянный. */
+const TRANSIENT_NET_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EAI_AGAIN']);
+
+/**
+ * Пауза, прерываемая отменой: оператор не должен ждать конца сна ретрая.
+ *
+ * Проверка `aborted` на входе обязательна — на уже сработавшем сигнале событие `abort`
+ * больше не стреляет, и пауза отсыпала бы весь интервал (ревью-2, гонка между ответом и
+ * входом в паузу). Таймер НЕ unref'ится: в CLI-пути (bench-проба) он бывает единственным
+ * хендлом процесса, и unref давал Node'у выйти посреди паузы — проба гибла молча, не дойдя
+ * до повтора (воспроизведено сквозным прогоном против 503-сервера).
+ */
 function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
   return new Promise((r) => {
     const t = setTimeout(done, ms);
-    t.unref?.();
     signal.addEventListener('abort', done, { once: true });
     function done(): void {
       clearTimeout(t);
@@ -267,9 +278,18 @@ export class OpenAiCompatProvider implements ChatProvider {
       try {
         ({ status, text } = await postJson(url, headers, payload, signal));
       } catch (e) {
-        if (req.signal.aborted || attempt > CHAT_RETRIES) throw e;
-        await abortableDelay(CHAT_RETRY_DELAY_MS * attempt, req.signal);
+        // Повторяется только транзиентная СЕТЬ. Отмена оператора — не повтор и не сетевой
+        // сбой; таймаут попытки — свойство запроса (иначе зависший сервер ждался бы
+        // 3×timeoutMs вместо одного); ENOTFOUND и прочие постоянные коды повтором не
+        // чинятся и падали бы трижды с паузами на каждый вызов (ревью-2).
         if (req.signal.aborted) throw e;
+        if (timeout.aborted) throw e;
+        const code = (e as NodeJS.ErrnoException).code;
+        if (code === undefined || !TRANSIENT_NET_CODES.has(code) || attempt > CHAT_RETRIES) throw e;
+        await abortableDelay(CHAT_RETRY_DELAY_MS * attempt, req.signal);
+        if (req.signal.aborted) {
+          throw new Error(`${this.name}: запрос отменён во время паузы повтора (после сетевого сбоя ${code})`);
+        }
         continue;
       }
       const transient = status === 429 || status >= 500;

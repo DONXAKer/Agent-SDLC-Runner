@@ -40,6 +40,11 @@ export function splitRow(line: string): string[] {
 
 const SEPARATOR = /^\|?[\s:|-]+\|[\s:|-]*$/;
 
+/** Строка-разделитель `|---|---|` (замыкающая черта необязательна — модели её теряют). */
+export function isSeparatorRow(line: string): boolean {
+  return SEPARATOR.test(line.trim());
+}
+
 export function parseTables(text: string): MdTable[] {
   const out: MdTable[] = [];
   let section = '';

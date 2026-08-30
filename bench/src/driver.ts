@@ -12,6 +12,7 @@
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { StageId, Verdict } from '@sdlc-runner/shared';
 
+import { DecisionFormError } from '../../server/src/artifacts/artifact.ts';
 import type { Run, RunStageOptions } from '../../server/src/run/Run.ts';
 import { stageById } from '../../server/src/run/stages.ts';
 import type { StageResult } from '../../server/src/exec/StageExecutor.ts';
@@ -228,13 +229,12 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
           attempt: run.attempt,
         });
       } catch (e) {
-        // Ловится ТОЛЬКО порча формы (моделью): «нет поля», «форма не соответствует»,
-        // удалённый артефакт. Программная поломка раннера («неизвестный артефакт»,
-        // fs-отказ) летит дальше крахом с диагностикой — иначе она ложилась бы в
-        // result.json красным этапом модели, и сравнение моделей засчитывало бы
-        // «сломан сам прогон» кандидату (ревью, К7).
+        // Ловится ТОЛЬКО порча формы (моделью) — типизированно, а не регуляркой по
+        // тексту сообщения через границу пакетов: переформулировка сообщения молча меняла
+        // бы классификацию (ревью-2). Программная поломка раннера летит дальше крахом с
+        // диагностикой — иначе «сломан сам прогон» засчитывался бы модели.
+        if (!(e instanceof DecisionFormError)) throw e;
         const msg = (e as Error).message;
-        if (!/нет поля|не соответствует шаблону|решение записывать некуда/.test(msg)) throw e;
         const last = stages[stages.length - 1];
         if (last !== undefined) {
           last.ok = false;

@@ -185,7 +185,7 @@ export function countPlaceholders(text: string): number {
  * уровня или конца текста. `null`, если секции нет.
  */
 function sectionRange(text: string, heading: string): { start: number; end: number } | null {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRe(heading);
   const start = new RegExp(`^##\\s+${escaped}\\s*$`, 'm').exec(text);
   if (start === null) return null;
   const bodyStart = start.index + start[0].length;
@@ -249,18 +249,47 @@ export const DECISION = {
 export type DecisionLabel = (typeof DECISION)[keyof typeof DECISION];
 
 /**
- * Строка, несущая поле решения человека, — НЕ поле машины ни в одном автозаполнителе.
+ * Строка, несущая ПОЛЕ решения человека, — НЕ поле машины ни в одном автозаполнителе.
  *
- * Единственный источник меток: значения `DECISION` плюс «Утвердил» — колонка таблиц
- * неприменимости («Утвердил (человек)»), которая в словарь полей-решений не входит,
- * потому что читается по колонке, а не по метке поля. Ревью поймало три рукописные
- * регулярки этого правила в трёх файлах — расходившиеся уже на второй метке.
+ * Матчится жирная метка поля (`**Подтвердил:**`, `- **Одобрение:** …`) — так поля решений
+ * и записаны во всех формах методологии (`fieldRegex` ниже читает их той же формой). Голая
+ * подстрока не годится в обе стороны: «приёмка не запускалась» в легендах handoff-бланка —
+ * проза с машинными плейсхолдерами, и подстрочный матч отнимал их у автозаполнения
+ * (ревью-2, пойман прогоном шаблона); а «подтвердила» в содержательном тексте гасила бы
+ * поле молча. Единственный источник меток — значения `DECISION`.
  */
-const DECISION_LINE = new RegExp([...Object.values(DECISION), 'Утвердил'].map(escapeRe).join('|'), 'i');
+const DECISION_LINE = new RegExp(
+  `\\*\\*\\s*(${Object.values(DECISION).map(escapeRe).join('|')})[^*]*:\\s*\\*\\*`,
+  'i',
+);
 
 export function isDecisionLine(line: string): boolean {
   return DECISION_LINE.test(line);
 }
+
+/**
+ * Ячейка ШАПКИ таблицы, означающая колонку подписи человека: «Утвердил (человек)» в
+ * таблице неприменимости, «Кто» / «Кто утвердил» в таблицах набора гейтов. Отдельно от
+ * меток полей: в таблицах решение живёт колонкой, и жирного поля там нет. Начало ячейки,
+ * а не подстрока — «Кто» внутри описания колонкой подписи не является.
+ */
+const DECISION_CELL = new RegExp(
+  `^(${['Утвердил', 'Кто', ...Object.values(DECISION)].map(escapeRe).join('|')})([^\\p{L}]|$)`,
+  'iu',
+);
+
+export function isDecisionCell(cell: string): boolean {
+  return DECISION_CELL.test(cell.trim());
+}
+
+/**
+ * Порча ФОРМЫ поля решения: поля нет там, где оно обязано быть, — обычно потому, что
+ * модель переписала или удалила строку. Отдельный класс, чтобы вызывающие (bench-драйвер)
+ * отличали её от программных поломок раннера типизированно, а не регуляркой по русскому
+ * тексту сообщения (ревью-2: правка текста молча меняла классификацию через границу
+ * пакетов).
+ */
+export class DecisionFormError extends Error {}
 
 /** Строка текста, содержащая позицию `index`. Была скопирована в трёх файлах — теперь одна. */
 export function lineAt(text: string, index: number): string {
@@ -314,7 +343,8 @@ export function branchNameFromField(raw: string): string {
   return token.replace(/^`+|`+$/g, '');
 }
 
-function escapeRe(s: string): string {
+/** Экранирование строки для вставки в RegExp — единственная копия на кодовую базу. */
+export function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
@@ -475,7 +505,7 @@ export function readDecision(text: string, label: string): DecisionState {
 export function setDecision(text: string, label: string, value: string): string {
   const re = fieldRegex(label);
   if (!re.test(text)) {
-    throw new Error(
+    throw new DecisionFormError(
       `в артефакте нет поля «${label}» — форма не соответствует шаблону методологии`,
     );
   }

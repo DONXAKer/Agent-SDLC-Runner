@@ -21,7 +21,7 @@ import {
 } from '../artifacts/artifact.ts';
 import type { ArtifactKey, WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_DIR } from '../artifacts/paths.ts';
-import { splitRow } from '../md/table.ts';
+import { parseTables } from '../md/table.ts';
 import type { StageId, ToolName } from '@sdlc-runner/shared';
 
 export interface StageContext {
@@ -209,26 +209,26 @@ function explorationPathsExist(): Precondition {
       const report = readArtifact(c.paths.explorationReport);
       if (!report.exists) return null; // отсутствие отчёта ловит соседнее предусловие
       const missing: string[] = [];
-      let inMap = false;
-      for (const line of report.text.split(/\r?\n/)) {
-        if (/^##\s/.test(line)) inMap = /кодов(ая|ой) база|карта/i.test(line);
-        if (!inMap || !line.trim().startsWith('|')) continue;
-        // Общий разборщик, а не split('|'): экранированная `\|` рвала ячейку (class sweep).
-        const cells = splitRow(line);
-        const first = (cells[0] ?? '').replace(/`/g, '').trim();
-        if (first === '' || /^[-: ]+$/.test(first) || /путь/i.test(first)) continue;
-        // «нов» — только как НАЧАЛО слова: подстрока ловила «осНОВной», «обНОВление», и
-        // сочинённый путь с таким описанием молча выпадал из проверки (fail-open).
-        if (/(^|[^\p{L}])нов/iu.test(cells[1] ?? '') || /(^|[^\p{L}])нов/iu.test(first)) continue;
-        // Адреса кода в отчётах — в форме `путь:метод`; существование проверяем только у пути.
-        const rel = (first.split(/\s/)[0] ?? '').replace(/:[^/]*$/, '');
-        if (rel === '' || rel.includes('‹')) continue;
-        // Ячейка без разделителя пути и без расширения — заголовок колонки («Файл») или
-        // словесное описание, не путь: живой прогон ta-13 ложно упал на шапке таблицы.
-        if (!/[/.]/.test(rel)) continue;
-        // Каталог — законный житель карты («server/src/exec/ — исполнители этапов»),
-        // а `artifactExists` требует файла: честный отчёт объявлялся бы сочинённым.
-        if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+      // Общий разборщик таблиц: секция и шапка приходят от него, свои детекторы
+      // разделителя/шапки/секции больше не нужны (полуразборщик снят ревью-2).
+      for (const table of parseTables(report.text)) {
+        if (!/кодов(ая|ой) база|карта/i.test(table.section)) continue;
+        for (const row of table.rows) {
+          const first = (row[0] ?? '').replace(/`/g, '').trim();
+          if (first === '' || /путь/i.test(first)) continue;
+          // «нов» — только как НАЧАЛО слова: подстрока ловила «осНОВной», «обНОВление», и
+          // сочинённый путь с таким описанием молча выпадал из проверки (fail-open).
+          if (/(^|[^\p{L}])нов/iu.test(row[1] ?? '') || /(^|[^\p{L}])нов/iu.test(first)) continue;
+          // Адреса кода в отчётах — в форме `путь:метод`; существование проверяем только у пути.
+          const rel = (first.split(/\s/)[0] ?? '').replace(/:[^/]*$/, '');
+          if (rel === '' || rel.includes('‹')) continue;
+          // Ячейка без разделителя пути и без расширения — словесное описание, не путь:
+          // живой прогон ta-13 ложно падал на таких.
+          if (!/[/.]/.test(rel)) continue;
+          // Каталог — законный житель карты («server/src/exec/ — исполнители этапов»),
+          // а `artifactExists` требует файла: честный отчёт объявлялся бы сочинённым.
+          if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+        }
       }
       if (missing.length > 0) {
         return (

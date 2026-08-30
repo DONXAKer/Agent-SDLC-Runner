@@ -49,7 +49,7 @@ const runner: RunnerConfig = {
 mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
 writeFileSync(
   join(root, '.sdlc', 'demo', 'clarification-report.md'),
-  '## Вопросы и ответы\n| # | В | Б | О | И |\n|---|---|---|---|---|\n' +
+  '## Вопросы и ответы\n| # | Вопрос | Блокирующий | Ответ человека | Что изменилось |\n|---|---|---|---|---|\n' +
     '| 1 | Ставка? | да | 90% от базовой цены | claim-3 |\n' +
     '| 2 | Скоуп? | нет | (пропущено) | ничего |\n',
 );

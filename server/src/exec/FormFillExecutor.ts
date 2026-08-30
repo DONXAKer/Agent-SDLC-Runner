@@ -16,12 +16,14 @@
  *
  * Что тут НЕ обходится:
  *  - **Гейт одобрения и политика.** Собранный артефакт уходит через `hooks.onToolRequest`
- *    нормализованным `Write` — тот же путь, что у salvage: политика решает, оператор
- *    одобряет, второго места решения о доступе не появляется.
+ *    нормализованным `Write` — тем же путём, что любая запись исполнителя (и что salvage):
+ *    политика решает, оператор одобряет, второго места решения о доступе не появляется
+ *    по построению. Отказ гейта окончательный — второй попытки записи у режима нет.
  *  - **Страж завершения.** Поле, которое модель не смогла заполнить, остаётся
  *    плейсхолдером, и `finishGuard`/предусловия следующего этапа честно краснеют.
- *  - **Решения человека.** Поля с метками решений (`isDecisionLine`, включая колонки
- *    «Утвердил»/«Кто» таблиц — метка там в шапке, не в строке) модели не отдаются никогда.
+ *  - **Решения человека.** Поля с жирными метками решений (`isDecisionLine`) и строки
+ *    таблиц с подписной колонкой в шапке (`isDecisionCell`: «Утвердил», «Кто») модели не
+ *    отдаются никогда — единый словарь меток живёт в `artifacts/artifact.ts`.
  *
  * Ограничение режима: `AskHuman` здесь нет — вопросы человеку требуют цикла. Поле,
  * требующее решения человека, модель обязана оставить с пометкой, а не сочинить; это
@@ -41,8 +43,14 @@ import { relative } from 'node:path';
 import type { Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
 
-import { isDecisionLine, lineAt, placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
-import { splitRow } from '../md/table.ts';
+import {
+  isDecisionCell,
+  isDecisionLine,
+  lineAt,
+  placeholderRanges,
+  readArtifact,
+} from '../artifacts/artifact.ts';
+import { isSeparatorRow, splitRow } from '../md/table.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
@@ -87,7 +95,7 @@ export interface FormField {
   kind: 'cell' | 'row';
   /** Текст плейсхолдера (`cell`) либо строка-образец (`row`) — уходит в подсказку модели. */
   text: string;
-  /** Шапка таблицы для `row`-поля — для дедупа продублированной моделью шапки. */
+  /** Шапка таблицы `row`-поля — для дедупа продублированной моделью шапки. У `cell` нет. */
   header?: string;
 }
 
@@ -106,11 +114,6 @@ function tableHeaderOf(text: string, lineStart: number): string {
   return text.slice(start, end < 0 ? text.length : end);
 }
 
-/** Колонка подписи человека, не покрытая метками решений: «Кто» в таблице «Долг» набора. */
-function hasSignatureColumn(header: string): boolean {
-  return splitRow(header).some((c) => /^Кто\s*($|\()/.test(c));
-}
-
 /**
  * Плейсхолдеры → поля. Строка ТАБЛИЦЫ с плейсхолдерами схлопывается в одно поле-строку:
  * это образец, один на весь будущий список, и несколько его плейсхолдеров — не несколько
@@ -120,23 +123,32 @@ function hasSignatureColumn(header: string): boolean {
 export function groupFields(text: string): FormField[] {
   const out: FormField[] = [];
   let lastRowStart = -1;
+  let lastRowEnd = -1;
+  let lastHeader = '';
   for (const r of placeholderRanges(text)) {
     const lineStart = text.lastIndexOf('\n', r.start - 1) + 1;
     const lineEndIdx = text.indexOf('\n', r.start);
     const lineEnd = lineEndIdx < 0 ? text.length : lineEndIdx;
     const line = text.slice(lineStart, lineEnd);
-    // Решение человека не поле модели ни в каком режиме — метки из единого словаря
-    // (`isDecisionLine`). Живой прогон: модель заполнила «Подтвердил», строка перестала
+    // Поле решения человека (жирная метка «**Подтвердил:**» и подобные) — не поле модели
+    // ни в каком режиме. Живой прогон: модель заполнила «Подтвердил», строка перестала
     // быть полем решения, и запись настоящего решения упала «нет поля „Подтвердил“».
     if (isDecisionLine(line)) continue;
     if (line.trimStart().startsWith('|')) {
       if (lineStart === lastRowStart) continue; // колонка того же образца — уже учтён
+      // Шапка блока не пересчитывается для соседних строк той же таблицы: обход вверх на
+      // каждую строку давал квадрат на больших таблицах (ревью-2).
+      const header =
+        lastRowEnd >= 0 && lineStart === lastRowEnd + 1 ? lastHeader : tableHeaderOf(text, lineStart);
       lastRowStart = lineStart;
-      // В таблицах подпись человека живёт в ШАПКЕ, не в строке: образец
-      // `| ‹гейт› | ‹причина› | ‹имя› |` под шапкой «Утвердил (человек)» — поле решения,
-      // и модель его не заполняет (ревью, К1: сфабрикованная подпись снимала бы ⏭).
-      const header = tableHeaderOf(text, lineStart);
-      if (isDecisionLine(header) || hasSignatureColumn(header)) continue;
+      lastRowEnd = lineEnd;
+      lastHeader = header;
+      // В таблицах подпись человека живёт в ШАПКЕ, не в строке: образец под колонкой
+      // «Утвердил (человек)» / «Кто» — поле решения, модель его не заполняет (сфабрикованная
+      // подпись снимала бы ⏭ в вердикте). Отбрасывается вся строка-образец: заполнять
+      // нерешенческие ячейки, оставляя подписную, значило бы учить модель дописывать
+      // таблицу решений — принятая цена безопасности.
+      if (splitRow(header).some(isDecisionCell)) continue;
       out.push({ start: lineStart, end: lineEnd, kind: 'row', text: line, header });
     } else {
       out.push({ start: r.start, end: r.end, kind: 'cell', text: r.text });
@@ -177,17 +189,17 @@ function rowKey(line: string): string {
  * Из ответа на строку-образец берутся ТОЛЬКО строки таблицы: живой прогон показал ответ
  * «```markdown …таблица… ``` **Обоснование:** …» — валидная таблица внутри мусора
  * вежливости, и требование «весь ответ — строки таблицы» отклоняло её целиком.
- * Продублированные моделью шапка ЭТОЙ таблицы и разделитель снимаются (сравнение с
- * фактической шапкой поля, а не угадывание по `| id |`); содержимое строк не редактируется.
- * Пустой результат — поле не заполнено.
+ * Продублированные моделью шапка ЭТОЙ таблицы (сравнение с фактической шапкой поля) и
+ * разделитель (общий `isSeparatorRow` — модели теряют замыкающую черту) снимаются;
+ * содержимое строк не редактируется. Пустой результат — поле не заполнено.
  */
-export function cleanRowAnswer(answer: string, header: string | undefined): string {
-  const headerKey = header === undefined ? null : rowKey(header);
+export function cleanRowAnswer(answer: string, header: string): string {
+  const headerKey = rowKey(header);
   return answer
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => l.startsWith('|') && !/^\|[\s:|-]+\|$/.test(l))
-    .filter((l) => headerKey === null || rowKey(l) !== headerKey)
+    .filter((l) => l.startsWith('|') && !isSeparatorRow(l))
+    .filter((l) => rowKey(l) !== headerKey)
     .join('\n');
 }
 
@@ -221,18 +233,33 @@ export class FormFillExecutor implements StageExecutor {
 
     let usage: Usage = emptyUsage();
     let fieldsFilled = 0;
-    let fieldsLeft = 0;
     let callsSpent = 0;
     const notes: string[] = [];
     /**
-     * Артефакты, запись которых отклонена гейтом либо не удалась: отказ политики или
-     * оператора окончательный — второй проход их не трогает, иначе рантайм слал бы
-     * повторный Write после явного «нет» (и удваивал счётчики сводки).
+     * Артефакты, запись которых ОТКЛОНИЛ гейт (политика или оператор): отказ окончательный,
+     * второй проход их не трогает — иначе рантайм слал бы повторный Write после явного
+     * «нет». Сбой ИСПОЛНЕНИЯ записи (fs) сюда не входит: он не решение человека, и второй
+     * проход вправе попробовать снова.
      */
-    const writeBlocked = new Set<string>();
+    const writeDenied = new Set<string>();
 
-    /** Запись собранного текста через гейт. `true` — на диске. */
-    const flushArtifact = async (path: string, text: string): Promise<boolean> => {
+    /**
+     * Незаполненные поля, оставшиеся НА ДИСКЕ, — один источник и для условия второго
+     * прохода, и для честной сводки: счётчик по ходу прохода пропускал поля отклонённых
+     * бланков и врал «осталось 0» (ревью-2).
+     */
+    const fieldsLeftOnDisk = (): number =>
+      artifacts.reduce((n, p) => {
+        const a = readArtifact(p);
+        return n + (a.exists ? groupFields(a.text).length : 0);
+      }, 0);
+
+    /**
+     * Запись собранного текста через гейт — тем же путём, что любая запись исполнителя:
+     * нормализованный Write, политика решает, оператор одобряет. Отказ гейта окончателен
+     * (`writeDenied`); неудача исполнения — нота, не блокировка.
+     */
+    const flushArtifact = async (path: string, text: string): Promise<void> => {
       const rel = relative(req.cwd, path);
       const rawInput = { file_path: rel, content: text };
       const call = normalize('Write', rawInput);
@@ -247,8 +274,8 @@ export class FormFillExecutor implements StageExecutor {
         hooks.onFriction('denied');
         hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
         notes.push(`запись ${rel} отклонена: ${decision.reason}`);
-        writeBlocked.add(path);
-        return false;
+        writeDenied.add(path);
+        return;
       }
       const effective =
         decision.updatedInput === null
@@ -261,11 +288,7 @@ export class FormFillExecutor implements StageExecutor {
         summary: outcome.text.split('\n')[0]?.slice(0, 200) ?? '',
         durationMs: 0,
       });
-      if (!outcome.ok) {
-        notes.push(`запись ${rel} не удалась: ${outcome.text}`);
-        writeBlocked.add(path);
-      }
-      return outcome.ok;
+      if (!outcome.ok) notes.push(`запись ${rel} не удалась: ${outcome.text}`);
     };
 
     /** Полевой до-запрос модели: промпт этапа + служебная обвязка поля (см. шапку файла). */
@@ -328,10 +351,12 @@ export class FormFillExecutor implements StageExecutor {
      * стоит целой красной попытки этапа.
      */
     const sweep = async (): Promise<StageResult | null> => {
-      fieldsLeft = 0;
       for (const path of artifacts) {
+        // Отмена возвращается без записи собранного: запись идёт через гейт одобрения, а
+        // оператор, нажавший отмену, уходит — ждать его решения на прощальном Write нельзя.
+        // Оплаченные ответы этой цены отмены не отменяют, и это названо, а не спрятано.
         if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
-        if (writeBlocked.has(path)) continue;
+        if (writeDenied.has(path)) continue;
 
         const artifact = readArtifact(path);
         if (!artifact.exists) {
@@ -360,17 +385,13 @@ export class FormFillExecutor implements StageExecutor {
           // бланк на сотню плейсхолдеров съел бы больше, чем обычный цикл.
           const allowed = Math.min(FIELD_PARALLEL, req.maxTurns - callsSpent);
           const batch = ranges.slice(batchStart, batchStart + FIELD_PARALLEL);
-          if (allowed <= 0) {
-            fieldsLeft += batch.length;
-            continue;
-          }
+          if (allowed <= 0) continue;
           const asked = batch.slice(0, allowed);
-          fieldsLeft += batch.length - asked.length;
           callsSpent += asked.length;
 
           // `allSettled`, не `all`: отказ одного запроса пачки не должен ни ронять этап,
           // ни терять usage успевших соседей — их токены уже оплачены и обязаны попасть
-          // в бюджет (ревью, К14). Упавший запрос — просто незаполненное поле.
+          // в бюджет. Упавший запрос — просто незаполненное поле.
           const answers = await Promise.allSettled(asked.map((range) => askField(path, text, range)));
 
           for (const a of answers) {
@@ -379,10 +400,31 @@ export class FormFillExecutor implements StageExecutor {
             hooks.onUsage(a.value.usage);
           }
 
+          // Сплайсы — ДО проверки бюджета: ответы пачки уже оплачены в любом случае, и
+          // выбрасывать их из текста при обрыве значило бы платить за них второй раз.
+          for (const [idx, range] of asked.entries()) {
+            const a = answers[idx]!;
+            if (a.status !== 'fulfilled') {
+              const why = (a.reason as Error | undefined)?.message ?? String(a.reason);
+              notes.push(
+                `поле не спрошено (${relative(req.cwd, path)}, ` +
+                  `${range.kind === 'row' ? 'строка таблицы' : range.text}): ${why.slice(0, 160)}`,
+              );
+              continue;
+            }
+            let filled = cleanFieldAnswer(a.value.text);
+            if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header ?? range.text);
+            // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
+            // как был, и его честно назовут страж и предусловие следующего этапа.
+            if (filled === '' || filled.includes('‹')) continue;
+            text = text.slice(0, range.start) + filled + text.slice(range.end);
+            fieldsFilled++;
+            changed = true;
+          }
+
           // Бюджет проверяется после пачки: цена известна только по факту, а пачка — это
-          // и есть один «ход» режима. Уже собранный текст артефакта ПЕРЕД обрывом
-          // записывается через гейт: оплаченные ответы предыдущих пачек не выбрасываются
-          // (ревью, К12 — прежде они жили только в локальной переменной).
+          // и есть один «ход» режима. Собранный текст ПЕРЕД обрывом записывается через
+          // гейт: оплаченные ответы не выбрасываются.
           const spent = usage.costUsd === null ? null : usage.costUsd + (req.spentUsdBefore ?? 0);
           if (req.maxBudgetUsd !== null && spent !== null && spent >= req.maxBudgetUsd) {
             if (changed) await flushArtifact(path, text);
@@ -395,28 +437,6 @@ export class FormFillExecutor implements StageExecutor {
                 `${money(req.maxBudgetUsd, currency)}`,
             };
           }
-
-          // Сплайсы после пачки, в её же порядке «с конца»: позиции необработанных
-          // диапазонов ниже по тексту не сдвигаются.
-          for (const [idx, range] of asked.entries()) {
-            const a = answers[idx]!;
-            if (a.status !== 'fulfilled') {
-              notes.push(`поле не спрошено (${(a.reason as Error).message?.slice(0, 120) ?? a.reason})`);
-              fieldsLeft++;
-              continue;
-            }
-            let filled = cleanFieldAnswer(a.value.text);
-            if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
-            // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
-            // как был, и его честно назовут страж и предусловие следующего этапа.
-            if (filled === '' || filled.includes('‹')) {
-              fieldsLeft++;
-              continue;
-            }
-            text = text.slice(0, range.start) + filled + text.slice(range.end);
-            fieldsFilled++;
-            changed = true;
-          }
         }
 
         if (changed) await flushArtifact(path, text);
@@ -426,22 +446,20 @@ export class FormFillExecutor implements StageExecutor {
 
     const stopped = await sweep();
     if (stopped !== null) return stopped;
-    // Второй проход — только по остаткам, в пределах того же лимита ходов, и не по
-    // артефактам, запись которых уже отклонили.
-    const leftOnDisk = artifacts.some((p) => {
-      if (writeBlocked.has(p)) return false;
-      const a = readArtifact(p);
-      return a.exists && a.placeholders > 0;
-    });
-    if (fieldsLeft > 0 && callsSpent < req.maxTurns && !req.signal.aborted && leftOnDisk) {
+    // Второй проход — только по остаткам НА ДИСКЕ, в пределах того же лимита ходов;
+    // бланки с отклонённой записью не трогаются (`sweep` их пропустит сам).
+    let fieldsLeft = fieldsLeftOnDisk();
+    if (fieldsLeft > 0 && callsSpent < req.maxTurns && !req.signal.aborted) {
       const stopped2 = await sweep();
       if (stopped2 !== null) return stopped2;
+      fieldsLeft = fieldsLeftOnDisk();
     }
 
     // «Заполнено в тексте» — не «записано на диск»: отклонённая гейтом запись оставляет
     // бланк нетронутым, и сводка обязана это различать, а не отчитываться сделанным.
+    // «Осталось» считается ПО ДИСКУ, включая бланки с отклонённой записью.
     const summary =
-      `заполнение по полям: в тексте заполнено ${fieldsFilled}, осталось ${fieldsLeft}` +
+      `заполнение по полям: в тексте заполнено ${fieldsFilled}, осталось на диске ${fieldsLeft}` +
       (notes.length === 0 ? '; записано через гейт' : `; ${notes.join('; ')}`);
     hooks.onText(summary);
 

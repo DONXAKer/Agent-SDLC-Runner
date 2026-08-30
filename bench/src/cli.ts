@@ -439,20 +439,29 @@ function median(values: readonly number[]): number | null {
  * разбросом по щупам. Правило журнала «для 8B — серии ≥3» становится механикой: дисперсия
  * сэмплов у 8B такая, что единичный прогон недоказателен (см. `docs/model-runs.md`, r8).
  */
+/** Сэмпл серии: измеренный исход ЛИБО ошибка — без фиктивных нулей в полях метрик. */
+type SeriesSample =
+  | (LiveOutcome & { slug: string; error?: undefined })
+  | { slug: string; error: string; code: 2 };
+
 async function seriesRun(opts: BenchOptions): Promise<number> {
-  const outcomes: (LiveOutcome & { slug: string; error?: string })[] = [];
+  const outcomes: SeriesSample[] = [];
   for (let i = 1; i <= opts.repeat; i++) {
     const slug = `${opts.slug}-s${i}`;
     console.log(`\n===== серия: сэмпл ${i} из ${opts.repeat} (${slug}) =====\n`);
     // Исключение одного сэмпла не выбрасывает уже отгонянные платные сэмплы: сводка
     // серии обязана напечататься по измеренному, а упавший — лечь строкой «не измерен».
+    // КОНФИГУРАЦИОННЫЕ ошибки — исключение из исключения: они одинаковы для всех сэмплов,
+    // и глотать их значило бы готовить и рушить repeat рабочих копий одной и той же
+    // ошибкой без заголовка «профиль не собрался» (ревью-2) — пробрасываются в main.
     try {
       const outcome = await liveRun({ ...opts, slug });
       outcomes.push({ ...outcome, slug });
     } catch (e) {
+      if (e instanceof ProfileError || e instanceof ControlError || e instanceof WorkspaceError) throw e;
       const msg = (e as Error).message;
       console.error(`сэмпл ${slug} не измерен: ${msg}`);
-      outcomes.push({ code: 2, hidden: null, durationMs: 0, slug, error: msg });
+      outcomes.push({ slug, error: msg, code: 2 });
     }
   }
 
@@ -466,7 +475,8 @@ async function seriesRun(opts: BenchOptions): Promise<number> {
     const probes = o.hidden === null ? 'щупы не гонялись' : `щупы ${o.hidden.pass}/${o.hidden.total}`;
     console.log(`  ${o.slug}: код ${o.code} · ${probes} · ${mins} мин`);
   }
-  const withHidden = outcomes.filter((o) => o.hidden !== null);
+  const measuredSamples = outcomes.filter((o): o is LiveOutcome & { slug: string } => o.error === undefined);
+  const withHidden = measuredSamples.filter((o) => o.hidden !== null);
   if (withHidden.length > 0) {
     const passes = withHidden.map((o) => o.hidden!.pass);
     const total = withHidden[0]!.hidden!.total;
@@ -475,7 +485,7 @@ async function seriesRun(opts: BenchOptions): Promise<number> {
         (withHidden.length < outcomes.length ? ` (по ${withHidden.length} из ${outcomes.length} сэмплов)` : ''),
     );
   }
-  const times = outcomes.filter((o) => o.error === undefined).map((o) => o.durationMs);
+  const times = measuredSamples.map((o) => o.durationMs);
   if (times.length > 0) {
     console.log(
       `  время: медиана ${((median(times) ?? 0) / 60_000).toFixed(1)} мин, ` +

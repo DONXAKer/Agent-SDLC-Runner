@@ -1360,13 +1360,15 @@ const humanAnswersGate: BuiltinGate = async (ctx) => {
   // Только добавленные строки — и БЕЗ артефактов витка: `workingDiff` включает
   // нетракованные файлы, то есть сам clarification-report.md, и гейт зеленел бы от
   // литералов вопроса, процитированных в отчёте, а не от кода (пойман тестом).
-  // Регистр не гасится: правило «без регистра — только Windows-пути» держит pathsEqual,
-  // и заводить здесь третью идиому сравнения нельзя.
-  const clarRel = toPosix(relative(ctx.projectRoot, ctx.clarificationPath ?? ''));
+  // Регистр гасится на платформах с регистронезависимой ФС (Windows И macOS/APFS):
+  // путь конфига с иным регистром сегмента переставал бы исключать отчёт из diff, и гейт
+  // зеленел бы от собственных цитат — fail-open (ревью-2). На Linux сравнение строгое.
+  const fold = (s: string): string => (process.platform === 'linux' ? s : s.toLowerCase());
+  const clarRel = fold(toPosix(relative(ctx.projectRoot, ctx.clarificationPath ?? '')));
   const added = diffLines(await cachedWorkingDiff(ctx))
     .filter((l) => l.added)
     .filter((l) => {
-      const file = toPosix(l.file);
+      const file = fold(toPosix(l.file));
       return !file.startsWith('.sdlc/') && file !== clarRel;
     })
     .map((l) => l.text)

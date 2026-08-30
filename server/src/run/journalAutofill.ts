@@ -54,23 +54,16 @@ export function fillMechanicalPlaceholders(
   for (const range of [...placeholderRanges(text)].reverse()) {
     const inner = range.text.slice(1, -1);
     const line = lineAt(text, range.start);
-    if (isDecisionLine(line) && !isMechanicalDecisionContext(line)) continue;
+    // Жирная метка поля решения («**Подтвердил:**») — поле человека, пропускается.
+    // Строка «**План:** …, одобрение от ‹дата›» под правило не попадает: жирная метка
+    // там «План», а дата — механический факт уже принятого решения из plan.md.
+    if (isDecisionLine(line)) continue;
     const value = valueFor(inner, line);
     if (value === null) continue;
     out = out.slice(0, range.start) + value + out.slice(range.end);
     filled++;
   }
   return { text: out, filled };
-}
-
-/**
- * Единственное законное механическое поле на строке с меткой решения: дата одобрения
- * плана в шапке журнала («**План:** plan.md, одобрение от ‹дата›»). Это дата УЖЕ
- * принятого решения из plan.md, а не само решение — вызывающий и так подставляет её
- * только из фактического поля решения (см. `planApprovedOn`).
- */
-function isMechanicalDecisionContext(line: string): boolean {
-  return line.includes('**План:**');
 }
 
 /**

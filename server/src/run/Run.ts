@@ -37,6 +37,7 @@ import {
   branchNameFromField,
   decisionValue,
   DECISION,
+  DecisionFormError,
   artifactExists,
   readArtifact,
   readDecision,
@@ -606,7 +607,9 @@ export class Run {
 
     const path = artifactPathOf(this.paths, o.artifact, chunk, attempt);
     const current = readArtifact(path);
-    if (!current.exists) throw new Error(`нет артефакта ${path} — решение записывать некуда`);
+    // Порча/отсутствие формы — типизированно: вызывающие (bench-драйвер) отличают её от
+    // программных поломок раннера классом, а не регуляркой по тексту сообщения.
+    if (!current.exists) throw new DecisionFormError(`нет артефакта ${path} — решение записывать некуда`);
 
     const signature = decisionValue(this.config.runner.operator, new Date());
     const note = (o.note ?? '').trim();
@@ -869,6 +872,9 @@ export class Run {
    * не запускался, и его строка в таблице остаётся модели.
    */
   private autofillVerification(seeded: { path: string; snapshot?: string }[]): void {
+    // Сброс ДО ранних выходов: без него ансамбль попытки K+1 стартовал бы с бланка
+    // попытки K — с её номером в шапке и её таблицей гейтов (ревью-2).
+    this.verifyPrefill = null;
     const path = this.paths.verificationReport(this.chunk, this.attempt);
     const report = readArtifact(path);
     if (!report.exists || report.placeholders === 0) return;
@@ -883,7 +889,8 @@ export class Run {
     // Заполненный рантаймом бланк запоминается для ансамбля: дополнительные маршруты
     // стартуют с него, а не с пустого файла — иначе класс расхождений «отчёт/факт» r9,
     // ради которого автозаполнение заведено, возвращался в маршрутах (ревью, К5).
-    this.verifyPrefill = filled > 0 ? text : report.placeholders > 0 ? report.text : null;
+    // Гард выше гарантирует placeholders > 0, поэтому и при filled === 0 бланк живой.
+    this.verifyPrefill = filled > 0 ? text : report.text;
     if (filled === 0) return;
 
     writeArtifact(path, text);
@@ -1299,10 +1306,12 @@ export class Run {
 
     const def = stageById(stage);
     const route = this.profile.routes[stage];
-    const chunkPlanFiles = stage === 'chunk' ? (this.planFilesFor('chunk') ?? []) : [];
+    // Один разбор plan.md на сборку промпта: и для describeBuild, и для prefetch ниже.
+    const stagePlanFiles = this.planFilesFor(stage) ?? [];
+    const chunkPlanFiles = stage === 'chunk' ? stagePlanFiles : [];
     const ecosystem = describeBuild({
       projectRoot: this.project.projectRoot,
-      planFiles: this.planFilesFor(stage) ?? [],
+      planFiles: stagePlanFiles,
       baseline: null,
       timeoutMs: this.config.runner.limits.gateTimeoutMs,
       ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),

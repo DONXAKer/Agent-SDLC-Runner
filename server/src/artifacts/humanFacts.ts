@@ -15,7 +15,8 @@
  * изображает, что умеет.
  */
 
-import { splitRow } from '../md/table.ts';
+import { columnIndex, parseTables } from '../md/table.ts';
+import { escapeRe } from './artifact.ts';
 
 export interface HumanFact {
   question: string;
@@ -40,8 +41,7 @@ const PLACEHOLDER = /[‹›]/;
  * «2) особый случай» без экранирования роняла RegExp'ом весь этап 6 (ревью, К9).
  */
 export function literalPattern(form: string): RegExp {
-  const esc = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^\\p{L}\\d.])${esc}([^\\p{L}\\d.]|$)`, 'mu');
+  return new RegExp(`(^|[^\\p{L}\\d.])${escapeRe(form)}([^\\p{L}\\d.]|$)`, 'mu');
 }
 
 /**
@@ -66,7 +66,12 @@ export function literalsOf(answer: string): { shown: string; accepted: string[] 
       // знаков срезает двоичный артефакт: 8,2% без него давал 0.08199999999999999 —
       // форму, которой в коде не бывает, и точный перенос ответа краснел (ревью, К10).
       const frac = Number(num.replace(',', '.')) / 100;
-      if (Number.isFinite(frac)) accepted.push(String(Number(frac.toFixed(10))));
+      // Форма «0» не добавляется: микропроцент, схлопнувшийся округлением в ноль, находил
+      // бы одиночный 0 почти в любом диффе — ложный зелёный (ревью-2).
+      if (Number.isFinite(frac) && frac > 0) {
+        const s = String(Number(frac.toFixed(10)));
+        if (s !== '0') accepted.push(s);
+      }
     }
     out.push({ shown, accepted });
   }
@@ -92,20 +97,21 @@ export function extractHumanFacts(text: string): HumanFact[] {
   const end = rest.indexOf('\n## ', 1);
   const section = end < 0 ? rest : rest.slice(0, end);
 
+  // Общий разборщик таблиц, а не построчный полуразбор: колонки находятся по именам
+  // шапки, а не магическими индексами — сдвиг формы таблицы ломался бы молча (ревью-2).
   const out: HumanFact[] = [];
-  for (const line of section.split(/\r?\n/)) {
-    if (!line.trimStart().startsWith('|')) continue;
-    // Разбор строки — общим `splitRow`: он знает про экранированную `\|`, на которой
-    // наивный split('|') рвал ячейку с чертой и сдвигал колонку ответа (ревью, К19).
-    const cells = splitRow(line);
-    // | # | Вопрос | Блокирующий | Ответ человека | Что изменилось |
-    if (cells.length < 4) continue;
-    const [num, question, , answer] = cells;
-    if (num === undefined || question === undefined || answer === undefined) continue;
-    if (num === '#' || /^:?-+:?$/.test(num) || num === '') continue;
-    if (PLACEHOLDER.test(question) || PLACEHOLDER.test(answer)) continue;
-    if (answer === '' || answer.startsWith('(пропущено)')) continue;
-    out.push({ question, answer, literals: literalsOf(answer) });
+  for (const table of parseTables(section)) {
+    const qi = columnIndex(table.header, 'Вопрос');
+    const ai = columnIndex(table.header, 'Ответ');
+    if (qi < 0 || ai < 0) continue;
+    for (const row of table.rows) {
+      const question = (row[qi] ?? '').trim();
+      const answer = (row[ai] ?? '').trim();
+      if (question === '' || answer === '') continue;
+      if (PLACEHOLDER.test(question) || PLACEHOLDER.test(answer)) continue;
+      if (answer.startsWith('(пропущено)')) continue;
+      out.push({ question, answer, literals: literalsOf(answer) });
+    }
   }
   return out;
 }
