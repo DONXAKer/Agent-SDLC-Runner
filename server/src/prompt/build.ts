@@ -10,7 +10,7 @@
  * незаметно: всё, что уйдёт в модель, собрано в этой функции.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
@@ -351,6 +351,19 @@ function userMessage(i: BuildPromptInput): string {
       const abs = resolve(i.ctx.paths.projectRoot, rel);
       const back = relative(i.ctx.paths.projectRoot, abs);
       if (back.startsWith('..') || isAbsolute(back)) continue;
+      // По ФАКТИЧЕСКОМУ пути, не лексическому: симлинк внутри корня, указывающий наружу,
+      // проходил лексическую проверку, и содержимое внешнего файла уезжало провайдеру
+      // (ревью-2, BLOCKER) — та же дисковая планка, что у гейта записи.
+      let real: string;
+      let realRoot: string;
+      try {
+        real = realpathSync(abs);
+        realRoot = realpathSync(i.ctx.paths.projectRoot);
+      } catch {
+        continue; // файла нет либо цепочка ссылок битая — читать нечего
+      }
+      const realBack = relative(realRoot, real);
+      if (realBack.startsWith('..') || isAbsolute(realBack)) continue;
       const a = readArtifact(abs);
       if (!a.exists) continue;
       const cap = Math.min(PREFETCH_FILE_BYTES, budget);

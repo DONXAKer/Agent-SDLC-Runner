@@ -7,7 +7,7 @@
  * где им не место.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -99,5 +99,20 @@ describe('prefetch файлов плана на этапе 5 (флоу loop)', (
     const u = userOf('chunk', 'loop', ['нет-такого.ts', '/etc/passwd', '../secret.txt']);
     strictEqual(u.includes('Файлы плана'), false);
     strictEqual(u.includes('secret'), false);
+  });
+
+  it('симлинк внутри корня, указывающий наружу, не читается (ревью-2, BLOCKER)', () => {
+    const outside = join(tmpdir(), `sdlc-prefetch-outside-${process.pid}.txt`);
+    writeFileSync(outside, 'SECRET-CONTENT\n');
+    symlinkSync(outside, join(root, 'link.ts'));
+    try {
+      const u = userOf('chunk', 'loop', ['link.ts', 'tariffs.ts']);
+      strictEqual(u.includes('SECRET-CONTENT'), false);
+      // Честный файл рядом по-прежнему префетчится.
+      ok(u.includes('export const base = 100;'));
+    } finally {
+      rmSync(join(root, 'link.ts'), { force: true });
+      rmSync(outside, { force: true });
+    }
   });
 });
