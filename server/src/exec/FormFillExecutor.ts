@@ -94,6 +94,11 @@ export function groupFields(text: string): FormField[] {
     const lineEndIdx = text.indexOf('\n', r.start);
     const lineEnd = lineEndIdx < 0 ? text.length : lineEndIdx;
     const line = text.slice(lineStart, lineEnd);
+    // Решение человека не поле модели ни в каком режиме — то же правило, что у
+    // `journalAutofill`. Живой прогон: модель заполнила «Подтвердил», строка перестала
+    // быть полем решения, и запись настоящего решения упала «нет поля „Подтвердил“».
+    // Плейсхолдер остаётся: его закрывает человек (или гейт решений от его имени).
+    if (/Подтвердил|Утвердил|Одобрени/i.test(line)) continue;
     if (line.trimStart().startsWith('|')) {
       if (lineStart === lastRowStart) continue; // колонка того же образца — уже учтён
       lastRowStart = lineStart;

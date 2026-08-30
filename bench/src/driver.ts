@@ -216,13 +216,25 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
 
     const def = stageById(stage);
     if (def.humanGate !== null) {
-      run.recordDecision({
-        artifact: def.humanGate.artifact,
-        label: def.humanGate.label,
-        granted: true,
-        chunk: run.chunk,
-        attempt: run.attempt,
-      });
+      // Испорченное моделью поле решения — провал ЭТАПА, а не крах бенчмарка: пока
+      // исключение летело наружу, прогон падал без result.json и отчёта (живой прогон —
+      // модель заполнила «Подтвердил» за человека, и настоящему решению стало некуда лечь).
+      try {
+        run.recordDecision({
+          artifact: def.humanGate.artifact,
+          label: def.humanGate.label,
+          granted: true,
+          chunk: run.chunk,
+          attempt: run.attempt,
+        });
+      } catch (e) {
+        const last = stages[stages.length - 1];
+        if (last !== undefined) {
+          last.ok = false;
+          last.note = `${last.note}; решение человека не записалось: ${(e as Error).message}`;
+        }
+        return { stages, finalVerdict: run.lastVerdict, stopped: 'blocked' };
+      }
     }
 
     if (stage === args.stopAfterStage) {
