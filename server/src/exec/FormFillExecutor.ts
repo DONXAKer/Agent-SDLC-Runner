@@ -112,6 +112,29 @@ function lineAt(text: string, index: number): string {
   return text.slice(start, end < 0 ? text.length : end);
 }
 
+/**
+ * Секция бланка от последнего заголовка до строки-образца включительно — контекст поля-строки.
+ *
+ * Одной строки-образца мало: правила списка живут в легенде секции над таблицей
+ * («граничные случаи помечаются тегом [edge]», формат id), и модель, видевшая только
+ * строку, писала лист без единой [edge]-пометки — минимум методологии ронял этап
+ * (живой прогон, 7 пунктов и 0 [edge] при норме ≥2).
+ */
+function sectionAt(text: string, index: number, maxBytes = 2500): string {
+  const lineEndIdx = text.indexOf('\n', index);
+  const end = lineEndIdx < 0 ? text.length : lineEndIdx;
+  const heading = text.lastIndexOf('\n#', index);
+  let start = heading < 0 ? 0 : heading + 1;
+  let section = text.slice(start, end);
+  while (Buffer.byteLength(section, 'utf8') > maxBytes) {
+    // Режем сверху: строка-образец и ближняя легенда важнее начала секции.
+    const cut = section.indexOf('\n', Math.floor(section.length / 4));
+    if (cut < 0) break;
+    section = section.slice(cut + 1);
+  }
+  return section;
+}
+
 export class FormFillExecutor implements StageExecutor {
   readonly flow = 'loop' as const;
   private readonly o: FormFillOptions;
@@ -199,18 +222,21 @@ export class FormFillExecutor implements StageExecutor {
                     '',
                     '## Сейчас — ровно одно поле',
                     '',
-                    `Файл \`${relative(req.cwd, path)}\`, строка бланка:`,
+                    range.kind === 'row'
+                      ? `Файл \`${relative(req.cwd, path)}\`, секция бланка (последняя строка — образец):`
+                      : `Файл \`${relative(req.cwd, path)}\`, строка бланка:`,
                     '',
                     '```',
-                    lineAt(text, range.start),
+                    range.kind === 'row' ? sectionAt(text, range.start) : lineAt(text, range.start),
                     '```',
                     '',
                     range.kind === 'row'
-                      ? 'Эта строка — ОБРАЗЕЦ строки таблицы, один на весь список. Верни ' +
-                        'заполненные строки таблицы того же формата — столько, сколько нужно ' +
-                        'по факту задачи и входных артефактов (каждая начинается с `|`), без ' +
-                        'скобок ‹› и без пояснений вокруг. Если по задаче элемент ровно один — ' +
-                        'верни одну строку.'
+                      ? 'Последняя строка секции — ОБРАЗЕЦ строки таблицы, один на весь список. ' +
+                        'Верни заполненные строки таблицы того же формата — столько, сколько ' +
+                        'нужно по факту задачи и входных артефактов (каждая начинается с `|`), ' +
+                        'без скобок ‹› и без пояснений вокруг. Соблюдай правила легенды секции — ' +
+                        'обязательные теги (например `[edge]` в нужной колонке) и формат id. ' +
+                        'Если по задаче элемент ровно один — верни одну строку.'
                       : `Верни ТОЛЬКО текст, которым надо заменить плейсхолдер \`${range.text}\` в этой ` +
                         'строке — без самих скобок ‹›, без пояснений вокруг, по факту задачи и входных ' +
                         'артефактов. Если поле требует решения человека, которого у тебя нет, верни ' +
