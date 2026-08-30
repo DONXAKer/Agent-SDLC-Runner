@@ -154,6 +154,30 @@ describe('восстановление chunk/attempt из артефактов �
     strictEqual(run.chunk, 1);
   });
 
+  // Живой виток ta-13: журнал хранит K последней НАЧАТОЙ попытки; свежий прогон
+  // восстановил K=2, хотя вердикт по попытке 2 уже был записан, и перезаписал её улики
+  // уликами следующей попытки. Записанный вердикт = попытка закончена, номер идёт дальше.
+  it('вердикт по восстановленной попытке уже записан — попытка сдвигается на следующую', () => {
+    const root = tempRoot();
+    const dir = join(root, '.sdlc', 'demo');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(2));
+    writeFileSync(join(dir, 'verification-report-1-attempt-1.md'), 'passed: false');
+    writeFileSync(join(dir, 'verification-report-1-attempt-2.md'), 'passed: false');
+    const run = makeRun(root);
+    strictEqual(run.attempt, 3, 'отревьюенная попытка закончена — свежий прогон продолжает следующей');
+  });
+
+  it('журнал есть, вердикта по последней попытке нет — номер не сдвигается (попытка продолжается)', () => {
+    const root = tempRoot();
+    const dir = join(root, '.sdlc', 'demo');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(2));
+    writeFileSync(join(dir, 'verification-report-1-attempt-1.md'), 'passed: false');
+    const run = makeRun(root);
+    strictEqual(run.attempt, 2, 'незавершённая попытка продолжается под своим номером');
+  });
+
   it('каталога витка ещё нет вовсе — восстанавливать нечего, chunk 1', () => {
     const root = tempRoot();
     const run = makeRun(root);

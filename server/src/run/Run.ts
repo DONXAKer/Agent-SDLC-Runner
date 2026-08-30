@@ -37,6 +37,7 @@ import {
   branchNameFromField,
   decisionValue,
   DECISION,
+  artifactExists,
   readArtifact,
   readDecision,
   readField,
@@ -416,6 +417,13 @@ export class Run {
     this.hub = new McpHub(this.mcpSetup.servers);
     this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
     this.attempt = restoreAttemptFromJournal(this.paths.chunkJournal(this.chunk)) ?? this.attempt;
+    // Журнал хранит номер ПОСЛЕДНЕЙ начатой попытки. Если вердикт по ней уже записан,
+    // она закончена и отвергнута — свежий прогон продолжает со СЛЕДУЮЩЕЙ. Живой виток
+    // ta-13: новый прогон восстановил K=2 и перезаписал улики уже отревьюенной попытки 2
+    // уликами попытки 3 — след попытки для рецензента и таблицы попыток был затёрт.
+    while (artifactExists(this.paths.verificationReport(this.chunk, this.attempt))) {
+      this.attempt += 1;
+    }
   }
 
   get ctx(): StageContext {
