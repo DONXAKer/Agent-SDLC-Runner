@@ -52,7 +52,9 @@ export class LocalSandbox implements SandboxExec {
       }, opts.timeoutMs);
 
       const onAbort = (): void => killTree();
-      opts.signal?.addEventListener('abort', onAbort, { once: true });
+      // Уже отменённый сигнал события не даст — убиваем сразу (class sweep ревью-2).
+      if (opts.signal?.aborted === true) onAbort();
+      else opts.signal?.addEventListener('abort', onAbort, { once: true });
 
       child.stdout.on('data', (d: Buffer) => out.push(d.toString('utf8')));
       child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));

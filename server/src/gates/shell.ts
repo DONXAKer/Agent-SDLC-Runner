@@ -138,7 +138,10 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     }, opts.timeoutMs);
 
     const onAbort = (): void => killTree();
-    opts.signal?.addEventListener('abort', onAbort, { once: true });
+    // Проверка `aborted` на входе обязательна: на уже сработавшем сигнале событие не
+    // стреляет, и отменённый прогон исполнял бы команду до таймаута (class sweep ревью-2).
+    if (opts.signal?.aborted === true) onAbort();
+    else opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     // Декодируем как UTF-8. Консоль Windows печатает в кодировке OEM, поэтому кириллица
     // в выводе команды приедет искажённой; угадывать кодировку по содержимому — хуже,
