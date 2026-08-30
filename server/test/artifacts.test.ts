@@ -268,6 +268,19 @@ describe('предусловия этапов', () => {
     ok(r.problems.some((p) => /несуществующие пути/.test(p)), r.problems.join('; '));
   });
 
+  // Живой прогон ta-13 (второй): честный отчёт с шапкой «| Файл |» ложно падал —
+  // детектор шапки знал только слово «путь». Не-путь (без / и точки) — не проверяем.
+  it('шапка «Файл» и адрес `путь:метод` не дают ложного срабатывания', () => {
+    writeArtifact(paths.explorationReport, [
+      '# Отчёт разведки', '## Карта кодовой базы',
+      '| Файл | Что там сейчас | Что меняем |', '|---|---|---|',
+      '| `backend/app/task_service.py:apply_task_update` | спавн повтора | расширить |',
+    ].join('\n'));
+    writeArtifact(join(root, 'backend/app/task_service.py'), 'x = 1');
+    const r = checkPreconditions(stageById('ask'), ctx);
+    ok(!r.problems.some((p) => /несуществующие пути/.test(p)), r.problems.join('; '));
+  });
+
   it('строка карты с пометкой «новый» не считается несуществующим путём', () => {
     writeArtifact(paths.explorationReport, [
       '# Отчёт разведки', '## Карта кодовой базы',

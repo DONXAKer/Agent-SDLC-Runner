@@ -211,8 +211,12 @@ function explorationPathsExist(): Precondition {
         const first = (cells[1] ?? '').replace(/`/g, '').trim();
         if (first === '' || /^[-: ]+$/.test(first) || /путь/i.test(first)) continue;
         if (/нов/i.test(cells[2] ?? '') || /нов/i.test(first)) continue;
-        const rel = first.split(/\s/)[0] ?? '';
+        // Адреса кода в отчётах — в форме `путь:метод`; существование проверяем только у пути.
+        const rel = (first.split(/\s/)[0] ?? '').replace(/:[^/]*$/, '');
         if (rel === '' || rel.includes('‹')) continue;
+        // Ячейка без разделителя пути и без расширения — заголовок колонки («Файл») или
+        // словесное описание, не путь: живой прогон ta-13 ложно упал на шапке таблицы.
+        if (!/[/.]/.test(rel)) continue;
         if (!artifactExists(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
       }
       if (missing.length > 0) {
