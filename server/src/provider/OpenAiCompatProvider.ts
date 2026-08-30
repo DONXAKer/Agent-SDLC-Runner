@@ -175,6 +175,10 @@ function objectEnd(text: string, start: number): number {
   return -1;
 }
 
+/** Повторы транзиентных HTTP-отказов (5xx/429): сверх первой попытки, с растущей паузой. */
+const CHAT_RETRIES = 2;
+const CHAT_RETRY_DELAY_MS = 3_000;
+
 export class OpenAiCompatProvider implements ChatProvider {
   readonly name: string;
   private readonly o: OpenAiCompatOptions;
@@ -224,20 +228,31 @@ export class OpenAiCompatProvider implements ChatProvider {
 
     applyParams(body, req.params ?? null);
 
-    // Собственный таймаут поверх переданного сигнала: локальный сервер, ушедший в своп,
-    // не закрывает соединение — этап висел бы до отмены оператором.
-    const timeout = AbortSignal.timeout(this.o.timeoutMs);
-    const signal = AbortSignal.any([req.signal, timeout]);
+    const url = `${this.o.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const headers = {
+      'content-type': 'application/json',
+      ...(this.o.apiKey === null ? {} : { authorization: `Bearer ${this.o.apiKey}` }),
+    };
+    const payload = JSON.stringify(body);
 
-    const { status, text } = await postJson(
-      `${this.o.baseUrl.replace(/\/+$/, '')}/chat/completions`,
-      {
-        'content-type': 'application/json',
-        ...(this.o.apiKey === null ? {} : { authorization: `Bearer ${this.o.apiKey}` }),
-      },
-      JSON.stringify(body),
-      signal,
-    );
+    // Перемежающийся 5xx/429 агрегатора — среда, а не модель, и один такой ответ не должен
+    // валить этап (замер: три прогона подряд встали на intent из-за 503 полза-апстрима,
+    // при том что проба и повтор той же выборки проходили). До двух повторов с паузой;
+    // 4xx кроме 429 не повторяются — они про запрос, и повтор их не чинит.
+    let status = 0;
+    let text = '';
+    for (let attempt = 1; ; attempt++) {
+      // Собственный таймаут поверх переданного сигнала: локальный сервер, ушедший в своп,
+      // не закрывает соединение — этап висел бы до отмены оператором. Свежий на каждую
+      // попытку: иначе время, съеденное упавшей, вычиталось бы у повтора.
+      const timeout = AbortSignal.timeout(this.o.timeoutMs);
+      const signal = AbortSignal.any([req.signal, timeout]);
+      ({ status, text } = await postJson(url, headers, payload, signal));
+      const transient = status === 429 || status >= 500;
+      if (!transient || attempt > CHAT_RETRIES) break;
+      await new Promise((r) => setTimeout(r, CHAT_RETRY_DELAY_MS * attempt));
+      if (req.signal.aborted) break;
+    }
 
     if (status < 200 || status >= 300) {
       throw new Error(`${this.name}: HTTP ${status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`);
