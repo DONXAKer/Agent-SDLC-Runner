@@ -37,22 +37,30 @@ function basename(p: string): string {
   return parts[parts.length - 1] ?? p;
 }
 
-/** Последние два сегмента пути (`src/tariffs.ts`) — так модель чаще всего называет код. */
-function tail2(p: string): string {
+/** Последние `n` сегментов пути (`src/tariffs.ts` при n=2) — так модель называет код. */
+function tailN(p: string, n: number): string {
   const parts = p.split(/[\\/]/).filter((s) => s !== '');
-  return parts.slice(-2).join('/');
+  return parts.slice(-n).join('/');
 }
 
 /**
- * Кому принадлежит блок. Сначала совпадение по хвосту пути из двух сегментов — оно
- * различает одноимённые файлы в разных каталогах; потом по имени файла, но только
- * ОДНОЗНАЧНОЕ: с расширением списка на `files_to_touch` (этап 5) целей стало больше
- * одной-двух, и «первый попавшийся с тем же именем» писал бы содержимое не туда.
- * Неоднозначный блок пропускается — здесь по-прежнему не гадают.
+ * Кому принадлежит блок. Совпадение ищется от САМОГО ДЛИННОГО хвоста пути к короткому:
+ * при целях `src/a.ts` и `test/src/a.ts` заголовок «правлю `test/src/a.ts`» содержит
+ * оба двухсегментных хвоста, и старт с длинного различает их, а старт с короткого
+ * молча пропускал блок. Имя файла без пути — только ОДНОЗНАЧНОЕ: с расширением списка
+ * на `files_to_touch` (этап 5) целей стало больше одной-двух, и «первый попавшийся с
+ * тем же именем» писал бы содержимое не туда. Неоднозначный блок пропускается —
+ * здесь по-прежнему не гадают.
  */
 function ownerOf(head: string, targets: readonly string[]): string | undefined {
-  const byTail = targets.filter((p) => head.includes(tail2(p)));
-  if (byTail.length === 1) return byTail[0];
+  for (const depth of [4, 3, 2]) {
+    const hit = targets.filter((p) => {
+      const t = tailN(p, depth);
+      return t.includes('/') && head.includes(t);
+    });
+    if (hit.length === 1) return hit[0];
+    if (hit.length > 1) return undefined;
+  }
   const byBase = targets.filter((p) => head.includes(basename(p)));
   return byBase.length === 1 ? byBase[0] : undefined;
 }

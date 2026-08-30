@@ -15,13 +15,35 @@ import type { StageProgressInput } from '../src/lib/stageProgress.ts';
 
 const ORDER: StageId[] = ['intent', 'explore', 'ask', 'plan', 'chunk', 'verify', 'handoff'];
 
-function stages(unblocked: StageId[], produced: StageId[] = []): StageProgressInput[] {
+function stages(
+  unblocked: StageId[],
+  produced: StageId[] = [],
+  skipped: StageId[] = [],
+): StageProgressInput[] {
   return ORDER.map((id) => ({
     id,
     blockers: unblocked.includes(id) ? [] : ['нет артефакта предыдущего этапа'],
     produced: produced.includes(id),
+    skipped: skipped.includes(id),
   }));
 }
+
+describe('пропущенный условный этап и красный вердикт в suggestedStage', () => {
+  it('условный ask (skipped) не предлагается: виток встаёт на plan', () => {
+    const input = stages(['intent', 'explore', 'ask', 'plan'], ['intent', 'explore'], ['ask']);
+    strictEqual(suggestedStage(null, input), 'plan');
+  });
+
+  it('красный вердикт возвращает на chunk, хотя журнал прошлой попытки уже на диске', () => {
+    const input = stages(
+      ['intent', 'explore', 'ask', 'plan', 'chunk', 'verify'],
+      ['intent', 'explore', 'plan', 'chunk', 'verify'],
+    );
+    strictEqual(suggestedStage(null, input, true), 'chunk');
+    // Без вердикта прежнее правило в силе: первый доступный без артефактов.
+    strictEqual(suggestedStage(null, input, false), 'ask');
+  });
+});
 
 describe('состояние этапов из produced и блокеров', () => {
   it('свежий виток: intent доступен, остальные заблокированы, пройденных нет', () => {

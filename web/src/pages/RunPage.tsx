@@ -242,7 +242,11 @@ export function RunPage({
   const stageSeeded = useRef(false);
   useEffect(() => {
     if (stageSeeded.current || detail === null) return;
-    const seed = suggestedStage(detail.stage, detail.stages);
+    const seed = suggestedStage(
+      detail.stage,
+      detail.stages,
+      detail.verdict !== null && !detail.verdict.passed,
+    );
     if (seed === null) return;
     stageSeeded.current = true;
     setStage(seed);
@@ -423,7 +427,7 @@ export function RunPage({
     queueCount: decisionQueueCount(asks, approvals, decision),
     runningStage: detail.stage,
     verdictRed: verdictNeedsAction,
-    nextRunnable: suggestedStage(null, detail.stages),
+    nextRunnable: suggestedStage(null, detail.stages, verdictNeedsAction),
   });
   const stageTitle = (id: StageId): string =>
     detail.stages.find((s) => s.id === id)?.title ?? id;
@@ -537,7 +541,7 @@ export function RunPage({
                 focused={focus.kind === 'running'}
                 summary={<span className="text-amber-400">этап идёт</span>}
               >
-                <LiveProgress events={runningEvents} onOpenFull={() => setDrawer('events')} />
+                <LiveProgress events={runningEvents} currency={detail?.currency} onOpenFull={() => setDrawer('events')} />
               </FocusSection>
             ) : null}
 
@@ -591,7 +595,7 @@ export function RunPage({
 
       {drawer === 'events' ? (
         <Drawer title="Лента событий" onClose={() => setDrawer(null)} {...drawerBanner}>
-          <EventStream events={stageEvents} precomputed={stageEventItems} />
+          <EventStream events={stageEvents} precomputed={stageEventItems} currency={detail?.currency} />
         </Drawer>
       ) : null}
       {/* Патч попытки доступен с обоих diff-этапов: чинят по нему на chunk, судят на

@@ -1,5 +1,5 @@
 /**
- * Флоу `loop`, режим «заполнение бланка по полям» — для этапов-документов (1–4).
+ * Флоу `loop`, режим «заполнение бланка по полям» — для этапов-документов (intent/ask/plan).
  *
  * Зачем: замеры (`docs/model-runs.md`) показали, что у моделей ≤9B порог «позвать
  * инструмент» лежит НИЖЕ порога «понять задачу»: qwen2.5-coder — 0 вызовов за 892 с,
@@ -7,6 +7,12 @@
  * разложенного рантаймом бланка, и tool-use для этого не обязателен: рантайм сам находит
  * плейсхолдеры `‹…›`, спрашивает модель ПО ОДНОМУ полю обычным completion'ом и сам
  * записывает результат. Порог «позвать инструмент» исчезает по построению.
+ *
+ * Поля ищутся и заменяются через `placeholderRanges` — ТО ЖЕ определение плейсхолдера,
+ * которым считает готовность `readArtifact`: упоминание `‹…›` в инлайн-коде и цитатах
+ * полем не является (первая версия с наивным `includes('‹')` перезаписывала строку-легенду
+ * шаблона сочинённым содержимым). Заменяется только сам диапазон плейсхолдера, не строка
+ * целиком — структура вокруг (ячейки таблиц, жирные метки) остаётся нетронутой.
  *
  * Что тут НЕ обходится:
  *  - **Гейт одобрения и политика.** Собранный артефакт уходит через `hooks.onToolRequest`
@@ -22,12 +28,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 
 import type { Usage } from '@sdlc-runner/shared';
-import { addUsage, emptyUsage } from '@sdlc-runner/shared';
+import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
 
+import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
@@ -40,13 +46,12 @@ export interface FormFillOptions {
   bashTimeoutMs: number;
   /** Параметры запроса из конфига модели (`ModelDef.params`). */
   params?: Record<string, unknown> | null;
+  /** Валюта провайдера маршрута — для честной подписи трат. Умолчание USD. */
+  currency?: string;
 }
 
-/** Плейсхолдер формы методологии. Тот же символ, которым считает `readArtifact`. */
-const PLACEHOLDER = '‹';
-
 /**
- * Ответ модели — строки, которыми заменяется строка бланка. Снимаются только обёртки,
+ * Ответ модели — текст, которым заменяется плейсхолдер. Снимаются только обёртки,
  * которые модель добавляет «из вежливости» (fenced-блок, внешние кавычки) — содержимое
  * не редактируется: редактировать ответ значило бы сочинять артефакт за модель.
  */
@@ -56,6 +61,13 @@ export function cleanFieldAnswer(raw: string): string {
   if (fence !== null) text = fence[1]!.trim();
   if (text.startsWith('«') && text.endsWith('»')) text = text.slice(1, -1).trim();
   return text;
+}
+
+/** Строка текста, содержащая позицию `index`, — контекст поля для модели. */
+function lineAt(text: string, index: number): string {
+  const start = text.lastIndexOf('\n', index - 1) + 1;
+  const end = text.indexOf('\n', index);
+  return text.slice(start, end < 0 ? text.length : end);
 }
 
 export class FormFillExecutor implements StageExecutor {
@@ -84,6 +96,7 @@ export class FormFillExecutor implements StageExecutor {
       timeoutMs: this.o.bashTimeoutMs,
       signal: req.signal,
     };
+    const currency = this.o.currency ?? 'USD';
 
     let usage: Usage = emptyUsage();
     let fieldsFilled = 0;
@@ -94,23 +107,20 @@ export class FormFillExecutor implements StageExecutor {
     for (const path of artifacts) {
       if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
 
-      let text: string;
-      try {
-        text = readFileSync(path, 'utf8');
-      } catch {
+      const artifact = readArtifact(path);
+      if (!artifact.exists) {
         // Бланк не разложен — это дефект посева, а не модели: пропускаем с пометкой,
         // страж завершения назовёт незаписанный артефакт сам.
         notes.push(`бланк ${path} не найден — рантайм его не разложил`);
         continue;
       }
 
-      const lines = text.split('\n');
+      let text = artifact.text;
+      // С конца к началу: сплайс не сдвигает позиции ещё не обработанных диапазонов.
+      const ranges = [...placeholderRanges(text)].reverse();
       let changed = false;
 
-      for (let n = 0; n < lines.length; n++) {
-        const line = lines[n]!;
-        if (!line.includes(PLACEHOLDER)) continue;
-
+      for (const range of ranges) {
         // Потолок вызовов — тот же лимит ходов этапа: поле дешевле хода, но безлимитный
         // бланк на сотню плейсхолдеров съел бы больше, чем обычный цикл.
         if (callsSpent >= req.maxTurns) {
@@ -119,6 +129,7 @@ export class FormFillExecutor implements StageExecutor {
         }
         callsSpent++;
 
+        const line = lineAt(text, range.start);
         const answer = await this.o.provider.chat({
           model: req.model,
           messages: [
@@ -136,11 +147,10 @@ export class FormFillExecutor implements StageExecutor {
                 line,
                 '```',
                 '',
-                'Верни строку (или строки), которыми надо ЗАМЕНИТЬ эту строку бланка, ' +
-                  'целиком и без пояснений вокруг. Вместо `‹…›` — твоё содержимое по факту ' +
-                  'задачи и входных артефактов. Если поле требует решения человека, которого ' +
-                  'у тебя нет, верни строку с пометкой «требует решения человека: <что именно>» ' +
-                  'вместо выдуманного ответа.',
+                `Верни ТОЛЬКО текст, которым надо заменить плейсхолдер \`${range.text}\` в этой ` +
+                  'строке — без самих скобок ‹›, без пояснений вокруг, по факту задачи и входных ' +
+                  'артефактов. Если поле требует решения человека, которого у тебя нет, верни ' +
+                  '«требует решения человека: <что именно>» вместо выдуманного ответа.',
               ].join('\n'),
             },
           ],
@@ -159,18 +169,20 @@ export class FormFillExecutor implements StageExecutor {
             ok: false,
             finalText: '',
             usage,
-            note: `бюджет прогона исчерпан: $${spent.toFixed(4)} из $${req.maxBudgetUsd}`,
+            note:
+              `бюджет прогона исчерпан: ${money(spent, currency)} из ` +
+              `${money(req.maxBudgetUsd, currency)}`,
           };
         }
 
         const filled = cleanFieldAnswer(answer.text);
-        // Пустой ответ и ответ с тем же плейсхолдером полем не считаются: строка остаётся
-        // как была, и её честно назовут страж завершения и предусловие следующего этапа.
-        if (filled === '' || filled.includes(PLACEHOLDER)) {
+        // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся как
+        // был, и его честно назовут страж завершения и предусловие следующего этапа.
+        if (filled === '' || filled.includes('‹')) {
           fieldsLeft++;
           continue;
         }
-        lines[n] = filled;
+        text = text.slice(0, range.start) + filled + text.slice(range.end);
         fieldsFilled++;
         changed = true;
       }
@@ -181,7 +193,7 @@ export class FormFillExecutor implements StageExecutor {
       // гейт. Отказ политики или оператора здесь окончательный — второй попытки с другим
       // путём у режима нет по построению.
       const rel = relative(req.cwd, path);
-      const rawInput = { file_path: rel, content: lines.join('\n') };
+      const rawInput = { file_path: rel, content: text };
       const call = normalize('Write', rawInput);
       const requestId = `form:${randomUUID()}`;
       const decision = await hooks.onToolRequest(call, {
@@ -210,9 +222,11 @@ export class FormFillExecutor implements StageExecutor {
       if (!outcome.ok) notes.push(`запись ${rel} не удалась: ${outcome.text}`);
     }
 
+    // «Заполнено в тексте» — не «записано на диск»: отклонённая гейтом запись оставляет
+    // бланк нетронутым, и сводка обязана это различать, а не отчитываться сделанным.
     const summary =
-      `заполнение по полям: заполнено ${fieldsFilled}, осталось ${fieldsLeft}` +
-      (notes.length === 0 ? '' : `; ${notes.join('; ')}`);
+      `заполнение по полям: в тексте заполнено ${fieldsFilled}, осталось ${fieldsLeft}` +
+      (notes.length === 0 ? '; записано через гейт' : `; ${notes.join('; ')}`);
     hooks.onText(summary);
 
     // Последнее слово — за диском, как и в обычном цикле: страж смотрит артефакты, а не

@@ -400,9 +400,16 @@ async function probeRun(opts: BenchOptions): Promise<number> {
   const report = await probeModel({
     provider,
     model: def.model,
-    signal: AbortSignal.timeout(opts.stageTimeoutMs),
+    // Та же конфигурация, что у этапа: без params проба мерила бы не ту модель,
+    // которую потом запускают (params и заводились ради tool-calling).
+    params: def.params ?? null,
+    // Свой потолок на КАЖДЫЙ кейс, а не общий на пробу: медленная модель исчерпывала
+    // общий сигнал первым кейсом, и остальные красились тем же приговором.
+    caseTimeoutMs: opts.stageTimeoutMs,
   });
   console.log(formatProbe(report));
+  // Средовой сбой — «не измерено» (2), как у всего бенчмарка, а не приговор модели.
+  if (report.envBlocked && !report.passed) return 2;
   return report.passed ? 0 : 1;
 }
 

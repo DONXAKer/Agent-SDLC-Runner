@@ -24,7 +24,7 @@ import { randomUUID } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
 
 import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
-import { addUsage, emptyUsage } from '@sdlc-runner/shared';
+import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
 
 import type { ChatMessage, ChatProvider, ChatToolCall } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
@@ -48,6 +48,8 @@ export interface LoopOptions {
   temperature: number | null;
   /** Параметры запроса из конфига модели (`ModelDef.params`). Не заданы — не шлём. */
   params?: Record<string, unknown> | null;
+  /** Валюта провайдера маршрута — для честной подписи трат в нотах. Умолчание USD. */
+  currency?: string;
 }
 
 /**
@@ -189,7 +191,11 @@ export class LoopExecutor implements StageExecutor {
       // субагенты делят ОДИН потолок витка, а не получают по своему.
       const spent = usage.costUsd === null ? null : usage.costUsd + (req.spentUsdBefore ?? 0);
       if (req.maxBudgetUsd !== null && spent !== null && spent >= req.maxBudgetUsd) {
-        const note = `бюджет прогона исчерпан: $${spent.toFixed(4)} из $${req.maxBudgetUsd}`;
+        // Сравниваются числа В ВАЛЮТЕ ПРОВАЙДЕРА (usage.cost приходит как есть, без
+        // пересчёта) — потолок проекта задаётся в ней же, и подпись обязана совпадать:
+        // «$4.09 из $4» на рублёвом агрегаторе завышал трату ~в 90 раз.
+        const cur = this.o.currency ?? 'USD';
+        const note = `бюджет прогона исчерпан: ${money(spent, cur)} из ${money(req.maxBudgetUsd, cur)}`;
         hooks.onWarn(note);
         return { ok: false, finalText, usage, note };
       }
@@ -262,6 +268,10 @@ export class LoopExecutor implements StageExecutor {
         answer.toolCalls.length > 1 &&
         answer.toolCalls.every((c) => normalize(c.name, c.arguments ?? {}).kind === 'subagent');
 
+      // Ход из субагентов — прогресс, не чтение: серия сбрасывается и здесь, иначе
+      // напоминание «пора писать» прилетало бы сразу после хода, где модель делегировала.
+      if (parallelSubagents) readStreak = 0;
+
       if (parallelSubagents) {
         // Отпечаток хода целиком, а не последнего вызова: пока `repeats` здесь обнулялся
         // безусловно, модель, повторяющая одну и ту же пару `Task`, крутилась до
@@ -281,7 +291,9 @@ export class LoopExecutor implements StageExecutor {
 
         const spentNow = (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0);
         const results = await Promise.all(
-          answer.toolCalls.map((call) => this.handleCall(call, 0, req, hooks, toolCtx, spentNow)),
+          answer.toolCalls.map((call) =>
+            this.handleCall(call, normalize(call.name, call.arguments ?? {}), 0, req, hooks, toolCtx, spentNow),
+          ),
         );
         answer.toolCalls.forEach((call, idx) => {
           messages.push({
@@ -309,8 +321,20 @@ export class LoopExecutor implements StageExecutor {
           return { ok: false, finalText, usage, note };
         }
 
+        // Нормализация один раз на вызов: она же нужна серии чтений ниже, а `handleCall`
+        // до появления счётчика разбирал вызов вторым заходом на том же горячем пути.
+        const normalized = call.arguments === null ? null : normalize(call.name, call.arguments);
+
+        // Серия «только чтение» считается по виду вызова, а не по имени инструмента:
+        // нормализация одна на оба флоу, второй список читающих имён разошёлся бы с ней.
+        // Обновление стоит ДО исполнения: отклонённый политикой или повторный вызов —
+        // тоже не запись, и серия сквозь него не обнуляется.
+        readStreak =
+          normalized !== null && READ_KINDS.has(normalized.kind) ? readStreak + 1 : 0;
+
         const result = await this.handleCall(
           call,
+          normalized,
           repeats,
           req,
           hooks,
@@ -323,12 +347,6 @@ export class LoopExecutor implements StageExecutor {
           name: call.name,
           content: result,
         });
-
-        // Серия «только чтение» считается по виду вызова, а не по имени инструмента:
-        // нормализация уже одна на оба флоу, второй список читающих имён разошёлся бы с ней.
-        readStreak = READ_KINDS.has(normalize(call.name, call.arguments ?? {}).kind)
-          ? readStreak + 1
-          : 0;
       }
 
       // Напоминание идёт ПОСЛЕ результатов инструментов хода: user-сообщение между
@@ -340,13 +358,14 @@ export class LoopExecutor implements StageExecutor {
         readStreak >= READ_STREAK_LIMIT &&
         readNudges < READ_STREAK_REMINDERS
       ) {
+        const streak = readStreak;
         readNudges++;
         readStreak = 0;
         hooks.onFriction('reminder');
         messages.push({
           role: 'user',
           content:
-            `Последние ${READ_STREAK_LIMIT} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
+            `Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
             'записи. Результат этапа — записанный артефакт, а не прочитанные файлы: если ' +
             'контекста уже достаточно, переходи к записи инструментами Write/Edit. Продолжай ' +
             'читать только то, без чего правку не сделать.',
@@ -364,6 +383,8 @@ export class LoopExecutor implements StageExecutor {
 
   private async handleCall(
     call: ChatToolCall,
+    /** Уже нормализованный вызов — считается один раз в цикле; `null` при сломанном JSON. */
+    normalized: NormalizedCall | null,
     repeats: number,
     req: ExecRequest,
     hooks: ExecHooks,
@@ -374,7 +395,7 @@ export class LoopExecutor implements StageExecutor {
     const started = Date.now();
     const requestId = `loop:${randomUUID()}`;
 
-    if (call.arguments === null) {
+    if (call.arguments === null || normalized === null) {
       // Не падаем: говорим, что именно не разобралось. Модель, которой сказали «ошибка»
       // без подробностей, повторяет ту же строку.
       const text = `аргументы не разобрались как JSON: ${call.rawArguments.slice(0, 300)}`;
@@ -393,8 +414,6 @@ export class LoopExecutor implements StageExecutor {
       hooks.onToolResult({ requestId, ok: false, summary: 'повторный вызов', durationMs: 0 });
       return text;
     }
-
-    const normalized: NormalizedCall = normalize(call.name, call.arguments);
 
     const decision = await hooks.onToolRequest(normalized, {
       requestId,
@@ -552,6 +571,17 @@ export class LoopExecutor implements StageExecutor {
         // «готовым» нетронутым). Замечание вместо результата — та же конструкция, что
         // у повторных вызовов: просьбам модель верит хуже, чем отказам инструмента.
         const p = isAbsolute(call.artifact) ? call.artifact : join(toolCtx.projectRoot, call.artifact);
+        // Финализировать можно только артефакт ЭТАПА: путь приходит строкой от модели, и
+        // читать по нему произвольный файл до всякой политики нельзя — тот же принцип,
+        // что у превью («предпросмотр строится после разрешения»). Список этапных
+        // артефактов рантайм уже передал в `formArtifacts`.
+        const declared = req.formArtifacts ?? [];
+        if (declared.length > 0 && !declared.includes(p)) {
+          return (
+            `ошибка: «${call.artifact}» не является артефактом этого этапа — финализируй ` +
+            `один из: ${declared.map((d) => d).join(', ')}`
+          );
+        }
         const a = readArtifact(p);
         if (!a.exists) {
           return `ошибка: артефакт ${call.artifact} не существует — сначала запиши его, потом финализируй`;

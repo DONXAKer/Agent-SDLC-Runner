@@ -14,14 +14,17 @@ import { formatCost, formatDuration } from '@sdlc-runner/shared';
 
 // Форматы берутся из общего пакета: копия здесь уже разошлась с интерфейсом — при
 // нулевой стоимости и ненулевых токенах шапка печатала `$0`, а этот отчёт `$0.0000`.
-const cost = (u: Usage): string => formatCost(u, 'без стоимости (локальный маршрут)');
 const duration = formatDuration;
 
 /**
  * `null` — витку нечего рассказать: ни одного прогона этапа не было. Пустая секция хуже
  * отсутствующей: она читается как «итераций не потребовалось».
+ *
+ * `currency` — валюта профиля витка: `handoff.md` — персистентный артефакт, и рублёвая
+ * сумма, подписанная `$`, оседала бы в нём завышенной ~в 90 раз.
  */
-export function postmortemBlock(m: RunMetrics): string | null {
+export function postmortemBlock(m: RunMetrics, currency = 'USD'): string | null {
+  const cost = (u: Usage): string => formatCost(u, 'без стоимости (локальный маршрут)', currency);
   if (m.stages.length === 0) return null;
 
   const attempts = m.attemptsByChunk.map((a) => `chunk ${a.chunk}: ${a.attempts}`).join(', ');

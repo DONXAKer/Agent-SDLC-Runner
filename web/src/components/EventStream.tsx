@@ -86,7 +86,7 @@ function ToolLine({
   );
 }
 
-function PlainEvent({ e }: { e: RunEvent }): JSX.Element | null {
+function PlainEvent({ e, currency }: { e: RunEvent; currency?: string }): JSX.Element | null {
   switch (e.type) {
     case 'assistant_text':
       return (
@@ -145,7 +145,9 @@ function PlainEvent({ e }: { e: RunEvent }): JSX.Element | null {
           ↑{e.usage.inputTokens} ↓{e.usage.outputTokens}
           {/* Локальный маршрут без стоимости в ленте молчит: строка на каждый вызов
               и так плотная, а «без стоимости» повторённое сто раз — шум. */}
-          {e.usage.costUsd === null ? '' : ` · ${fmtCost(e.usage)}`}
+          {/* Валюта профиля, не `$` безусловно: рублёвый провайдер в ленте иначе
+              выглядел завышенным ~в 90 раз — тот же класс, что чинился в шапке. */}
+          {e.usage.costUsd === null ? '' : ` · ${fmtCost(e.usage, currency)}`}
         </div>
       );
 
@@ -210,8 +212,11 @@ function PlainEvent({ e }: { e: RunEvent }): JSX.Element | null {
 export function EventStream({
   events,
   precomputed,
+  currency,
 }: {
   events: RunEvent[];
+  /** Валюта профиля витка (`RunSummary.currency`); без неё — доллар, как раньше. */
+  currency?: string;
   /**
    * Уже сгруппированные строки, когда вызывающий посчитал их сам (RunPage считает ради
    * счётчика на кнопке): без этого одна и та же лента группировалась дважды на каждый
@@ -240,7 +245,7 @@ export function EventStream({
             onToggle={() => toggle(item.request.requestId)}
           />
         ) : (
-          <PlainEvent key={idx} e={item.event} />
+          <PlainEvent key={idx} e={item.event} currency={currency} />
         ),
       )}
       <div ref={end} />

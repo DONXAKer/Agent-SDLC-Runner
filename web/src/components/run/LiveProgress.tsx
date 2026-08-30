@@ -18,10 +18,13 @@ const TAIL_GROUPS = 8;
  */
 export function LiveProgress({
   events,
+  currency,
   onOpenFull,
 }: {
   /** События ИДУЩЕГО этапа — не выбранного в рельсе: живой прогресс про то, что крутится. */
   events: RunEvent[];
+  /** Валюта профиля витка — стоимость в хвосте ленты подписывается ею, не `$`. */
+  currency?: string;
   /** Переход на вкладку «Ход» за полной лентой. */
   onOpenFull: () => void;
 }): JSX.Element {
@@ -33,7 +36,7 @@ export function LiveProgress({
         <div className="text-xs text-neutral-500">Этап запущен, событий пока нет…</div>
       ) : (
         <div className="max-h-80 overflow-auto rounded bg-neutral-950 p-3">
-          <EventStream events={tail} />
+          <EventStream events={tail} currency={currency} />
         </div>
       )}
       <button

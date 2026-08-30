@@ -117,6 +117,22 @@ export function artifactExists(path: string): boolean {
   }
 }
 
+/**
+ * Существование пути ЛЮБОГО вида — и файла, и каталога.
+ *
+ * Отдельно от `artifactExists` намеренно: артефакт витка обязан быть файлом, а вот
+ * карта кодовой базы отчёта разведки законно называет каталоги («server/src/exec/ —
+ * исполнители этапов»), и проверка `isFile()` объявляла честный отчёт сочинённым.
+ */
+export function pathExistsAny(path: string): boolean {
+  try {
+    statSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function writeArtifact(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text, 'utf8');

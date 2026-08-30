@@ -89,13 +89,28 @@ export interface BuiltinOutcome {
 
 /** Хвост вывода для улики: последние строки, с потолком по байтам. */
 export function outputTailOf(stdout: string, stderr: string, maxLines = 200, maxBytes = 20000): string {
-  const joined = [stdout, stderr].filter((s) => s.trim() !== '').join('\n--- stderr ---\n');
+  // Метка stderr ставится ПЕРЕД его содержимым и когда stdout пуст: иначе stderr читался
+  // неотличимо от stdout, и улика молча выдавала диагностику за штатный вывод.
+  const joined = [
+    ...(stdout.trim() === '' ? [] : [stdout]),
+    ...(stderr.trim() === '' ? [] : [`--- stderr ---\n${stderr}`]),
+  ].join('\n');
   const lines = joined.split(/\r?\n/);
   let tail = lines.slice(-maxLines).join('\n');
+  let cutBytes = false;
   if (Buffer.byteLength(tail, 'utf8') > maxBytes) {
     tail = Buffer.from(tail, 'utf8').subarray(-maxBytes).toString('utf8');
+    // Байтовый срез мог попасть в середину UTF-8-символа — обрывок в начале не текст.
+    tail = tail.replace(/^�+/, '');
+    cutBytes = true;
   }
-  return lines.length > maxLines ? `[рантайм обрезал: показаны последние ${maxLines} строк]\n${tail}` : tail;
+  // Любая обрезка называется вслух: молча усечённая улика читается как полная, и
+  // рецензент судит по неполному выводу, не зная об этом.
+  const marks = [
+    ...(lines.length > maxLines ? [`показаны последние ${maxLines} строк`] : []),
+    ...(cutBytes ? [`хвост урезан до ${maxBytes} байт`] : []),
+  ];
+  return marks.length > 0 ? `[рантайм обрезал: ${marks.join('; ')}]\n${tail}` : tail;
 }
 
 export type BuiltinGate = (ctx: GateContext) => Promise<BuiltinOutcome>;

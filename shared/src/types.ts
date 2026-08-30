@@ -499,6 +499,12 @@ export interface GateRunResult {
    * не занимает номер попытки) от обычного красного.
    */
   envBlocked: boolean;
+  /**
+   * Хвост фактического вывода команды/реализации — для улики о тестах. Без него хвост,
+   * посчитанный встроенной реализацией, терялся на границе типов: `runOne` собирал
+   * `GateRunResult` без этого поля, и «Вывод команды» в `tests.txt` не появлялся никогда.
+   */
+  outputTail?: string;
 }
 
 /**
@@ -654,8 +660,14 @@ export function formatCost(usage: Usage, noCost = 'без стоимости', c
 export function money(value: number, currency = 'USD'): string {
   const n = value === 0 ? '0' : value.toFixed(4);
   if (currency === 'USD') return `$${n}`;
-  const sym: Record<string, string> = { RUB: '₽', EUR: '€' };
-  return `${n} ${sym[currency] ?? currency}`;
+  // Map, не объектный литерал: валюта приходит строкой из конфига, и ключ вроде
+  // `toString` доставал бы с прототипа функцию вместо символа — тот же класс, из-за
+  // которого словарь имён инструментов в normalize.ts живёт на Map.
+  const sym = new Map([
+    ['RUB', '₽'],
+    ['EUR', '€'],
+  ]);
+  return `${n} ${sym.get(currency) ?? currency}`;
 }
 
 /** Длительность в человеческом виде. Одна копия — по той же причине, что и `formatCost`. */

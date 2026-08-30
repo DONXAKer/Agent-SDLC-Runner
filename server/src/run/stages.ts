@@ -14,6 +14,7 @@
 import {
   DECISION,
   artifactExists,
+  pathExistsAny,
   countPlaceholdersExceptSections,
   readArtifact,
   readDecision,
@@ -167,9 +168,13 @@ function claimsMinimum(): Precondition {
     check: (c) => {
       const intent = readArtifact(c.paths.intent);
       if (!intent.exists) return `нет файла ${c.paths.intent}`;
+      // Ячейка id канонически несёт и теги: `| claim-1 [edge] |`, `| `claim-2 [manual]` |`
+      // — та же форма, что разбирает `verdict/collect.ts`. Прежний regex требовал ГОЛЫЙ
+      // `claim-N` и на каноническом листе давал ноль строк — блокировал разведку на
+      // полностью правильном intent.md.
       const rows = intent.text
         .split(/\r?\n/)
-        .filter((l) => /^\s*\|\s*claim-\d+\s*\|/.test(l));
+        .filter((l) => /^\s*\|\s*`?claim-\d+\b[^|]*\|/.test(l));
       const edges = rows.filter((l) => /\[edge\]/i.test(l)).length;
       const small = isSmallContour(c);
       const needRows = small ? 1 : 3;
@@ -210,14 +215,18 @@ function explorationPathsExist(): Precondition {
         const cells = line.split('|').map((s) => s.trim());
         const first = (cells[1] ?? '').replace(/`/g, '').trim();
         if (first === '' || /^[-: ]+$/.test(first) || /путь/i.test(first)) continue;
-        if (/нов/i.test(cells[2] ?? '') || /нов/i.test(first)) continue;
+        // «нов» — только как НАЧАЛО слова: подстрока ловила «осНОВной», «обНОВление», и
+        // сочинённый путь с таким описанием молча выпадал из проверки (fail-open).
+        if (/(^|[^\p{L}])нов/iu.test(cells[2] ?? '') || /(^|[^\p{L}])нов/iu.test(first)) continue;
         // Адреса кода в отчётах — в форме `путь:метод`; существование проверяем только у пути.
         const rel = (first.split(/\s/)[0] ?? '').replace(/:[^/]*$/, '');
         if (rel === '' || rel.includes('‹')) continue;
         // Ячейка без разделителя пути и без расширения — заголовок колонки («Файл») или
         // словесное описание, не путь: живой прогон ta-13 ложно упал на шапке таблицы.
         if (!/[/.]/.test(rel)) continue;
-        if (!artifactExists(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+        // Каталог — законный житель карты («server/src/exec/ — исполнители этапов»),
+        // а `artifactExists` требует файла: честный отчёт объявлялся бы сочинённым.
+        if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
       }
       if (missing.length > 0) {
         return (
@@ -237,8 +246,10 @@ function verificationPassed(c: StageContext): boolean {
   // Markdown-жирность обязана прощаться: сама форма методологии пишет `- **passed:** true`
   // (templates/verification-report.template.md, секция «Вердикт») — прежний regex не
   // признавал КАНОНИЧЕСКИЙ зелёный отчёт зелёным, и handoff отказывался от передачи
-  // ровно на первом же успешном витке.
-  return /(^|\s)[*_]*passed[*_]*\s*[:=]\s*[*_]*\s*true/i.test(report.text);
+  // ровно на первом же успешном витке. Якорь — НАЧАЛО строки (плюс маркер списка):
+  // `passed: true`, процитированный в прозе отчёта («в шаблоне написано …»), не должен
+  // открывать передачу непринятого витка.
+  return /^\s*[-*>\s]*[*_]*passed[*_]*\s*[:=]\s*[*_]*\s*true/im.test(report.text);
 }
 
 const RUNTIME_PROTECTED = (c: StageContext): string[] => [
@@ -358,6 +369,10 @@ export const STAGES: readonly StageDef[] = [
       },
       filled('задача заполнена без плейсхолдеров', (c) => c.paths.intent),
       explorationPathsExist(),
+      // И здесь тоже, не только на explore: мелкий контур пропускает разведку целиком
+      // (`explore.skipIf`), и без этой строки его ветка `small ? 1 : 3` внутри проверки
+      // была мертва — пустой лист доезжал до вердикта.
+      claimsMinimum(),
     ],
     // План здесь и создаётся, поэтому защищены только задача и набор гейтов.
     protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.intent)],

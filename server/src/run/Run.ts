@@ -31,7 +31,7 @@ import type {
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 import {
   branchNameFromField,
@@ -130,12 +130,17 @@ const PLAN_SCOPED_STAGES: readonly StageId[] = ['chunk', 'verify', 'handoff'];
  * разведчиков (`sdlc-claims`, Grep/Glob) с одним Read — разведка калечилась бы молча.
  */
 const LEAN_DOC_STAGES: ReadonlySet<StageId> = new Set(['intent', 'ask', 'plan']);
+// `Write` в списке обязателен, хотя формы уже разложены и Edit'а хватает модели:
+// нормализованным Write пишут РАНТАЙМОВЫЕ пути — спасение напечатанного артефакта
+// (salvageFromText) и режим заполнения по полям (FormFillExecutor). Урезание сужает
+// ПРАВА, и без Write оба пути отклонялись политикой ровно на тех моделях, ради
+// которых включены обе ручки.
 const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
   'Read',
   'Edit',
+  'Write',
   'AskHuman',
   'FinalizeArtifact',
-  'Task',
 ]);
 
 /**
@@ -772,11 +777,23 @@ export class Run {
    * модели выдавались, вызов доходил до политики и отклонялся ею — «читающие вызовы MCP не
    * разрешены на этапе», потому что права не выдавал никто.
    */
+  /**
+   * Единая валюта маршрутов профиля. Смешанный профиль честно отдаёт USD как было:
+   * выдумать общую валюту для рублёвого и долларового маршрута нельзя.
+   */
+  private profileCurrency(): string {
+    const set = new Set(
+      Object.values(this.profile.routes).map((r) => r.providerDef.currency ?? 'USD'),
+    );
+    return set.size === 1 ? [...set][0]! : 'USD';
+  }
+
   private toolsFor(stage: StageId): readonly ToolName[] {
     const all = stageById(stage).tools;
-    // Урезанный набор для модели с `leanTools` — только на этапах-документах: замеры
-    // показали, что слабая модель тонет в выборе из 7–11 схем (`docs/model-runs.md`,
-    // «сокращение числа инструментов — не пробовано»). Сужаются ПРАВА, не только показ:
+    // Урезанный набор для модели с `leanTools` — только на этапах-документах. Это
+    // ГИПОТЕЗА журнала, а не замер: «сокращение числа инструментов» стоит в списке
+    // непробованного (`docs/model-runs.md`), ручка и заведена, чтобы его замерить.
+    // Сужаются ПРАВА, не только показ:
     // политика видит тот же список, и второго места решения о доступе не появляется.
     // На chunk/verify набор не трогаем: там Write/Bash нужны по делу.
     const route = this.profile.routes[stage];
@@ -1027,6 +1044,7 @@ export class Run {
         readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
         bashTimeoutMs: limits.gateTimeoutMs,
         params: route.params,
+        currency: route.providerDef.currency ?? 'USD',
       });
     }
 
@@ -1042,6 +1060,7 @@ export class Run {
       // Оператор задаёт её (и любой другой параметр) сам — в `params` записи модели.
       temperature: null,
       params: route.params,
+      currency: route.providerDef.currency ?? 'USD',
     });
   }
 
@@ -1230,9 +1249,20 @@ export class Run {
     stage: StageId,
   ): Promise<string | null> {
     // Пути плана — относительные POSIX; спасение оперирует абсолютными, как `produces`.
+    // Два фильтра, оба про безопасность, а не про удобство:
+    //  - абсолютный путь в плане `join` не «абсолютизирует», а приклеивает к корню —
+    //    вышла бы запись в бессмысленный путь внутри проекта;
+    //  - СУЩЕСТВУЮЩИЙ файл спасением не переписывается: механизм спроектирован под
+    //    бланк, где напечатанный текст и есть весь файл. Модель, напечатавшая «вот как
+    //    теперь выглядит функция X» под именем файла, дала бы Write, заменяющий сотни
+    //    строк фрагментом, — а карточка одобрения выглядела бы как обычная запись.
+    //    Новый файл из плана — единственный случай, где блок текстом и файл совпадают.
     const planTargets =
       stage === 'chunk'
-        ? (this.planFilesFor('chunk') ?? []).map((rel) => join(this.project.projectRoot, rel))
+        ? (this.planFilesFor('chunk') ?? [])
+            .filter((rel) => !isAbsolute(rel))
+            .map((rel) => join(this.project.projectRoot, rel))
+            .filter((abs) => !existsSync(abs))
         : [];
     const blocks = salvageBlocks(text, [...produced, ...planTargets]);
     if (blocks.length === 0) return null;
@@ -1318,6 +1348,10 @@ export class Run {
               exitCode: r.exitCode,
               lastLine: r.lastLine,
               envBlocked: r.envBlocked,
+              // Хвост вывода обязан доехать до улики: он тут ради того и посчитан.
+              // Пока литерал его не переносил, «## Вывод команды» в tests.txt не
+              // появлялся никогда, и попытка N+1 чинила падения вслепую.
+              ...(r.outputTail === undefined ? {} : { outputTail: r.outputTail }),
             };
           };
 
@@ -1331,12 +1365,20 @@ export class Run {
         this.planFilesFor('chunk') ?? [],
         this.aborter === null ? undefined : this.aborter.signal,
       );
-      if (staged.length > 0) {
+      if (staged.added.length > 0) {
         this.emit({
           type: 'warning',
           runId: this.id,
           stage: 'chunk',
-          message: `рантайм завёл в git новые файлы плана: ${staged.join(', ')}`,
+          message: `рантайм завёл в git новые файлы плана: ${staged.added.join(', ')}`,
+        });
+      }
+      if (staged.problem !== null) {
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage: 'chunk',
+          message: `не удалось завести файлы плана в git: ${staged.problem}`,
         });
       }
 
@@ -1769,7 +1811,7 @@ export class Run {
     // Пост-виток отчёт — вход этапа 7, тем же механизмом, что и итоги гейтов на этапе 6:
     // модель переносит числа в артефакт, но не сочиняет их.
     if (stage === 'handoff') {
-      const block = postmortemBlock(this.metrics);
+      const block = postmortemBlock(this.metrics, this.profileCurrency());
       if (block !== null) {
         appended = block;
         extra = extra === undefined ? block : `${extra}\n\n${block}`;

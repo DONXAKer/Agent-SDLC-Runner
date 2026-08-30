@@ -39,9 +39,9 @@ describe('авто-заведение новых файлов плана в git'
     writeFileSync(join(root, 'src', 'oversize.ts'), 'export {};\n');
     writeFileSync(join(root, 'notes.txt'), 'вне плана\n');
 
-    const added = await stageNewPlanFiles(root, ['src/oversize.ts']);
+    const r = await stageNewPlanFiles(root, ['src/oversize.ts']);
 
-    deepStrictEqual(added, ['src/oversize.ts']);
+    deepStrictEqual(r, { added: ['src/oversize.ts'], problem: null });
     deepStrictEqual(await staged(root), ['src/oversize.ts']);
     const untracked = await git(['ls-files', '--others', '--exclude-standard'], root);
     ok(untracked.stdout.includes('notes.txt'), 'файл вне плана обязан остаться нетракованным');
@@ -50,14 +50,14 @@ describe('авто-заведение новых файлов плана в git'
   it('нечего заводить — пустой список, индекс не тронут', async () => {
     const root = await repo();
     writeFileSync(join(root, 'notes.txt'), 'вне плана\n');
-    deepStrictEqual(await stageNewPlanFiles(root, ['src/oversize.ts']), []);
+    deepStrictEqual((await stageNewPlanFiles(root, ['src/oversize.ts'])).added, []);
     deepStrictEqual(await staged(root), []);
   });
 
   it('пустой план — ничего не делает, git не зовётся зря', async () => {
     const root = await repo();
     writeFileSync(join(root, 'a.txt'), 'x\n');
-    deepStrictEqual(await stageNewPlanFiles(root, []), []);
+    deepStrictEqual(await stageNewPlanFiles(root, []), { added: [], problem: null });
   });
 
   it('уже отслеживаемый файл плана не трогается: заводятся только новые', async () => {
@@ -67,7 +67,7 @@ describe('авто-заведение новых файлов плана в git'
     await git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'known'], root);
     writeFileSync(join(root, 'known.ts'), 'правка\n');
 
-    deepStrictEqual(await stageNewPlanFiles(root, ['known.ts']), []);
+    deepStrictEqual((await stageNewPlanFiles(root, ['known.ts'])).added, []);
     strictEqual((await staged(root)).length, 0, 'правка отслеживаемого файла не должна попадать в индекс');
   });
 });

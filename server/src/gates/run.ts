@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import type { GateRunResult, GateStatus } from '@sdlc-runner/shared';
 
 import type { GateContext } from './builtin/index.ts';
-import { builtinFor } from './builtin/index.ts';
+import { builtinFor, outputTailOf } from './builtin/index.ts';
 import type { GateRow, GatesFile } from './gatesFile.ts';
 import { gateKey, gatesRunnableAtVerify, parseGates } from './gatesFile.ts';
 import { runShell } from './shell.ts';
@@ -110,6 +110,9 @@ async function runOne(row: GateRow, i: RunGatesInput, ctx: GateContext): Promise
           : r.lastLine,
       durationMs: r.durationMs,
       envBlocked,
+      // Хвост вывода — для улики о тестах: команда набора имеет приоритет над встроенной,
+      // и без этой строки хвост существовал только у встроенных реализаций.
+      ...(r.stdout === '' && r.stderr === '' ? {} : { outputTail: outputTailOf(r.stdout, r.stderr) }),
     };
   }
 

@@ -7,8 +7,10 @@ export type StageState = 'done' | 'running' | 'available' | 'blocked';
 export interface StageProgressInput {
   id: StageId;
   blockers: string[];
-  /** Все артефакты этапа существуют на диске — факт от сервера, см. `StageInfo.produced`. */
+  /** Артефакты этапа существуют и заполнены — факт от сервера, см. `StageInfo.produced`. */
   produced: boolean;
+  /** Этап законно пропускается сейчас — его артефакта не будет, см. `StageInfo.skipped`. */
+  skipped: boolean;
 }
 
 /**
@@ -40,16 +42,21 @@ export function computeStageStates(
 /**
  * На какой этап вставать открытому витку — туда, где он реально находится, а не на `intent`.
  *
- * Идёт этап — на него. Иначе — первый доступный, чьи артефакты ещё не готовы: это
- * следующий шаг конвейера. Все доступные уже отработали (перезапускаемы, но сделаны) —
- * самый дальний из них: виток стоит у своего фронта.
+ * Идёт этап — на него. Красный вердикт — на chunk: методология возвращает виток именно
+ * туда, а журнал прошлой попытки уже на диске, и по «первому без артефактов» интерфейс
+ * предлагал бы верифицировать нечиненное. Иначе — первый доступный, чьи артефакты ещё не
+ * готовы И который не пропускается методологией (условный `ask` без развилок артефакта
+ * не произведёт никогда — виток парковался на нём навсегда). Все доступные уже
+ * отработали — самый дальний из них: виток стоит у своего фронта.
  */
 export function suggestedStage(
   runningStage: StageId | null,
   stages: readonly StageProgressInput[],
+  verdictRed = false,
 ): StageId | null {
   if (runningStage !== null) return runningStage;
-  const next = stages.find((s) => s.blockers.length === 0 && !s.produced);
+  if (verdictRed && stages.some((s) => s.id === 'chunk' && s.blockers.length === 0)) return 'chunk';
+  const next = stages.find((s) => s.blockers.length === 0 && !s.produced && !s.skipped);
   if (next !== undefined) return next.id;
   const runnable = [...stages].reverse().find((s) => s.blockers.length === 0);
   return runnable?.id ?? null;

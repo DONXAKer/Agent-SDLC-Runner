@@ -399,34 +399,48 @@ app.get('/api/runs/:id', async (req, reply) => {
     attemptBudget: run.attemptBudget,
     maxBudgetUsd: run.project.maxBudgetUsd,
     usage: run.totalUsage,
-    stages: STAGES.map((s) => ({
-      id: s.id,
-      title: s.title,
-      tools: s.tools,
-      blockers: run.blockers(s.id),
-      // У handoff'а вход двойной, и предусловия у входов разные — см. `abortBlockers`.
-      abortBlockers: s.id === 'handoff' ? run.blockers(s.id, { abortHandoff: true }) : null,
-      produces: s.produces(run.ctx),
-      // Факт с диска тем же чтением, что блокеры: клиентская эвристика «дальний этап без
-      // блокеров = всё до него пройдено» врала на этапах с общими предусловиями (ask и
-      // plan разблокированы сразу после intent, до всякой разведки) — см. StageInfo.produced.
-      produced: (() => {
-        const out = s.produces(run.ctx);
-        return out.length > 0 && out.every((p) => existsSync(p));
-      })(),
-      decision: s.humanGate,
-      // Тем же разбором, что и предусловие следующего этапа (`granted()` в stages.ts):
-      // «записано» — это `readDecision(...).state === 'granted'`, а не факт, что поле
-      // вообще существует в шаблоне.
-      decisionRecorded:
-        s.humanGate === null
-          ? false
-          : (() => {
-              const path = artifactPathOf(run.paths, s.humanGate.artifact, run.chunk, run.attempt);
-              const a = readArtifact(path);
-              return a.exists && readDecision(a.text, s.humanGate.label).state === 'granted';
-            })(),
-    })),
+    stages: STAGES.map((s) => {
+      const out = s.produces(run.ctx);
+      return {
+        id: s.id,
+        title: s.title,
+        tools: s.tools,
+        blockers: run.blockers(s.id),
+        // У handoff'а вход двойной, и предусловия у входов разные — см. `abortBlockers`.
+        abortBlockers: s.id === 'handoff' ? run.blockers(s.id, { abortHandoff: true }) : null,
+        produces: out,
+        // Факт с диска тем же чтением, что блокеры: клиентская эвристика «дальний этап без
+        // блокеров = всё до него пройдено» врала на этапах с общими предусловиями (ask и
+        // plan разблокированы сразу после intent, до всякой разведки) — см. StageInfo.produced.
+        //
+        // «Существует» здесь мало: рантайм САМ раскладывает формы при старте этапа
+        // (`seedArtifacts`), и по одному существованию этап, упавший на первом ходу,
+        // светился пройденным над нетронутым бланком. Пройденность — «существует И без
+        // плейсхолдеров», тем же счётчиком, что у стража завершения.
+        produced:
+          out.length > 0 &&
+          out.every((p) => {
+            const a = readArtifact(p);
+            return a.exists && a.placeholders === 0;
+          }),
+        // Этап, который методология пропускает СЕЙЧАС (мелкий контур, вопросов нет):
+        // артефакта у него не будет никогда, и без этого признака интерфейс вечно
+        // предлагал бы его как следующий шаг.
+        skipped: s.skipIf !== null && s.skipIf(run.ctx) !== null,
+        decision: s.humanGate,
+        // Тем же разбором, что и предусловие следующего этапа (`granted()` в stages.ts):
+        // «записано» — это `readDecision(...).state === 'granted'`, а не факт, что поле
+        // вообще существует в шаблоне.
+        decisionRecorded:
+          s.humanGate === null
+            ? false
+            : (() => {
+                const path = artifactPathOf(run.paths, s.humanGate.artifact, run.chunk, run.attempt);
+                const a = readArtifact(path);
+                return a.exists && readDecision(a.text, s.humanGate.label).state === 'granted';
+              })(),
+      };
+    }),
     pendingApprovals: gate.list().filter((p) => p.runId === id),
     pendingQuestions: askGate.list().filter((p) => p.runId === id),
     gateResults: run.gateResults,

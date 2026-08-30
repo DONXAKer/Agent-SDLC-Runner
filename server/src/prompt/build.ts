@@ -13,7 +13,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-import { readArtifact } from '../artifacts/artifact.ts';
+import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
 import type { RunnerConfig } from '../config/schema.ts';
 import { specsFor } from '../exec/toolSpecs.ts';
 import { toPosix } from '../policy/paths.ts';
@@ -24,14 +24,32 @@ import type { FlowId, PreparedPrompt, ToolName } from '@sdlc-runner/shared';
 const MAX_ARTIFACT_BYTES = 40_000;
 
 /**
- * Свой потолок входного артефакта для флоу `loop`.
+ * Свой потолок входного артефакта для ЭТАПОВ-ДОКУМЕНТОВ флоу `loop`.
  *
- * Общие 40 000 символов рассчитаны на модель с большим окном. Локальный контур живёт на
- * 16K токенов, и один план на 40 КБ съедает окно ЦЕЛИКОМ ещё до истории цикла — измерено:
+ * Общие 40 000 рассчитаны на модель с большим окном. Локальный контур живёт на 16K
+ * токенов, и один план на 40 КБ съедает окно ЦЕЛИКОМ ещё до истории цикла — измерено:
  * этап intent на локальной модели набирал 314k входных токенов за ~30 ходов именно из-за
  * входов, повторяемых каждым запросом. Обрезка честная — с пометкой в тексте.
+ *
+ * На chunk/verify/handoff потолок НЕ действует: их вход — diff и улики, и рецензент,
+ * получивший первую треть диффа, вынес бы вердикт, не увидев ни удалённого теста, ни
+ * внесённого секрета. Лучше промпт не влез, чем вердикт по трети правки.
+ *
+ * Байты, не `length`: кириллица в UTF-8 — 2 байта на символ, и посимвольный потолок
+ * пропускал вдвое больше задуманного (тот же урок, что у `cap()` в exec/tools).
  */
 const LOOP_MAX_ARTIFACT_BYTES = 12_000;
+const LOOP_CAPPED_STAGES: ReadonlySet<string> = new Set(['intent', 'explore', 'ask', 'plan']);
+
+/** Обрезка по БАЙТАМ с выравниванием по границе символа. */
+function capBytes(text: string, maxBytes: number): { text: string; capped: boolean } {
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return { text, capped: false };
+  let cut = text.slice(0, maxBytes); // символов не больше, чем байтов — стартовая оценка сверху
+  while (Buffer.byteLength(cut, 'utf8') > maxBytes) {
+    cut = cut.slice(0, Math.floor((cut.length * maxBytes) / Buffer.byteLength(cut, 'utf8')));
+  }
+  return { text: cut, capped: true };
+}
 
 export interface BuildPromptInput {
   runner: RunnerConfig;
@@ -150,22 +168,7 @@ function adapterBlock(i: BuildPromptInput): string {
     // модель печатает содержимое файла текстом вместо вызова Write/Edit — на всех
     // замеренных моделях именно здесь ход и сгорал. Пример корректного вызова снижает
     // порог «дойти до инструмента»; сильной модели флоу sdk он не нужен и только ест окно.
-    ...(i.flow === 'loop'
-      ? [
-          '- Как выглядит сделанный шаг. Поле бланка до заполнения: ' +
-            '`- **Зачем:** ‹почему это нужно сейчас›`. Правильное действие — один вызов ' +
-            'инструмента с готовым содержимым:',
-          '  ```json',
-          `  {"tool": "Edit", "arguments": {"file_path": "${sdlcDir}/intent.md", ` +
-            '"old_string": "- **Зачем:** ‹почему это нужно сейчас›", ' +
-            '"new_string": "- **Зачем:** платёж падает на границе 300 см — теряем заказы"}}',
-          '  ```',
-          '  Когда в артефакте не осталось `‹…›` — вызови `FinalizeArtifact` с путём артефакта.',
-          '- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе (текст никуда не ' +
-            'записывается), спрашивать человека о том, что видно из кода, продолжать читать ' +
-            'файлы, когда контекста для правки уже достаточно.',
-        ]
-      : []),
+    ...(i.flow === 'loop' ? fewShotLines(i) : []),
     ...((i.mcpTools ?? []).length > 0
       ? [
           `- Инструменты внешних MCP-серверов на этом этапе: ` +
@@ -241,12 +244,54 @@ function adapterBlock(i: BuildPromptInput): string {
   return lines.join('\n');
 }
 
+/**
+ * Пример «мысль → вызов инструмента» для слабой модели — из РЕАЛЬНОГО бланка этапа.
+ *
+ * Пример не зашивается текстом: копия строки методологии в коде разошлась бы с шаблоном
+ * при первой его правке (первая версия и разошлась — учила `- **Зачем:** ‹…›`, которого
+ * в шаблоне интента нет). Берётся первый настоящий плейсхолдер первого разложенного
+ * артефакта ЭТОГО этапа: такой `old_string` гарантированно найдётся, а путь гарантированно
+ * разрешён к записи. Бланков с плейсхолдерами нет — примера нет, блок молчит.
+ */
+function fewShotLines(i: BuildPromptInput): string[] {
+  for (const path of i.stage.produces(i.ctx)) {
+    const a = readArtifact(path);
+    if (!a.exists) continue;
+    const r = placeholderRanges(a.text)[0];
+    if (r === undefined) continue;
+
+    const lineStart = a.text.lastIndexOf('\n', r.start - 1) + 1;
+    const lineEnd = a.text.indexOf('\n', r.start);
+    const line = a.text.slice(lineStart, lineEnd < 0 ? a.text.length : lineEnd).trim();
+    if (line === '' || line.length > 200) continue;
+
+    const rel = toPosix(relative(i.ctx.paths.projectRoot, path));
+    const filledLine = line.replace(r.text, '(твоё содержимое по факту задачи)');
+    const callJson = JSON.stringify({
+      tool: 'Edit',
+      arguments: { file_path: rel, old_string: line, new_string: filledLine },
+    });
+    return [
+      '- Как выглядит сделанный шаг. Вот настоящая незаполненная строка твоего бланка — ' +
+        'правильное действие это ОДИН вызов инструмента с готовым содержимым:',
+      '  ```json',
+      `  ${callJson}`,
+      '  ```',
+      '  Когда в артефакте не осталось `‹…›` — вызови `FinalizeArtifact` с путём артефакта.',
+      '- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе (текст никуда не ' +
+        'записывается), спрашивать человека о том, что видно из кода, продолжать читать ' +
+        'файлы, когда контекста для правки уже достаточно.',
+    ];
+  }
+  return [];
+}
+
 function fence(path: string, text: string, maxBytes: number): string {
-  const capped =
-    text.length > maxBytes
-      ? `${text.slice(0, maxBytes)}\n…[обрезано рантаймом: файл длиннее ${maxBytes} символов]`
-      : text;
-  return ['````markdown', `<!-- ${path} -->`, capped, '````'].join('\n');
+  const r = capBytes(text, maxBytes);
+  const body = r.capped
+    ? `${r.text}\n…[обрезано рантаймом: файл длиннее ${maxBytes} байт]`
+    : r.text;
+  return ['````markdown', `<!-- ${path} -->`, body, '````'].join('\n');
 }
 
 function userMessage(i: BuildPromptInput): string {
@@ -260,7 +305,10 @@ function userMessage(i: BuildPromptInput): string {
   const present: string[] = [];
   const missing: string[] = [];
 
-  const maxBytes = i.flow === 'loop' ? LOOP_MAX_ARTIFACT_BYTES : MAX_ARTIFACT_BYTES;
+  const maxBytes =
+    i.flow === 'loop' && LOOP_CAPPED_STAGES.has(i.stage.id)
+      ? LOOP_MAX_ARTIFACT_BYTES
+      : MAX_ARTIFACT_BYTES;
   for (const input of inputs) {
     const a = readArtifact(input.path);
     const rel = toPosix(relative(i.ctx.paths.projectRoot, input.path));

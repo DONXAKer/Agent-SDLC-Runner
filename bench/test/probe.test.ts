@@ -79,7 +79,7 @@ describe('преполётная проба', () => {
       };
     });
 
-    const report = await probeModel({ provider, model: 'm', signal: signal() });
+    const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 5000 });
     strictEqual(report.passed, true, JSON.stringify(report.cases));
     strictEqual(report.cases.length, 3);
     ok(formatProbe(report).includes('✅'));
@@ -87,7 +87,7 @@ describe('преполётная проба', () => {
 
   it('модель, печатающая текст вместо вызова, краснеет с текстом причины', async () => {
     const provider = scripted(() => ({ text: 'Вот содержимое файла:\n# привет' }));
-    const report = await probeModel({ provider, model: 'm', signal: signal() });
+    const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 5000 });
     strictEqual(report.passed, false);
     ok(report.cases.every((c) => !c.ok));
     ok(report.cases[0]!.detail.includes('вызова нет'), report.cases[0]!.detail);
@@ -101,9 +101,12 @@ describe('преполётная проба', () => {
         throw new Error('ECONNREFUSED 127.0.0.1:11434');
       },
     } as unknown as ChatProvider;
-    const report = await probeModel({ provider, model: 'm', signal: signal() });
+    const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 5000 });
     strictEqual(report.passed, false);
     ok(report.cases[0]!.detail.includes('ECONNREFUSED'));
+    // Среда, не модель: отчёт обязан сказать «не измерено», а не «модель не тянет».
+    strictEqual(report.envBlocked, true);
+    ok(formatProbe(report).includes('НЕ ИЗМЕРЕНА'), formatProbe(report));
   });
 
   it('модель, застрявшая на чтении, валит третий кейс', async () => {
@@ -112,7 +115,7 @@ describe('преполётная проба', () => {
       if (!names.includes('Read')) return { text: 'не знаю' };
       return { text: '', toolCalls: [{ name: 'Read', arguments: { file_path: 'config/title.txt' } }] };
     });
-    const report = await probeModel({ provider, model: 'm', signal: signal() });
+    const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 5000 });
     const readWrite = report.cases.find((c) => c.name === 'чтение → запись');
     strictEqual(readWrite?.ok, false);
     ok(readWrite!.detail.includes('снова Read'), readWrite!.detail);

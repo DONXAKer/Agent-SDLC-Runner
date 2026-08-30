@@ -212,17 +212,27 @@ export async function stageNewPlanFiles(
   cwd: string,
   planFiles: readonly string[],
   signal?: AbortSignal,
-): Promise<string[]> {
-  if (planFiles.length === 0 || !(await isRepo(cwd))) return [];
-  const res = await git(['ls-files', '--others', '--exclude-standard', '--', '.'], cwd, signal);
-  if (res.code !== 0) return [];
+): Promise<{ added: string[]; problem: string | null }> {
+  const none = { added: [], problem: null };
+  if (planFiles.length === 0 || !(await isRepo(cwd))) return none;
 
-  const plan = new Set(planFiles.map((p) => p.replace(/\\/g, '/')));
-  const fresh = lines(res.stdout)
-    .map((l) => l.replace(/\\/g, '/'))
-    .filter((l) => plan.has(l));
-  if (fresh.length === 0) return [];
+  // pathspec'ом по путям плана, а не полным перечислением: репозиторий с неигнорируемым
+  // build-каталогом отдаёт десятки тысяч строк ради поиска одного-двух файлов плана.
+  const plan = planFiles.map((p) => p.replace(/\\/g, '/'));
+  const res = await git(['ls-files', '--others', '--exclude-standard', '--', ...plan], cwd, signal);
+  if (res.code !== 0) {
+    // Отказ здесь не глотается: молча провалившийся шаг неотличим от «заводить нечего»,
+    // а оператор потом видит только красный гейт нетракованных файлов без причины.
+    return { added: [], problem: `git ls-files: ${res.stderr.trim() || `код ${res.code}`}` };
+  }
+
+  const fresh = lines(res.stdout).map((l) => l.replace(/\\/g, '/'));
+  if (fresh.length === 0) return none;
 
   const add = await git(['add', '--', ...fresh], cwd, signal);
-  return add.code === 0 ? fresh : [];
+  if (add.code !== 0) {
+    // Типичный случай — файл плана под `.gitignore`: ровно он и рождает нетракованные.
+    return { added: [], problem: `git add ${fresh.join(' ')}: ${add.stderr.trim() || `код ${add.code}`}` };
+  }
+  return { added: fresh, problem: null };
 }

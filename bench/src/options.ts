@@ -143,8 +143,9 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let probe = false;
   let makeSnapshot: string | null = null;
   let fromSnapshot: string | null = null;
-  let snapshotAfter: StageId = 'plan';
-  let snapshotAfterSet = false;
+  // `null` — ключ не задан; умолчание `plan` подставляется на выходе. Один факт в одной
+  // переменной, а не значение + флаг-спутник, которые разъезжаются при правке разбора.
+  let snapshotAfter: StageId | null = null;
 
   const next = (i: number, key: string): string => {
     const v = argv[i + 1];
@@ -240,7 +241,6 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
           throw new OptionsError('снимок после handoff бессмыслен: этапа после него нет, мерить со снимка нечего');
         }
         snapshotAfter = stage;
-        snapshotAfterSet = true;
         i++;
         break;
       }
@@ -258,12 +258,15 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   if (model === null && !dryRun) throw new OptionsError('не задана измеряемая модель: --model <id>');
   // Пробе не нужен режим: она вообще не запускает виток.
   if (mode === null && !dryRun && !probe) throw new OptionsError('не задан режим: --stage <этап> либо --all');
+  // Комбинация режимов — почти наверняка опечатка: молча выигравшая проба выглядела бы
+  // как «сухой прогон ничего не нашёл».
+  if (probe && dryRun) throw new OptionsError('--probe и --dry-run взаимоисключающие');
   if (makeSnapshot !== null && fromSnapshot !== null) {
     throw new OptionsError('--make-snapshot и --from-snapshot взаимоисключающие: один делает снимок, другой его читает');
   }
   // Точка снимка без самого снимка — почти наверняка опечатка в наборе ключей, и молчаливое
   // игнорирование стоило бы платного прогона, который остановился не там, где ждали.
-  if (snapshotAfterSet && makeSnapshot === null) {
+  if (snapshotAfter !== null && makeSnapshot === null) {
     throw new OptionsError('--snapshot-after имеет смысл только вместе с --make-snapshot');
   }
 
@@ -287,6 +290,6 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     probe,
     makeSnapshot,
     fromSnapshot,
-    snapshotAfter,
+    snapshotAfter: snapshotAfter ?? 'plan',
   };
 }
