@@ -87,17 +87,28 @@ export function cleanFieldAnswer(raw: string): string {
   return text;
 }
 
-/** Поле бланка: одиночный плейсхолдер либо строка-образец таблицы целиком. */
-export interface FormField {
-  start: number;
-  end: number;
-  /** `cell` — заменяется сам плейсхолдер; `row` — вся строка-образец, ответ может быть несколькими строками. */
-  kind: 'cell' | 'row';
-  /** Текст плейсхолдера (`cell`) либо строка-образец (`row`) — уходит в подсказку модели. */
-  text: string;
-  /** Шапка таблицы `row`-поля — для дедупа продублированной моделью шапки. У `cell` нет. */
-  header?: string;
-}
+/**
+ * Поле бланка: одиночный плейсхолдер либо строка-образец таблицы целиком.
+ * У `row` шапка обязательна ТИПОМ: необязательное поле с fallback'ом на сам образец
+ * превращало бы ответ, совпавший с образцом, в «шапку» и молча выбрасывало (ревью-3).
+ */
+export type FormField =
+  | {
+      start: number;
+      end: number;
+      kind: 'cell';
+      /** Текст плейсхолдера — уходит в подсказку модели. */
+      text: string;
+    }
+  | {
+      start: number;
+      end: number;
+      kind: 'row';
+      /** Строка-образец целиком. */
+      text: string;
+      /** Шапка таблицы — для дедупа продублированной моделью шапки. */
+      header: string;
+    };
 
 /** Шапка таблицы, которой принадлежит строка с позиции `lineStart`: верхняя `|`-строка блока. */
 function tableHeaderOf(text: string, lineStart: number): string {
@@ -137,7 +148,9 @@ export function groupFields(text: string): FormField[] {
     if (line.trimStart().startsWith('|')) {
       if (lineStart === lastRowStart) continue; // колонка того же образца — уже учтён
       // Шапка блока не пересчитывается для соседних строк той же таблицы: обход вверх на
-      // каждую строку давал квадрат на больших таблицах (ревью-2).
+      // каждую строку давал квадрат на больших таблицах (ревью-2). Кэш корректен, потому
+      // что смежные placeholder-строки всегда принадлежат одной таблице: между таблицами
+      // стоят шапка и разделитель, а они placeholder-строками не бывают.
       const header =
         lastRowEnd >= 0 && lineStart === lastRowEnd + 1 ? lastHeader : tableHeaderOf(text, lineStart);
       lastRowStart = lineStart;
@@ -242,14 +255,26 @@ export class FormFillExecutor implements StageExecutor {
      * проход вправе попробовать снова.
      */
     const writeDenied = new Set<string>();
+    /**
+     * Тексты, собранные моделью, но не доехавшие до диска из-за СБОЯ ИСПОЛНЕНИЯ записи
+     * (не отказа гейта): повторяется ЗАПИСЬ этого текста, а не работа модели — без этого
+     * второй проход заново оплачивал все поля бланка и удваивал счётчик (ревью-3).
+     */
+    const pendingText = new Map<string, string>();
+    /** Хоть одна запись состоялась — для честного хвоста сводки «записано через гейт». */
+    let wroteAny = false;
+    /** Ноты, которые не должны дублироваться вторым проходом. */
+    const notedOnce = new Set<string>();
 
     /**
      * Незаполненные поля, оставшиеся НА ДИСКЕ, — один источник и для условия второго
      * прохода, и для честной сводки: счётчик по ходу прохода пропускал поля отклонённых
-     * бланков и врал «осталось 0» (ревью-2).
+     * бланков и врал «осталось 0» (ревью-2). `retriableOnly` — для условия второго
+     * прохода: бланки с отказом гейта пересчитывать незачем, проход по ним холостой.
      */
-    const fieldsLeftOnDisk = (): number =>
+    const fieldsLeftOnDisk = (retriableOnly = false): number =>
       artifacts.reduce((n, p) => {
+        if (retriableOnly && writeDenied.has(p)) return n;
         const a = readArtifact(p);
         return n + (a.exists ? groupFields(a.text).length : 0);
       }, 0);
@@ -257,9 +282,10 @@ export class FormFillExecutor implements StageExecutor {
     /**
      * Запись собранного текста через гейт — тем же путём, что любая запись исполнителя:
      * нормализованный Write, политика решает, оператор одобряет. Отказ гейта окончателен
-     * (`writeDenied`); неудача исполнения — нота, не блокировка.
+     * (`writeDenied`); неудача исполнения — текст сохраняется в `pendingText` для
+     * повторной записи. `true` — на диске.
      */
-    const flushArtifact = async (path: string, text: string): Promise<void> => {
+    const flushArtifact = async (path: string, text: string): Promise<boolean> => {
       const rel = relative(req.cwd, path);
       const rawInput = { file_path: rel, content: text };
       const call = normalize('Write', rawInput);
@@ -275,7 +301,8 @@ export class FormFillExecutor implements StageExecutor {
         hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
         notes.push(`запись ${rel} отклонена: ${decision.reason}`);
         writeDenied.add(path);
-        return;
+        pendingText.delete(path);
+        return false;
       }
       const effective =
         decision.updatedInput === null
@@ -288,7 +315,14 @@ export class FormFillExecutor implements StageExecutor {
         summary: outcome.text.split('\n')[0]?.slice(0, 200) ?? '',
         durationMs: 0,
       });
-      if (!outcome.ok) notes.push(`запись ${rel} не удалась: ${outcome.text}`);
+      if (!outcome.ok) {
+        notes.push(`запись ${rel} не удалась: ${outcome.text}`);
+        pendingText.set(path, text);
+        return false;
+      }
+      wroteAny = true;
+      pendingText.delete(path);
+      return true;
     };
 
     /** Полевой до-запрос модели: промпт этапа + служебная обвязка поля (см. шапку файла). */
@@ -358,11 +392,24 @@ export class FormFillExecutor implements StageExecutor {
         if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
         if (writeDenied.has(path)) continue;
 
+        // Текст, не доехавший до диска из-за сбоя записи, ПЕРЕЗАПИСЫВАЕТСЯ, а не
+        // пересобирается моделью: поля в нём уже оплачены. Не записался снова — модель
+        // не переспрашивается всё равно (запись не идёт, оплата ушла бы в никуда).
+        const pending = pendingText.get(path);
+        if (pending !== undefined) {
+          await flushArtifact(path, pending);
+          continue;
+        }
+
         const artifact = readArtifact(path);
         if (!artifact.exists) {
           // Бланк не разложен — это дефект посева, а не модели: пропускаем с пометкой,
           // страж завершения назовёт незаписанный артефакт сам.
-          notes.push(`бланк ${path} не найден — рантайм его не разложил`);
+          const note = `бланк ${path} не найден — рантайм его не разложил`;
+          if (!notedOnce.has(note)) {
+            notedOnce.add(note);
+            notes.push(note);
+          }
           continue;
         }
 
@@ -413,7 +460,7 @@ export class FormFillExecutor implements StageExecutor {
               continue;
             }
             let filled = cleanFieldAnswer(a.value.text);
-            if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header ?? range.text);
+            if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
             // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
             // как был, и его честно назовут страж и предусловие следующего этапа.
             if (filled === '' || filled.includes('‹')) continue;
@@ -446,21 +493,23 @@ export class FormFillExecutor implements StageExecutor {
 
     const stopped = await sweep();
     if (stopped !== null) return stopped;
-    // Второй проход — только по остаткам НА ДИСКЕ, в пределах того же лимита ходов;
-    // бланки с отклонённой записью не трогаются (`sweep` их пропустит сам).
-    let fieldsLeft = fieldsLeftOnDisk();
-    if (fieldsLeft > 0 && callsSpent < req.maxTurns && !req.signal.aborted) {
+    // Второй проход — только когда есть ЧТО добирать: остатки в бланках без отказа гейта
+    // либо недоехавшая запись. Остатки в denied-бланках проход не трогает, и запускать
+    // его ради них — холостые чтения (ревью-3).
+    const retriable = fieldsLeftOnDisk(true) > 0 || pendingText.size > 0;
+    if (retriable && callsSpent < req.maxTurns && !req.signal.aborted) {
       const stopped2 = await sweep();
       if (stopped2 !== null) return stopped2;
-      fieldsLeft = fieldsLeftOnDisk();
     }
+    const fieldsLeft = fieldsLeftOnDisk();
 
     // «Заполнено в тексте» — не «записано на диск»: отклонённая гейтом запись оставляет
     // бланк нетронутым, и сводка обязана это различать, а не отчитываться сделанным.
-    // «Осталось» считается ПО ДИСКУ, включая бланки с отклонённой записью.
+    // «Осталось» считается ПО ДИСКУ, включая бланки с отклонённой записью; «записано
+    // через гейт» говорится только о состоявшейся записи.
     const summary =
       `заполнение по полям: в тексте заполнено ${fieldsFilled}, осталось на диске ${fieldsLeft}` +
-      (notes.length === 0 ? '; записано через гейт' : `; ${notes.join('; ')}`);
+      (notes.length > 0 ? `; ${notes.join('; ')}` : wroteAny ? '; записано через гейт' : '');
     hooks.onText(summary);
 
     // Последнее слово — за диском, как и в обычном цикле: страж смотрит артефакты, а не

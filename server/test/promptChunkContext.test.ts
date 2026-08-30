@@ -15,6 +15,7 @@ import { ok, strictEqual } from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 
 import { WitokPaths } from '../src/artifacts/paths.ts';
+import { symlinkSkip } from './platform.ts';
 import type { RunnerConfig } from '../src/config/schema.ts';
 import { buildPrompt } from '../src/prompt/build.ts';
 import { stageById } from '../src/run/stages.ts';
@@ -101,7 +102,7 @@ describe('prefetch файлов плана на этапе 5 (флоу loop)', (
     strictEqual(u.includes('secret'), false);
   });
 
-  it('симлинк внутри корня, указывающий наружу, не читается (ревью-2, BLOCKER)', () => {
+  it('симлинк внутри корня, указывающий наружу, не читается (ревью-2, BLOCKER)', { skip: symlinkSkip ?? false }, () => {
     const outside = join(tmpdir(), `sdlc-prefetch-outside-${process.pid}.txt`);
     writeFileSync(outside, 'SECRET-CONTENT\n');
     symlinkSync(outside, join(root, 'link.ts'));

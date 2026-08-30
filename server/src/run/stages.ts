@@ -201,6 +201,26 @@ function claimsMinimum(): Precondition {
  * сочинённой карты. Строка с пометкой «нов…» (новый файл/модуль) законно указывает на
  * ещё не существующий путь и пропускается.
  */
+/**
+ * Диапазоны секций второго уровня, чей заголовок матчит `title`. Секцию закрывает только
+ * следующий h2 (или конец файла) — подзаголовки h3/h4 остаются внутри неё.
+ */
+export function h2SectionRanges(text: string, title: RegExp): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  const h2 = /^##\s+(.+)$/gm;
+  let open: number | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = h2.exec(text)) !== null) {
+    if (open !== null) {
+      out.push({ start: open, end: m.index });
+      open = null;
+    }
+    if (title.test(m[1]!)) open = m.index;
+  }
+  if (open !== null) out.push({ start: open, end: text.length });
+  return out;
+}
+
 function explorationPathsExist(): Precondition {
   return {
     describe: 'пути из карты кодовой базы существуют в дереве',
@@ -209,25 +229,31 @@ function explorationPathsExist(): Precondition {
       const report = readArtifact(c.paths.explorationReport);
       if (!report.exists) return null; // отсутствие отчёта ловит соседнее предусловие
       const missing: string[] = [];
-      // Общий разборщик таблиц: секция и шапка приходят от него, свои детекторы
-      // разделителя/шапки/секции больше не нужны (полуразборщик снят ревью-2).
-      for (const table of parseTables(report.text)) {
-        if (!/кодов(ая|ой) база|карта/i.test(table.section)) continue;
-        for (const row of table.rows) {
-          const first = (row[0] ?? '').replace(/`/g, '').trim();
-          if (first === '' || /путь/i.test(first)) continue;
-          // «нов» — только как НАЧАЛО слова: подстрока ловила «осНОВной», «обНОВление», и
-          // сочинённый путь с таким описанием молча выпадал из проверки (fail-open).
-          if (/(^|[^\p{L}])нов/iu.test(row[1] ?? '') || /(^|[^\p{L}])нов/iu.test(first)) continue;
-          // Адреса кода в отчётах — в форме `путь:метод`; существование проверяем только у пути.
-          const rel = (first.split(/\s/)[0] ?? '').replace(/:[^/]*$/, '');
-          if (rel === '' || rel.includes('‹')) continue;
-          // Ячейка без разделителя пути и без расширения — словесное описание, не путь:
-          // живой прогон ta-13 ложно падал на таких.
-          if (!/[/.]/.test(rel)) continue;
-          // Каталог — законный житель карты («server/src/exec/ — исполнители этапов»),
-          // а `artifactExists` требует файла: честный отчёт объявлялся бы сочинённым.
-          if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+      // Границы секции карты — по h2 ВРУЧНУЮ, а не по `table.section`: parseTables
+      // сбрасывает секцию на заголовке любого уровня, и «### Ключевые файлы» внутри карты
+      // выводил бы свои таблицы из-под проверки (fail-open, пойман ревью-3); старый
+      // построчный код `/^##\s/` подзаголовки h3 сквозь себя пропускал — это сохранено.
+      for (const range of h2SectionRanges(report.text, /кодов(ая|ой) база|карта/i)) {
+        for (const table of parseTables(report.text.slice(range.start, range.end))) {
+          // Шапка проверяется наравне со строками: карта без строки-шапки (пишет модель)
+          // иначе теряла бы первую строку данных — parseTables объявил бы её шапкой.
+          // Настоящая шапка («Файл», «Что меняем») отсеется правилом «нет / и .».
+          for (const row of [table.header, ...table.rows]) {
+            const first = (row[0] ?? '').replace(/`/g, '').trim();
+            if (first === '') continue;
+            // «нов» — только как НАЧАЛО слова: подстрока ловила «осНОВной», «обНОВление», и
+            // сочинённый путь с таким описанием молча выпадал из проверки (fail-open).
+            if (/(^|[^\p{L}])нов/iu.test(row[1] ?? '') || /(^|[^\p{L}])нов/iu.test(first)) continue;
+            // Адреса кода в отчётах — в форме `путь:метод`; существование проверяем только у пути.
+            const rel = (first.split(/\s/)[0] ?? '').replace(/:[^/]*$/, '');
+            if (rel === '' || rel.includes('‹')) continue;
+            // Ячейка без разделителя пути и без расширения — словесное описание, не путь:
+            // живой прогон ta-13 ложно падал на таких.
+            if (!/[/.]/.test(rel)) continue;
+            // Каталог — законный житель карты («server/src/exec/ — исполнители этапов»),
+            // а `artifactExists` требует файла: честный отчёт объявлялся бы сочинённым.
+            if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+          }
         }
       }
       if (missing.length > 0) {

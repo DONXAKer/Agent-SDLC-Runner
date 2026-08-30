@@ -341,7 +341,16 @@ function userMessage(i: BuildPromptInput): string {
   if (i.stage.id === 'chunk' && i.flow === 'loop') {
     const fetched: string[] = [];
     let budget = PREFETCH_TOTAL_BYTES;
-    for (const rel of i.planFiles ?? []) {
+    // Realpath корня — инвариант цикла и считается ДО него: внутри try каждой итерации
+    // ошибка КОРНЯ маскировалась бы под «файла нет» (ревью-3). Корень не резолвится —
+    // prefetch честно молчит целиком.
+    let realRoot: string | null;
+    try {
+      realRoot = realpathSync(i.ctx.paths.projectRoot);
+    } catch {
+      realRoot = null;
+    }
+    for (const rel of realRoot === null ? [] : (i.planFiles ?? [])) {
       if (budget <= 0) break;
       // Чтение строго ВНУТРИ корня проекта. Мало отсечь абсолютные пути: `../../.ssh/…`
       // из files_to_touch (текст пишет модель) выводил чтение за корень, и содержимое
@@ -355,16 +364,16 @@ function userMessage(i: BuildPromptInput): string {
       // проходил лексическую проверку, и содержимое внешнего файла уезжало провайдеру
       // (ревью-2, BLOCKER) — та же дисковая планка, что у гейта записи.
       let real: string;
-      let realRoot: string;
       try {
         real = realpathSync(abs);
-        realRoot = realpathSync(i.ctx.paths.projectRoot);
       } catch {
         continue; // файла нет либо цепочка ссылок битая — читать нечего
       }
-      const realBack = relative(realRoot, real);
+      const realBack = relative(realRoot!, real);
       if (realBack.startsWith('..') || isAbsolute(realBack)) continue;
-      const a = readArtifact(abs);
+      // Чтение по ФАКТИЧЕСКОМУ пути, а не через ссылку: подмена цели симлинка между
+      // проверкой и чтением (TOCTOU) иначе протаскивала бы внешний файл (ревью-3).
+      const a = readArtifact(real);
       if (!a.exists) continue;
       const cap = Math.min(PREFETCH_FILE_BYTES, budget);
       fetched.push(fence(toPosix(rel), a.text, cap));

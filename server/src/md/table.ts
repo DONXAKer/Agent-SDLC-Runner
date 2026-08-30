@@ -67,7 +67,7 @@ export function parseTables(text: string): MdTable[] {
       continue;
     }
 
-    if (SEPARATOR.test(line)) continue;
+    if (isSeparatorRow(line)) continue;
 
     const cells = splitRow(line);
     if (current === null) {

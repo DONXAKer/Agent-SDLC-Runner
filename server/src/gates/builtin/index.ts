@@ -19,7 +19,7 @@ import {
   detectEcosystem,
   syntaxCheckerFor,
 } from '../ecosystems/index.ts';
-import { normalizePlanPath, toPosix } from '../../policy/paths.ts';
+import { foldPathCase, normalizePlanPath, toPosix } from '../../policy/paths.ts';
 import { addedFunctionNames, findDuplicates } from './duplicates.ts';
 import { extractHumanFacts, literalPattern } from '../../artifacts/humanFacts.ts';
 import type { BuildSystem } from '../ecosystems/index.ts';
@@ -1360,15 +1360,14 @@ const humanAnswersGate: BuiltinGate = async (ctx) => {
   // Только добавленные строки — и БЕЗ артефактов витка: `workingDiff` включает
   // нетракованные файлы, то есть сам clarification-report.md, и гейт зеленел бы от
   // литералов вопроса, процитированных в отчёте, а не от кода (пойман тестом).
-  // Регистр гасится на платформах с регистронезависимой ФС (Windows И macOS/APFS):
+  // Регистр гасится по правилу платформы (`foldPathCase` — одно на весь рантайм):
   // путь конфига с иным регистром сегмента переставал бы исключать отчёт из diff, и гейт
-  // зеленел бы от собственных цитат — fail-open (ревью-2). На Linux сравнение строгое.
-  const fold = (s: string): string => (process.platform === 'linux' ? s : s.toLowerCase());
-  const clarRel = fold(toPosix(relative(ctx.projectRoot, ctx.clarificationPath ?? '')));
+  // зеленел бы от собственных цитат — fail-open (ревью-2).
+  const clarRel = foldPathCase(toPosix(relative(ctx.projectRoot, ctx.clarificationPath ?? '')));
   const added = diffLines(await cachedWorkingDiff(ctx))
     .filter((l) => l.added)
     .filter((l) => {
-      const file = fold(toPosix(l.file));
+      const file = foldPathCase(toPosix(l.file));
       return !file.startsWith('.sdlc/') && file !== clarRel;
     })
     .map((l) => l.text)

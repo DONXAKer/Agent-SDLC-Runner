@@ -179,8 +179,18 @@ function objectEnd(text: string, start: number): number {
 const CHAT_RETRIES = 2;
 const CHAT_RETRY_DELAY_MS = 3_000;
 
-/** Сетевые коды, которые чинятся повтором. ENOTFOUND (опечатка в BASE_URL) — постоянный. */
-const TRANSIENT_NET_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EAI_AGAIN']);
+/** Сетевые коды, которые чинятся повтором (включая моргнувший маршрут VPN/Wi-Fi).
+ *  ENOTFOUND (опечатка в BASE_URL) — постоянный, повтором не чинится. */
+const TRANSIENT_NET_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'EPIPE',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+]);
 
 /**
  * Пауза, прерываемая отменой: оператор не должен ждать конца сна ретрая.
@@ -283,7 +293,11 @@ export class OpenAiCompatProvider implements ChatProvider {
         // 3×timeoutMs вместо одного); ENOTFOUND и прочие постоянные коды повтором не
         // чинятся и падали бы трижды с паузами на каждый вызов (ревью-2).
         if (req.signal.aborted) throw e;
-        if (timeout.aborted) throw e;
+        // Таймаут попытки — своим именем: reject несёт общий destroy-текст «запрос
+        // отменён», и зависший сервер выглядел бы отменой оператора (ревью-3, класс К16).
+        if (timeout.aborted) {
+          throw new Error(`${this.name}: ответ не получен за ${this.o.timeoutMs} мс — таймаут запроса`);
+        }
         const code = (e as NodeJS.ErrnoException).code;
         if (code === undefined || !TRANSIENT_NET_CODES.has(code) || attempt > CHAT_RETRIES) throw e;
         await abortableDelay(CHAT_RETRY_DELAY_MS * attempt, req.signal);
@@ -398,7 +412,11 @@ function postJson(
     const onAbort = (): void => {
       request.destroy(new Error('запрос к модели отменён'));
     };
-    signal.addEventListener('abort', onAbort, { once: true });
+    // Проверка на входе обязательна: на уже сработавшем сигнале событие не стреляет, и
+    // запрос отменённого этапа честно ждал бы полного ответа модели (ревью-3 — тот же
+    // class sweep, что закрыл shell/sandbox/abortableDelay, пропустил это место).
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
     request.on('close', () => signal.removeEventListener('abort', onAbort));
 
     request.on('error', reject);

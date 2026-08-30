@@ -44,6 +44,14 @@ describe('extractHumanFacts', () => {
     deepStrictEqual(extractHumanFacts('# Что-то другое\nтекст'), []);
   });
 
+  it('сокращённая шапка берётся позиционным запасным ходом, а не молча в ноль (ревью-3)', () => {
+    const facts = extractHumanFacts(
+      '## Вопросы и ответы\n| # | В | Б | О | И |\n|---|---|---|---|---|\n| 1 | Ставка? | да | 90% | зафикс |\n',
+    );
+    strictEqual(facts.length, 1);
+    strictEqual(facts[0]?.answer, '90%');
+  });
+
   it('номер строки с пометкой («1 (из intent.md)») не мешает разбору', () => {
     const facts = extractHumanFacts(
       '## Вопросы и ответы\n| # | Вопрос | Блокирующий | Ответ человека | Что изменилось |\n|---|---|---|---|---|\n' +

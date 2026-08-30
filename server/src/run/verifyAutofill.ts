@@ -102,7 +102,12 @@ export function autofillVerificationReport(
     );
     if (otherIdx >= 0) {
       const rest = gates.filter((g) => !used.has(gateKey(g.name)));
-      lines.splice(otherIdx, 1, ...rest.map((r) => `| ${r.name} | ${r.status} | ${resultCell(r)} |`));
+      lines.splice(
+        otherIdx,
+        1,
+        // Черта в имени экранируется и здесь — та же страховка, что у именованных строк.
+        ...rest.map((r) => `| ${r.name.replace(/\|/g, '\\|')} | ${r.status} | ${resultCell(r)} |`),
+      );
       filled += rest.length > 0 ? rest.length : 1;
     }
   }

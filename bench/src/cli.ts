@@ -22,7 +22,7 @@ import { loadConfig } from '../../server/src/config/load.ts';
 import { ProfileError } from '../../server/src/config/profiles.ts';
 import type { LoadedConfig } from '../../server/src/config/load.ts';
 import { Run } from '../../server/src/run/Run.ts';
-import { ApprovalBus, AskBus, attachOperator, emptyOperatorLog, readHumanScript } from './operator.ts';
+import { ApprovalBus, AskBus, HumanScriptError, attachOperator, emptyOperatorLog, readHumanScript } from './operator.ts';
 import { createCollector } from './collector.ts';
 import { runBench } from './driver.ts';
 import { buildResult, writeResult } from './result.ts';
@@ -442,7 +442,7 @@ function median(values: readonly number[]): number | null {
 /** Сэмпл серии: измеренный исход ЛИБО ошибка — без фиктивных нулей в полях метрик. */
 type SeriesSample =
   | (LiveOutcome & { slug: string; error?: undefined })
-  | { slug: string; error: string; code: 2 };
+  | { slug: string; error: string };
 
 async function seriesRun(opts: BenchOptions): Promise<number> {
   const outcomes: SeriesSample[] = [];
@@ -458,10 +458,17 @@ async function seriesRun(opts: BenchOptions): Promise<number> {
       const outcome = await liveRun({ ...opts, slug });
       outcomes.push({ ...outcome, slug });
     } catch (e) {
-      if (e instanceof ProfileError || e instanceof ControlError || e instanceof WorkspaceError) throw e;
+      if (
+        e instanceof ProfileError ||
+        e instanceof ControlError ||
+        e instanceof WorkspaceError ||
+        e instanceof HumanScriptError
+      ) {
+        throw e;
+      }
       const msg = (e as Error).message;
       console.error(`сэмпл ${slug} не измерен: ${msg}`);
-      outcomes.push({ slug, error: msg, code: 2 });
+      outcomes.push({ slug, error: msg });
     }
   }
 
@@ -494,9 +501,10 @@ async function seriesRun(opts: BenchOptions): Promise<number> {
   }
 
   // Код серии: «не измерено» (2) — только если не измерился НИ ОДИН сэмпл; по измеренным —
-  // худший исход, как везде в вердиктах.
-  const measured = outcomes.map((o) => o.code).filter((c) => c !== 2);
-  return measured.length === 0 ? 2 : Math.max(...measured);
+  // худший исход, как везде в вердиктах. Через measuredSamples, а не магический фильтр
+  // «code !== 2»: измеренный сэмпл с легитимным кодом 2 не должен выпадать из агрегации.
+  const codes = measuredSamples.map((o) => o.code);
+  return codes.length === 0 ? 2 : Math.max(...codes);
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
@@ -523,7 +531,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       console.error(`профиль не собрался:\n  ${e.problems.join('\n  ')}`);
       return 2;
     }
-    if (e instanceof ControlError || e instanceof WorkspaceError) {
+    if (e instanceof ControlError || e instanceof WorkspaceError || e instanceof HumanScriptError) {
       console.error(`подготовка не удалась: ${e.message}`);
       return 2;
     }

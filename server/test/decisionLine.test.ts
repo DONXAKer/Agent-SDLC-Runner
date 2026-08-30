@@ -20,6 +20,13 @@ describe('isDecisionLine — жирная метка поля, не подстр
     strictEqual(isDecisionLine('**Решение человека о полноте:** ‹…›'), true);
   });
 
+  it('форма handoff «**Кто утвердил** _(пояснение)_:» — поле решения (ревью-3)', () => {
+    strictEqual(
+      isDecisionLine('- **Кто утвердил** _(только имя из явного ответа человека)_: н/п / ‹имя›'),
+      true,
+    );
+  });
+
   it('проза со словами решений полем не является', () => {
     // Ревью-2: подстрочный матч отнимал у автозаполнения машинные поля handoff-бланка.
     strictEqual(isDecisionLine('Пункты в `❌`: ‹id› … н/п — **приёмка** не запускалась'), false);
@@ -40,6 +47,9 @@ describe('isDecisionCell — подписная колонка шапки таб
     strictEqual(isDecisionCell('Вопрос'), false);
     strictEqual(isDecisionCell('Некто'), false);
     strictEqual(isDecisionCell('Причина'), false);
+    // Дефис и цифра — не граница слова (ревью-3).
+    strictEqual(isDecisionCell('Кто-то'), false);
+    strictEqual(isDecisionCell('Кто2'), false);
   });
 });
 

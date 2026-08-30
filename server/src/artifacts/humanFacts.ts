@@ -99,10 +99,21 @@ export function extractHumanFacts(text: string): HumanFact[] {
 
   // Общий разборщик таблиц, а не построчный полуразбор: колонки находятся по именам
   // шапки, а не магическими индексами — сдвиг формы таблицы ломался бы молча (ревью-2).
+  // Нарезка секции — по h2 вручную, а не по `table.section`: parseTables сбрасывает
+  // секцию на заголовке любого уровня, и h3-подзаголовок внутри «Вопросы и ответы»
+  // выключал бы таблицу молча (тот же класс, что пойман в stages.ts, ревью-3).
   const out: HumanFact[] = [];
   for (const table of parseTables(section)) {
-    const qi = columnIndex(table.header, 'Вопрос');
-    const ai = columnIndex(table.header, 'Ответ');
+    let qi = columnIndex(table.header, 'Вопрос');
+    let ai = columnIndex(table.header, 'Ответ');
+    // Неканоничная шапка (модель сократила имена колонок) — позиционный запасной ход по
+    // форме шаблона «| # | Вопрос | Блокирующий | Ответ | … |»: без него потеря шапки
+    // делала гейт «Ответы человека в коде» зелёным «сверять нечего» — ложный зелёный на
+    // ровном месте (ревью-3). Требуются все пять колонок формы, иначе таблица не наша.
+    if ((qi < 0 || ai < 0) && table.header.length >= 5) {
+      qi = 1;
+      ai = 3;
+    }
     if (qi < 0 || ai < 0) continue;
     for (const row of table.rows) {
       const question = (row[qi] ?? '').trim();
