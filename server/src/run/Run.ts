@@ -36,7 +36,9 @@ import { isAbsolute, join } from 'node:path';
 import {
   branchNameFromField,
   decisionValue,
+  DECISION,
   readArtifact,
+  readDecision,
   readField,
   setDecision,
   writeArtifact,
@@ -76,7 +78,8 @@ import { configProblems, gateKey, parseGates, uncalibratedGates, unimplementedGa
 import { builtinFor, describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName, runGates } from '../gates/run.ts';
-import { stageNewPlanFiles, workingDiff } from '../gates/git.ts';
+import { git, hasCommits, stageNewPlanFiles, workingDiff } from '../gates/git.ts';
+import { autofillChunkJournal } from './journalAutofill.ts';
 import type { BuiltinGate, GateContext } from '../gates/builtin/index.ts';
 import { recordAttemptEvidence } from './evidence.ts';
 import type { TreeChange } from './evidence.ts';
@@ -787,6 +790,65 @@ export class Run {
       Object.values(this.profile.routes).map((r) => r.providerDef.currency ?? 'USD'),
     );
     return set.size === 1 ? [...set][0]! : 'USD';
+  }
+
+  /**
+   * Заполняет механические поля журнала chunk'а фактами рантайма — см. `journalAutofill.ts`.
+   *
+   * Идёт и на попытке K>1 (журнал уже существует и посеян не в этот раз): подстановка
+   * идемпотентна, а незаполненные механические поля с прошлой попытки не должны съедать
+   * ходы и этой. Снимок после подстановки кладётся в `SeededArtifact.snapshot`, чтобы
+   * страж «бланк байт-в-байт» не ослеп от нашей же записи.
+   */
+  private async autofillJournal(seeded: { path: string; snapshot?: string }[]): Promise<void> {
+    const path = this.paths.chunkJournal(this.chunk);
+    const journal = readArtifact(path);
+    if (!journal.exists || journal.placeholders === 0) return;
+
+    const root = this.project.projectRoot;
+    let baseSha: string | null = null;
+    if (await isRepo(root)) {
+      if (await hasCommits(root)) {
+        const r = await git(['rev-parse', 'HEAD'], root);
+        baseSha = r.code === 0 ? r.stdout.trim() : null;
+      }
+    }
+
+    // Дата одобрения плана — только из фактического решения в plan.md: сочинять дату
+    // решения человека нельзя, не извлеклась — поле остаётся плейсхолдером.
+    let planApprovedOn: string | null = null;
+    const plan = readArtifact(this.paths.plan);
+    if (plan.exists) {
+      const d = readDecision(plan.text, DECISION.approval);
+      if (d.state === 'granted') {
+        const m = /\d{4}-\d{2}-\d{2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}/.exec(
+          ('raw' in d ? d.raw : undefined) ?? '',
+        );
+        planApprovedOn = m === null ? null : m[0];
+      }
+    }
+
+    const { text, filled } = autofillChunkJournal(journal.text, {
+      chunk: this.chunk,
+      slug: this.slug,
+      date: new Date().toISOString().slice(0, 10),
+      baseSha,
+      attemptBudget: this.attemptBudget,
+      planApprovedOn,
+    });
+    if (filled === 0) return;
+
+    writeArtifact(path, text);
+    const seed = seeded.find((s) => s.path === path);
+    if (seed !== undefined) seed.snapshot = text;
+    this.emit({
+      type: 'warning',
+      runId: this.id,
+      stage: 'chunk',
+      message:
+        `рантайм заполнил механические поля журнала (${filled}): номер, base_sha, бюджет, ` +
+        'даты — модели остались содержательные',
+    });
   }
 
   private toolsFor(stage: StageId): readonly ToolName[] {
@@ -1863,6 +1925,13 @@ export class Run {
     const missingBefore = missingNow(produced);
     const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
     this.seeded = seeded.map((s) => s.path);
+
+    // Механические поля журнала chunk'а (номер, base_sha, бюджет попыток, даты) заполняет
+    // рантайм ДО модели: замер серии r2 показал, что слабая модель с идеальным кодом
+    // сжигает лимит ходов ровно на этих полях. Снимок после подстановки уходит в
+    // `SeededArtifact.snapshot` — страж «бланк байт-в-байт» сравнивает с ним, и этап,
+    // не сделавший ничего, по-прежнему виден.
+    if (stage === 'chunk') await this.autofillJournal(seeded);
 
     // Что считается «этап ничего не произвёл»: файла нет ИЛИ он остался бланком байт в
     // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.

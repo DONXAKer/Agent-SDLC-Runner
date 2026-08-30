@@ -33,6 +33,13 @@ export function templateNameFor(artifactPath: string): string {
 export interface SeededArtifact {
   path: string;
   template: string;
+  /**
+   * Содержимое бланка ПОСЛЕ механических подстановок рантайма (автозаполнение журнала
+   * chunk'а). Когда рантайм дописал форму сам, сравнивать «нетронутость» с шаблоном
+   * нельзя — файл уже отличается от него без единого действия модели; сравнивается с
+   * этим снимком. Не задан — бланк лежит как в шаблоне, сравнение прежнее.
+   */
+  snapshot?: string;
 }
 
 /**
@@ -74,7 +81,8 @@ export function untouchedSeeds(seeded: readonly SeededArtifact[]): string[] {
   return seeded
     .filter((s) => {
       if (!existsSync(s.path) || !existsSync(s.template)) return false;
-      return readFileSync(s.path, 'utf8') === readFileSync(s.template, 'utf8');
+      const expected = s.snapshot ?? readFileSync(s.template, 'utf8');
+      return readFileSync(s.path, 'utf8') === expected;
     })
     .map((s) => s.path);
 }
