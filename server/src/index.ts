@@ -624,8 +624,8 @@ app.post('/api/runs/:id/approvals/:requestId', async (req, reply) => {
 
 app.post('/api/runs/:id/questions/:requestId', async (req, reply) => {
   const { id, requestId } = req.params as { id: string; requestId: string };
-  const body = req.body as { answers?: Record<string, string[]> };
-  const ok = askGate.answer(id, requestId, body.answers ?? {});
+  const body = req.body as { answers?: Record<string, string[]>; note?: string };
+  const ok = askGate.answer(id, requestId, body.answers ?? {}, body.note);
   if (!ok) return reply.code(404).send({ error: 'вопрос уже отвечен или устарел' });
   return { ok: true };
 });

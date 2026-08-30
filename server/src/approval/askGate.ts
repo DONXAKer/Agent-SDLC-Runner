@@ -58,12 +58,25 @@ export class AskGate {
   }
 
   /** Ключ включает прогон — по тем же причинам, что и в гейте одобрений. */
-  answer(runId: string, requestId: string, answers: Record<string, string[]>): boolean {
+  answer(
+    runId: string,
+    requestId: string,
+    answers: Record<string, string[]>,
+    note?: string,
+  ): boolean {
     const w = this.waiting.get(requestId);
     if (w === undefined || w.runId !== runId) return false;
     this.waiting.delete(requestId);
-    this.events.onAnswered({ runId: w.runId, stage: w.stage, requestId }, answers);
-    w.resolve(answers);
+    // Примечание оператора едет ВНУТРИ ответов: оба исполнителя отдают модели только
+    // answers (loop — JSON.stringify, sdk — тем же объектом), отдельного канала для
+    // пояснения нет. Живой виток ta-13: оператор выбрал «нужны правки» и написал какие
+    // в note — модель получила голый label и переспросила, сжигая ход и деньги.
+    const merged =
+      note !== undefined && note.trim() !== ''
+        ? { ...answers, 'примечание оператора': [note.trim()] }
+        : answers;
+    this.events.onAnswered({ runId: w.runId, stage: w.stage, requestId }, merged);
+    w.resolve(merged);
     return true;
   }
 
