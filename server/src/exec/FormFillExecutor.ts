@@ -248,16 +248,21 @@ export class FormFillExecutor implements StageExecutor {
         // Сплайсы после пачки, в её же порядке «с конца»: позиции необработанных
         // диапазонов ниже по тексту не сдвигаются.
         for (const [idx, range] of asked.entries()) {
-          const filled = cleanFieldAnswer(answers[idx]?.text ?? '');
+          let filled = cleanFieldAnswer(answers[idx]?.text ?? '');
+          // Ответ на строку-образец обязан состоять из строк таблицы: проза разломала бы
+          // таблицу молча. Пустые строки и продублированные шапка/разделитель — обычный
+          // «мусор вежливости» моделей, снимаются до проверки, содержимое не редактируется.
+          if (range.kind === 'row') {
+            const rows = filled
+              .split('\n')
+              .map((l) => l.trim())
+              .filter((l) => l !== '' && !/^\|[\s:|-]+\|$/.test(l))
+              .filter((l, i2, all) => !(i2 === 0 && all.length > 1 && /\|\s*id\s*\|/i.test(l)));
+            filled = rows.every((l) => l.startsWith('|')) ? rows.join('\n') : '';
+          }
           // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся как
           // был, и его честно назовут страж завершения и предусловие следующего этапа.
-          // Ответ на строку-образец обязан состоять из строк таблицы: прозу вместо строк
-          // впускать нельзя — она разломала бы таблицу молча.
           if (filled === '' || filled.includes('‹')) {
-            fieldsLeft++;
-            continue;
-          }
-          if (range.kind === 'row' && !filled.split('\n').every((l) => l.trim().startsWith('|'))) {
             fieldsLeft++;
             continue;
           }
