@@ -158,6 +158,49 @@ describe('бюджет ходов на чтение (loop)', () => {
     ok(!seen.some((r) => lastUser(r).includes('только чтение')), 'напоминание пришло субагенту-читателю');
   });
 
+  it('четыре Bash подряд получают напоминание «этап делается правками», запись серию сбрасывает', async () => {
+    const bash = (n: number): Turn => ({
+      text: '',
+      toolCalls: [{ id: `b${n}`, name: 'Bash', arguments: { command: `echo ${n}` } }],
+    });
+    const frictions: string[] = [];
+    const seen: ChatRequest[] = [];
+    const exec = new LoopExecutor({
+      provider: provider([bash(1), bash(2), bash(3), bash(4), { text: 'готово' }], seen),
+      maxResultBytes: 1000,
+      readRangeRequiredAboveBytes: 1000,
+      bashTimeoutMs: 1000,
+      temperature: null,
+    });
+    await exec.run(request({ allowedTools: ['Bash', 'Edit'] as ToolName[] }), hooks(frictions));
+    ok(
+      seen.some((r) => lastUser(r).includes('только Bash')),
+      'напоминание «только Bash» не дошло до модели',
+    );
+
+    // Со сбросом Edit'ом на середине серии напоминания нет.
+    const seen2: ChatRequest[] = [];
+    const exec2 = new LoopExecutor({
+      provider: provider(
+        [
+          bash(1),
+          bash(2),
+          bash(3),
+          { text: '', toolCalls: [{ id: 'e1', name: 'Edit', arguments: { file_path: '/нет/x.md', old_string: 'а', new_string: 'б' } }] },
+          bash(4),
+          { text: 'готово' },
+        ],
+        seen2,
+      ),
+      maxResultBytes: 1000,
+      readRangeRequiredAboveBytes: 1000,
+      bashTimeoutMs: 1000,
+      temperature: null,
+    });
+    await exec2.run(request({ allowedTools: ['Bash', 'Edit'] as ToolName[] }), hooks([]));
+    ok(!seen2.some((r) => lastUser(r).includes('только Bash')), 'напоминание пришло после сброса серии записью');
+  });
+
   it('params из конфига модели доезжают до провайдера', async () => {
     const seen: ChatRequest[] = [];
     const exec = new LoopExecutor({

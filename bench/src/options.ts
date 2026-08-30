@@ -70,6 +70,13 @@ export interface BenchOptions {
    */
   fromSnapshot: string | null;
   /**
+   * Число прогонов серии одной командой (`--repeat`). Правило журнала «для 8B — серии ≥3»
+   * было дисциплиной, а не механикой: серии гонялись циклом руками, и половина сравнений
+   * держалась на единственном сэмпле. Каждый сэмпл получает слаг `<slug>-sN` и свой отчёт;
+   * сводка серии — медиана и разброс по щупам.
+   */
+  repeat: number;
+  /**
    * После какого этапа делать снимок (`--make-snapshot`). Умолчание `plan` — прежнее
    * поведение; `intent`/`explore`/… дают дешёвый замер ЛЮБОГО этапа в изоляции, а не
    * только chunk'а (шаг «снимки на каждый этап» из анализа порогов слабых моделей).
@@ -105,6 +112,7 @@ export const USAGE = `
   --max-turns <n>       ходов на этап (умолчание 25)
   --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
+  --repeat <n>          серия из n одинаковых прогонов (слаги <slug>-s1…-sn, сводка с медианой)
   --keep-workspace      не удалять рабочую копию в tmp
   --dry-run             подготовить копию и напечатать блокеры, модель не вызывать
   --probe               преполётная проба tool-calling: 3 микро-кейса за секунды, без витка
@@ -138,6 +146,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let maxIterationsPerStage = DEFAULTS.maxIterationsPerStage;
   let maxBudgetUsd = DEFAULTS.maxBudgetUsd;
   let attempts = DEFAULTS.attempts;
+  let repeat = 1;
   let keepWorkspace = false;
   let dryRun = false;
   let probe = false;
@@ -219,6 +228,10 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         attempts = positiveNumber(next(i, key), key);
         i++;
         break;
+      case '--repeat':
+        repeat = Math.floor(positiveNumber(next(i, key), key));
+        i++;
+        break;
       case '--keep-workspace':
         keepWorkspace = true;
         break;
@@ -268,6 +281,11 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   if (makeSnapshot !== null && makeSnapshot === fromSnapshot) {
     throw new OptionsError('--make-snapshot и --from-snapshot указывают на один слот: снимок затёр бы сам себя');
   }
+  // Серия — про измерение дисперсии; проба и сухой прогон детерминированы по нашей
+  // стороне, а n одинаковых снимков затирали бы друг друга одним именем.
+  if (repeat > 1 && (probe || dryRun || makeSnapshot !== null)) {
+    throw new OptionsError('--repeat совместим только с живым измерением (--stage/--all без --make-snapshot)');
+  }
   // Точка снимка без самого снимка — почти наверняка опечатка в наборе ключей, и молчаливое
   // игнорирование стоило бы платного прогона, который остановился не там, где ждали.
   if (snapshotAfter !== null && makeSnapshot === null) {
@@ -289,6 +307,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     maxIterationsPerStage,
     maxBudgetUsd,
     attempts,
+    repeat,
     keepWorkspace,
     dryRun,
     probe,

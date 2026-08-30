@@ -39,6 +39,13 @@ import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
 
+/**
+ * Сколько полей спрашивается одновременно. Поля независимы (каждый запрос несёт полный
+ * контекст и одну строку бланка), 3 — компромисс: заметно быстрее последовательного, но
+ * не шторм для локального сервера, который всё равно исполняет запросы по одному.
+ */
+const FIELD_PARALLEL = 3;
+
 export interface FormFillOptions {
   provider: ChatProvider;
   maxResultBytes: number;
@@ -120,49 +127,66 @@ export class FormFillExecutor implements StageExecutor {
       const ranges = [...placeholderRanges(text)].reverse();
       let changed = false;
 
-      for (const range of ranges) {
+      // Поля независимы и идут пачками: последовательное дозаполнение журнала занимало
+      // ~40 с чистого ожидания сети на десяток полей. Ответы собираются на НЕИЗМЕНЁННОМ
+      // тексте (позиции и строки всех полей пачки посчитаны до первого сплайса), сплайсы
+      // применяются после пачки — в том же порядке «с конца», что и раньше.
+      for (let batchStart = 0; batchStart < ranges.length; batchStart += FIELD_PARALLEL) {
+        if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
+
         // Потолок вызовов — тот же лимит ходов этапа: поле дешевле хода, но безлимитный
         // бланк на сотню плейсхолдеров съел бы больше, чем обычный цикл.
-        if (callsSpent >= req.maxTurns) {
-          fieldsLeft++;
+        const allowed = Math.min(FIELD_PARALLEL, req.maxTurns - callsSpent);
+        const batch = ranges.slice(batchStart, batchStart + FIELD_PARALLEL);
+        if (allowed <= 0) {
+          fieldsLeft += batch.length;
           continue;
         }
-        callsSpent++;
+        const asked = batch.slice(0, allowed);
+        fieldsLeft += batch.length - asked.length;
+        callsSpent += asked.length;
 
-        const line = lineAt(text, range.start);
-        const answer = await this.o.provider.chat({
-          model: req.model,
-          messages: [
-            { role: 'system', content: req.prompt.system },
-            {
-              role: 'user',
-              content: [
-                req.prompt.user,
-                '',
-                '## Сейчас — ровно одно поле',
-                '',
-                `Файл \`${relative(req.cwd, path)}\`, строка бланка:`,
-                '',
-                '```',
-                line,
-                '```',
-                '',
-                `Верни ТОЛЬКО текст, которым надо заменить плейсхолдер \`${range.text}\` в этой ` +
-                  'строке — без самих скобок ‹›, без пояснений вокруг, по факту задачи и входных ' +
-                  'артефактов. Если поле требует решения человека, которого у тебя нет, верни ' +
-                  '«требует решения человека: <что именно>» вместо выдуманного ответа.',
-              ].join('\n'),
-            },
-          ],
-          tools: [],
-          signal: req.signal,
-          temperature: null,
-          params: this.o.params ?? null,
-        });
+        const answers = await Promise.all(
+          asked.map((range) =>
+            this.o.provider.chat({
+              model: req.model,
+              messages: [
+                { role: 'system', content: req.prompt.system },
+                {
+                  role: 'user',
+                  content: [
+                    req.prompt.user,
+                    '',
+                    '## Сейчас — ровно одно поле',
+                    '',
+                    `Файл \`${relative(req.cwd, path)}\`, строка бланка:`,
+                    '',
+                    '```',
+                    lineAt(text, range.start),
+                    '```',
+                    '',
+                    `Верни ТОЛЬКО текст, которым надо заменить плейсхолдер \`${range.text}\` в этой ` +
+                      'строке — без самих скобок ‹›, без пояснений вокруг, по факту задачи и входных ' +
+                      'артефактов. Если поле требует решения человека, которого у тебя нет, верни ' +
+                      '«требует решения человека: <что именно>» вместо выдуманного ответа.',
+                  ].join('\n'),
+                },
+              ],
+              tools: [],
+              signal: req.signal,
+              temperature: null,
+              params: this.o.params ?? null,
+            }),
+          ),
+        );
 
-        usage = addUsage(usage, answer.usage);
-        hooks.onUsage(answer.usage);
+        for (const answer of answers) {
+          usage = addUsage(usage, answer.usage);
+          hooks.onUsage(answer.usage);
+        }
 
+        // Бюджет проверяется после пачки: цена известна только по факту, а пачка — это
+        // и есть один «ход» режима.
         const spent = usage.costUsd === null ? null : usage.costUsd + (req.spentUsdBefore ?? 0);
         if (req.maxBudgetUsd !== null && spent !== null && spent >= req.maxBudgetUsd) {
           return {
@@ -175,16 +199,20 @@ export class FormFillExecutor implements StageExecutor {
           };
         }
 
-        const filled = cleanFieldAnswer(answer.text);
-        // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся как
-        // был, и его честно назовут страж завершения и предусловие следующего этапа.
-        if (filled === '' || filled.includes('‹')) {
-          fieldsLeft++;
-          continue;
+        // Сплайсы после пачки, в её же порядке «с конца»: позиции необработанных
+        // диапазонов ниже по тексту не сдвигаются.
+        for (const [idx, range] of asked.entries()) {
+          const filled = cleanFieldAnswer(answers[idx]?.text ?? '');
+          // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся как
+          // был, и его честно назовут страж завершения и предусловие следующего этапа.
+          if (filled === '' || filled.includes('‹')) {
+            fieldsLeft++;
+            continue;
+          }
+          text = text.slice(0, range.start) + filled + text.slice(range.end);
+          fieldsFilled++;
+          changed = true;
         }
-        text = text.slice(0, range.start) + filled + text.slice(range.end);
-        fieldsFilled++;
-        changed = true;
       }
 
       if (!changed) continue;

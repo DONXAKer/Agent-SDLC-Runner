@@ -1319,6 +1319,11 @@ export class Run {
       ...(this.mcpSelected.length === 0 ? {} : { mcpTools: this.mcpSelected }),
       ...(this.mcpUnavailable().length === 0 ? {} : { mcpUnavailable: this.mcpUnavailable() }),
       ...(this.seeded.length === 0 ? {} : { seededArtifacts: this.seeded }),
+      // Prefetch файлов плана в промпт этапа 5 (флоу loop) — тем же источником, что у
+      // политики: второй разбор плана разошёлся бы с ней.
+      ...(stage === 'chunk' && (this.planFilesFor('chunk') ?? []).length > 0
+        ? { planFiles: this.planFilesFor('chunk') ?? [] }
+        : {}),
     });
     this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     return prompt;

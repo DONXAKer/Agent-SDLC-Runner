@@ -160,7 +160,15 @@ async function dryRun(opts: BenchOptions): Promise<number> {
  * (см. `operator.ts`): один поток событий уходит в коллектор (лента на диск + числа
  * рантайма), второй — автоответчику, который отвечает вместо человека.
  */
-async function liveRun(opts: BenchOptions): Promise<number> {
+/** Сводка одного живого прогона — вход сводки серии `--repeat`. */
+interface LiveOutcome {
+  code: number;
+  /** Счёт скрытых тестов; `null` — до них не дошло (снимок, обрыв до chunk'а). */
+  hidden: { pass: number; total: number } | null;
+  durationMs: number;
+}
+
+async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
   const base = loadConfig();
   const config = benchConfig(base, opts);
   const control = readControl(CONTROL_FILE);
@@ -317,7 +325,7 @@ async function liveRun(opts: BenchOptions): Promise<number> {
         stoppedAfterStage: opts.snapshotAfter,
       });
       console.log(`\nснимок сохранён: ${opts.makeSnapshot} (после ${opts.snapshotAfter})`);
-      return 0;
+      return { code: 0, hidden: null, durationMs: finishedAt.getTime() - startedAt.getTime() };
     }
 
     const result = buildResult({
@@ -367,7 +375,11 @@ async function liveRun(opts: BenchOptions): Promise<number> {
     console.log('\n--- черновик docs/model-runs.md (вклеить руками) ---\n');
     console.log(draftJournalEntry({ result, report }));
 
-    return report.exitCode;
+    return {
+      code: report.exitCode,
+      hidden: hidden === null ? null : { pass: hidden.pass, total: hidden.total },
+      durationMs: finishedAt.getTime() - startedAt.getTime(),
+    };
   } finally {
     operatorHandle.detach();
     await run.dispose();
@@ -413,6 +425,54 @@ async function probeRun(opts: BenchOptions): Promise<number> {
   return report.passed ? 0 : 1;
 }
 
+/** Медиана уже отсортированного НЕ обязана быть — сортируем сами. Пусто — null. */
+function median(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)]!;
+}
+
+/**
+ * Серия `--repeat N`: N одинаковых прогонов, слаги `<slug>-s1…-sN`, сводка с медианой и
+ * разбросом по щупам. Правило журнала «для 8B — серии ≥3» становится механикой: дисперсия
+ * сэмплов у 8B такая, что единичный прогон недоказателен (см. `docs/model-runs.md`, r8).
+ */
+async function seriesRun(opts: BenchOptions): Promise<number> {
+  const outcomes: (LiveOutcome & { slug: string })[] = [];
+  for (let i = 1; i <= opts.repeat; i++) {
+    const slug = `${opts.slug}-s${i}`;
+    console.log(`\n===== серия: сэмпл ${i} из ${opts.repeat} (${slug}) =====\n`);
+    const outcome = await liveRun({ ...opts, slug });
+    outcomes.push({ ...outcome, slug });
+  }
+
+  console.log(`\n===== сводка серии (${opts.repeat} сэмплов) =====`);
+  for (const o of outcomes) {
+    const mins = (o.durationMs / 60_000).toFixed(1);
+    const probes = o.hidden === null ? 'щупы не гонялись' : `щупы ${o.hidden.pass}/${o.hidden.total}`;
+    console.log(`  ${o.slug}: код ${o.code} · ${probes} · ${mins} мин`);
+  }
+  const withHidden = outcomes.filter((o) => o.hidden !== null);
+  if (withHidden.length > 0) {
+    const passes = withHidden.map((o) => o.hidden!.pass);
+    const total = withHidden[0]!.hidden!.total;
+    console.log(
+      `  щупы: медиана ${median(passes)}/${total}, разброс ${Math.min(...passes)}–${Math.max(...passes)}` +
+        (withHidden.length < outcomes.length ? ` (по ${withHidden.length} из ${outcomes.length} сэмплов)` : ''),
+    );
+  }
+  const times = outcomes.map((o) => o.durationMs);
+  console.log(
+    `  время: медиана ${((median(times) ?? 0) / 60_000).toFixed(1)} мин, ` +
+      `разброс ${(Math.min(...times) / 60_000).toFixed(1)}–${(Math.max(...times) / 60_000).toFixed(1)} мин`,
+  );
+
+  // Код серии: «не измерено» (2) — только если не измерился НИ ОДИН сэмпл; по измеренным —
+  // худший исход, как везде в вердиктах.
+  const measured = outcomes.map((o) => o.code).filter((c) => c !== 2);
+  return measured.length === 0 ? 2 : Math.max(...measured);
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   let opts: BenchOptions;
   try {
@@ -428,7 +488,8 @@ export async function main(argv: readonly string[]): Promise<number> {
   try {
     if (opts.probe) return await probeRun(opts);
     if (opts.dryRun) return await dryRun(opts);
-    return await liveRun(opts);
+    if (opts.repeat > 1) return await seriesRun(opts);
+    return (await liveRun(opts)).code;
   } catch (e) {
     // Три причины «измерение не состоялось» называются отдельно: у каждой свой способ
     // починки, и слив их в один текст стоил бы времени на следующем прогоне.

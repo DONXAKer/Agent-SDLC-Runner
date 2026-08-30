@@ -56,6 +56,7 @@ function result(stagesOk: boolean) {
       snapshotAfter: 'plan',
       makeSnapshot: null,
       fromSnapshot: null,
+      repeat: 1,
     },
     built: {
       project: { name: 'bench', projectRoot: '/tmp/x', activeProfile: 'control', maxBudgetUsd: 5, profiles: {} },

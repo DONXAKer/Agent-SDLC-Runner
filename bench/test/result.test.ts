@@ -79,6 +79,7 @@ describe('buildResult', () => {
         snapshotAfter: 'plan',
         makeSnapshot: null,
         fromSnapshot: null,
+        repeat: 1,
       },
       built,
       startedAt,

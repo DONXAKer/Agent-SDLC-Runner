@@ -91,6 +91,15 @@ const READ_STREAK_REMINDERS = 2;
 const READ_KINDS = new Set(['read', 'glob', 'grep']);
 
 /**
+ * Та же конструкция для серий оболочки. Замер (`docs/model-runs.md`, ministral-14b t=0):
+ * 14 Bash подряд за прогон — модель гоняет команды вместо правок, и каждый ход несёт
+ * полный промпт по счётчику входных токенов. Порог выше читального: две команды подряд
+ * (тест + сборка) — штатный ритм, серия из четырёх — уже блуждание.
+ */
+const BASH_STREAK_LIMIT = 4;
+const BASH_STREAK_REMINDERS = 2;
+
+/**
  * Имена инструментов субагента приходят строками из его YAML-шапки — файл пишет человек.
  * Незнакомое имя не превращается в право: оно просто не попадает в пересечение.
  */
@@ -163,6 +172,8 @@ export class LoopExecutor implements StageExecutor {
     let reminders = 0;
     let readStreak = 0;
     let readNudges = 0;
+    let bashStreak = 0;
+    let bashNudges = 0;
 
     for (let turn = 1; turn <= req.maxTurns; turn++) {
       if (req.signal.aborted) {
@@ -270,7 +281,10 @@ export class LoopExecutor implements StageExecutor {
 
       // Ход из субагентов — прогресс, не чтение: серия сбрасывается и здесь, иначе
       // напоминание «пора писать» прилетало бы сразу после хода, где модель делегировала.
-      if (parallelSubagents) readStreak = 0;
+      if (parallelSubagents) {
+        readStreak = 0;
+        bashStreak = 0;
+      }
 
       if (parallelSubagents) {
         // Отпечаток хода целиком, а не последнего вызова: пока `repeats` здесь обнулялся
@@ -331,6 +345,7 @@ export class LoopExecutor implements StageExecutor {
         // тоже не запись, и серия сквозь него не обнуляется.
         readStreak =
           normalized !== null && READ_KINDS.has(normalized.kind) ? readStreak + 1 : 0;
+        bashStreak = normalized !== null && normalized.kind === 'bash' ? bashStreak + 1 : 0;
 
         const result = await this.handleCall(
           call,
@@ -369,6 +384,25 @@ export class LoopExecutor implements StageExecutor {
             'записи. Результат этапа — записанный артефакт, а не прочитанные файлы: если ' +
             'контекста уже достаточно, переходи к записи инструментами Write/Edit. Продолжай ' +
             'читать только то, без чего правку не сделать.',
+        });
+      }
+
+      // Серия оболочки — тем же местом и по тем же правилам, что серия чтений.
+      if (
+        req.finishGuard !== null &&
+        bashStreak >= BASH_STREAK_LIMIT &&
+        bashNudges < BASH_STREAK_REMINDERS
+      ) {
+        const streak = bashStreak;
+        bashNudges++;
+        bashStreak = 0;
+        hooks.onFriction('reminder');
+        messages.push({
+          role: 'user',
+          content:
+            `Последние ${streak} вызовов — только Bash. Этап делается правками файлов ` +
+            '(Write/Edit) и записью артефакта, а не командной строкой: запусти проверку один ' +
+            'раз ПОСЛЕ правки, вместо серии команд до неё. Каждый ход стоит полного промпта.',
         });
       }
     }

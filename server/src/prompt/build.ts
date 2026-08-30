@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 
 import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
 import { extractHumanFacts } from '../artifacts/humanFacts.ts';
@@ -41,6 +41,13 @@ const MAX_ARTIFACT_BYTES = 40_000;
  */
 const LOOP_MAX_ARTIFACT_BYTES = 12_000;
 const LOOP_CAPPED_STAGES: ReadonlySet<string> = new Set(['intent', 'explore', 'ask', 'plan']);
+
+/**
+ * Потолки prefetch'а файлов плана в промпт этапа 5 (флоу loop). Обрезка честная, той же
+ * `fence`-обвязкой: модель видит пометку и знает, что хвост надо дочитать Read'ом.
+ */
+const PREFETCH_FILE_BYTES = 8_000;
+const PREFETCH_TOTAL_BYTES = 24_000;
 
 /** Обрезка по БАЙТАМ с выравниванием по границе символа. */
 function capBytes(text: string, maxBytes: number): { text: string; capped: boolean } {
@@ -94,6 +101,14 @@ export interface BuildPromptInput {
    * либо начинает сочинять структуру рядом.
    */
   seededArtifacts?: readonly string[];
+  /**
+   * `files_to_touch` одобренного плана — относительные пути. Только для этапа 5 флоу
+   * `loop`: их содержимое кладётся в промпт сразу, снимая 5–10 Read-ходов блуждания
+   * (каждый ход слабой модели несёт полный промпт — экономика этапа считается ходами).
+   * Считает вызывающий из того же плана, что и политика: второй разбор плана здесь
+   * разошёлся бы с ней.
+   */
+  planFiles?: readonly string[];
   ecosystem?: readonly {
     /** Каталог модуля относительно корня проекта. `.` — корень. */
     dir: string;
@@ -319,6 +334,34 @@ function userMessage(i: BuildPromptInput): string {
 
   if (present.length > 0) {
     parts.push('## Входные артефакты', '', present.join('\n\n'));
+  }
+
+  // Prefetch файлов плана — только этап 5 и только флоу loop: сильной модели flow sdk
+  // дешевле прочитать самой, чем возить это в контексте каждым ходом.
+  if (i.stage.id === 'chunk' && i.flow === 'loop') {
+    const fetched: string[] = [];
+    let budget = PREFETCH_TOTAL_BYTES;
+    for (const rel of i.planFiles ?? []) {
+      if (budget <= 0) break;
+      // Абсолютный путь в плане `join` не абсолютизирует, а приклеивает — тот же фильтр,
+      // что у salvage.
+      if (isAbsolute(rel)) continue;
+      const a = readArtifact(join(i.ctx.paths.projectRoot, rel));
+      if (!a.exists) continue;
+      const cap = Math.min(PREFETCH_FILE_BYTES, budget);
+      fetched.push(fence(toPosix(rel), a.text, cap));
+      budget -= Math.min(cap, Buffer.byteLength(a.text, 'utf8'));
+    }
+    if (fetched.length > 0) {
+      parts.push(
+        '## Файлы плана (files_to_touch) — уже прочитаны',
+        '',
+        'Содержимое ниже прочитано рантаймом при сборке промпта: не трать ходы на Read этих ' +
+          'файлов — правь сразу. Перечитывай файл только после СВОЕЙ правки в нём.',
+        '',
+        fetched.join('\n\n'),
+      );
+    }
   }
 
   if (missing.length > 0) {

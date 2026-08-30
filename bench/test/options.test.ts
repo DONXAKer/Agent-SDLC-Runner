@@ -71,6 +71,16 @@ describe('аргументы бенчмарка', () => {
     strictEqual(o.runTimeoutMs, 5_400_000);
   });
 
+  it('--repeat разбирается, умолчание 1, с пробой/снимком несовместим', () => {
+    strictEqual(parseArgs(['--model', 'x', '--all']).repeat, 1);
+    strictEqual(parseArgs(['--model', 'x', '--stage', 'chunk', '--repeat', '3']).repeat, 3);
+    throws(() => parseArgs(['--model', 'x', '--probe', '--repeat', '3']), /--repeat/);
+    throws(
+      () => parseArgs(['--model', 'x', '--all', '--make-snapshot', 'a', '--repeat', '2']),
+      /--repeat/,
+    );
+  });
+
   it('снимок не задан по умолчанию', () => {
     const o = parseArgs(['--model', 'x', '--all']);
     strictEqual(o.makeSnapshot, null);

@@ -101,6 +101,7 @@ function greenResult() {
       snapshotAfter: 'plan',
       makeSnapshot: null,
       fromSnapshot: null,
+      repeat: 1,
     },
     built: built(['intent', 'explore', 'ask', 'plan', 'chunk', 'handoff']),
     startedAt: new Date('2026-08-29T10:00:00.000Z'),
