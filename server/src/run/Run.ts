@@ -82,6 +82,7 @@ import { recordAttemptEvidence } from './evidence.ts';
 import type { TreeChange } from './evidence.ts';
 import { salvageBlocks } from './salvage.ts';
 import { preflightBlockers } from '../sandbox/preflight.ts';
+import { ensureSandboxFor } from '../sandbox/registry.ts';
 import { collectVerdictInput, manualClaimIds } from '../verdict/collect.ts';
 import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
@@ -1379,6 +1380,23 @@ export class Run {
           runId: this.id,
           stage: 'chunk',
           message: `не удалось завести файлы плана в git: ${staged.problem}`,
+        });
+      }
+
+      // Улика «Тесты» идёт тем же путём, что гейт «Тесты» этапа 6, — через песочницу
+      // проекта, когда она объявлена. Живой виток ta-13: у прогона, начатого сразу с
+      // chunk'а, реестр песочниц пуст (его греет только runGates), и запись тестов падала
+      // локальным шеллом контейнера («python3: not found», код 127) — улика краснела про
+      // среду, а не про код. Сбой подготовки не роняет попытку — та же семантика, что в
+      // runGates: остаёмся на локальном исполнителе.
+      try {
+        await ensureSandboxFor(this.project.projectRoot, this.project.name);
+      } catch (e) {
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage: 'chunk',
+          message: `песочница для улик не поднялась: ${(e as Error).message}`,
         });
       }
 
