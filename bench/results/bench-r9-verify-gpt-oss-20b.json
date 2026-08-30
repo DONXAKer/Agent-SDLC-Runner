@@ -1,0 +1,93 @@
+{
+  "run": {
+    "slug": "bench-r9-verify-gpt-oss-20b",
+    "model": "polza:gpt-oss-20b",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "polza:ministral-8b",
+      "verify": "polza:gpt-oss-20b",
+      "handoff": "claude-sdk:haiku"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-08-30T15:23:47.562Z",
+    "finishedAt": "2026-08-30T15:29:09.255Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "polza: HTTP 502 от https://api.polza.ai/api/v1 — {\"error\":{\"code\":\"BAD_GATEWAY\",\"message\":\"Сервис временно недоступен. Попробуйте позже.\",\"metadata\":{\"raw\":\"Провайдер вернул некорректный вызов инструмента\"}},\"trace_id\":\"a619cc03-e52f-4ae1-8cbb-f3fefa87b65b\"}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 54752,
+          "outputTokens": 7889,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.29406745,
+          "durationMs": 260890
+        },
+        "durationMs": 321671
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 2
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 16126,
+        "userChars": 32984,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  }
+}

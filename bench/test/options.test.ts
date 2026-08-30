@@ -82,11 +82,20 @@ describe('аргументы бенчмарка', () => {
     strictEqual(parseArgs(['--model', 'x', '--stage', 'chunk', '--from-snapshot', 'oversize-plan']).fromSnapshot, 'oversize-plan');
   });
 
-  it('--make-snapshot и --from-snapshot взаимоисключающие', () => {
+  it('--make-snapshot в тот же слот, что и --from-snapshot, — ошибка; в другой — законно', () => {
     throws(
       () => parseArgs(['--model', 'x', '--all', '--make-snapshot', 'a', '--from-snapshot', 'a']),
-      /взаимоисключающие/,
+      /один слот/,
     );
+    // Снимок от снимка: читаем «после plan», пишем «после chunk» — без повторной оплаты 1–4.
+    const o = parseArgs([
+      '--model', 'x', '--all',
+      '--from-snapshot', 'oversize-plan',
+      '--make-snapshot', 'oversize-chunk', '--snapshot-after', 'chunk',
+    ]);
+    strictEqual(o.fromSnapshot, 'oversize-plan');
+    strictEqual(o.makeSnapshot, 'oversize-chunk');
+    strictEqual(o.snapshotAfter, 'chunk');
   });
 
   it('точка снимка по умолчанию — plan, --snapshot-after меняет её', () => {
