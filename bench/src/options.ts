@@ -52,17 +52,29 @@ export interface BenchOptions {
   /** Готовит рабочую копию и печатает блокеры, не вызывая модель ни разу. */
   dryRun: boolean;
   /**
+   * Преполётная проба tool-calling вместо витка: три микро-кейса за секунды, без рабочей
+   * копии. Скрининг перед дорогим замером — см. `probe.ts`.
+   */
+  probe: boolean;
+  /**
    * Имя снимка (шаг 6 ROADMAP.md), который сделать сразу после успешного `plan` этого
    * прогона, вместо того чтобы идти дальше к `chunk`. Прогон останавливается на снимке —
    * это отдельный режим, не довесок к измерению.
    */
   makeSnapshot: string | null;
   /**
-   * Имя снимка, с которого восстановить рабочую копию вместо `intent → … → plan`.
-   * Восстановленное дерево уже стоит на состоянии сразу после `plan` — driver стартует
-   * с `chunk` независимо от `--stage`/`--all`: этапы 1–4 снимок уже прошёл побайтово.
+   * Имя снимка, с которого восстановить рабочую копию вместо прохода этапов с начала.
+   * Точка снимка хранится в нём самом (`stoppedAfterStage`) — driver стартует со
+   * СЛЕДУЮЩЕГО за ней этапа независимо от `--stage`/`--all`: пройденные этапы снимок
+   * уже содержит побайтово.
    */
   fromSnapshot: string | null;
+  /**
+   * После какого этапа делать снимок (`--make-snapshot`). Умолчание `plan` — прежнее
+   * поведение; `intent`/`explore`/… дают дешёвый замер ЛЮБОГО этапа в изоляции, а не
+   * только chunk'а (шаг «снимки на каждый этап» из анализа порогов слабых моделей).
+   */
+  snapshotAfter: StageId;
 }
 
 export class OptionsError extends Error {}
@@ -95,8 +107,10 @@ export const USAGE = `
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
   --keep-workspace      не удалять рабочую копию в tmp
   --dry-run             подготовить копию и напечатать блокеры, модель не вызывать
-  --make-snapshot <имя> остановиться сразу после plan и сохранить снимок под этим именем
-  --from-snapshot <имя> начать с этого снимка (сразу с chunk, этапы 1–4 не идут)
+  --probe               преполётная проба tool-calling: 3 микро-кейса за секунды, без витка
+  --make-snapshot <имя> остановиться после точки снимка и сохранить снимок под этим именем
+  --snapshot-after <этап> точка снимка для --make-snapshot (умолчание plan)
+  --from-snapshot <имя> начать с этого снимка — со следующего этапа после его точки
 `.trimStart();
 
 function isStageId(v: string): v is StageId {
@@ -126,8 +140,11 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let attempts = DEFAULTS.attempts;
   let keepWorkspace = false;
   let dryRun = false;
+  let probe = false;
   let makeSnapshot: string | null = null;
   let fromSnapshot: string | null = null;
+  let snapshotAfter: StageId = 'plan';
+  let snapshotAfterSet = false;
 
   const next = (i: number, key: string): string => {
     const v = argv[i + 1];
@@ -207,10 +224,26 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
       case '--dry-run':
         dryRun = true;
         break;
+      case '--probe':
+        probe = true;
+        break;
       case '--make-snapshot':
         makeSnapshot = next(i, key);
         i++;
         break;
+      case '--snapshot-after': {
+        const stage = next(i, key);
+        if (!isStageId(stage)) {
+          throw new OptionsError(`неизвестный этап «${stage}» в ${key}; допустимы: ${STAGE_ORDER.join(', ')}`);
+        }
+        if (stage === 'handoff') {
+          throw new OptionsError('снимок после handoff бессмыслен: этапа после него нет, мерить со снимка нечего');
+        }
+        snapshotAfter = stage;
+        snapshotAfterSet = true;
+        i++;
+        break;
+      }
       case '--from-snapshot':
         fromSnapshot = next(i, key);
         i++;
@@ -223,9 +256,15 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   // На сухом прогоне модель не вызывается ни разу, и требовать её значило бы просить назвать
   // то, что не будет использовано.
   if (model === null && !dryRun) throw new OptionsError('не задана измеряемая модель: --model <id>');
-  if (mode === null && !dryRun) throw new OptionsError('не задан режим: --stage <этап> либо --all');
+  // Пробе не нужен режим: она вообще не запускает виток.
+  if (mode === null && !dryRun && !probe) throw new OptionsError('не задан режим: --stage <этап> либо --all');
   if (makeSnapshot !== null && fromSnapshot !== null) {
     throw new OptionsError('--make-snapshot и --from-snapshot взаимоисключающие: один делает снимок, другой его читает');
+  }
+  // Точка снимка без самого снимка — почти наверняка опечатка в наборе ключей, и молчаливое
+  // игнорирование стоило бы платного прогона, который остановился не там, где ждали.
+  if (snapshotAfterSet && makeSnapshot === null) {
+    throw new OptionsError('--snapshot-after имеет смысл только вместе с --make-snapshot');
   }
 
   const resolvedMode: BenchMode = mode ?? { kind: 'all' };
@@ -245,7 +284,9 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     attempts,
     keepWorkspace,
     dryRun,
+    probe,
     makeSnapshot,
     fromSnapshot,
+    snapshotAfter,
   };
 }

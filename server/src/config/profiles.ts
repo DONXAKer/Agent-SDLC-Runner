@@ -44,6 +44,9 @@ function resolveRoute(
     model: def.model,
     flow: providerDef.flow,
     rank: def.rank,
+    params: def.params ?? null,
+    leanTools: def.leanTools ?? false,
+    formFill: def.formFill ?? false,
   };
 }
 

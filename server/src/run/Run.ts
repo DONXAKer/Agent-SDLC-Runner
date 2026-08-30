@@ -57,6 +57,7 @@ import { estimateTokens, selectTools } from '../mcp/select.ts';
 import type { McpToolInfo } from '../mcp/types.ts';
 import { cap } from '../exec/tools/index.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/schema.ts';
+import { FormFillExecutor } from '../exec/FormFillExecutor.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { normalize } from '../exec/normalize.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
@@ -75,7 +76,7 @@ import { configProblems, gateKey, parseGates, uncalibratedGates, unimplementedGa
 import { builtinFor, describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName, runGates } from '../gates/run.ts';
-import { workingDiff } from '../gates/git.ts';
+import { stageNewPlanFiles, workingDiff } from '../gates/git.ts';
 import type { BuiltinGate, GateContext } from '../gates/builtin/index.ts';
 import { recordAttemptEvidence } from './evidence.ts';
 import type { TreeChange } from './evidence.ts';
@@ -119,6 +120,30 @@ export interface RunStageOptions {
 
 /** Этапы, после которых запись ограничена одобренным планом. */
 const PLAN_SCOPED_STAGES: readonly StageId[] = ['chunk', 'verify', 'handoff'];
+
+/**
+ * Где действует урезанный набор инструментов (`ModelDef.leanTools`): этапы-документы.
+ * Их результат — заполненный бланк, и Write/Glob/Grep там лишние: формы уже разложены
+ * рантаймом (Edit достаточно), а поиск по дереву съедает ходы, не давая записи.
+ * Chunk и verify в списке нет намеренно — там весь набор нужен по делу. Explore тоже:
+ * права субагентов — ПЕРЕСЕЧЕНИЕ с правами этапа, и урезанный explore оставил бы
+ * разведчиков (`sdlc-claims`, Grep/Glob) с одним Read — разведка калечилась бы молча.
+ */
+const LEAN_DOC_STAGES: ReadonlySet<StageId> = new Set(['intent', 'ask', 'plan']);
+const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
+  'Read',
+  'Edit',
+  'AskHuman',
+  'FinalizeArtifact',
+  'Task',
+]);
+
+/**
+ * Где действует режим заполнения по полям (`ModelDef.formFill`). Только этапы, чей
+ * результат целиком выводится из входов промпта: у explore источник — разведка
+ * субагентами, у chunk/verify — работа с деревом, им режим не подходит по построению.
+ */
+const FORM_FILL_STAGES: ReadonlySet<StageId> = new Set(['intent', 'ask', 'plan']);
 
 /**
  * Итоги прогона гейтов для входа рецензента.
@@ -748,7 +773,17 @@ export class Run {
    * разрешены на этапе», потому что права не выдавал никто.
    */
   private toolsFor(stage: StageId): readonly ToolName[] {
-    const base = stageById(stage).tools;
+    const all = stageById(stage).tools;
+    // Урезанный набор для модели с `leanTools` — только на этапах-документах: замеры
+    // показали, что слабая модель тонет в выборе из 7–11 схем (`docs/model-runs.md`,
+    // «сокращение числа инструментов — не пробовано»). Сужаются ПРАВА, не только показ:
+    // политика видит тот же список, и второго места решения о доступе не появляется.
+    // На chunk/verify набор не трогаем: там Write/Bash нужны по делу.
+    const route = this.profile.routes[stage];
+    const base =
+      route.leanTools && LEAN_DOC_STAGES.has(stage)
+        ? all.filter((t) => LEAN_TOOLS.has(t))
+        : all;
     const rules = rulesForStage(this.mcpSetup, stage);
     if (rules.length === 0) return base;
 
@@ -981,6 +1016,20 @@ export class Run {
     if (route.flow === 'sdk') return new SdkExecutor();
 
     const limits = this.config.runner.limits;
+
+    // Режим заполнения по полям — только там, где этап и есть заполнение бланка.
+    // Explore сюда не входит: его отчёт пишется по результатам разведки субагентами,
+    // а не выводится из входов; chunk/verify — тем более.
+    if (route.formFill && FORM_FILL_STAGES.has(stage)) {
+      return new FormFillExecutor({
+        provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+        maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+        readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
+        bashTimeoutMs: limits.gateTimeoutMs,
+        params: route.params,
+      });
+    }
+
     return new LoopExecutor({
       provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
       // Свой потолок у локального контура: общий рассчитан на большое окно, а здесь один
@@ -990,7 +1039,9 @@ export class Run {
       bashTimeoutMs: limits.gateTimeoutMs,
       // Температуру не задаём: у части серверов «не задано» и «0» ведут себя по-разному,
       // и подставлять своё значение молча — значит менять поведение модели за оператора.
+      // Оператор задаёт её (и любой другой параметр) сам — в `params` записи модели.
       temperature: null,
+      params: route.params,
     });
   }
 
@@ -1030,6 +1081,10 @@ export class Run {
       ctx: this.ctx,
       flow: route.flow,
       slug: this.slug,
+      // Эффективный набор, а не `stage.tools`: урезание `leanTools` обязано быть видно
+      // в промпте — панель показывает ровно тот список, с которым уйдёт запрос.
+      // MCP-права здесь не нужны: у внешних инструментов своя строка в adapter-блоке.
+      tools: this.toolsFor(stage).filter((t) => t !== 'McpRead' && t !== 'McpWrite'),
       now: new Date(),
       ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
       ...(opts.extra === undefined ? {} : { extra: opts.extra }),
@@ -1161,7 +1216,11 @@ export class Run {
    *
    *  1. Запись идёт **через гейт одобрения**, как любая другая: рантайм не доверяет тексту,
    *     он предлагает оператору вызов, который тот видит и может отклонить.
-   *  2. Пишутся только файлы из `produces` этого этапа — не «всё, что похоже на файл».
+   *  2. Пишутся только файлы, которые этап и так вправе произвести: `produces` этапа, а на
+   *     этапе 5 ещё и `files_to_touch` одобренного плана — не «всё, что похоже на файл».
+   *     Расширение на план закрывает главный замеренный провал локальных исполнителей:
+   *     `qwen2.5-coder` печатала содержимое ФАЙЛОВ КОДА текстом вместо `Write`, и ход
+   *     сгорал, хотя правка была составлена (см. `docs/model-runs.md`).
    *  3. Вызывается только когда страж уже сказал, что артефакт пуст: это спасение хода,
    *     а не второй, тихий способ записи в обход инструментов.
    */
@@ -1170,7 +1229,12 @@ export class Run {
     produced: readonly string[],
     stage: StageId,
   ): Promise<string | null> {
-    const blocks = salvageBlocks(text, produced);
+    // Пути плана — относительные POSIX; спасение оперирует абсолютными, как `produces`.
+    const planTargets =
+      stage === 'chunk'
+        ? (this.planFilesFor('chunk') ?? []).map((rel) => join(this.project.projectRoot, rel))
+        : [];
+    const blocks = salvageBlocks(text, [...produced, ...planTargets]);
     if (blocks.length === 0) return null;
 
     const written: string[] = [];
@@ -1258,6 +1322,24 @@ export class Run {
           };
 
     try {
+      // Новые файлы, названные планом, заводятся в индекс рантаймом ДО записи улик:
+      // право на эти пути уже выдано одобренным планом, а «забыть git add» — привычка
+      // модели (2/2 наблюдения даже на контроле), не решение. Файлы вне плана не
+      // трогаются — их гейт «Scope: нетракованные файлы» называет по-прежнему.
+      const staged = await stageNewPlanFiles(
+        this.project.projectRoot,
+        this.planFilesFor('chunk') ?? [],
+        this.aborter === null ? undefined : this.aborter.signal,
+      );
+      if (staged.length > 0) {
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage: 'chunk',
+          message: `рантайм завёл в git новые файлы плана: ${staged.join(', ')}`,
+        });
+      }
+
       const { tree, testsNote } = await recordAttemptEvidence({
         projectRoot: this.project.projectRoot,
         diffPath: this.paths.chunkDiff(this.chunk, this.attempt),
@@ -1930,6 +2012,9 @@ export class Run {
           maxTurns: this.config.runner.limits.maxIterationsPerStage,
           maxBudgetUsd: this.project.maxBudgetUsd,
           spentUsdBefore: this.totalUsage.costUsd ?? 0,
+          // Для режима заполнения по полям: где искать плейсхолдеры. Обычные исполнители
+          // поле не читают.
+          formArtifacts: produced,
           signal: this.aborter.signal,
         },
         hooks,

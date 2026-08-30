@@ -90,4 +90,24 @@ describe('спасение артефакта из текста ответа', (
   it('пустой ответ ничего не даёт', () => {
     deepStrictEqual(salvageBlocks('   ', [JOURNAL]), []);
   });
+
+  // С расширением целей на files_to_touch (этап 5) в списке появляются файлы КОДА —
+  // и одноимённые файлы в разных каталогах перестают быть теорией.
+  it('код из плана спасается по хвосту пути, одноимённые файлы различаются', () => {
+    const A = 'D:/proj/src/index.ts';
+    const B = 'D:/proj/test/index.ts';
+    const text = ['Файл `src/index.ts`:', '```ts', 'export const a = 1;', '```'].join('\n');
+    const got = salvageBlocks(text, [JOURNAL, A, B]);
+    deepStrictEqual(
+      got.map((b) => b.path),
+      [A],
+    );
+  });
+
+  it('неоднозначное имя без пути не спасается — здесь не гадают', () => {
+    const A = 'D:/proj/src/index.ts';
+    const B = 'D:/proj/test/index.ts';
+    const text = ['Файл `index.ts`:', '```ts', 'export const a = 1;', '```'].join('\n');
+    deepStrictEqual(salvageBlocks(text, [A, B]), []);
+  });
 });

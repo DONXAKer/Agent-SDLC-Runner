@@ -46,6 +46,8 @@ export interface LoopOptions {
   bashTimeoutMs: number;
   /** `null` — не задавать серверу температуру вовсе. */
   temperature: number | null;
+  /** Параметры запроса из конфига модели (`ModelDef.params`). Не заданы — не шлём. */
+  params?: Record<string, unknown> | null;
 }
 
 /**
@@ -71,6 +73,20 @@ const CLAUDE_MODEL_ALIASES = new Set(['opus', 'sonnet', 'haiku', 'inherit']);
  * десятого, а ходы стоят времени оператора.
  */
 const FINISH_REMINDERS = 2;
+
+/**
+ * Сколько чтений подряд без единой записи терпим молча.
+ *
+ * Замер этапа 5 (`docs/model-runs.md`, bench `oversize`): 8 вызовов за этап — все чтение,
+ * 121 926 входных токенов сгорели, дерево не изменилось ни на строку. Модель не «думает» —
+ * она застряла ниже порога «записать»; напоминание в этот момент дешевле, чем сгоревший
+ * этап. Два напоминания, дальше молчим: та же логика, что у `FINISH_REMINDERS`.
+ */
+const READ_STREAK_LIMIT = 5;
+const READ_STREAK_REMINDERS = 2;
+
+/** Виды вызовов, которые продлевают серию «только чтение». Всё прочее серию сбрасывает. */
+const READ_KINDS = new Set(['read', 'glob', 'grep']);
 
 /**
  * Имена инструментов субагента приходят строками из его YAML-шапки — файл пишет человек.
@@ -143,6 +159,8 @@ export class LoopExecutor implements StageExecutor {
     let lastFingerprint: string | null = null;
     let repeats = 0;
     let reminders = 0;
+    let readStreak = 0;
+    let readNudges = 0;
 
     for (let turn = 1; turn <= req.maxTurns; turn++) {
       if (req.signal.aborted) {
@@ -155,6 +173,7 @@ export class LoopExecutor implements StageExecutor {
         tools,
         signal: req.signal,
         temperature: this.o.temperature,
+        params: this.o.params ?? null,
       });
 
       usage = addUsage(usage, answer.usage);
@@ -303,6 +322,34 @@ export class LoopExecutor implements StageExecutor {
           toolCallId: call.id,
           name: call.name,
           content: result,
+        });
+
+        // Серия «только чтение» считается по виду вызова, а не по имени инструмента:
+        // нормализация уже одна на оба флоу, второй список читающих имён разошёлся бы с ней.
+        readStreak = READ_KINDS.has(normalize(call.name, call.arguments ?? {}).kind)
+          ? readStreak + 1
+          : 0;
+      }
+
+      // Напоминание идёт ПОСЛЕ результатов инструментов хода: user-сообщение между
+      // assistant-ходом и его tool-результатами часть серверов отвергает как нарушение
+      // протокола. Только для этапов с артефактом: субагенту-читателю (locator, reviewer
+      // до отчёта) серия чтений — законный режим работы.
+      if (
+        req.finishGuard !== null &&
+        readStreak >= READ_STREAK_LIMIT &&
+        readNudges < READ_STREAK_REMINDERS
+      ) {
+        readNudges++;
+        readStreak = 0;
+        hooks.onFriction('reminder');
+        messages.push({
+          role: 'user',
+          content:
+            `Последние ${READ_STREAK_LIMIT} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
+            'записи. Результат этапа — записанный артефакт, а не прочитанные файлы: если ' +
+            'контекста уже достаточно, переходи к записи инструментами Write/Edit. Продолжай ' +
+            'читать только то, без чего правку не сделать.',
         });
       }
     }

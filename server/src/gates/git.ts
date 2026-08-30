@@ -195,3 +195,34 @@ export async function currentBranch(cwd: string): Promise<string> {
   const r = await git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
   return r.stdout.trim();
 }
+
+/**
+ * Заводит в индекс новые файлы, которые называет `files_to_touch` одобренного плана.
+ *
+ * Наблюдение 2/2 даже на сильной модели (`docs/model-runs.md`, control-прогоны bench):
+ * создав новые файлы из плана, модель считает работу законченной по СОДЕРЖИМОМУ файла,
+ * а не по состоянию индекса git — и гейт «Scope: нетракованные файлы» краснеет на
+ * файлах, запись в которые человек уже одобрил планом. Здесь механика, а не решение:
+ * право на эти пути выдано планом, `git add` лишь доводит его до индекса. Файлы ВНЕ
+ * плана не трогаются — их нетракованность гейт обязан назвать по-прежнему.
+ *
+ * Возвращает список заведённых путей (относительных) — пустой, когда заводить нечего.
+ */
+export async function stageNewPlanFiles(
+  cwd: string,
+  planFiles: readonly string[],
+  signal?: AbortSignal,
+): Promise<string[]> {
+  if (planFiles.length === 0 || !(await isRepo(cwd))) return [];
+  const res = await git(['ls-files', '--others', '--exclude-standard', '--', '.'], cwd, signal);
+  if (res.code !== 0) return [];
+
+  const plan = new Set(planFiles.map((p) => p.replace(/\\/g, '/')));
+  const fresh = lines(res.stdout)
+    .map((l) => l.replace(/\\/g, '/'))
+    .filter((l) => plan.has(l));
+  if (fresh.length === 0) return [];
+
+  const add = await git(['add', '--', ...fresh], cwd, signal);
+  return add.code === 0 ? fresh : [];
+}

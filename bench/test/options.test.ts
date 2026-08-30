@@ -88,6 +88,25 @@ describe('аргументы бенчмарка', () => {
       /взаимоисключающие/,
     );
   });
+
+  it('точка снимка по умолчанию — plan, --snapshot-after меняет её', () => {
+    strictEqual(parseArgs(['--model', 'x', '--all', '--make-snapshot', 'a']).snapshotAfter, 'plan');
+    strictEqual(
+      parseArgs(['--model', 'x', '--all', '--make-snapshot', 'a', '--snapshot-after', 'intent']).snapshotAfter,
+      'intent',
+    );
+  });
+
+  it('--snapshot-after без --make-snapshot — ошибка, а не молчаливый no-op', () => {
+    throws(() => parseArgs(['--model', 'x', '--all', '--snapshot-after', 'intent']), /--make-snapshot/);
+  });
+
+  it('снимок после handoff запрещён: мерить со снимка было бы нечего', () => {
+    throws(
+      () => parseArgs(['--model', 'x', '--all', '--make-snapshot', 'a', '--snapshot-after', 'handoff']),
+      /handoff/,
+    );
+  });
 });
 
 describe('раскладка измеряемых этапов', () => {

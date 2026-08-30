@@ -31,6 +31,8 @@ import type { BenchOptions } from './options.ts';
 import { ControlError, buildProfile, readControl } from './profile.ts';
 import { WorkspaceError, prepareWorkspace } from './workspace.ts';
 import { makeSnapshot, restoreSnapshot, verifyRestoredBranch } from './snapshot.ts';
+import { createProvider } from '../../server/src/provider/registry.ts';
+import { formatProbe, probeModel } from './probe.ts';
 import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
@@ -180,8 +182,19 @@ async function liveRun(opts: BenchOptions): Promise<number> {
     wsRoot = restored.root;
     wsBranch = restored.branch;
     wsDispose = restored.dispose;
-    startStage = 'chunk';
-    console.log(`снимок:        ${opts.fromSnapshot} (после ${restored.stoppedAfterStage})`);
+    // Старт — со следующего этапа после точки снимка: снимок «после intent» даёт дешёвый
+    // замер explore, «после plan» — прежнее поведение (замер chunk). Точка хранится в
+    // самом снимке, а не в ключах прогона — прогон не может её переврать.
+    const after = STAGE_ORDER.indexOf(restored.stoppedAfterStage);
+    const nextStage = STAGE_ORDER[after + 1];
+    if (after < 0 || nextStage === undefined) {
+      wsDispose();
+      throw new WorkspaceError(
+        `снимок «${opts.fromSnapshot}» сделан после «${restored.stoppedAfterStage}» — этапа после него нет, мерить нечего`,
+      );
+    }
+    startStage = nextStage;
+    console.log(`снимок:        ${opts.fromSnapshot} (после ${restored.stoppedAfterStage}, старт с ${nextStage})`);
     console.log(`рабочая копия: ${wsRoot}`);
   } else {
     const ws = await prepareWorkspace({ fixtureDir: FIXTURE_DIR, slug: opts.slug, branch });
@@ -287,9 +300,10 @@ async function liveRun(opts: BenchOptions): Promise<number> {
       runTimeoutMs: opts.runTimeoutMs,
       attempts: opts.attempts,
       ...(startStage === undefined ? {} : { startStage }),
-      // `--make-snapshot` останавливает драйвер сразу после `plan` — снимок пишется НИЖЕ,
-      // из уже остановленного дерева, а не из драйвера: он про виток, не про файлы снимка.
-      ...(opts.makeSnapshot === null ? {} : { stopAfterStage: 'plan' as const }),
+      // `--make-snapshot` останавливает драйвер сразу после точки снимка (`--snapshot-after`,
+      // умолчание plan) — снимок пишется НИЖЕ, из уже остановленного дерева, а не из
+      // драйвера: он про виток, не про файлы снимка.
+      ...(opts.makeSnapshot === null ? {} : { stopAfterStage: opts.snapshotAfter }),
     });
     const finishedAt = new Date();
 
@@ -300,9 +314,9 @@ async function liveRun(opts: BenchOptions): Promise<number> {
         name: opts.makeSnapshot,
         slug: opts.slug,
         branch: wsBranch,
-        stoppedAfterStage: 'plan',
+        stoppedAfterStage: opts.snapshotAfter,
       });
-      console.log(`\nснимок сохранён: ${opts.makeSnapshot} (после plan)`);
+      console.log(`\nснимок сохранён: ${opts.makeSnapshot} (после ${opts.snapshotAfter})`);
       return 0;
     }
 
@@ -362,6 +376,36 @@ async function liveRun(opts: BenchOptions): Promise<number> {
   }
 }
 
+/**
+ * Преполётная проба: без рабочей копии, без витка, без контрольного профиля — только
+ * провайдер измеряемой модели. Коды возврата как у бенчмарка: `0` — проба пройдена,
+ * `1` — модель не прошла, `2` — измерение не состоялось (модель не найдена в конфиге).
+ */
+async function probeRun(opts: BenchOptions): Promise<number> {
+  const config = loadConfig();
+  const def = config.models.models.find((m) => m.id === opts.model);
+  if (def === undefined) {
+    console.error(`модель «${opts.model}» не найдена в config/models.json`);
+    return 2;
+  }
+  const providerDef = config.models.providers[def.provider];
+  if (providerDef === undefined || providerDef.flow !== 'loop') {
+    console.error(
+      `проба меряет флоу loop; провайдер «${def.provider}» модели «${opts.model}» ` +
+        (providerDef === undefined ? 'не описан в config/models.json' : `идёт флоу ${providerDef.flow}`),
+    );
+    return 2;
+  }
+  const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+  const report = await probeModel({
+    provider,
+    model: def.model,
+    signal: AbortSignal.timeout(opts.stageTimeoutMs),
+  });
+  console.log(formatProbe(report));
+  return report.passed ? 0 : 1;
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   let opts: BenchOptions;
   try {
@@ -375,6 +419,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   try {
+    if (opts.probe) return await probeRun(opts);
     if (opts.dryRun) return await dryRun(opts);
     return await liveRun(opts);
   } catch (e) {

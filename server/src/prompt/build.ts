@@ -19,9 +19,19 @@ import { specsFor } from '../exec/toolSpecs.ts';
 import { toPosix } from '../policy/paths.ts';
 import type { StageContext, StageDef } from '../run/stages.ts';
 import { stageInputs } from '../run/stages.ts';
-import type { FlowId, PreparedPrompt } from '@sdlc-runner/shared';
+import type { FlowId, PreparedPrompt, ToolName } from '@sdlc-runner/shared';
 
 const MAX_ARTIFACT_BYTES = 40_000;
+
+/**
+ * Свой потолок входного артефакта для флоу `loop`.
+ *
+ * Общие 40 000 символов рассчитаны на модель с большим окном. Локальный контур живёт на
+ * 16K токенов, и один план на 40 КБ съедает окно ЦЕЛИКОМ ещё до истории цикла — измерено:
+ * этап intent на локальной модели набирал 314k входных токенов за ~30 ходов именно из-за
+ * входов, повторяемых каждым запросом. Обрезка честная — с пометкой в тексте.
+ */
+const LOOP_MAX_ARTIFACT_BYTES = 12_000;
 
 export interface BuildPromptInput {
   runner: RunnerConfig;
@@ -29,6 +39,12 @@ export interface BuildPromptInput {
   ctx: StageContext;
   flow: FlowId;
   slug: string;
+  /**
+   * Эффективный набор инструментов этапа, если он отличается от `stage.tools`:
+   * урезание `leanTools` считает рантайм (`Run.toolsFor`), и промпт обязан показывать
+   * ровно тот список, с которым уйдёт запрос, — иначе панель промпта врёт оператору.
+   */
+  tools?: readonly ToolName[];
   /** Формулировка задачи от человека — только на этапе 1, где артефакта ещё нет. */
   requirement?: string;
   /** `retry_instruction` и `carry_forward` при возврате с этапа 6, и подобное. */
@@ -128,8 +144,28 @@ function adapterBlock(i: BuildPromptInput): string {
       'а одобрение, оставшееся в переписке, для следующего этапа не существует.',
     `- Оператор: **${i.runner.operator}**. Сегодня: **${date}**. Эти значения подставляй в поля решений.`,
     `- Текущий chunk: **${i.ctx.chunk}**, попытка: **${i.ctx.attempt}**.`,
-    `- Доступные инструменты на этом этапе: ${i.stage.tools.join(', ')}. Других у тебя нет — ` +
+    `- Доступные инструменты на этом этапе: ${(i.tools ?? i.stage.tools).join(', ')}. Других у тебя нет — ` +
       'права выдаются на шаг, а не на прогон.',
+    // Few-shot только для флоу loop: замеры (`docs/model-runs.md`) показали, что локальная
+    // модель печатает содержимое файла текстом вместо вызова Write/Edit — на всех
+    // замеренных моделях именно здесь ход и сгорал. Пример корректного вызова снижает
+    // порог «дойти до инструмента»; сильной модели флоу sdk он не нужен и только ест окно.
+    ...(i.flow === 'loop'
+      ? [
+          '- Как выглядит сделанный шаг. Поле бланка до заполнения: ' +
+            '`- **Зачем:** ‹почему это нужно сейчас›`. Правильное действие — один вызов ' +
+            'инструмента с готовым содержимым:',
+          '  ```json',
+          `  {"tool": "Edit", "arguments": {"file_path": "${sdlcDir}/intent.md", ` +
+            '"old_string": "- **Зачем:** ‹почему это нужно сейчас›", ' +
+            '"new_string": "- **Зачем:** платёж падает на границе 300 см — теряем заказы"}}',
+          '  ```',
+          '  Когда в артефакте не осталось `‹…›` — вызови `FinalizeArtifact` с путём артефакта.',
+          '- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе (текст никуда не ' +
+            'записывается), спрашивать человека о том, что видно из кода, продолжать читать ' +
+            'файлы, когда контекста для правки уже достаточно.',
+        ]
+      : []),
     ...((i.mcpTools ?? []).length > 0
       ? [
           `- Инструменты внешних MCP-серверов на этом этапе: ` +
@@ -205,10 +241,10 @@ function adapterBlock(i: BuildPromptInput): string {
   return lines.join('\n');
 }
 
-function fence(path: string, text: string): string {
+function fence(path: string, text: string, maxBytes: number): string {
   const capped =
-    text.length > MAX_ARTIFACT_BYTES
-      ? `${text.slice(0, MAX_ARTIFACT_BYTES)}\n…[обрезано рантаймом: файл длиннее ${MAX_ARTIFACT_BYTES} символов]`
+    text.length > maxBytes
+      ? `${text.slice(0, maxBytes)}\n…[обрезано рантаймом: файл длиннее ${maxBytes} символов]`
       : text;
   return ['````markdown', `<!-- ${path} -->`, capped, '````'].join('\n');
 }
@@ -224,10 +260,11 @@ function userMessage(i: BuildPromptInput): string {
   const present: string[] = [];
   const missing: string[] = [];
 
+  const maxBytes = i.flow === 'loop' ? LOOP_MAX_ARTIFACT_BYTES : MAX_ARTIFACT_BYTES;
   for (const input of inputs) {
     const a = readArtifact(input.path);
     const rel = toPosix(relative(i.ctx.paths.projectRoot, input.path));
-    if (a.exists) present.push(fence(rel, a.text));
+    if (a.exists) present.push(fence(rel, a.text, maxBytes));
     else if (!input.optional) missing.push(rel);
   }
 
@@ -256,7 +293,7 @@ export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
   const skillBody = readSkillBody(i.runner.skillsDir, i.stage.skill);
   const system = `${skillBody}\n\n---\n\n${adapterBlock(i)}`;
 
-  const specs = specsFor(i.stage.tools);
+  const specs = specsFor(i.tools ?? i.stage.tools);
   const tools = [
     ...specs.map((s) => ({
       name: i.flow === 'sdk' ? s.sdkName : s.name,

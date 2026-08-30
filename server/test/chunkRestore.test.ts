@@ -38,6 +38,9 @@ function route(stage: StageId, modelId: string): ResolvedRoute {
     modelId,
     flow: 'loop',
     rank: 1,
+    params: null,
+    leanTools: false,
+    formFill: false,
   };
 }
 

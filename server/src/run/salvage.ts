@@ -37,6 +37,26 @@ function basename(p: string): string {
   return parts[parts.length - 1] ?? p;
 }
 
+/** Последние два сегмента пути (`src/tariffs.ts`) — так модель чаще всего называет код. */
+function tail2(p: string): string {
+  const parts = p.split(/[\\/]/).filter((s) => s !== '');
+  return parts.slice(-2).join('/');
+}
+
+/**
+ * Кому принадлежит блок. Сначала совпадение по хвосту пути из двух сегментов — оно
+ * различает одноимённые файлы в разных каталогах; потом по имени файла, но только
+ * ОДНОЗНАЧНОЕ: с расширением списка на `files_to_touch` (этап 5) целей стало больше
+ * одной-двух, и «первый попавшийся с тем же именем» писал бы содержимое не туда.
+ * Неоднозначный блок пропускается — здесь по-прежнему не гадают.
+ */
+function ownerOf(head: string, targets: readonly string[]): string | undefined {
+  const byTail = targets.filter((p) => head.includes(tail2(p)));
+  if (byTail.length === 1) return byTail[0];
+  const byBase = targets.filter((p) => head.includes(basename(p)));
+  return byBase.length === 1 ? byBase[0] : undefined;
+}
+
 /**
  * Блоки, которые модель напечатала вместо записи.
  *
@@ -78,10 +98,10 @@ export function salvageBlocks(text: string, produces: readonly string[]): Salvag
     }
     if (end < 0) continue; // блок не закрыт — этот пропускаем, следующие ещё могут быть целы
 
-    // Кому принадлежит блок: ищем имя артефакта в нескольких строках НАД ним.
+    // Кому принадлежит блок: ищем имя файла в нескольких строках НАД ним.
     const from = Math.max(0, i - NEAR_LINES);
     const head = lines.slice(from, i).join('\n');
-    const owner = produces.find((p) => head.includes(basename(p)));
+    const owner = ownerOf(head, produces);
 
     if (owner !== undefined && !found.has(owner)) {
       const body = lines.slice(i + 1, end).join('\n');

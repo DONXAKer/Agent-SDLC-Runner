@@ -97,6 +97,8 @@ function greenResult() {
       attempts: 1,
       keepWorkspace: false,
       dryRun: false,
+      probe: false,
+      snapshotAfter: 'plan',
       makeSnapshot: null,
       fromSnapshot: null,
     },

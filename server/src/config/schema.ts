@@ -71,6 +71,29 @@ export interface ModelDef {
    * строго сильнее исполнителя этапа 5».
    */
   rank: number;
+  /**
+   * Сырые поля тела запроса `chat/completions` для этой модели: temperature, max_tokens,
+   * top_p, seed, tool_choice, response_format — всё, что понимает её сервер. Действует
+   * только во флоу `loop`. Одно generic-поле вместо ручки на каждый параметр: журнал
+   * замеров требует «одна настройка на прогон», и каждая новая ручка иначе означала бы
+   * правку кода. Служебные ключи (model/messages/tools/stream) провайдер не отдаёт.
+   */
+  params?: Record<string, unknown>;
+  /**
+   * Урезанный набор инструментов на этапах-документах (1–4): Read, Edit, AskHuman,
+   * FinalizeArtifact, Task — без Write/Glob/Grep. Свойство МОДЕЛИ, а не этапа: замеры
+   * показали, что слабая модель тонет в выборе из 7–11 схем, а сильной ограничение
+   * только мешает. Урезание сужает и права (политика видит тот же список), поэтому
+   * инвариант «оба флоу — одно решение» не трогается.
+   */
+  leanTools?: boolean;
+  /**
+   * Режим «заполнение бланка по полям» на этапах intent/ask/plan (`FormFillExecutor`):
+   * рантайм спрашивает модель по одному полю обычным completion'ом и сам пишет артефакт
+   * через гейт. Для моделей, не берущих порог «позвать инструмент». Режим эксперимента:
+   * `AskHuman` в нём нет, поля с решением человека остаются с пометкой.
+   */
+  formFill?: boolean;
 }
 
 export interface ModelsConfig {
@@ -189,6 +212,12 @@ export interface ResolvedRoute {
   model: string;
   flow: FlowId;
   rank: number;
+  /** Параметры запроса из `ModelDef.params`. `null` — не заданы. */
+  params: Record<string, unknown> | null;
+  /** Урезанный набор инструментов этапов-документов — см. `ModelDef.leanTools`. */
+  leanTools: boolean;
+  /** Режим заполнения бланка по полям — см. `ModelDef.formFill`. */
+  formFill: boolean;
 }
 
 export interface ResolvedProfile {
