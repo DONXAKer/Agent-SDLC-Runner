@@ -440,16 +440,28 @@ function median(values: readonly number[]): number | null {
  * сэмплов у 8B такая, что единичный прогон недоказателен (см. `docs/model-runs.md`, r8).
  */
 async function seriesRun(opts: BenchOptions): Promise<number> {
-  const outcomes: (LiveOutcome & { slug: string })[] = [];
+  const outcomes: (LiveOutcome & { slug: string; error?: string })[] = [];
   for (let i = 1; i <= opts.repeat; i++) {
     const slug = `${opts.slug}-s${i}`;
     console.log(`\n===== серия: сэмпл ${i} из ${opts.repeat} (${slug}) =====\n`);
-    const outcome = await liveRun({ ...opts, slug });
-    outcomes.push({ ...outcome, slug });
+    // Исключение одного сэмпла не выбрасывает уже отгонянные платные сэмплы: сводка
+    // серии обязана напечататься по измеренному, а упавший — лечь строкой «не измерен».
+    try {
+      const outcome = await liveRun({ ...opts, slug });
+      outcomes.push({ ...outcome, slug });
+    } catch (e) {
+      const msg = (e as Error).message;
+      console.error(`сэмпл ${slug} не измерен: ${msg}`);
+      outcomes.push({ code: 2, hidden: null, durationMs: 0, slug, error: msg });
+    }
   }
 
   console.log(`\n===== сводка серии (${opts.repeat} сэмплов) =====`);
   for (const o of outcomes) {
+    if (o.error !== undefined) {
+      console.log(`  ${o.slug}: НЕ ИЗМЕРЕН — ${o.error}`);
+      continue;
+    }
     const mins = (o.durationMs / 60_000).toFixed(1);
     const probes = o.hidden === null ? 'щупы не гонялись' : `щупы ${o.hidden.pass}/${o.hidden.total}`;
     console.log(`  ${o.slug}: код ${o.code} · ${probes} · ${mins} мин`);
@@ -463,11 +475,13 @@ async function seriesRun(opts: BenchOptions): Promise<number> {
         (withHidden.length < outcomes.length ? ` (по ${withHidden.length} из ${outcomes.length} сэмплов)` : ''),
     );
   }
-  const times = outcomes.map((o) => o.durationMs);
-  console.log(
-    `  время: медиана ${((median(times) ?? 0) / 60_000).toFixed(1)} мин, ` +
-      `разброс ${(Math.min(...times) / 60_000).toFixed(1)}–${(Math.max(...times) / 60_000).toFixed(1)} мин`,
-  );
+  const times = outcomes.filter((o) => o.error === undefined).map((o) => o.durationMs);
+  if (times.length > 0) {
+    console.log(
+      `  время: медиана ${((median(times) ?? 0) / 60_000).toFixed(1)} мин, ` +
+        `разброс ${(Math.min(...times) / 60_000).toFixed(1)}–${(Math.max(...times) / 60_000).toFixed(1)} мин`,
+    );
+  }
 
   // Код серии: «не измерено» (2) — только если не измерился НИ ОДИН сэмпл; по измеренным —
   // худший исход, как везде в вердиктах.

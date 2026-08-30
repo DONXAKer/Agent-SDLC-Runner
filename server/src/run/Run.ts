@@ -301,6 +301,8 @@ export class Run {
   private aborter: AbortController | null = null;
   /** Фактический прогон гейтов текущей попытки — источник статусов для вердикта. */
   private lastGateResults: GateRunResult[] = [];
+  /** Бланк отчёта приёмки, заполненный рантаймом, — стартовая точка маршрутов ансамбля. */
+  private verifyPrefill: string | null = null;
   private lastGatesAborted = false;
   /**
    * Последний посчитанный `preflightBlockers` для `verify` — не «живой» результат (Docker
@@ -878,6 +880,10 @@ export class Run {
       slug: this.slug,
       attemptBudget: this.attemptBudget,
     });
+    // Заполненный рантаймом бланк запоминается для ансамбля: дополнительные маршруты
+    // стартуют с него, а не с пустого файла — иначе класс расхождений «отчёт/факт» r9,
+    // ради которого автозаполнение заведено, возвращался в маршрутах (ревью, К5).
+    this.verifyPrefill = filled > 0 ? text : report.placeholders > 0 ? report.text : null;
     if (filled === 0) return;
 
     writeArtifact(path, text);
@@ -1185,9 +1191,11 @@ export class Run {
         message: `ансамбль: дополнительный маршрут ${route + 1} — ${other.modelId}`,
       });
 
-      // Канонический файл убирается, чтобы следующий рецензент не дописывал в чужой отчёт
-      // и не выдавал его за свой.
-      writeArtifact(canonical, '');
+      // Канонический файл сбрасывается к бланку, заполненному рантаймом (таблица гейтов,
+      // механика шапки), — чтобы следующий рецензент не дописывал в чужой отчёт, но и не
+      // сочинял таблицу гейтов от себя. Бланка нет (автозаполнение не отработало) —
+      // прежнее поведение, пустой файл.
+      writeArtifact(canonical, this.verifyPrefill ?? '');
       try {
         await this.executorFor('verify', other).run(
           {
@@ -1291,6 +1299,7 @@ export class Run {
 
     const def = stageById(stage);
     const route = this.profile.routes[stage];
+    const chunkPlanFiles = stage === 'chunk' ? (this.planFilesFor('chunk') ?? []) : [];
     const ecosystem = describeBuild({
       projectRoot: this.project.projectRoot,
       planFiles: this.planFilesFor(stage) ?? [],
@@ -1320,10 +1329,9 @@ export class Run {
       ...(this.mcpUnavailable().length === 0 ? {} : { mcpUnavailable: this.mcpUnavailable() }),
       ...(this.seeded.length === 0 ? {} : { seededArtifacts: this.seeded }),
       // Prefetch файлов плана в промпт этапа 5 (флоу loop) — тем же источником, что у
-      // политики: второй разбор плана разошёлся бы с ней.
-      ...(stage === 'chunk' && (this.planFilesFor('chunk') ?? []).length > 0
-        ? { planFiles: this.planFilesFor('chunk') ?? [] }
-        : {}),
+      // политики: второй разбор плана разошёлся бы с ней. Один вызов, не два: каждый
+      // читает и парсит plan.md с диска.
+      ...(chunkPlanFiles.length > 0 ? { planFiles: chunkPlanFiles } : {}),
     });
     this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     return prompt;

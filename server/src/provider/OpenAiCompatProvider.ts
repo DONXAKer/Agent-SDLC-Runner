@@ -175,9 +175,23 @@ function objectEnd(text: string, start: number): number {
   return -1;
 }
 
-/** Повторы транзиентных HTTP-отказов (5xx/429): сверх первой попытки, с растущей паузой. */
+/** Повторы транзиентных отказов (5xx/429/сетевой обрыв): сверх первой попытки, с растущей паузой. */
 const CHAT_RETRIES = 2;
 const CHAT_RETRY_DELAY_MS = 3_000;
+
+/** Пауза, прерываемая отменой: оператор не должен ждать конца сна ретрая. */
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((r) => {
+    const t = setTimeout(done, ms);
+    t.unref?.();
+    signal.addEventListener('abort', done, { once: true });
+    function done(): void {
+      clearTimeout(t);
+      signal.removeEventListener('abort', done);
+      r();
+    }
+  });
+}
 
 export class OpenAiCompatProvider implements ChatProvider {
   readonly name: string;
@@ -235,10 +249,13 @@ export class OpenAiCompatProvider implements ChatProvider {
     };
     const payload = JSON.stringify(body);
 
-    // Перемежающийся 5xx/429 агрегатора — среда, а не модель, и один такой ответ не должен
+    // Перемежающийся отказ агрегатора — среда, а не модель, и один такой ответ не должен
     // валить этап (замер: три прогона подряд встали на intent из-за 503 полза-апстрима,
-    // при том что проба и повтор той же выборки проходили). До двух повторов с паузой;
-    // 4xx кроме 429 не повторяются — они про запрос, и повтор их не чинит.
+    // при том что проба и повтор той же выборки проходили). Транзиентным считается и
+    // HTTP 5xx/429, и СЕТЕВОЙ обрыв (ECONNRESET — postJson сигналит им reject'ом): рвущий
+    // соединение апстрим — тот же класс, ради которого ретрай и заведён. 4xx кроме 429 не
+    // повторяются — они про запрос. Пауза отменяема, и отмена оператора отчитывается
+    // отменой, а не «HTTP 503» (ревью, К16).
     let status = 0;
     let text = '';
     for (let attempt = 1; ; attempt++) {
@@ -247,11 +264,20 @@ export class OpenAiCompatProvider implements ChatProvider {
       // попытку: иначе время, съеденное упавшей, вычиталось бы у повтора.
       const timeout = AbortSignal.timeout(this.o.timeoutMs);
       const signal = AbortSignal.any([req.signal, timeout]);
-      ({ status, text } = await postJson(url, headers, payload, signal));
+      try {
+        ({ status, text } = await postJson(url, headers, payload, signal));
+      } catch (e) {
+        if (req.signal.aborted || attempt > CHAT_RETRIES) throw e;
+        await abortableDelay(CHAT_RETRY_DELAY_MS * attempt, req.signal);
+        if (req.signal.aborted) throw e;
+        continue;
+      }
       const transient = status === 429 || status >= 500;
       if (!transient || attempt > CHAT_RETRIES) break;
-      await new Promise((r) => setTimeout(r, CHAT_RETRY_DELAY_MS * attempt));
-      if (req.signal.aborted) break;
+      await abortableDelay(CHAT_RETRY_DELAY_MS * attempt, req.signal);
+      if (req.signal.aborted) {
+        throw new Error(`${this.name}: запрос отменён во время паузы повтора (последний ответ: HTTP ${status})`);
+      }
     }
 
     if (status < 200 || status >= 300) {

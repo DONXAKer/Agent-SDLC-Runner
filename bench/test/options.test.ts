@@ -75,6 +75,8 @@ describe('аргументы бенчмарка', () => {
     strictEqual(parseArgs(['--model', 'x', '--all']).repeat, 1);
     strictEqual(parseArgs(['--model', 'x', '--stage', 'chunk', '--repeat', '3']).repeat, 3);
     throws(() => parseArgs(['--model', 'x', '--probe', '--repeat', '3']), /--repeat/);
+    // Нецелое отклоняется явно: floor молча превращал 0.5 в «серия выключена».
+    throws(() => parseArgs(['--model', 'x', '--all', '--repeat', '0.5']), /целое/);
     throws(
       () => parseArgs(['--model', 'x', '--all', '--make-snapshot', 'a', '--repeat', '2']),
       /--repeat/,

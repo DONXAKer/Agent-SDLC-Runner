@@ -15,6 +15,8 @@
  * изображает, что умеет.
  */
 
+import { splitRow } from '../md/table.ts';
+
 export interface HumanFact {
   question: string;
   answer: string;
@@ -27,6 +29,20 @@ export interface HumanFact {
 
 /** Плейсхолдер шаблона — строка не заполнена, ответом не является. */
 const PLACEHOLDER = /[‹›]/;
+
+/**
+ * Регулярка поиска литерала-числа как ОТДЕЛЬНОГО токена в тексте diff'а.
+ *
+ * Живёт рядом с экстрактором намеренно: границы токена обязаны совпадать с границами
+ * извлечения (буква — не граница числа в обе стороны), иначе «лимит 64» зеленел от
+ * `base64` — гейт и промпт расходились ровно там, где этот файл обещает единство.
+ * Экранируются ВСЕ метасимволы: форма собирается из текста ответа человека, и цитата
+ * «2) особый случай» без экранирования роняла RegExp'ом весь этап 6 (ревью, К9).
+ */
+export function literalPattern(form: string): RegExp {
+  const esc = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^\\p{L}\\d.])${esc}([^\\p{L}\\d.]|$)`, 'mu');
+}
 
 /**
  * Литералы ответа: числа (с процентной альтернативой) и цитаты «…»/"…"/`…`.
@@ -46,9 +62,11 @@ export function literalsOf(answer: string): { shown: string; accepted: string[] 
     const accepted = [num];
     if (num.includes(',')) accepted.push(num.replace(',', '.'));
     if (isPercent) {
-      // 90% → 0.9: дробная форма ставки — обычное написание в коде.
+      // 90% → 0.9: дробная форма ставки — обычное написание в коде. Округление до 10
+      // знаков срезает двоичный артефакт: 8,2% без него давал 0.08199999999999999 —
+      // форму, которой в коде не бывает, и точный перенос ответа краснел (ревью, К10).
       const frac = Number(num.replace(',', '.')) / 100;
-      if (Number.isFinite(frac)) accepted.push(String(frac));
+      if (Number.isFinite(frac)) accepted.push(String(Number(frac.toFixed(10))));
     }
     out.push({ shown, accepted });
   }
@@ -77,10 +95,12 @@ export function extractHumanFacts(text: string): HumanFact[] {
   const out: HumanFact[] = [];
   for (const line of section.split(/\r?\n/)) {
     if (!line.trimStart().startsWith('|')) continue;
-    const cells = line.split('|').map((c) => c.trim());
-    // | # | Вопрос | Блокирующий | Ответ человека | Что изменилось | → 7 частей с краями.
-    if (cells.length < 6) continue;
-    const [, num, question, , answer] = cells;
+    // Разбор строки — общим `splitRow`: он знает про экранированную `\|`, на которой
+    // наивный split('|') рвал ячейку с чертой и сдвигал колонку ответа (ревью, К19).
+    const cells = splitRow(line);
+    // | # | Вопрос | Блокирующий | Ответ человека | Что изменилось |
+    if (cells.length < 4) continue;
+    const [num, question, , answer] = cells;
     if (num === undefined || question === undefined || answer === undefined) continue;
     if (num === '#' || /^:?-+:?$/.test(num) || num === '') continue;
     if (PLACEHOLDER.test(question) || PLACEHOLDER.test(answer)) continue;

@@ -22,7 +22,7 @@
  *    поработавшим.
  */
 
-import { placeholderRanges } from '../artifacts/artifact.ts';
+import { isDecisionLine, lineAt, placeholderRanges } from '../artifacts/artifact.ts';
 
 export interface ChunkJournalFacts {
   chunk: number;
@@ -36,11 +36,41 @@ export interface ChunkJournalFacts {
   planApprovedOn: string | null;
 }
 
-/** Строка текста, содержащая позицию `index`, — контекст плейсхолдера. */
-function lineAt(text: string, index: number): string {
-  const start = text.lastIndexOf('\n', index - 1) + 1;
-  const end = text.indexOf('\n', index);
-  return text.slice(start, end < 0 ? text.length : end);
+/**
+ * Общая механика автозаполнения механических плейсхолдеров: диапазоны с конца (сплайс не
+ * сдвигает необработанные позиции), строка-контекст, пропуск строк решений человека
+ * (`isDecisionLine` — единый источник меток), значение из таблицы вызывающего.
+ * `null` от `valueFor` — не наш плейсхолдер, остаётся как есть. Идемпотентно.
+ *
+ * Вынесена из `autofillChunkJournal`: отчёт приёмки (`verifyAutofill.ts`) повторял её
+ * дословно, и правка механики чинилась бы в одном файле из двух.
+ */
+export function fillMechanicalPlaceholders(
+  text: string,
+  valueFor: (inner: string, line: string) => string | null,
+): { text: string; filled: number } {
+  let out = text;
+  let filled = 0;
+  for (const range of [...placeholderRanges(text)].reverse()) {
+    const inner = range.text.slice(1, -1);
+    const line = lineAt(text, range.start);
+    if (isDecisionLine(line) && !isMechanicalDecisionContext(line)) continue;
+    const value = valueFor(inner, line);
+    if (value === null) continue;
+    out = out.slice(0, range.start) + value + out.slice(range.end);
+    filled++;
+  }
+  return { text: out, filled };
+}
+
+/**
+ * Единственное законное механическое поле на строке с меткой решения: дата одобрения
+ * плана в шапке журнала («**План:** plan.md, одобрение от ‹дата›»). Это дата УЖЕ
+ * принятого решения из plan.md, а не само решение — вызывающий и так подставляет её
+ * только из фактического поля решения (см. `planApprovedOn`).
+ */
+function isMechanicalDecisionContext(line: string): boolean {
+  return line.includes('**План:**');
 }
 
 /**
@@ -48,9 +78,6 @@ function lineAt(text: string, index: number): string {
  * человека либо факт, которого у рантайма нет.
  */
 function valueFor(inner: string, line: string, f: ChunkJournalFacts): string | null {
-  // Решение человека не подделывается ни при каком совпадении текста плейсхолдера.
-  if (/Подтвердил/i.test(line)) return null;
-
   if (inner === 'N') return String(f.chunk);
   if (inner === 'название витка') return f.slug;
   if (inner.startsWith('base_sha')) return f.baseSha;
@@ -75,15 +102,5 @@ export function autofillChunkJournal(
   text: string,
   facts: ChunkJournalFacts,
 ): { text: string; filled: number } {
-  let out = text;
-  let filled = 0;
-  // С конца к началу: сплайс не сдвигает позиции ещё не обработанных диапазонов.
-  for (const range of [...placeholderRanges(text)].reverse()) {
-    const inner = range.text.slice(1, -1);
-    const value = valueFor(inner, lineAt(text, range.start), facts);
-    if (value === null) continue;
-    out = out.slice(0, range.start) + value + out.slice(range.end);
-    filled++;
-  }
-  return { text: out, filled };
+  return fillMechanicalPlaceholders(text, (inner, line) => valueFor(inner, line, facts));
 }

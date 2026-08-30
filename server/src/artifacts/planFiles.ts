@@ -13,6 +13,8 @@
  *    намертво с сообщением «files_to_touch пуст».
  */
 
+import { splitRow } from '../md/table.ts';
+
 const SECTION_RE = /^#{1,6}\s.*files_to_touch/im;
 const NEXT_HEADING_RE = /^#{1,6}\s/m;
 /** Строка, с которой начинается перечисление исключённых путей. */
@@ -57,10 +59,9 @@ function looksLikePath(raw: string): boolean {
 
 /** Из строки таблицы берём ячейку, похожую на путь; закавыченная имеет приоритет. */
 function pathFromRow(line: string): string | null {
-  const cells = line
-    .split('|')
-    .map((c) => c.trim())
-    .filter((c) => c !== '');
+  // Общий разборщик, а не split('|'): экранированная `\|` в ячейке рвала колонку —
+  // тот же класс, что чинился в humanFacts (ревью, class sweep).
+  const cells = splitRow(line).filter((c) => c !== '');
 
   const backticked = cells.find((c) => c.startsWith('`') && looksLikePath(c));
   if (backticked !== undefined) return clean(backticked);

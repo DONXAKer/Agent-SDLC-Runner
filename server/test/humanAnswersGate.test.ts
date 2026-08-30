@@ -103,6 +103,34 @@ describe('гейт «Ответы человека в коде»', () => {
     ok(lastLine.includes('нет проверяемых литералов'), lastLine);
   });
 
+  it('claim-7 [edge]: цитата с цифры и скобкой не роняет гейт исключением', async () => {
+    // Ревью (К9): new RegExp из неэкранированного литерала бросал SyntaxError,
+    // который не ловился нигде и валил весь этап 6.
+    const { root, clarificationPath } = repo();
+    writeFileSync(
+      clarificationPath,
+      '## Вопросы и ответы\n| # | В | Б | О | И |\n|---|---|---|---|---|\n| 1 | Какой случай? | да | «2) особый случай» | claim-1 |\n',
+    );
+    writeFileSync(join(root, 'tariffs.ts'), 'export const base = 100;\n// 2) особый случай\n');
+    const { status } = await outcomeOf(root, clarificationPath);
+    strictEqual(status, '✅');
+  });
+
+  it('claim-8: проверяется КАЖДЫЙ литерал факта — потерянная ставка не зеленеет от порога', async () => {
+    // Ревью (К8): some вместо every — «порог 300, ставка 1.5» с перенесённым 300 и
+    // потерянной ставкой проходил зелёным вопреки обещанию карточки промпта.
+    const { root, clarificationPath } = repo();
+    writeFileSync(
+      clarificationPath,
+      '## Вопросы и ответы\n| # | В | Б | О | И |\n|---|---|---|---|---|\n| 1 | Порог и ставка? | да | порог 300 см, ставка 1.5 | claim-1 |\n',
+    );
+    writeFileSync(join(root, 'tariffs.ts'), 'export const base = 100;\nexport const LIMIT = 300;\n');
+    const { status, lastLine } = await outcomeOf(root, clarificationPath);
+    strictEqual(status, '❌');
+    ok(lastLine.includes('1.5'), lastLine);
+    ok(!lastLine.includes('(300'), lastLine); // найденный литерал в списке потерянных не значится
+  });
+
   it('claim-6 [edge]: не git-репозиторий — пропуск, а не провал', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-answers-plain-'));
     roots.push(root);

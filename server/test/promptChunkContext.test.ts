@@ -93,8 +93,11 @@ describe('prefetch файлов плана на этапе 5 (флоу loop)', (
     strictEqual(userOf('chunk', 'sdk', ['tariffs.ts']).includes('Файлы плана'), false);
   });
 
-  it('несуществующий и абсолютный пути пропускаются молча', () => {
-    const u = userOf('chunk', 'loop', ['нет-такого.ts', '/etc/passwd']);
+  it('несуществующий, абсолютный и выводящий за корень пути пропускаются молча', () => {
+    // `../…` — ревью (К4): относительный путь из плана выводил чтение рантайма за корень
+    // проекта мимо pathScope, и содержимое уезжало в промпт внешнему провайдеру.
+    const u = userOf('chunk', 'loop', ['нет-такого.ts', '/etc/passwd', '../secret.txt']);
     strictEqual(u.includes('Файлы плана'), false);
+    strictEqual(u.includes('secret'), false);
   });
 });

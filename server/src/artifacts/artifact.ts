@@ -248,6 +248,27 @@ export const DECISION = {
 
 export type DecisionLabel = (typeof DECISION)[keyof typeof DECISION];
 
+/**
+ * Строка, несущая поле решения человека, — НЕ поле машины ни в одном автозаполнителе.
+ *
+ * Единственный источник меток: значения `DECISION` плюс «Утвердил» — колонка таблиц
+ * неприменимости («Утвердил (человек)»), которая в словарь полей-решений не входит,
+ * потому что читается по колонке, а не по метке поля. Ревью поймало три рукописные
+ * регулярки этого правила в трёх файлах — расходившиеся уже на второй метке.
+ */
+const DECISION_LINE = new RegExp([...Object.values(DECISION), 'Утвердил'].map(escapeRe).join('|'), 'i');
+
+export function isDecisionLine(line: string): boolean {
+  return DECISION_LINE.test(line);
+}
+
+/** Строка текста, содержащая позицию `index`. Была скопирована в трёх файлах — теперь одна. */
+export function lineAt(text: string, index: number): string {
+  const start = text.lastIndexOf('\n', index - 1) + 1;
+  const end = text.indexOf('\n', index);
+  return text.slice(start, end < 0 ? text.length : end);
+}
+
 export type DecisionState =
   /** Поля нет в файле — форма не та или файл не создан. */
   | { state: 'missing' }

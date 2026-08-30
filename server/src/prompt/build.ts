@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, join, relative } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
 import { extractHumanFacts } from '../artifacts/humanFacts.ts';
@@ -343,10 +343,15 @@ function userMessage(i: BuildPromptInput): string {
     let budget = PREFETCH_TOTAL_BYTES;
     for (const rel of i.planFiles ?? []) {
       if (budget <= 0) break;
-      // Абсолютный путь в плане `join` не абсолютизирует, а приклеивает — тот же фильтр,
-      // что у salvage.
+      // Чтение строго ВНУТРИ корня проекта. Мало отсечь абсолютные пути: `../../.ssh/…`
+      // из files_to_touch (текст пишет модель) выводил чтение за корень, и содержимое
+      // уезжало в промпт внешнему провайдеру МИМО pathScope — политика такой Read модели
+      // отклонила бы, а prefetch её не проходил (ревью, К4/B3).
       if (isAbsolute(rel)) continue;
-      const a = readArtifact(join(i.ctx.paths.projectRoot, rel));
+      const abs = resolve(i.ctx.paths.projectRoot, rel);
+      const back = relative(i.ctx.paths.projectRoot, abs);
+      if (back.startsWith('..') || isAbsolute(back)) continue;
+      const a = readArtifact(abs);
       if (!a.exists) continue;
       const cap = Math.min(PREFETCH_FILE_BYTES, budget);
       fetched.push(fence(toPosix(rel), a.text, cap));

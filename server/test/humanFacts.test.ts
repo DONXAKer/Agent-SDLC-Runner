@@ -8,7 +8,7 @@
 import { deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { extractHumanFacts, literalsOf } from '../src/artifacts/humanFacts.ts';
+import { extractHumanFacts, literalPattern, literalsOf } from '../src/artifacts/humanFacts.ts';
 
 const REPORT = `# Вопросы и ответы: Надбавка
 
@@ -78,5 +78,31 @@ describe('literalsOf', () => {
 
   it('число внутри слова литералом не считается', () => {
     deepStrictEqual(literalsOf('utf8-совместимо'), []);
+  });
+
+  it('нецелый процент даёт точную дробную форму, а не двоичный артефакт', () => {
+    // Ревью (К10): 8,2% давал accepted '0.08199999999999999' — форму, которой в коде
+    // не бывает, и точный перенос ответа краснел.
+    const lits = literalsOf('8,2% надбавки');
+    deepStrictEqual(lits[0]?.accepted, ['8,2', '8.2', '0.082']);
+  });
+});
+
+describe('literalPattern — границы токена и экранирование', () => {
+  it('буква не граница: «64» не матчится в base64 (симметрия с извлечением)', () => {
+    strictEqual(literalPattern('64').test("toString('base64')"), false);
+    strictEqual(literalPattern('64').test('лимит 64 КБ'), true);
+  });
+
+  it('«90» не матчится в 190 и 903', () => {
+    strictEqual(literalPattern('90').test('x = 190;'), false);
+    strictEqual(literalPattern('90').test('port 903'), false);
+    strictEqual(literalPattern('90').test('rate = 90;'), true);
+  });
+
+  it('метасимволы литерала экранируются — «2) случай» не роняет RegExp', () => {
+    // Ревью (К9): без экранирования SyntaxError валил весь этап 6.
+    strictEqual(literalPattern('2) случай').test('тут 2) случай описан'), true);
+    strictEqual(literalPattern('1+2').test('сумма 1+2 готова'), true);
   });
 });

@@ -21,7 +21,7 @@ import {
 } from '../ecosystems/index.ts';
 import { normalizePlanPath, toPosix } from '../../policy/paths.ts';
 import { addedFunctionNames, findDuplicates } from './duplicates.ts';
-import { extractHumanFacts } from '../../artifacts/humanFacts.ts';
+import { extractHumanFacts, literalPattern } from '../../artifacts/humanFacts.ts';
 import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
 import { spawn } from 'node:child_process';
@@ -1360,11 +1360,13 @@ const humanAnswersGate: BuiltinGate = async (ctx) => {
   // Только добавленные строки — и БЕЗ артефактов витка: `workingDiff` включает
   // нетракованные файлы, то есть сам clarification-report.md, и гейт зеленел бы от
   // литералов вопроса, процитированных в отчёте, а не от кода (пойман тестом).
-  const clarRel = toPosix(relative(ctx.projectRoot, ctx.clarificationPath ?? '')).toLowerCase();
+  // Регистр не гасится: правило «без регистра — только Windows-пути» держит pathsEqual,
+  // и заводить здесь третью идиому сравнения нельзя.
+  const clarRel = toPosix(relative(ctx.projectRoot, ctx.clarificationPath ?? ''));
   const added = diffLines(await cachedWorkingDiff(ctx))
     .filter((l) => l.added)
     .filter((l) => {
-      const file = toPosix(l.file).toLowerCase();
+      const file = toPosix(l.file);
       return !file.startsWith('.sdlc/') && file !== clarRel;
     })
     .map((l) => l.text)
@@ -1372,16 +1374,19 @@ const humanAnswersGate: BuiltinGate = async (ctx) => {
 
   const lost: string[] = [];
   for (const fact of checkable) {
-    const found = fact.literals.some((lit) =>
-      lit.accepted.some((form) =>
-        // Число ищется как отдельный токен: «90» не должен зеленеть от «190» или «903».
-        /^\d/.test(form)
-          ? new RegExp(`(^|[^\\d.])${form.replace('.', '\\.')}([^\\d.]|$)`, 'm').test(added)
-          : added.includes(form),
-      ),
+    // КАЖДЫЙ литерал факта, а не любой: карточка в промпте обещает «каждое число и
+    // каждая цитата обязаны быть отражены», и гейт обязан проверять то же самое —
+    // «порог 300, ставка 1.5» с перенесённым порогом и потерянной ставкой не зелёный.
+    // Число ищется как отдельный токен той же регуляркой, что задаёт границы экстрактор
+    // (`literalPattern`): «90» не зеленеет ни от «190», ни от «base64»-подобных имён.
+    const missing = fact.literals.filter(
+      (lit) =>
+        !lit.accepted.some((form) =>
+          /^\d/.test(form) ? literalPattern(form).test(added) : added.includes(form),
+        ),
     );
-    if (!found) {
-      const lits = fact.literals.map((l) => l.shown).join(', ');
+    if (missing.length > 0) {
+      const lits = missing.map((l) => l.shown).join(', ');
       lost.push(`  «${fact.question}» → «${fact.answer}»: литералы (${lits}) в добавленных строках не найдены`);
     }
   }

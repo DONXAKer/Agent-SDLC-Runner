@@ -2,8 +2,8 @@
  * Автозаполнение отчёта приёмки фактами рантайма — ДО модели-рецензента.
  *
  * Два класса фактов, оба не знания модели:
- *  - механические поля шапки (номер chunk'а, попытка, слаг, бюджет попыток) — тот же
- *    принцип, что у `journalAutofill.ts`;
+ *  - механические поля шапки (номер chunk'а, попытка, слаг, бюджет попыток) — общей
+ *    механикой `fillMechanicalPlaceholders` (см. journalAutofill.ts);
  *  - таблица «Гейты»: статусы и результаты фактического прогона `runVerifyGates`.
  *    Замер серии r9 (`docs/model-runs.md`): дешёвый рецензент-«оформитель» (gpt-oss-20b)
  *    дал 4 расхождения отчёта с фактом — все в переписанной от себя таблице гейтов.
@@ -16,8 +16,9 @@
 
 import type { GateRunResult } from '@sdlc-runner/shared';
 
-import { placeholderRanges } from '../artifacts/artifact.ts';
 import { gateKey } from '../gates/gatesFile.ts';
+import { splitRow } from '../md/table.ts';
+import { fillMechanicalPlaceholders } from './journalAutofill.ts';
 
 export interface VerifyReportFacts {
   chunk: number;
@@ -42,11 +43,10 @@ function resultCell(r: GateRunResult): string {
   return cellSafe(parts.join(' · '));
 }
 
-/** Первая ячейка markdown-строки таблицы. `null` — строка не табличная. */
+/** Первая ячейка markdown-строки таблицы — через общий `splitRow` (знает про `\|`). */
 function firstCell(line: string): string | null {
   if (!line.trimStart().startsWith('|')) return null;
-  const cells = line.split('|');
-  return cells.length < 3 ? null : (cells[1]?.trim() ?? null);
+  return splitRow(line)[0] ?? null;
 }
 
 /**
@@ -61,29 +61,39 @@ export function autofillVerificationReport(
 ): { text: string; filled: number } {
   let filled = 0;
 
-  // Шаг 1: таблица «Гейты» — построчно, только в своей секции и только строки с
-  // незаполненным статусом: строку, уже написанную кем-то, рантайм не переписывает.
+  // Шаг 1: ПЕРВАЯ таблица после «## Гейты» — и только она. Граница «до следующего
+  // заголовка» накрывала и таблицу неприменимости (между ними заголовка нет), и строка
+  // неприменимости с настоящим именем гейта переписывалась в строку статуса — колонка
+  // «Утвердил (человек)» уничтожалась рантаймом (ревью, К3/К5). Первая таблица кончается
+  // на первой не-табличной строке, дальше не смотрим.
   const byKey = new Map(gates.map((g) => [gateKey(g.name), g]));
   const used = new Set<string>();
   const lines = text.split('\n');
   const gatesStart = lines.findIndex((l) => /^##\s+Гейты\s*$/.test(l));
-  const gatesEnd = lines.findIndex((l, i) => i > gatesStart && /^#{2,3}\s/.test(l));
   if (gatesStart >= 0) {
-    const stop = gatesEnd < 0 ? lines.length : gatesEnd;
-    for (let i = gatesStart + 1; i < stop; i++) {
-      const line = lines[i]!;
+    let i = gatesStart + 1;
+    while (i < lines.length && !lines[i]!.trimStart().startsWith('|')) {
+      if (/^#{2,3}\s/.test(lines[i]!)) break; // секция без таблицы — заполнять нечего
+      i++;
+    }
+    const tableStart = i;
+    let tableEnd = tableStart;
+    while (tableEnd < lines.length && lines[tableEnd]!.trimStart().startsWith('|')) tableEnd++;
+
+    for (let j = tableStart; j < tableEnd; j++) {
+      const line = lines[j]!;
       const name = firstCell(line);
       if (name === null || !line.includes('‹')) continue;
       const r = byKey.get(gateKey(name));
       if (r === undefined) continue;
-      lines[i] = `| ${name} | ${r.status} | ${resultCell(r)} |`;
+      lines[j] = `| ${name} | ${r.status} | ${resultCell(r)} |`;
       used.add(gateKey(name));
       filled++;
     }
     // Строка-образец «прочий включённый гейт» разворачивается в фактические строки
     // оставшихся прогнанных гейтов — либо убирается: образец не отчёт.
     const otherIdx = lines.findIndex(
-      (l, i) => i > gatesStart && i < stop && l.includes('‹прочий включённый гейт'),
+      (l, k) => k >= tableStart && k < tableEnd && l.includes('‹прочий включённый гейт'),
     );
     if (otherIdx >= 0) {
       const rest = gates.filter((g) => !used.has(gateKey(g.name)));
@@ -91,31 +101,20 @@ export function autofillVerificationReport(
       filled += rest.length > 0 ? rest.length : 1;
     }
   }
-  let out = lines.join('\n');
 
-  // Шаг 2: механические плейсхолдеры шапки и вердикта — с конца, чтобы сплайс не сдвигал
-  // необработанные диапазоны. Решения человека («Утвердил») не подделываются.
-  for (const range of [...placeholderRanges(out)].reverse()) {
-    const inner = range.text.slice(1, -1);
-    const lineStart = out.lastIndexOf('\n', range.start - 1) + 1;
-    const lineEnd = out.indexOf('\n', range.start);
-    const line = out.slice(lineStart, lineEnd < 0 ? out.length : lineEnd);
-    if (/Утвердил/i.test(line)) continue;
+  // Шаг 2: механические плейсхолдеры шапки и вердикта — общей механикой (та же, что у
+  // журнала chunk'а: с конца, строки решений человека не трогаются).
+  const mech = fillMechanicalPlaceholders(lines.join('\n'), (inner) =>
+    inner === 'N'
+      ? String(f.chunk)
+      : inner === 'K'
+        ? String(f.attempt)
+        : inner === 'название витка'
+          ? f.slug
+          : inner === 'бюджет'
+            ? String(f.attemptBudget)
+            : null,
+  );
 
-    const value =
-      inner === 'N'
-        ? String(f.chunk)
-        : inner === 'K'
-          ? String(f.attempt)
-          : inner === 'название витка'
-            ? f.slug
-            : inner === 'бюджет'
-              ? String(f.attemptBudget)
-              : null;
-    if (value === null) continue;
-    out = out.slice(0, range.start) + value + out.slice(range.end);
-    filled++;
-  }
-
-  return { text: out, filled };
+  return { text: mech.text, filled: filled + mech.filled };
 }

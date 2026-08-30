@@ -20,11 +20,19 @@
  *    одобряет, второго места решения о доступе не появляется.
  *  - **Страж завершения.** Поле, которое модель не смогла заполнить, остаётся
  *    плейсхолдером, и `finishGuard`/предусловия следующего этапа честно краснеют.
+ *  - **Решения человека.** Поля с метками решений (`isDecisionLine`, включая колонки
+ *    «Утвердил»/«Кто» таблиц — метка там в шапке, не в строке) модели не отдаются никогда.
  *
  * Ограничение режима: `AskHuman` здесь нет — вопросы человеку требуют цикла. Поле,
  * требующее решения человека, модель обязана оставить с пометкой, а не сочинить; это
  * режим ЭКСПЕРИМЕНТА для слабых моделей (флаг `formFill` записи модели), а не замена
  * штатного цикла.
+ *
+ * ИМЕНОВАННОЕ ИСКЛЮЧЕНИЕ из правила «всё, что уйдёт в модель, собрано в buildPrompt»:
+ * полевые до-запросы этого исполнителя добавляют к промпту этапа служебную обвязку
+ * («ровно одно поле», секция-контекст, правила ответа-строки). Оператор видит промпт
+ * этапа целиком; обвязка полей — конструкция режима, как adapter-блок, и меняется только
+ * правкой кода, а не незаметной подстановкой данных.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -33,7 +41,8 @@ import { relative } from 'node:path';
 import type { Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
 
-import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
+import { isDecisionLine, lineAt, placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
+import { splitRow } from '../md/table.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
@@ -78,6 +87,28 @@ export interface FormField {
   kind: 'cell' | 'row';
   /** Текст плейсхолдера (`cell`) либо строка-образец (`row`) — уходит в подсказку модели. */
   text: string;
+  /** Шапка таблицы для `row`-поля — для дедупа продублированной моделью шапки. */
+  header?: string;
+}
+
+/** Шапка таблицы, которой принадлежит строка с позиции `lineStart`: верхняя `|`-строка блока. */
+function tableHeaderOf(text: string, lineStart: number): string {
+  let start = lineStart;
+  for (;;) {
+    const prevEnd = start - 1;
+    if (prevEnd < 0) break;
+    const prevStart = text.lastIndexOf('\n', prevEnd - 1) + 1;
+    const prev = text.slice(prevStart, prevEnd);
+    if (!prev.trimStart().startsWith('|')) break;
+    start = prevStart;
+  }
+  const end = text.indexOf('\n', start);
+  return text.slice(start, end < 0 ? text.length : end);
+}
+
+/** Колонка подписи человека, не покрытая метками решений: «Кто» в таблице «Долг» набора. */
+function hasSignatureColumn(header: string): boolean {
+  return splitRow(header).some((c) => /^Кто\s*($|\()/.test(c));
 }
 
 /**
@@ -94,27 +125,24 @@ export function groupFields(text: string): FormField[] {
     const lineEndIdx = text.indexOf('\n', r.start);
     const lineEnd = lineEndIdx < 0 ? text.length : lineEndIdx;
     const line = text.slice(lineStart, lineEnd);
-    // Решение человека не поле модели ни в каком режиме — то же правило, что у
-    // `journalAutofill`. Живой прогон: модель заполнила «Подтвердил», строка перестала
+    // Решение человека не поле модели ни в каком режиме — метки из единого словаря
+    // (`isDecisionLine`). Живой прогон: модель заполнила «Подтвердил», строка перестала
     // быть полем решения, и запись настоящего решения упала «нет поля „Подтвердил“».
-    // Плейсхолдер остаётся: его закрывает человек (или гейт решений от его имени).
-    if (/Подтвердил|Утвердил|Одобрени/i.test(line)) continue;
+    if (isDecisionLine(line)) continue;
     if (line.trimStart().startsWith('|')) {
       if (lineStart === lastRowStart) continue; // колонка того же образца — уже учтён
       lastRowStart = lineStart;
-      out.push({ start: lineStart, end: lineEnd, kind: 'row', text: line });
+      // В таблицах подпись человека живёт в ШАПКЕ, не в строке: образец
+      // `| ‹гейт› | ‹причина› | ‹имя› |` под шапкой «Утвердил (человек)» — поле решения,
+      // и модель его не заполняет (ревью, К1: сфабрикованная подпись снимала бы ⏭).
+      const header = tableHeaderOf(text, lineStart);
+      if (isDecisionLine(header) || hasSignatureColumn(header)) continue;
+      out.push({ start: lineStart, end: lineEnd, kind: 'row', text: line, header });
     } else {
       out.push({ start: r.start, end: r.end, kind: 'cell', text: r.text });
     }
   }
   return out;
-}
-
-/** Строка текста, содержащая позицию `index`, — контекст поля для модели. */
-function lineAt(text: string, index: number): string {
-  const start = text.lastIndexOf('\n', index - 1) + 1;
-  const end = text.indexOf('\n', index);
-  return text.slice(start, end < 0 ? text.length : end);
 }
 
 /**
@@ -129,7 +157,7 @@ function sectionAt(text: string, index: number, maxBytes = 2500): string {
   const lineEndIdx = text.indexOf('\n', index);
   const end = lineEndIdx < 0 ? text.length : lineEndIdx;
   const heading = text.lastIndexOf('\n#', index);
-  let start = heading < 0 ? 0 : heading + 1;
+  const start = heading < 0 ? 0 : heading + 1;
   let section = text.slice(start, end);
   while (Buffer.byteLength(section, 'utf8') > maxBytes) {
     // Режем сверху: строка-образец и ближняя легенда важнее начала секции.
@@ -138,6 +166,29 @@ function sectionAt(text: string, index: number, maxBytes = 2500): string {
     section = section.slice(cut + 1);
   }
   return section;
+}
+
+/** Каноничный вид строки таблицы для сравнения с шапкой: без регистра и лишних пробелов. */
+function rowKey(line: string): string {
+  return splitRow(line).join('|').toLowerCase();
+}
+
+/**
+ * Из ответа на строку-образец берутся ТОЛЬКО строки таблицы: живой прогон показал ответ
+ * «```markdown …таблица… ``` **Обоснование:** …» — валидная таблица внутри мусора
+ * вежливости, и требование «весь ответ — строки таблицы» отклоняло её целиком.
+ * Продублированные моделью шапка ЭТОЙ таблицы и разделитель снимаются (сравнение с
+ * фактической шапкой поля, а не угадывание по `| id |`); содержимое строк не редактируется.
+ * Пустой результат — поле не заполнено.
+ */
+export function cleanRowAnswer(answer: string, header: string | undefined): string {
+  const headerKey = header === undefined ? null : rowKey(header);
+  return answer
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('|') && !/^\|[\s:|-]+\|$/.test(l))
+    .filter((l) => headerKey === null || rowKey(l) !== headerKey)
+    .join('\n');
 }
 
 export class FormFillExecutor implements StageExecutor {
@@ -173,161 +224,15 @@ export class FormFillExecutor implements StageExecutor {
     let fieldsLeft = 0;
     let callsSpent = 0;
     const notes: string[] = [];
+    /**
+     * Артефакты, запись которых отклонена гейтом либо не удалась: отказ политики или
+     * оператора окончательный — второй проход их не трогает, иначе рантайм слал бы
+     * повторный Write после явного «нет» (и удваивал счётчики сводки).
+     */
+    const writeBlocked = new Set<string>();
 
-    // Проход по бланкам. `StageResult` — обрыв всего этапа (бюджет, отмена), `null` —
-    // проход закончен штатно. Вынесен в замыкание ради ВТОРОГО прохода: поле, не взятое
-    // одним сэмплом (пустой ответ, ответ с плейсхолдером), со второго захода часто
-    // берётся — дисперсия дешёвых моделей работает и в эту сторону, а незакрытое поле
-    // стоит целой красной попытки этапа.
-    const sweep = async (): Promise<StageResult | null> => {
-    fieldsLeft = 0;
-    for (const path of artifacts) {
-      if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
-
-      const artifact = readArtifact(path);
-      if (!artifact.exists) {
-        // Бланк не разложен — это дефект посева, а не модели: пропускаем с пометкой,
-        // страж завершения назовёт незаписанный артефакт сам.
-        notes.push(`бланк ${path} не найден — рантайм его не разложил`);
-        continue;
-      }
-
-      let text = artifact.text;
-      // С конца к началу: сплайс не сдвигает позиции ещё не обработанных диапазонов.
-      // Поля считаются НЕ по одному плейсхолдеру: строка таблицы с плейсхолдерами — это
-      // строка-ОБРАЗЕЦ, одна на весь будущий список (пункты приёмки, вопросы), и спрошенная
-      // «по одному полю» она давала список из одного пункта — сквозной прогон дважды встал
-      // на «приёмочный лист короче минимума» у двух разных моделей. Такая строка
-      // заполняется целиком, ответ может быть НЕСКОЛЬКИМИ строками того же формата.
-      const ranges = groupFields(text).reverse();
-      let changed = false;
-
-      // Поля независимы и идут пачками: последовательное дозаполнение журнала занимало
-      // ~40 с чистого ожидания сети на десяток полей. Ответы собираются на НЕИЗМЕНЁННОМ
-      // тексте (позиции и строки всех полей пачки посчитаны до первого сплайса), сплайсы
-      // применяются после пачки — в том же порядке «с конца», что и раньше.
-      for (let batchStart = 0; batchStart < ranges.length; batchStart += FIELD_PARALLEL) {
-        if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
-
-        // Потолок вызовов — тот же лимит ходов этапа: поле дешевле хода, но безлимитный
-        // бланк на сотню плейсхолдеров съел бы больше, чем обычный цикл.
-        const allowed = Math.min(FIELD_PARALLEL, req.maxTurns - callsSpent);
-        const batch = ranges.slice(batchStart, batchStart + FIELD_PARALLEL);
-        if (allowed <= 0) {
-          fieldsLeft += batch.length;
-          continue;
-        }
-        const asked = batch.slice(0, allowed);
-        fieldsLeft += batch.length - asked.length;
-        callsSpent += asked.length;
-
-        const answers = await Promise.all(
-          asked.map((range) =>
-            this.o.provider.chat({
-              model: req.model,
-              messages: [
-                { role: 'system', content: req.prompt.system },
-                {
-                  role: 'user',
-                  content: [
-                    req.prompt.user,
-                    '',
-                    '## Сейчас — ровно одно поле',
-                    '',
-                    range.kind === 'row'
-                      ? `Файл \`${relative(req.cwd, path)}\`, секция бланка (последняя строка — образец):`
-                      : `Файл \`${relative(req.cwd, path)}\`, строка бланка:`,
-                    '',
-                    '```',
-                    range.kind === 'row' ? sectionAt(text, range.start) : lineAt(text, range.start),
-                    '```',
-                    '',
-                    range.kind === 'row'
-                      ? 'Последняя строка секции — ОБРАЗЕЦ строки таблицы, один на весь список. ' +
-                        'Верни заполненные строки таблицы того же формата — столько, сколько ' +
-                        'нужно по факту задачи и входных артефактов (каждая начинается с `|`), ' +
-                        'без скобок ‹› и без пояснений вокруг. Соблюдай правила легенды секции — ' +
-                        'обязательные теги (например `[edge]` в нужной колонке) и формат id. ' +
-                        'Если по задаче элемент ровно один — верни одну строку.' +
-                        // Требование минимума повторено в самой инструкции, а не только в
-                        // легенде: три модели тремя способами провалили ровно это поле
-                        // (0 пунктов; 7 без [edge]) — легенду секции над таблицей они
-                        // читают мимо, инструкцию последней строки — нет. Условие выведено
-                        // из видимого образца, а не из второй копии правил методологии.
-                        (/claim-/.test(lineAt(text, range.start))
-                          ? ' Это ПРИЁМОЧНЫЙ ЛИСТ: пунктов не меньше трёх, и не меньше двух ' +
-                            'из них — граничные/негативные случаи с тегом `[edge]` в начале ' +
-                            'колонки «Пункт» (иначе этап не пройдёт проверку минимума). ' +
-                            'id строго в форме `claim-1`, `claim-2`, …'
-                          : '')
-                      : `Верни ТОЛЬКО текст, которым надо заменить плейсхолдер \`${range.text}\` в этой ` +
-                        'строке — без самих скобок ‹›, без пояснений вокруг, по факту задачи и входных ' +
-                        'артефактов. Если поле требует решения человека, которого у тебя нет, верни ' +
-                        '«требует решения человека: <что именно>» вместо выдуманного ответа.',
-                  ].join('\n'),
-                },
-              ],
-              tools: [],
-              signal: req.signal,
-              temperature: null,
-              params: this.o.params ?? null,
-            }),
-          ),
-        );
-
-        for (const answer of answers) {
-          usage = addUsage(usage, answer.usage);
-          hooks.onUsage(answer.usage);
-        }
-
-        // Бюджет проверяется после пачки: цена известна только по факту, а пачка — это
-        // и есть один «ход» режима.
-        const spent = usage.costUsd === null ? null : usage.costUsd + (req.spentUsdBefore ?? 0);
-        if (req.maxBudgetUsd !== null && spent !== null && spent >= req.maxBudgetUsd) {
-          return {
-            ok: false,
-            finalText: '',
-            usage,
-            note:
-              `бюджет прогона исчерпан: ${money(spent, currency)} из ` +
-              `${money(req.maxBudgetUsd, currency)}`,
-          };
-        }
-
-        // Сплайсы после пачки, в её же порядке «с конца»: позиции необработанных
-        // диапазонов ниже по тексту не сдвигаются.
-        for (const [idx, range] of asked.entries()) {
-          let filled = cleanFieldAnswer(answers[idx]?.text ?? '');
-          // Из ответа на строку-образец берутся ТОЛЬКО строки таблицы: живой прогон
-          // показал ответ «```markdown …таблица… ``` **Обоснование:** …» — валидная
-          // таблица внутри мусора вежливости, и требование «весь ответ — строки таблицы»
-          // отклоняло её целиком. Продублированные шапка и разделитель тоже снимаются;
-          // содержимое самих строк не редактируется. Ни одной строки — поле не заполнено.
-          if (range.kind === 'row') {
-            const rows = filled
-              .split('\n')
-              .map((l) => l.trim())
-              .filter((l) => l.startsWith('|') && !/^\|[\s:|-]+\|$/.test(l))
-              .filter((l, i2, all) => !(i2 === 0 && all.length > 1 && /\|\s*id\s*\|/i.test(l)));
-            filled = rows.join('\n');
-          }
-          // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся как
-          // был, и его честно назовут страж завершения и предусловие следующего этапа.
-          if (filled === '' || filled.includes('‹')) {
-            fieldsLeft++;
-            continue;
-          }
-          text = text.slice(0, range.start) + filled + text.slice(range.end);
-          fieldsFilled++;
-          changed = true;
-        }
-      }
-
-      if (!changed) continue;
-
-      // Запись — тем же путём, что любая запись исполнителя: нормализованный Write через
-      // гейт. Отказ политики или оператора здесь окончательный — второй попытки с другим
-      // путём у режима нет по построению.
+    /** Запись собранного текста через гейт. `true` — на диске. */
+    const flushArtifact = async (path: string, text: string): Promise<boolean> => {
       const rel = relative(req.cwd, path);
       const rawInput = { file_path: rel, content: text };
       const call = normalize('Write', rawInput);
@@ -342,7 +247,8 @@ export class FormFillExecutor implements StageExecutor {
         hooks.onFriction('denied');
         hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
         notes.push(`запись ${rel} отклонена: ${decision.reason}`);
-        continue;
+        writeBlocked.add(path);
+        return false;
       }
       const effective =
         decision.updatedInput === null
@@ -355,20 +261,179 @@ export class FormFillExecutor implements StageExecutor {
         summary: outcome.text.split('\n')[0]?.slice(0, 200) ?? '',
         durationMs: 0,
       });
-      if (!outcome.ok) notes.push(`запись ${rel} не удалась: ${outcome.text}`);
-    }
-    return null;
+      if (!outcome.ok) {
+        notes.push(`запись ${rel} не удалась: ${outcome.text}`);
+        writeBlocked.add(path);
+      }
+      return outcome.ok;
+    };
+
+    /** Полевой до-запрос модели: промпт этапа + служебная обвязка поля (см. шапку файла). */
+    const askField = (path: string, text: string, range: FormField): ReturnType<ChatProvider['chat']> =>
+      this.o.provider.chat({
+        model: req.model,
+        messages: [
+          { role: 'system', content: req.prompt.system },
+          {
+            role: 'user',
+            content: [
+              req.prompt.user,
+              '',
+              '## Сейчас — ровно одно поле',
+              '',
+              range.kind === 'row'
+                ? `Файл \`${relative(req.cwd, path)}\`, секция бланка (последняя строка — образец):`
+                : `Файл \`${relative(req.cwd, path)}\`, строка бланка:`,
+              '',
+              '```',
+              range.kind === 'row' ? sectionAt(text, range.start) : lineAt(text, range.start),
+              '```',
+              '',
+              range.kind === 'row'
+                ? 'Последняя строка секции — ОБРАЗЕЦ строки таблицы, один на весь список. ' +
+                  'Верни заполненные строки таблицы того же формата — столько, сколько ' +
+                  'нужно по факту задачи и входных артефактов (каждая начинается с `|`), ' +
+                  'без скобок ‹› и без пояснений вокруг. Соблюдай правила легенды секции и ' +
+                  'текста этапа — обязательные теги (например `[edge]`) и формат id. ' +
+                  'Если по задаче элемент ровно один — верни одну строку.' +
+                  // Напоминание о минимуме повторено в инструкции поля, потому что легенду
+                  // секции модели читают мимо (три модели тремя способами провалили ровно
+                  // это поле). ЧИСЛА минимума здесь не называются намеренно: они — правило
+                  // методологии, живут в тексте этапа (он в системном промпте выше), и
+                  // копия чисел в коде разошлась бы с ним при первой правке (правило из
+                  // build.ts, подтверждённое ревью).
+                  (/claim-/.test(range.text)
+                    ? ' Это ПРИЁМОЧНЫЙ ЛИСТ: правила этапа задают минимум числа пунктов и ' +
+                      'обязательных [edge]-пометок — лист короче минимума роняет этап; ' +
+                      'id строго в форме `claim-1`, `claim-2`, …'
+                    : '')
+                : `Верни ТОЛЬКО текст, которым надо заменить плейсхолдер \`${range.text}\` в этой ` +
+                  'строке — без самих скобок ‹›, без пояснений вокруг, по факту задачи и входных ' +
+                  'артефактов. Если поле требует решения человека, которого у тебя нет, верни ' +
+                  '«требует решения человека: <что именно>» вместо выдуманного ответа.',
+            ].join('\n'),
+          },
+        ],
+        tools: [],
+        signal: req.signal,
+        temperature: null,
+        params: this.o.params ?? null,
+      });
+
+    /**
+     * Проход по бланкам. `StageResult` — обрыв всего этапа (бюджет, отмена), `null` —
+     * проход закончен штатно. Вынесен в функцию ради ВТОРОГО прохода: поле, не взятое
+     * одним сэмплом (пустой ответ, ответ с плейсхолдером), со второго захода часто
+     * берётся — дисперсия дешёвых моделей работает и в эту сторону, а незакрытое поле
+     * стоит целой красной попытки этапа.
+     */
+    const sweep = async (): Promise<StageResult | null> => {
+      fieldsLeft = 0;
+      for (const path of artifacts) {
+        if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
+        if (writeBlocked.has(path)) continue;
+
+        const artifact = readArtifact(path);
+        if (!artifact.exists) {
+          // Бланк не разложен — это дефект посева, а не модели: пропускаем с пометкой,
+          // страж завершения назовёт незаписанный артефакт сам.
+          notes.push(`бланк ${path} не найден — рантайм его не разложил`);
+          continue;
+        }
+
+        let text = artifact.text;
+        // С конца к началу: сплайс не сдвигает позиции ещё не обработанных диапазонов.
+        // Строка таблицы с плейсхолдерами — поле-ОБРАЗЕЦ, одно на весь будущий список
+        // (пункты приёмки, вопросы): спрошенная «по одному полю» она давала список из
+        // одного пункта. Заполняется целиком, ответ может быть несколькими строками.
+        const ranges = groupFields(text).reverse();
+        let changed = false;
+
+        // Поля независимы и идут пачками: последовательное дозаполнение журнала занимало
+        // ~40 с чистого ожидания сети на десяток полей. Ответы собираются на НЕИЗМЕНЁННОМ
+        // тексте (позиции и строки всех полей пачки посчитаны до первого сплайса), сплайсы
+        // применяются после пачки — в том же порядке «с конца», что и раньше.
+        for (let batchStart = 0; batchStart < ranges.length; batchStart += FIELD_PARALLEL) {
+          if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
+
+          // Потолок вызовов — тот же лимит ходов этапа: поле дешевле хода, но безлимитный
+          // бланк на сотню плейсхолдеров съел бы больше, чем обычный цикл.
+          const allowed = Math.min(FIELD_PARALLEL, req.maxTurns - callsSpent);
+          const batch = ranges.slice(batchStart, batchStart + FIELD_PARALLEL);
+          if (allowed <= 0) {
+            fieldsLeft += batch.length;
+            continue;
+          }
+          const asked = batch.slice(0, allowed);
+          fieldsLeft += batch.length - asked.length;
+          callsSpent += asked.length;
+
+          // `allSettled`, не `all`: отказ одного запроса пачки не должен ни ронять этап,
+          // ни терять usage успевших соседей — их токены уже оплачены и обязаны попасть
+          // в бюджет (ревью, К14). Упавший запрос — просто незаполненное поле.
+          const answers = await Promise.allSettled(asked.map((range) => askField(path, text, range)));
+
+          for (const a of answers) {
+            if (a.status !== 'fulfilled') continue;
+            usage = addUsage(usage, a.value.usage);
+            hooks.onUsage(a.value.usage);
+          }
+
+          // Бюджет проверяется после пачки: цена известна только по факту, а пачка — это
+          // и есть один «ход» режима. Уже собранный текст артефакта ПЕРЕД обрывом
+          // записывается через гейт: оплаченные ответы предыдущих пачек не выбрасываются
+          // (ревью, К12 — прежде они жили только в локальной переменной).
+          const spent = usage.costUsd === null ? null : usage.costUsd + (req.spentUsdBefore ?? 0);
+          if (req.maxBudgetUsd !== null && spent !== null && spent >= req.maxBudgetUsd) {
+            if (changed) await flushArtifact(path, text);
+            return {
+              ok: false,
+              finalText: '',
+              usage,
+              note:
+                `бюджет прогона исчерпан: ${money(spent, currency)} из ` +
+                `${money(req.maxBudgetUsd, currency)}`,
+            };
+          }
+
+          // Сплайсы после пачки, в её же порядке «с конца»: позиции необработанных
+          // диапазонов ниже по тексту не сдвигаются.
+          for (const [idx, range] of asked.entries()) {
+            const a = answers[idx]!;
+            if (a.status !== 'fulfilled') {
+              notes.push(`поле не спрошено (${(a.reason as Error).message?.slice(0, 120) ?? a.reason})`);
+              fieldsLeft++;
+              continue;
+            }
+            let filled = cleanFieldAnswer(a.value.text);
+            if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
+            // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
+            // как был, и его честно назовут страж и предусловие следующего этапа.
+            if (filled === '' || filled.includes('‹')) {
+              fieldsLeft++;
+              continue;
+            }
+            text = text.slice(0, range.start) + filled + text.slice(range.end);
+            fieldsFilled++;
+            changed = true;
+          }
+        }
+
+        if (changed) await flushArtifact(path, text);
+      }
+      return null;
     };
 
     const stopped = await sweep();
     if (stopped !== null) return stopped;
-    // Второй проход — только по остаткам и только если есть на что тратить ходы.
-    if (
-      fieldsLeft > 0 &&
-      callsSpent < req.maxTurns &&
-      !req.signal.aborted &&
-      artifacts.some((p) => readArtifact(p).exists && readArtifact(p).placeholders > 0)
-    ) {
+    // Второй проход — только по остаткам, в пределах того же лимита ходов, и не по
+    // артефактам, запись которых уже отклонили.
+    const leftOnDisk = artifacts.some((p) => {
+      if (writeBlocked.has(p)) return false;
+      const a = readArtifact(p);
+      return a.exists && a.placeholders > 0;
+    });
+    if (fieldsLeft > 0 && callsSpent < req.maxTurns && !req.signal.aborted && leftOnDisk) {
       const stopped2 = await sweep();
       if (stopped2 !== null) return stopped2;
     }

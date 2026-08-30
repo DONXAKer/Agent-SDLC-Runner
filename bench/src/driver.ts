@@ -228,10 +228,17 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
           attempt: run.attempt,
         });
       } catch (e) {
+        // Ловится ТОЛЬКО порча формы (моделью): «нет поля», «форма не соответствует»,
+        // удалённый артефакт. Программная поломка раннера («неизвестный артефакт»,
+        // fs-отказ) летит дальше крахом с диагностикой — иначе она ложилась бы в
+        // result.json красным этапом модели, и сравнение моделей засчитывало бы
+        // «сломан сам прогон» кандидату (ревью, К7).
+        const msg = (e as Error).message;
+        if (!/нет поля|не соответствует шаблону|решение записывать некуда/.test(msg)) throw e;
         const last = stages[stages.length - 1];
         if (last !== undefined) {
           last.ok = false;
-          last.note = `${last.note}; решение человека не записалось: ${(e as Error).message}`;
+          last.note = `${last.note}; решение человека не записалось: ${msg}`;
         }
         return { stages, finalVerdict: run.lastVerdict, stopped: 'blocked' };
       }

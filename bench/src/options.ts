@@ -228,10 +228,17 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         attempts = positiveNumber(next(i, key), key);
         i++;
         break;
-      case '--repeat':
-        repeat = Math.floor(positiveNumber(next(i, key), key));
+      case '--repeat': {
+        // Целое, а не floor: «--repeat 0.5» молча превращался в 0 — серия выключалась
+        // без диагностики, вопреки явному флагу пользователя.
+        const n = positiveNumber(next(i, key), key);
+        if (!Number.isInteger(n)) {
+          throw new OptionsError(`--repeat: ожидалось целое число прогонов, получено «${n}»`);
+        }
+        repeat = n;
         i++;
         break;
+      }
       case '--keep-workspace':
         keepWorkspace = true;
         break;

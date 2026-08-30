@@ -15,7 +15,7 @@ import { after, describe, it } from 'node:test';
 
 import type { NormalizedCall, ToolName } from '@sdlc-runner/shared';
 
-import { FormFillExecutor, cleanFieldAnswer, groupFields } from '../src/exec/FormFillExecutor.ts';
+import { FormFillExecutor, cleanFieldAnswer, cleanRowAnswer, groupFields } from '../src/exec/FormFillExecutor.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 
@@ -110,6 +110,41 @@ describe('groupFields: строка таблицы — одно поле-обр�
   it('две разные строки таблицы — два поля', () => {
     const text = '| 1 | ‹дата› |\n| 2 | ‹дата› |\n';
     strictEqual(groupFields(text).length, 2);
+  });
+
+  it('строка под шапкой «Утвердил (человек)» — решение, модели не отдаётся', () => {
+    // Ревью (К1): подпись в таблицах живёт в шапке, и модель подписывала неприменимость.
+    const text =
+      "| Гейт | Почему бессмыслен для этого diff'а | Утвердил (человек) |\n" +
+      '|---|---|---|\n| ‹гейт› | ‹причина› | ‹имя› |\n';
+    strictEqual(groupFields(text).length, 0);
+  });
+
+  it('строка под шапкой с колонкой «Кто» (таблица «Долг») — тоже решение', () => {
+    const text =
+      '| Гейт | Где должен стоять | Как закрывается | Дата | Кто |\n' +
+      '|---|---|---|---|---|\n| ‹гейт› | ‹где› | ‹как› | ‹дата› | ‹имя› |\n';
+    strictEqual(groupFields(text).length, 0);
+  });
+});
+
+describe('cleanRowAnswer: чистка ответа-строки', () => {
+  const header = '| id | Пункт | Как проверить |';
+
+  it('таблица в обёртке из прозы и продублированная шапка чистятся до строк данных', () => {
+    const raw = `${header}\n|---|---|---|\n| claim-1 | а | б |\n| claim-2 | в | г |\n**Обоснование:** текст`;
+    strictEqual(cleanRowAnswer(raw, header), '| claim-1 | а | б |\n| claim-2 | в | г |');
+  });
+
+  it('шапка ЛЮБОЙ таблицы дедуплицируется сравнением с фактической шапкой поля', () => {
+    // Ревью (К15): прежний дедуп знал только «| id |», шапка вопросов вклеивалась данными.
+    const qHeader = '| # | Вопрос | Блокирующий | Ответ | Изм |';
+    const raw = `${qHeader}\n| 1 | как? | да | так | ничего |`;
+    strictEqual(cleanRowAnswer(raw, qHeader), '| 1 | как? | да | так | ничего |');
+  });
+
+  it('ответ из одной шапки — пустое поле, а не «заполненное» шапкой', () => {
+    strictEqual(cleanRowAnswer(`${header}\n|---|---|---|`, header), '');
   });
 });
 
