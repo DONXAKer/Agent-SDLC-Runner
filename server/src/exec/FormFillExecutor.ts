@@ -169,6 +169,13 @@ export class FormFillExecutor implements StageExecutor {
     let callsSpent = 0;
     const notes: string[] = [];
 
+    // Проход по бланкам. `StageResult` — обрыв всего этапа (бюджет, отмена), `null` —
+    // проход закончен штатно. Вынесен в замыкание ради ВТОРОГО прохода: поле, не взятое
+    // одним сэмплом (пустой ответ, ответ с плейсхолдером), со второго захода часто
+    // берётся — дисперсия дешёвых моделей работает и в эту сторону, а незакрытое поле
+    // стоит целой красной попытки этапа.
+    const sweep = async (): Promise<StageResult | null> => {
+    fieldsLeft = 0;
     for (const path of artifacts) {
       if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
 
@@ -333,6 +340,21 @@ export class FormFillExecutor implements StageExecutor {
         durationMs: 0,
       });
       if (!outcome.ok) notes.push(`запись ${rel} не удалась: ${outcome.text}`);
+    }
+    return null;
+    };
+
+    const stopped = await sweep();
+    if (stopped !== null) return stopped;
+    // Второй проход — только по остаткам и только если есть на что тратить ходы.
+    if (
+      fieldsLeft > 0 &&
+      callsSpent < req.maxTurns &&
+      !req.signal.aborted &&
+      artifacts.some((p) => readArtifact(p).exists && readArtifact(p).placeholders > 0)
+    ) {
+      const stopped2 = await sweep();
+      if (stopped2 !== null) return stopped2;
     }
 
     // «Заполнено в тексте» — не «записано на диск»: отклонённая гейтом запись оставляет
