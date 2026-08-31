@@ -175,6 +175,21 @@ export class LoopExecutor implements StageExecutor {
     let bashStreak = 0;
     let bashNudges = 0;
 
+    /**
+     * Исход этапа считается по диску, а не по поведению модели: анти-цикл, сработавший
+     * при готовом артефакте, ронял готовый этап. Живой прогон r17d: coder-next успешно
+     * заявила отчёт разведки готовым и повторила FinalizeArtifact «для верности» —
+     * этап падал красным при молчащем страже. `null` — работа НЕ готова, останов
+     * анти-цикла остаётся красным (в том числе когда стража нет: без критерия
+     * готовности зелёного по зацикливанию не бывает).
+     */
+    const finishedByDisk = (): StageResult | null => {
+      if (req.finishGuard === null || req.finishGuard() !== null) return null;
+      const note = 'цикл остановлен повтором вызова, но артефакт готов — этап закрыт по диску';
+      hooks.onWarn(note);
+      return { ok: true, finalText, usage, note };
+    };
+
     for (let turn = 1; turn <= req.maxTurns; turn++) {
       if (req.signal.aborted) {
         return { ok: false, finalText, usage, note: 'этап отменён' };
@@ -296,6 +311,8 @@ export class LoopExecutor implements StageExecutor {
         if (repeats > 0) hooks.onFriction('repeat');
 
         if (repeats + 1 >= REPEAT_LIMIT) {
+          const doneAnyway = finishedByDisk();
+          if (doneAnyway !== null) return doneAnyway;
           const note =
             `цикл остановлен: ход из ${answer.toolCalls.length} субагентов повторён ` +
             `${repeats + 1} раза подряд с теми же аргументами — прогресса нет`;
@@ -328,6 +345,8 @@ export class LoopExecutor implements StageExecutor {
         if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
 
         if (repeats + 1 >= REPEAT_LIMIT && !isPolling(call.name, req)) {
+          const doneAnyway = finishedByDisk();
+          if (doneAnyway !== null) return doneAnyway;
           const note =
             `цикл остановлен: «${call.name}» вызван ${repeats + 1} раза подряд с теми же ` +
             `аргументами — прогресса нет`;

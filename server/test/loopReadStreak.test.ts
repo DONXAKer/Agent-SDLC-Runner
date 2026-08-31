@@ -201,6 +201,36 @@ describe('бюджет ходов на чтение (loop)', () => {
     ok(!seen2.some((r) => lastUser(r).includes('только Bash')), 'напоминание пришло после сброса серии записью');
   });
 
+  it('анти-цикл при ГОТОВОМ артефакте закрывает этап зелёным, а не красным (r17d)', async () => {
+    // coder-next успешно заявила отчёт готовым и повторила FinalizeArtifact «для
+    // верности» — готовый этап падал красным. Исход считается по диску: молчащий страж
+    // при сработавшем анти-цикле = этап закрыт.
+    const fin: Turn = {
+      text: '',
+      toolCalls: [{ id: 'f', name: 'FinalizeArtifact', arguments: { artifact: '.sdlc/x/отчёт.md' } }],
+    };
+    const seen: ChatRequest[] = [];
+    const result = await new LoopExecutor({ provider: provider([fin, fin, fin, fin], seen), maxResultBytes: 10_000, readRangeRequiredAboveBytes: 10_000, bashTimeoutMs: 1000, temperature: null }).run(
+      request({ finishGuard: () => null }),
+      hooks([]),
+    );
+    strictEqual(result.ok, true, result.note);
+    ok(result.note.includes('закрыт по диску'), result.note);
+  });
+
+  it('анти-цикл при НЕготовом артефакте остаётся красным', async () => {
+    const fin: Turn = {
+      text: '',
+      toolCalls: [{ id: 'f', name: 'FinalizeArtifact', arguments: { artifact: '.sdlc/x/отчёт.md' } }],
+    };
+    const result = await new LoopExecutor({ provider: provider([fin, fin, fin, fin], []), maxResultBytes: 10_000, readRangeRequiredAboveBytes: 10_000, bashTimeoutMs: 1000, temperature: null }).run(
+      request(),
+      hooks([]),
+    );
+    strictEqual(result.ok, false);
+    ok(result.note.includes('прогресса нет'), result.note);
+  });
+
   it('params из конфига модели доезжают до провайдера', async () => {
     const seen: ChatRequest[] = [];
     const exec = new LoopExecutor({
