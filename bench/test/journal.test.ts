@@ -63,6 +63,7 @@ function result(stagesOk: boolean) {
       profile: { label: 'контроль', routes: {} as BuiltProfile['profile']['routes'], ensemble: {} } as BuiltProfile['profile'],
       measured: ['intent', 'chunk'],
       routes: ROUTES,
+      currencies: {} as BuiltProfile['currencies'],
     },
     startedAt: new Date('2026-08-29T10:00:00.000Z'),
     finishedAt: new Date('2026-08-29T10:20:00.000Z'),
@@ -124,5 +125,13 @@ describe('draftJournalEntry', () => {
     const noCost = draftJournalEntry({ result: r, report: buildReport({ result: r, hidden: null, honesty: [] }) });
     ok(noCost.includes('не изм.'));
     strictEqual(noCost.includes('$0.09'), false);
+  });
+
+  it('рублёвый маршрут подписывается ₽, а не $ (хардкод завышал трату ~в 90 раз)', () => {
+    const r = result(true);
+    r.run.currencies = { intent: 'RUB' } as typeof r.run.currencies;
+    const draft = draftJournalEntry({ result: r, report: buildReport({ result: r, hidden: null, honesty: [] }) });
+    ok(draft.includes('0.0900 ₽'));
+    strictEqual(draft.includes('$0.09'), false);
   });
 });

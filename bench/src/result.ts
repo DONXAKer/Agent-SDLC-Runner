@@ -26,6 +26,8 @@ export interface BenchResult {
     mode: BenchOptions['mode'];
     profileLabel: string;
     routes: BuiltProfile['routes'];
+    /** Валюта каждого маршрута — стоимость этапа подписывается ею, а не хардкодом `$`. */
+    currencies: BuiltProfile['currencies'];
     measured: BuiltProfile['measured'];
     startedAt: string;
     finishedAt: string;
@@ -55,6 +57,7 @@ export function buildResult(args: {
       mode: opts.mode,
       profileLabel: built.profile.label,
       routes: built.routes,
+      currencies: built.currencies,
       measured: built.measured,
       startedAt: args.startedAt.toISOString(),
       finishedAt: args.finishedAt.toISOString(),

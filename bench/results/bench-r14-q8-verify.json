@@ -1,0 +1,234 @@
+{
+  "run": {
+    "slug": "bench-r14-q8-verify",
+    "model": "polza:qwen3-8b",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "polza:qwen-2.5-7b",
+      "verify": "polza:qwen3-8b",
+      "handoff": "claude-sdk:haiku"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-08-31T09:39:12.490Z",
+    "finishedAt": "2026-08-31T09:45:38.267Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "escalate",
+      "reasons": [
+        "гейт «Тесты» провалился (❌)",
+        "гейт «Scope: файлы вне плана» провалился (❌)",
+        "гейт «Scope: пути плана без правок» провалился (❌)",
+        "пункт приёмки claim-1 не проверяем (⚠)",
+        "нарушен инвариант: скидка лояльности считается от базовой цены зоны, не от базы с надбавкой — подтверждён claim-6 (тест с GOLD-клиентом)",
+        "регрессия — откат ранее работавшего поведения: синтаксическая ошибка в test/oversize.test.ts из-за незакрытых блоков функций тестов / нет",
+        "путь плана «требует решения человека: создание snapshot.json вне scope плана» помечен «не сделано»",
+        "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+        "причина красного вердикта — «scope» (back-to-plan): это не то, что чинится повторной попыткой в пределах текущего плана",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "escalate"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 347500,
+          "outputTokens": 16730,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 5.812341639999999,
+          "durationMs": 569611
+        },
+        "durationMs": 385754
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "scope",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 2,
+        "toolCalls": 15,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "escalate",
+    "reasons": [
+      "гейт «Тесты» провалился (❌)",
+      "гейт «Scope: файлы вне плана» провалился (❌)",
+      "гейт «Scope: пути плана без правок» провалился (❌)",
+      "пункт приёмки claim-1 не проверяем (⚠)",
+      "нарушен инвариант: скидка лояльности считается от базовой цены зоны, не от базы с надбавкой — подтверждён claim-6 (тест с GOLD-клиентом)",
+      "регрессия — откат ранее работавшего поведения: синтаксическая ошибка в test/oversize.test.ts из-за незакрытых блоков функций тестов / нет",
+      "путь плана «требует решения человека: создание snapshot.json вне scope плана» помечен «не сделано»",
+      "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+      "причина красного вердикта — «scope» (back-to-plan): это не то, что чинится повторной попыткой в пределах текущего плана",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "loop:330e0518-4218-46c8-bf02-2bc21dfb8589",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-r14-q8-verify/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:4b179e84-ef28-41e7-9aa5-6dc19443d24c",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:b8318a8f-0d20-422d-9105-04b56bda6072",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-r14-q8-verify/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:ff69e366-59ff-4e3a-855b-7a27f6e30a9b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-r14-q8-verify/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:86fb61e9-dbae-45b3-90c5-51cf7657c9e0",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:62584136-7053-4da0-8b81-5bba7f896918",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r14-q8-verify/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 16142,
+        "userChars": 33241,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  }
+}

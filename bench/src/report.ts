@@ -11,7 +11,7 @@
  * (`friction` есть только у `loop`, не у `sdk`). Ноль пишется только там, где посчитан.
  */
 
-import { STAGE_ORDER } from '@sdlc-runner/shared';
+import { STAGE_ORDER, money } from '@sdlc-runner/shared';
 import type { StageId } from '@sdlc-runner/shared';
 
 import type { HonestyCheck } from './honesty.ts';
@@ -22,10 +22,12 @@ import type { BenchResult } from './result.ts';
 // Форматирование чисел
 // ---------------------------------------------------------------------------
 
-function fmtCost(usd: number | null): string {
+function fmtCost(usd: number | null, currency: string): string {
   // `null` — локальный провайдер, costUsd не считается вообще: это «не изм.», не «$0».
+  // Подпись — общим `money`: стоимость приходит в валюте провайдера, и хардкод `$`
+  // выдавал рублёвые траты polza за долларовые (ревью валюты, 2026-08-31).
   if (usd === null) return 'не изм.';
-  return `$${usd.toFixed(4)}`;
+  return money(usd, currency);
 }
 
 function fmtDuration(ms: number): string {
@@ -96,7 +98,8 @@ export function buildStageTable(result: BenchResult): StageRow[] {
       toolCalls: f === undefined ? 'не изм.' : String(f.toolCalls),
       artifact: artifactOf(result, stage),
       tokens: m === undefined ? '—' : fmtTokens(m.usage.inputTokens + m.usage.outputTokens),
-      costUsd: m === undefined ? '—' : fmtCost(m.usage.costUsd),
+      costUsd:
+        m === undefined ? '—' : fmtCost(m.usage.costUsd, result.run.currencies?.[stage] ?? 'USD'),
       timeMs: m === undefined ? '—' : fmtDuration(m.durationMs),
       friction: f === undefined ? 'не изм.' : `${f.repeat + f.badJson + f.denied + f.truncated}`,
     };
@@ -267,7 +270,7 @@ export interface Report {
 
 function stageTableMd(rows: readonly StageRow[]): string {
   const header =
-    '| этап | статус | модель | ходов | вызовов | артефакт | токены | $ | время | трение |\n' +
+    '| этап | статус | модель | ходов | вызовов | артефакт | токены | цена | время | трение |\n' +
     '|---|---|---|---|---|---|---|---|---|---|';
   const body = rows
     .map(
@@ -287,7 +290,7 @@ function notMeasuredSection(input: ReportInput): string {
     lines.push('- `friction` — есть только у флоу `loop`; на `sdk` не считается вообще, это не ноль');
   }
   const nullCost = input.result.metrics.stages.some((s) => s.usage.costUsd === null);
-  if (nullCost) lines.push('- стоимость (`$`) — на локальном провайдере `costUsd` приходит `null`, бюджет не действует');
+  if (nullCost) lines.push('- стоимость («цена») — на локальном провайдере `costUsd` приходит `null`, бюджет не действует');
   return lines.length === 0 ? '- всё измерено' : lines.join('\n');
 }
 

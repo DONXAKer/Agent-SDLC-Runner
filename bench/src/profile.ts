@@ -54,6 +54,12 @@ export interface BuiltProfile {
   measured: readonly StageId[];
   /** Итоговая раскладка «этап → модель» — она же уходит в отчёт. */
   routes: Record<StageId, string>;
+  /**
+   * Валюта каждого маршрута (`ProviderDef.currency`, умолчание USD) — для честной
+   * подписи стоимости: polza считает в рублях, и хардкод `$` в отчёте завышал трату
+   * в глазах оператора ~в 90 раз (тот же класс, против которого в shared есть `money`).
+   */
+  currencies: Record<StageId, string>;
 }
 
 export function buildProfile(args: {
@@ -81,5 +87,8 @@ export function buildProfile(args: {
   };
 
   const profile = resolveAdHocProfile(project, args.models, routes, 'control');
-  return { project, profile, measured, routes: routes as Record<StageId, string> };
+  const currencies = Object.fromEntries(
+    Object.entries(profile.routes).map(([stage, r]) => [stage, r.providerDef.currency ?? 'USD']),
+  ) as Record<StageId, string>;
+  return { project, profile, measured, routes: routes as Record<StageId, string>, currencies };
 }

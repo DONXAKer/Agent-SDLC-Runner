@@ -1,0 +1,184 @@
+{
+  "run": {
+    "slug": "bench-r14-llama-3.1-8b",
+    "model": "polza:llama-3.1-8b",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:llama-3.1-8b",
+      "explore": "polza:llama-3.1-8b",
+      "ask": "polza:llama-3.1-8b",
+      "plan": "polza:llama-3.1-8b",
+      "chunk": "polza:llama-3.1-8b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:llama-3.1-8b"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-08-31T09:16:33.502Z",
+    "finishedAt": "2026-08-31T09:23:30.160Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 30, осталось на диске 7; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в /private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-eLIaVy/.sdlc/bench-r14-llama-3.1-8b/intent.md осталось незаполненных мест: 1 — артефакт не готов\nприёмочный лист короче минимума этапа 1: пунктов 4 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)",
+        "blockers": [
+          "в /private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-eLIaVy/.sdlc/bench-r14-llama-3.1-8b/intent.md осталось незаполненных мест: 1 — артефакт не готов",
+          "приёмочный лист короче минимума этапа 1: пунктов 4 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 307281,
+          "outputTokens": 69188,
+          "cacheReadTokens": 112128,
+          "cacheWriteTokens": 0,
+          "costUsd": 1.65396914,
+          "durationMs": 545775
+        },
+        "durationMs": 416649
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:2148b0fd-f9d6-4a3b-8921-7d1aaf9ceb48",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r14-llama-3.1-8b/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:9e58f0d3-f898-40ab-99c3-4670bd07e878",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r14-llama-3.1-8b/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:3ff247f5-1e1f-499e-9527-ce2e52ac9b73",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r14-llama-3.1-8b/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:0b72d9e3-9ddb-400d-8253-30c7465fc171",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r14-llama-3.1-8b/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10517,
+        "userChars": 4127,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  }
+}

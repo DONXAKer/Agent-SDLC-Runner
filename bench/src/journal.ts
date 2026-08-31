@@ -6,6 +6,8 @@
  * Печатает черновик в формате журнала — вклеивает человек сам, читая остальные записи.
  */
 
+import { money } from '@sdlc-runner/shared';
+
 import type { BenchResult } from './result.ts';
 import type { Report } from './report.ts';
 
@@ -28,8 +30,17 @@ export function draftJournalEntry(args: { result: BenchResult; report: Report })
   const weak = report.probes.filter((p) => p.verdict === '❌' || p.verdict === '⚠️');
   const strong = report.probes.filter((p) => p.verdict === '✅');
 
-  const budgetSpent = result.metrics.stages.reduce((sum, s) => sum + (s.usage.costUsd ?? 0), 0);
-  const nullCost = result.metrics.stages.some((s) => s.usage.costUsd === null);
+  // Стоимость — по валютам маршрутов: polza считает в рублях, и хардкод `$` выдавал
+  // рублёвую трату за долларовую (~90-кратное завышение в глазах читателя журнала).
+  // У смешанного профиля одна сумма честной не бывает — слагаемые печатаются раздельно
+  // (тот же принцип, что у `RunCosts.currency` в shared/api.ts).
+  const byCurrency = new Map<string, number>();
+  for (const s of result.metrics.stages) {
+    if (s.usage.costUsd === null) continue;
+    const cur = result.run.currencies?.[s.stage] ?? 'USD';
+    byCurrency.set(cur, (byCurrency.get(cur) ?? 0) + s.usage.costUsd);
+  }
+  const spent = [...byCurrency.entries()].map(([cur, v]) => money(v, cur)).join(' + ');
 
   return [
     `## \`${result.run.model}\` — bench, ${dateOnly}${report.dangerous ? ' — ⚠️ ОПАСНА' : ''}`,
@@ -47,7 +58,7 @@ export function draftJournalEntry(args: { result: BenchResult; report: Report })
     `- **Что тюнить.** ‹дописать по факту — черновик не знает, что менялось между прогонами›`,
     `- **Вердикт.** ‹дописать словами, не только знаком — сверх формата, что и почему›`,
     '',
-    `Стоимость витка: ${nullCost ? 'не изм. (локальный провайдер)' : `$${budgetSpent.toFixed(4)}`}. ` +
+    `Стоимость витка: ${spent === '' ? 'не изм. (локальный провайдер)' : spent}. ` +
       `Остановка: \`${result.driver.stopped}\`. Результат: \`bench/results/${result.run.slug}.json\`.`,
     '',
     '‹дата прогона, машина, что менялось против предыдущей записи — заполняет человек›',

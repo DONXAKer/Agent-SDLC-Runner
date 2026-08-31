@@ -28,6 +28,7 @@ function built(measured: BuiltProfile['measured']): BuiltProfile {
     profile: { label: 'контроль', routes: {} as BuiltProfile['profile']['routes'], ensemble: {} } as BuiltProfile['profile'],
     measured,
     routes: ROUTES,
+    currencies: {} as BuiltProfile['currencies'],
   };
 }
 

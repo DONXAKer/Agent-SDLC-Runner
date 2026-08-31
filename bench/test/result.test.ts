@@ -52,6 +52,7 @@ describe('buildResult', () => {
         verify: 'claude-sdk:opus',
         handoff: 'claude-sdk:haiku',
       },
+      currencies: {} as BuiltProfile['currencies'],
     };
     const operator = emptyOperatorLog();
     operator.notMine.push({ requestId: 'req-1', reason: 'policy' });
@@ -122,6 +123,7 @@ describe('writeResult', () => {
             verify: 'm',
             handoff: 'm',
           },
+          currencies: {} as BuiltProfile['currencies'],
           measured: [],
           startedAt: '2026-08-29T10:00:00.000Z',
           finishedAt: '2026-08-29T10:00:01.000Z',
