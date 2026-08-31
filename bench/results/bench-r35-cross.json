@@ -1,0 +1,653 @@
+{
+  "run": {
+    "slug": "bench-r35-cross",
+    "model": "polza:qwen3-coder-next",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "polza:ministral-8b",
+      "verify": "polza:qwen3-coder-next",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "RUB",
+      "verify": "RUB",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-08-31T14:49:51.081Z",
+    "finishedAt": "2026-08-31T14:58:48.764Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "бюджет прогона исчерпан: 61.8040 ₽ из 60.0000 ₽",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "гейт «Тесты» провалился (❌)",
+        "пункт приёмки claim-1 не проверяем (⚠)",
+        "пункт приёмки claim-2 опровергнут (❌)",
+        "пункт приёмки claim-3 опровергнут (❌)",
+        "пункт приёмки claim-4 опровергнут (❌)",
+        "пункт приёмки claim-5 опровергнут (❌)",
+        "пункт приёмки claim-6 опровергнут (❌)",
+        "пункт приёмки claim-7 опровергнут (❌)",
+        "пункт приёмки claim-9 не проверяем (⚠)",
+        "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "включённый гейт «Секреты в diff» в отчёте не отчитался ни одной строкой",
+        "нарушен инвариант: нет (реализация верна)",
+        "нарушен инвариант: нет",
+        "нарушен инвариант: нет",
+        "нарушен инвариант: нет",
+        "регрессия — откат ранее работавшего поведения: Сборка проходит: `node scripts/build-check.mjs` — ✅",
+        "регрессия — откат ранее работавшего поведения: `test/tariffs.test.ts`, `test/money.test.ts` не тронуты, как требует `claim-10`: ✅",
+        "регрессия — откат ранее работавшего поведения: Нет регрессий",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 6317443,
+          "outputTokens": 25661,
+          "cacheReadTokens": 5754432,
+          "cacheWriteTokens": 0,
+          "costUsd": 62.43560404,
+          "durationMs": 536951
+        },
+        "durationMs": 537658
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "gate",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 10,
+        "toolCalls": 91,
+        "reminders": 2
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "гейт «Тесты» провалился (❌)",
+      "пункт приёмки claim-1 не проверяем (⚠)",
+      "пункт приёмки claim-2 опровергнут (❌)",
+      "пункт приёмки claim-3 опровергнут (❌)",
+      "пункт приёмки claim-4 опровергнут (❌)",
+      "пункт приёмки claim-5 опровергнут (❌)",
+      "пункт приёмки claim-6 опровергнут (❌)",
+      "пункт приёмки claim-7 опровергнут (❌)",
+      "пункт приёмки claim-9 не проверяем (⚠)",
+      "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "включённый гейт «Секреты в diff» в отчёте не отчитался ни одной строкой",
+      "нарушен инвариант: нет (реализация верна)",
+      "нарушен инвариант: нет",
+      "нарушен инвариант: нет",
+      "нарушен инвариант: нет",
+      "регрессия — откат ранее работавшего поведения: Сборка проходит: `node scripts/build-check.mjs` — ✅",
+      "регрессия — откат ранее работавшего поведения: `test/tariffs.test.ts`, `test/money.test.ts` не тронуты, как требует `claim-10`: ✅",
+      "регрессия — откат ранее работавшего поведения: Нет регрессий",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "loop:e348cd7a-dbec-4f1b-aed2-3f5358e66be9",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:9832fd44-f8dd-4c3d-bf91-aed4849d4bf8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:caee1dbb-5001-4773-9d3d-2595d785c35b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:c174301e-ed91-4fdc-a5dc-945ca52bb9b8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:24ad3779-9848-44a7-a567-06b1ecdf04a0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:c6c8eeb8-4be9-4b02-8ae6-fae65695a239",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:66025e38-aae0-4bc2-a122-7f53b70fd2e3",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:e5d068a8-db3e-43cf-a96c-1b6d9e9c4688",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:79651769-7883-4d0c-8278-22dcd61d44b9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:b20c0bce-cbac-423a-aaed-a18d852ea00f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:3f7f8059-975d-4a37-b79f-4456a511df94",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:931854d4-1f53-43e9-8fc3-076cf46de65c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:cf594759-68e6-4d21-908f-a08c51fac5fd",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:5df916d9-6750-43f3-85d8-2547cd970af0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:c0bed191-155a-494e-96a1-f74b12e76f04",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:7357a871-9ad8-4785-ba88-33d471d9cb40",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:e8636654-9e8f-4c14-8f8a-bfb39891e678",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:59919dd4-8589-47f3-a13d-a4f3e59dc145",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:fed81b56-ddf4-4daa-8377-9d72d28ca23f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:1dc70dbb-7aa1-43e1-95da-965223cd6fb9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:bdf3dcd6-6013-4e65-a154-312888fa2717",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:f2cc2338-a0ee-4f68-904d-f47000bc43c7",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:250a8440-9571-4368-9381-46be12db3075",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:d4c0ad90-7fa4-43c1-b305-3979e6355dee",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:833ca22f-42a9-44d7-af52-59996f307c7a",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:f8e43b72-8f1e-4034-810d-8b43ac625f55",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:622f84a5-d042-4a08-86d9-df0e64cdc5cb",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-og299u/.sdlc/bench-r35-cross/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:d24666a9-c5f2-48d8-81ad-2f7d94b9ee2f",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 16122,
+        "userChars": 37705,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  }
+}

@@ -8,7 +8,7 @@
  * ни в ту, ни в другую сторону выходить нельзя.
  */
 
-import { ok, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -290,6 +290,40 @@ describe('вердикт при расхождении отчёта и прог�
     strictEqual(call('нет', true), true, 'рантайм сверил — патч совпадает, проза не спорит');
     strictEqual(call('да', false), false, 'рантайм сверил — патч устарел, заявление отчёта не спасает');
     strictEqual(call('да', null), true, 'сверки не было — действует прежнее правило');
+  });
+
+  // r35: рецензент заполнил разделы 4 и 5 доказательствами ОТСУТСТВИЯ находок —
+  // «нарушен: нет», «нарушен: нет (реализация верна)», «Сборка проходит: … — ✅».
+  // Каждая такая строка числилась находкой и роняла вердикт.
+  it('доказательство отсутствия находки находкой не считается (r35)', () => {
+    const report = [
+      '## 4. Инварианты',
+      '- Инвариант А — нарушен: нет',
+      '- Инвариант Б — нарушен: нет (реализация верна)',
+      '- Инвариант В — нарушен: политика обойдена через sh -c',
+      '',
+      '## 5. Регрессии',
+      '- Сборка проходит: `node scripts/build-check.mjs` — ✅',
+      '- Нет регрессий',
+      '- `tariffs.ts:172`: вычитание вместо сложения — тест упал',
+      '',
+      '## Гейты',
+      '',
+      '| Гейт | Статус |',
+      '|---|---|',
+      '| Сборка | ✅ |',
+    ].join('\n');
+    const res = collectVerdictInput({
+      gates,
+      gateResults: [],
+      reports: [report],
+      attempt: 1,
+      attemptBudget: 3,
+      noProgress: false,
+    });
+    deepStrictEqual(res.input.brokenInvariants, ['политика обойдена через sh -c']);
+    strictEqual(res.input.regressions.length, 1, JSON.stringify(res.input.regressions));
+    ok(res.input.regressions[0]!.includes('вычитание вместо сложения'));
   });
 
   it('на прочих гейтах правило прежнее — худший из двух', () => {

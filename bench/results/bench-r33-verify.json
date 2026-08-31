@@ -1,0 +1,289 @@
+{
+  "run": {
+    "slug": "bench-r33-verify",
+    "model": "polza:qwen3-coder-next",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "polza:ministral-14b",
+      "verify": "polza:qwen3-coder-next",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "RUB",
+      "verify": "RUB",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-08-31T14:26:58.960Z",
+    "finishedAt": "2026-08-31T14:40:29.035Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "исчерпан лимит ходов этапа (60)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "гейт «Тесты» провалился (❌)",
+        "пункт приёмки claim-1 не проверяем (⚠)",
+        "нарушен инвариант: нарушен: `test/oversize.test.ts:39-44` — скидка GOLD не применяется к `surcharge` в расчете: `priceFor` передает `base` (базовая цена без скидки), но тест ожидает, что `surcharge` будет `9960` (40% от `24900`), в то время как реальный `surcharge` — `25160`, что указывает на использование некорректной базовой цены (возможно, с учетом скидки или ошибка в расчете `basePrice` для Gold)",
+        "регрессия — откат ранее работавшего поведения: тест claim-6 провалился: надбавка 25160 вместо ожидаемой 9960 — функция `percent` вызывается с базой 25160 (база с надбавкой), а не 24900 (чистая база) / нет",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 3008211,
+          "outputTokens": 28775,
+          "cacheReadTokens": 2450448,
+          "cacheWriteTokens": 0,
+          "costUsd": 35.35364401999998,
+          "durationMs": 833538
+        },
+        "durationMs": 810052
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "gate",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 4,
+        "truncated": 4,
+        "toolCalls": 86,
+        "reminders": 2
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "гейт «Тесты» провалился (❌)",
+      "пункт приёмки claim-1 не проверяем (⚠)",
+      "нарушен инвариант: нарушен: `test/oversize.test.ts:39-44` — скидка GOLD не применяется к `surcharge` в расчете: `priceFor` передает `base` (базовая цена без скидки), но тест ожидает, что `surcharge` будет `9960` (40% от `24900`), в то время как реальный `surcharge` — `25160`, что указывает на использование некорректной базовой цены (возможно, с учетом скидки или ошибка в расчете `basePrice` для Gold)",
+      "регрессия — откат ранее работавшего поведения: тест claim-6 провалился: надбавка 25160 вместо ожидаемой 9960 — функция `percent` вызывается с базой 25160 (база с надбавкой), а не 24900 (чистая база) / нет",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "loop:b5d0117b-3eb0-4356-a2bc-bd740a72a6bb",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:e51f0c8d-786d-47cb-90e1-ab5950be0698",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:f4aeabc7-aa99-4391-844c-e26b40f89093",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:3a57c56d-2c16-494a-befd-0b53c641f708",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:133a82e1-4d3f-4e03-b1d5-f11b7fd26f39",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:8d47bec3-81d5-44a9-9080-d3c8ced6067a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r33-verify/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [
+      {
+        "stage": "verify",
+        "questions": [],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "verify",
+        "questions": [],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": [
+      {
+        "requestId": "loop:1d73c46e-cc38-4d4e-9602-4c92f2e16dba",
+        "reason": "policy"
+      },
+      {
+        "requestId": "loop:1463eb2b-3462-4998-87de-803583baeb5f",
+        "reason": "policy"
+      },
+      {
+        "requestId": "loop:9b6b2c1d-7362-4329-9cae-f6a641feb6a4",
+        "reason": "policy"
+      },
+      {
+        "requestId": "loop:a79781b9-3e20-4f6a-9593-ffb937da6376",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "Glob",
+        "kind": "glob"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 16127,
+        "userChars": 34004,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  }
+}
