@@ -179,6 +179,25 @@ describe('сборка промпта из эталона', { skip: нетЭта
     ok(p.system.includes('§1–§5'), 'работа модели названа явно');
   });
 
+  // Правило карты кодовой базы жило ТОЛЬКО в коде проверки: модель узнавала о нём
+  // отказом, уже закрыв этап. Живой прогон r32 сгорел на честном отчёте про файл,
+  // который предстоит создать.
+  it('этап 2: правило карты кодовой базы названо в промпте', () => {
+    writeArtifact(paths.intent, '# Задача\n');
+
+    const p = buildPrompt({
+      runner: cfg.runner,
+      stage: stageById('explore'),
+      ctx,
+      flow: 'loop',
+      slug: 'demo',
+      now,
+    });
+
+    ok(/только пути, которые СЕЙЧАС есть в дереве/.test(p.system), p.system.slice(-600));
+    ok(/помечай словом «новый»/.test(p.system), p.system.slice(-600));
+  });
+
   it('вычитающий блок этапа 6 не протекает на другие этапы', () => {
     writeArtifact(paths.intent, '# Задача\n');
     writeArtifact(paths.plan, '# План\n');
