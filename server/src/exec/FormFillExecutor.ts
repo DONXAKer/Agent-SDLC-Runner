@@ -50,6 +50,7 @@ import {
   placeholderRanges,
   readArtifact,
 } from '../artifacts/artifact.ts';
+import { CLAIMS_MINIMUM, claimIdOf, countClaims } from '../artifacts/claims.ts';
 import { isSeparatorRow, splitRow } from '../md/table.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
@@ -415,6 +416,56 @@ export class FormFillExecutor implements StageExecutor {
       });
 
     /**
+     * Добор приёмочного листа: ответ поля-образца ниже нормы методологии дополняется
+     * ОДНИМ повторным запросом сразу при заполнении, а не красной попыткой этапа.
+     * Порог системный, не дисперсия: три модели тремя способами (loop, loop-повтор,
+     * formFill) сдали лист без [edge]-минимума — r17, 2026-08-31. Числа порога модели
+     * не называются (правило build.ts: норма живёт в тексте эта­па), называется дефицит
+     * направления — «добавь граничные случаи».
+     */
+    const askClaimsTopUp = (
+      path: string,
+      text: string,
+      range: FormField & { kind: 'row' },
+      already: string,
+    ): ReturnType<ChatProvider['chat']> =>
+      this.o.provider.chat({
+        model: req.model,
+        messages: [
+          { role: 'system', content: req.prompt.system },
+          {
+            role: 'user',
+            content: [
+              req.prompt.user,
+              '',
+              '## Добор приёмочного листа',
+              '',
+              `Файл \`${relative(req.cwd, path)}\`, секция бланка:`,
+              '',
+              '```',
+              sectionAt(text, range.start),
+              '```',
+              '',
+              'Список уже заполнен так:',
+              '',
+              '```',
+              already,
+              '```',
+              '',
+              'Правил текста этапа этот список НЕ выполняет: пунктов и/или обязательных ' +
+                '`[edge]`-пометок меньше минимума. Верни ТОЛЬКО ДОПОЛНИТЕЛЬНЫЕ строки ' +
+                'таблицы того же формата — прежде всего граничные случаи с тегом `[edge]`, ' +
+                'id продолжают нумерацию, уже написанные пункты не повторяются.',
+            ].join('\n'),
+          },
+        ],
+        tools: [],
+        signal: req.signal,
+        temperature: null,
+        params: this.o.params ?? null,
+      });
+
+    /**
      * Проход по бланкам. `StageResult` — обрыв всего этапа (бюджет, отмена), `null` —
      * проход закончен штатно. Вынесен в функцию ради ВТОРОГО прохода: поле, не взятое
      * одним сэмплом (пустой ответ, ответ с плейсхолдером), со второго захода часто
@@ -501,6 +552,35 @@ export class FormFillExecutor implements StageExecutor {
             // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
             // как был, и его честно назовут страж и предусловие следующего этапа.
             if (filled === '' || filled.includes('‹')) continue;
+            // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому
+            // контуру переизбыток пунктов не вредит (его мягкий минимум знает гейт).
+            if (range.kind === 'row' && /claim-/.test(range.text) && callsSpent < req.maxTurns) {
+              const have = countClaims(filled);
+              if (have.rows < CLAIMS_MINIMUM.rows || have.edges < CLAIMS_MINIMUM.edges) {
+                callsSpent++;
+                try {
+                  const more = await askClaimsTopUp(path, text, range, filled);
+                  usage = addUsage(usage, more.usage);
+                  hooks.onUsage(more.usage);
+                  const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
+                  // Повтор уже написанного id отбрасывается: дубль строки надувал бы
+                  // счёт гейта минимума, не добавляя пункта по существу.
+                  const seen = new Set(filled.split('\n').map(claimIdOf));
+                  const fresh = extra
+                    .split('\n')
+                    .filter((l) => l.trim() !== '' && !l.includes('‹'))
+                    .filter((l) => {
+                      const id = claimIdOf(l);
+                      return id === null ? false : !seen.has(id);
+                    })
+                    .join('\n');
+                  if (fresh !== '') filled = `${filled}\n${fresh}`;
+                } catch (e) {
+                  const why = e instanceof Error ? e.message : String(e);
+                  notes.push(`добор листа приёмки не удался: ${why.slice(0, 160)}`);
+                }
+              }
+            }
             text = text.slice(0, range.start) + filled + text.slice(range.end);
             fieldsFilled++;
             changed = true;

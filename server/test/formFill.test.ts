@@ -198,6 +198,29 @@ describe('заполнение бланка по полям', () => {
     ok(text.includes('‹почему сейчас›'), 'незаполненное поле должно остаться плейсхолдером');
   });
 
+  it('лист приёмки ниже нормы добирается повторным запросом, дубли id отбрасываются (r17)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(
+      artifact,
+      ['## Приёмочный лист', '', '| id | что проверяем |', '|---|---|', '| ‹claim-N› | ‹проверка› |', ''].join('\n'),
+    );
+    const result = await exec(
+      fieldProvider({
+        // Добор ПЕРВЫМ в словаре: оба запроса содержат текст задачи, ищется по вхождению.
+        'Добор приёмочного листа': '| `claim-2 [edge]` | дубль id |\n| `claim-3 [edge]` | граница 300 |\n| `claim-4 [edge]` | пустой ввод |',
+        'ОБРАЗЕЦ': '| `claim-1` | базовый случай |\n| `claim-2` | ещё случай |',
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('claim-3 [edge]'), text);
+    ok(text.includes('claim-4 [edge]'), text);
+    ok(!text.includes('дубль id'), 'повтор уже написанного id должен быть отброшен');
+  });
+
   it('без списка артефактов режим честно отказывается', async () => {
     const { root, artifact } = setup();
     const result = await exec(fieldProvider({})).run(

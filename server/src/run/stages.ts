@@ -19,6 +19,7 @@ import {
   readArtifact,
   readDecision,
 } from '../artifacts/artifact.ts';
+import { CLAIMS_MINIMUM, countClaims } from '../artifacts/claims.ts';
 import type { ArtifactKey, WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_DIR } from '../artifacts/paths.ts';
 import { h2SectionRanges, parseTables } from '../md/table.ts';
@@ -169,20 +170,16 @@ function claimsMinimum(): Precondition {
     check: (c) => {
       const intent = readArtifact(c.paths.intent);
       if (!intent.exists) return `нет файла ${c.paths.intent}`;
-      // Ячейка id канонически несёт и теги: `| claim-1 [edge] |`, `| `claim-2 [manual]` |`
-      // — та же форма, что разбирает `verdict/collect.ts`. Прежний regex требовал ГОЛЫЙ
-      // `claim-N` и на каноническом листе давал ноль строк — блокировал разведку на
-      // полностью правильном intent.md.
-      const rows = intent.text
-        .split(/\r?\n/)
-        .filter((l) => /^\s*\|\s*`?claim-\d+\b[^|]*\|/.test(l));
-      const edges = rows.filter((l) => /\[edge\]/i.test(l)).length;
+      // Подсчёт — общим `countClaims` (ячейка id канонически несёт и теги: `claim-1 [edge]`;
+      // прежний локальный regex требовал голый `claim-N` и блокировал разведку на
+      // полностью правильном intent.md).
+      const { rows, edges } = countClaims(intent.text);
       const small = isSmallContour(c);
-      const needRows = small ? 1 : 3;
-      const needEdges = small ? 0 : 2;
-      if (rows.length < needRows || edges < needEdges) {
+      const needRows = small ? 1 : CLAIMS_MINIMUM.rows;
+      const needEdges = small ? 0 : CLAIMS_MINIMUM.edges;
+      if (rows < needRows || edges < needEdges) {
         return (
-          `приёмочный лист короче минимума этапа 1: пунктов ${rows.length} (нужно ≥ ${needRows}), ` +
+          `приёмочный лист короче минимума этапа 1: пунктов ${rows} (нужно ≥ ${needRows}), ` +
           `с [edge] ${edges} (нужно ≥ ${needEdges}) — верни недостающие пункты в intent.md ` +
           `(если задача принесла свой лист, из него ничего не выбрасывается без решения человека)`
         );
