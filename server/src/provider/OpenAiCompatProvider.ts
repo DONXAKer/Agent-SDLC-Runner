@@ -296,7 +296,9 @@ export class OpenAiCompatProvider implements ChatProvider {
         // Таймаут попытки — своим именем: reject несёт общий destroy-текст «запрос
         // отменён», и зависший сервер выглядел бы отменой оператора (ревью-3, класс К16).
         if (timeout.aborted) {
-          throw new Error(`${this.name}: ответ не получен за ${this.o.timeoutMs} мс — таймаут запроса`);
+          throw new Error(`${this.name}: ответ не получен за ${this.o.timeoutMs} мс — таймаут запроса`, {
+            cause: e,
+          });
         }
         const code = (e as NodeJS.ErrnoException).code;
         if (code === undefined || !TRANSIENT_NET_CODES.has(code) || attempt > CHAT_RETRIES) throw e;

@@ -15,7 +15,7 @@
  * изображает, что умеет.
  */
 
-import { columnIndex, parseTables } from '../md/table.ts';
+import { columnIndex, h2SectionRanges, parseTables } from '../md/table.ts';
 import { escapeRe } from './artifact.ts';
 
 export interface HumanFact {
@@ -91,17 +91,14 @@ export function literalsOf(answer: string): { shown: string; accepted: string[] 
  * содержанию: таблица не заполнена, все ответы пропущены либо остались плейсхолдерами.
  */
 export function extractHumanFacts(text: string): HumanFact[] {
-  const start = text.indexOf('## Вопросы и ответы');
-  if (start < 0) return [];
-  const rest = text.slice(start);
-  const end = rest.indexOf('\n## ', 1);
-  const section = end < 0 ? rest : rest.slice(0, end);
+  // Границы секции — общим h2SectionRanges: h3-подзаголовок внутри «Вопросы и ответы»
+  // не закрывает её (тот же класс, что пойман на карте кодовой базы, ревью-3/4).
+  const range = h2SectionRanges(text, /вопросы и ответы/i)[0];
+  if (range === undefined) return [];
+  const section = text.slice(range.start, range.end);
 
   // Общий разборщик таблиц, а не построчный полуразбор: колонки находятся по именам
   // шапки, а не магическими индексами — сдвиг формы таблицы ломался бы молча (ревью-2).
-  // Нарезка секции — по h2 вручную, а не по `table.section`: parseTables сбрасывает
-  // секцию на заголовке любого уровня, и h3-подзаголовок внутри «Вопросы и ответы»
-  // выключал бы таблицу молча (тот же класс, что пойман в stages.ts, ревью-3).
   const out: HumanFact[] = [];
   for (const table of parseTables(section)) {
     let qi = columnIndex(table.header, 'Вопрос');
@@ -110,12 +107,18 @@ export function extractHumanFacts(text: string): HumanFact[] {
     // форме шаблона «| # | Вопрос | Блокирующий | Ответ | … |»: без него потеря шапки
     // делала гейт «Ответы человека в коде» зелёным «сверять нечего» — ложный зелёный на
     // ровном месте (ревью-3). Требуются все пять колонок формы, иначе таблица не наша.
-    if ((qi < 0 || ai < 0) && table.header.length >= 5) {
-      qi = 1;
-      ai = 3;
-    }
+    // Индексы 1/3 — намеренная копия ПОРЯДКА колонок шаблона: смена порядка в эталоне
+    // требует правки здесь; цена принята, альтернатива — молчаливый зелёный.
+    // Найденный по имени индекс НЕ перетирается (ревью-4); полностью безымянная шапка —
+    // возможно, съеденная parseTables первая строка данных, и она сканируется как данные.
+    const positional = qi < 0 && ai < 0 && table.header.length >= 5;
+    if (qi < 0 && table.header.length >= 5) qi = 1;
+    if (ai < 0 && table.header.length >= 5) ai = 3;
     if (qi < 0 || ai < 0) continue;
-    for (const row of table.rows) {
+    for (const row of positional ? [table.header, ...table.rows] : table.rows) {
+      // В позиционном режиме первая строка может оказаться и настоящей шапкой — её
+      // выдаёт «#» в колонке номера, фактом она не является.
+      if (positional && (row[0] ?? '').trim() === '#') continue;
       const question = (row[qi] ?? '').trim();
       const answer = (row[ai] ?? '').trim();
       if (question === '' || answer === '') continue;

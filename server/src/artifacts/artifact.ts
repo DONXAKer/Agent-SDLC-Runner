@@ -244,6 +244,8 @@ export const DECISION = {
   accepted: 'Приёмка',
   /** exploration-report.md — этап 2, решение о полноте приёмочного листа. */
   checklistComplete: 'Решение человека о полноте',
+  /** handoff.md — запись о дефекте, кто утвердил классификацию. */
+  whoApproved: 'Кто утвердил',
 } as const;
 
 export type DecisionLabel = (typeof DECISION)[keyof typeof DECISION];
@@ -258,7 +260,7 @@ export type DecisionLabel = (typeof DECISION)[keyof typeof DECISION];
  * (ревью-2, пойман прогоном шаблона); а «подтвердила» в содержательном тексте гасила бы
  * поле молча. Единственный источник меток — значения `DECISION`.
  */
-const DECISION_LABELS = [...Object.values(DECISION), 'Кто утвердил'];
+const DECISION_LABELS = Object.values(DECISION);
 
 // Две формы записи поля: двоеточие ВНУТРИ жирного («**Подтвердил:** ‹имя›») и двоеточие
 // ПОСЛЕ жирной метки с пояснением («**Кто утвердил** _(только имя…)_: н/п / ‹имя›» —

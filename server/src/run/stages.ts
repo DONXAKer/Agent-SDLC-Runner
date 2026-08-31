@@ -21,7 +21,7 @@ import {
 } from '../artifacts/artifact.ts';
 import type { ArtifactKey, WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_DIR } from '../artifacts/paths.ts';
-import { parseTables } from '../md/table.ts';
+import { h2SectionRanges, parseTables } from '../md/table.ts';
 import type { StageId, ToolName } from '@sdlc-runner/shared';
 
 export interface StageContext {
@@ -201,26 +201,6 @@ function claimsMinimum(): Precondition {
  * сочинённой карты. Строка с пометкой «нов…» (новый файл/модуль) законно указывает на
  * ещё не существующий путь и пропускается.
  */
-/**
- * Диапазоны секций второго уровня, чей заголовок матчит `title`. Секцию закрывает только
- * следующий h2 (или конец файла) — подзаголовки h3/h4 остаются внутри неё.
- */
-export function h2SectionRanges(text: string, title: RegExp): { start: number; end: number }[] {
-  const out: { start: number; end: number }[] = [];
-  const h2 = /^##\s+(.+)$/gm;
-  let open: number | null = null;
-  let m: RegExpExecArray | null;
-  while ((m = h2.exec(text)) !== null) {
-    if (open !== null) {
-      out.push({ start: open, end: m.index });
-      open = null;
-    }
-    if (title.test(m[1]!)) open = m.index;
-  }
-  if (open !== null) out.push({ start: open, end: text.length });
-  return out;
-}
-
 function explorationPathsExist(): Precondition {
   return {
     describe: 'пути из карты кодовой базы существуют в дереве',
@@ -237,8 +217,12 @@ function explorationPathsExist(): Precondition {
         for (const table of parseTables(report.text.slice(range.start, range.end))) {
           // Шапка проверяется наравне со строками: карта без строки-шапки (пишет модель)
           // иначе теряла бы первую строку данных — parseTables объявил бы её шапкой.
-          // Настоящая шапка («Файл», «Что меняем») отсеется правилом «нет / и .».
-          for (const row of [table.header, ...table.rows]) {
+          // Исключение — шапка, УЗНАННАЯ по именам колонок: «Путь/файл» содержит `/` и
+          // без этого читалась бы сочинённым путём (ложный красный, ревью-4).
+          const namedHeader = table.header.some((cell) =>
+            /^(файл|путь|модул|каталог|что|где)/i.test(cell.trim()),
+          );
+          for (const row of namedHeader ? table.rows : [table.header, ...table.rows]) {
             const first = (row[0] ?? '').replace(/`/g, '').trim();
             if (first === '') continue;
             // «нов» — только как НАЧАЛО слова: подстрока ловила «осНОВной», «обНОВление», и

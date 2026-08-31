@@ -59,4 +59,15 @@ describe('groupFields на легендах handoff-бланка', () => {
     strictEqual(fields.length, 1);
     strictEqual(fields[0]?.kind, 'cell');
   });
+
+  it('строка-ПРОДОЛЖЕНИЕ поля решения наследует его статус (ревью-4, живой шаблон)', () => {
+    // Поле переносится: метка на первой строке, ‹имя› — на второй.
+    const text =
+      '- **Кто утвердил:** _(только имя из явного ответа человека — не имя\n' +
+      '  оператора сессии)_ н/п / ‹имя› /\n' +
+      '- **Где реализовано:** ‹путь›\n';
+    const fields = groupFields(text);
+    strictEqual(fields.length, 1);
+    strictEqual(fields[0]?.text, '‹путь›');
+  });
 });

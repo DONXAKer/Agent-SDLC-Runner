@@ -9,7 +9,7 @@
 import { deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { h2SectionRanges } from '../src/run/stages.ts';
+import { h2SectionRanges } from '../src/md/table.ts';
 
 const TEXT = [
   '# Отчёт',

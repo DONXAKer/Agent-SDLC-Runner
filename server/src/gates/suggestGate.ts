@@ -14,6 +14,7 @@
  * не предложение, а мусор в артефакте.
  */
 
+import { escapeCell } from '../md/table.ts';
 import { BUILTIN } from './builtin/index.ts';
 import { configProblems, gateKey, parseGates } from './gatesFile.ts';
 import type { GatesFile } from './gatesFile.ts';
@@ -52,9 +53,8 @@ export function suggestCheckRow(
   if (!builtin && (command === null || command.trim() === '')) return null;
 
   const how = builtin ? 'встроенная проверка рантайма' : `\`${command?.trim() ?? ''}\``;
-  // Черта в значениях экранируется: сырая `|` рвала бы колонки строки набора (class sweep).
-  const esc = (s: string): string => s.replace(/\|/g, '\\|');
-  const row = `| ${esc(name.trim())} | да | этап 6 | ${esc(how)} |`;
+  // Черта в значениях экранируется общим `escapeCell`: сырая `|` рвала бы колонки.
+  const row = `| ${escapeCell(name.trim())} | да | этап 6 | ${escapeCell(how)} |`;
 
   // Проверка предложения собственным парсером: приписываем строку к тексту набора и
   // смотрим, не появилось ли новых претензий.
@@ -80,6 +80,5 @@ export function suggestCheckRow(
  */
 export function suggestDebtRow(what: string, who: string, date: string): string | null {
   if (what.trim() === '' || who.trim() === '' || date.trim() === '') return null;
-  const esc = (s: string): string => s.replace(/\|/g, '\\|');
-  return `| ${esc(what.trim())} | риск принят | ${esc(who.trim())} | ${esc(date.trim())} |`;
+  return `| ${escapeCell(what.trim())} | риск принят | ${escapeCell(who.trim())} | ${escapeCell(date.trim())} |`;
 }

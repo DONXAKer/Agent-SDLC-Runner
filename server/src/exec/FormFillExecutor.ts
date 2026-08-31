@@ -110,6 +110,21 @@ export type FormField =
       header: string;
     };
 
+/** Первая строка элемента списка, которому принадлежит строка-продолжение с `lineStart`. */
+function listItemFirstLine(text: string, lineStart: number): string {
+  let start = lineStart;
+  for (;;) {
+    const prevEnd = start - 1;
+    if (prevEnd < 0) break;
+    const prevStart = text.lastIndexOf('\n', prevEnd - 1) + 1;
+    const cur = text.slice(start, text.indexOf('\n', start) < 0 ? text.length : text.indexOf('\n', start));
+    if (!/^\s+\S/.test(cur)) break; // дошли до первой строки элемента
+    start = prevStart;
+  }
+  const end = text.indexOf('\n', start);
+  return text.slice(start, end < 0 ? text.length : end);
+}
+
 /** Шапка таблицы, которой принадлежит строка с позиции `lineStart`: верхняя `|`-строка блока. */
 function tableHeaderOf(text: string, lineStart: number): string {
   let start = lineStart;
@@ -144,7 +159,11 @@ export function groupFields(text: string): FormField[] {
     // Поле решения человека (жирная метка «**Подтвердил:**» и подобные) — не поле модели
     // ни в каком режиме. Живой прогон: модель заполнила «Подтвердил», строка перестала
     // быть полем решения, и запись настоящего решения упала «нет поля „Подтвердил“».
+    // Строка-ПРОДОЛЖЕНИЕ элемента списка наследует его статус: длинное поле решения
+    // переносится, и плейсхолдер ‹имя› живёт на строке без метки — ревью-4 воспроизвёл
+    // это на живом handoff-шаблоне (фикс по одной строке был холостым).
     if (isDecisionLine(line)) continue;
+    if (/^\s+\S/.test(line) && isDecisionLine(listItemFirstLine(text, lineStart))) continue;
     if (line.trimStart().startsWith('|')) {
       if (lineStart === lastRowStart) continue; // колонка того же образца — уже учтён
       // Шапка блока не пересчитывается для соседних строк той же таблицы: обход вверх на
@@ -494,10 +513,12 @@ export class FormFillExecutor implements StageExecutor {
     const stopped = await sweep();
     if (stopped !== null) return stopped;
     // Второй проход — только когда есть ЧТО добирать: остатки в бланках без отказа гейта
-    // либо недоехавшая запись. Остатки в denied-бланках проход не трогает, и запускать
-    // его ради них — холостые чтения (ревью-3).
-    const retriable = fieldsLeftOnDisk(true) > 0 || pendingText.size > 0;
-    if (retriable && callsSpent < req.maxTurns && !req.signal.aborted) {
+    // (эти стоят ходов модели — нужен запас лимита) либо недоехавшая запись (перезапись
+    // БЕСПЛАТНА и лимитом ходов не запирается — иначе оплаченный текст, ради спасения
+    // которого pendingText заведён, терялся бы ровно на исчерпанном лимите, ревью-4).
+    const retriable =
+      (fieldsLeftOnDisk(true) > 0 && callsSpent < req.maxTurns) || pendingText.size > 0;
+    if (retriable && !req.signal.aborted) {
       const stopped2 = await sweep();
       if (stopped2 !== null) return stopped2;
     }

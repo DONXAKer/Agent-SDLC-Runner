@@ -81,6 +81,33 @@ export function parseTables(text: string): MdTable[] {
   return out;
 }
 
+/** Экранирование `|` в значении ячейки — обратная сторона `splitRow`, один на всех. */
+export function escapeCell(value: string): string {
+  return value.replace(/\|/g, '\\|');
+}
+
+/**
+ * Диапазоны h2-секций, чей заголовок матчит `title`. Секцию закрывает только следующий
+ * h2 (или конец файла) — подзаголовки h3/h4 остаются внутри. Отдельно от `section` у
+ * `parseTables`: тот сбрасывается на заголовке ЛЮБОГО уровня, и таблица под «### …»
+ * внутри нужной секции выпадала бы из выборки (пойман ревью-3 на карте кодовой базы).
+ */
+export function h2SectionRanges(text: string, title: RegExp): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  const h2 = /^##\s+(.+)$/gm;
+  let open: number | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = h2.exec(text)) !== null) {
+    if (open !== null) {
+      out.push({ start: open, end: m.index });
+      open = null;
+    }
+    if (title.test(m[1]!)) open = m.index;
+  }
+  if (open !== null) out.push({ start: open, end: text.length });
+  return out;
+}
+
 /** Индекс колонки по началу её имени. `-1`, если такой колонки нет. */
 export function columnIndex(header: readonly string[], name: string): number {
   const want = name.toLowerCase().replace(/ё/g, 'е');

@@ -17,7 +17,7 @@
 import type { GateRunResult } from '@sdlc-runner/shared';
 
 import { gateKey } from '../gates/gatesFile.ts';
-import { splitRow } from '../md/table.ts';
+import { escapeCell, splitRow } from '../md/table.ts';
 import { fillMechanicalPlaceholders } from './journalAutofill.ts';
 
 export interface VerifyReportFacts {
@@ -91,7 +91,7 @@ export function autofillVerificationReport(
       if (r === undefined) continue;
       // Черта в имени экранируется обратно: splitRow её разэкранировал, и пересборка без
       // `\|` ломала бы колонки строки (ревью-2; имён с чертой в эталоне нет — страховка).
-      lines[j] = `| ${name.replace(/\|/g, '\\|')} | ${r.status} | ${resultCell(r)} |`;
+      lines[j] = `| ${escapeCell(name)} | ${r.status} | ${resultCell(r)} |`;
       used.add(gateKey(name));
       filled++;
     }
@@ -106,7 +106,7 @@ export function autofillVerificationReport(
         otherIdx,
         1,
         // Черта в имени экранируется и здесь — та же страховка, что у именованных строк.
-        ...rest.map((r) => `| ${r.name.replace(/\|/g, '\\|')} | ${r.status} | ${resultCell(r)} |`),
+        ...rest.map((r) => `| ${escapeCell(r.name)} | ${r.status} | ${resultCell(r)} |`),
       );
       filled += rest.length > 0 ? rest.length : 1;
     }
