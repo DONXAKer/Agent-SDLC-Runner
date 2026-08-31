@@ -1,0 +1,174 @@
+{
+  "run": {
+    "slug": "bench-r17e-handoff",
+    "model": "polza:qwen3-coder-next",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:qwen3-coder-next",
+      "explore": "polza:qwen3-coder-next",
+      "ask": "polza:qwen3-coder-next",
+      "plan": "polza:qwen3-coder-next",
+      "chunk": "polza:qwen3-coder-next",
+      "verify": "polza:deepseek-v4-pro-0813",
+      "handoff": "polza:qwen3-coder-next"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "RUB",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-08-31T10:31:18.982Z",
+    "finishedAt": "2026-08-31T10:32:45.136Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 32, осталось на диске 5; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "приёмочный лист короче минимума этапа 1: пунктов 4 (нужно ≥ 3), с [edge] 1 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)",
+        "blockers": [
+          "приёмочный лист короче минимума этапа 1: пунктов 4 (нужно ≥ 3), с [edge] 1 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 254102,
+          "outputTokens": 8047,
+          "cacheReadTokens": 208080,
+          "cacheWriteTokens": 0,
+          "costUsd": 3.40239873,
+          "durationMs": 156137
+        },
+        "durationMs": 86150
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:778deca3-569a-4ab7-9205-65cd439264b3",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r17e-handoff/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:b3b5000e-e321-419e-8eae-f6992b7e8eeb",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r17e-handoff/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:63c66b49-1449-4fe4-8924-0fef08d92736",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-r17e-handoff/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10493,
+        "userChars": 4127,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  }
+}

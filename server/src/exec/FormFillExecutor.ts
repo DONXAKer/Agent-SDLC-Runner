@@ -563,18 +563,40 @@ export class FormFillExecutor implements StageExecutor {
                   usage = addUsage(usage, more.usage);
                   hooks.onUsage(more.usage);
                   const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
-                  // Повтор уже написанного id отбрасывается: дубль строки надувал бы
-                  // счёт гейта минимума, не добавляя пункта по существу.
-                  const seen = new Set(filled.split('\n').map(claimIdOf));
+                  // Модели на добор часто возвращают ВЕСЬ лист заново с теми же id —
+                  // фильтр «дубль id → в мусор» выбрасывал и новые пункты (r17e, лист
+                  // остался 4/1). Дословный повтор пункта отбрасывается по СОДЕРЖИМОМУ,
+                  // а новый пункт под занятым id перенумеровывается: счёт гейта не
+                  // надувается дублями, но и добор не пропадает.
+                  const bodyOf = (l: string): string =>
+                    l.replace(/^\s*\|\s*`?claim-\d+\b[^|]*\|/, '').replace(/\s+/g, ' ').trim();
+                  const seenIds = new Set(filled.split('\n').map(claimIdOf));
+                  const seenBodies = new Set(filled.split('\n').map(bodyOf));
+                  let nextN =
+                    Math.max(
+                      0,
+                      ...filled
+                        .split('\n')
+                        .map((l) => Number(/claim-(\d+)/.exec(l)?.[1] ?? 0)),
+                    ) + 1;
                   const fresh = extra
                     .split('\n')
                     .filter((l) => l.trim() !== '' && !l.includes('‹'))
-                    .filter((l) => {
-                      const id = claimIdOf(l);
-                      return id === null ? false : !seen.has(id);
+                    .filter((l) => claimIdOf(l) !== null && !seenBodies.has(bodyOf(l)))
+                    .map((l) => {
+                      const id = claimIdOf(l)!;
+                      if (!seenIds.has(id)) {
+                        seenIds.add(id);
+                        return l;
+                      }
+                      return l.replace(/claim-\d+/, `claim-${nextN++}`);
                     })
                     .join('\n');
                   if (fresh !== '') filled = `${filled}\n${fresh}`;
+                  notes.push(
+                    `добор листа приёмки: модель вернула ${extra.split('\n').length} строк, ` +
+                      `добавлено ${fresh === '' ? 0 : fresh.split('\n').length}`,
+                  );
                 } catch (e) {
                   const why = e instanceof Error ? e.message : String(e);
                   notes.push(`добор листа приёмки не удался: ${why.slice(0, 160)}`);
