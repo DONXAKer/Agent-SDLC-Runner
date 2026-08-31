@@ -250,6 +250,26 @@ describe('вердикт при расхождении отчёта и прог�
     strictEqual(statusOf('❌', '✅'), '❌');
   });
 
+  // r23: рантайм СВОИМИ РУКАМИ прогнал scope-гейт и получил код 0, а рецензент вписал
+  // ❌, списав находку из отчёта предыдущей попытки. Виток, у которого сошлось всё,
+  // оставался красным по выдумке — при том что защита от ложного ЗЕЛЁНОГО тут ни при чём.
+  it('исполненный рантаймом зелёный гейт не краснеет от выдумки отчёта (r23)', () => {
+    const res = collectVerdictInput({
+      gates,
+      gateResults: [
+        { name: 'Scope: файлы вне плана', status: '✅', command: null, exitCode: 0, lastLine: 'все изменения в пределах files_to_touch', durationMs: 5, envBlocked: false },
+      ],
+      runtimeAuthoritativeWhenGreen: ['ревью независимым агентом'],
+      reports: [['## Гейты', '', '| Гейт | Статус |', '|---|---|', '| Scope: файлы вне плана | ❌ |'].join('\n')],
+      attempt: 1,
+      attemptBudget: 3,
+      noProgress: false,
+    });
+    strictEqual(res.input.gates.find((g) => g.name === 'Scope: файлы вне плана')?.status, '✅');
+    strictEqual(res.disagreements.length, 0, 'красной причиной это быть не должно');
+    strictEqual(res.reportQuality.length, 1, 'но качество отчёта обязано быть названо');
+  });
+
   it('на прочих гейтах правило прежнее — худший из двух', () => {
     const st = collectVerdictInput({
       gates,

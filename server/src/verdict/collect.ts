@@ -345,6 +345,12 @@ export interface CollectResult {
   input: VerdictInput;
   /** Гейты, где отчёт и прогон разошлись. Побеждает ХУДШИЙ из двух статусов. */
   disagreements: string[];
+  /**
+   * Замечания к КАЧЕСТВУ ОТЧЁТА: рецензент вписал красный там, где рантайм своими руками
+   * получил зелёный. Вердикт от этого не краснеет (факт прогона авторитетнее), но
+   * молчать нельзя — это характеристика рецензента, и оператор обязан её видеть.
+   */
+  reportQuality: string[];
 }
 
 /**
@@ -434,6 +440,7 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
   const gates: VerdictInput['gates'] = [];
   const missing: string[] = [];
   const disagreements: string[] = [];
+  const reportQuality: string[] = [];
 
   for (const row of expected) {
     const key = gateKey(row.name);
@@ -455,11 +462,24 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       continue;
     }
 
+    // Гейт, который рантайм ИСПОЛНИЛ САМ (команда или встроенная реализация — у обеих
+    // есть код возврата) и получил зелёный, отчётом не опровергается. Живой прогон r23:
+    // все девять гейтов фактически зелёные, а рецензент вписал в таблицу
+    // «Scope: файлы вне плана ❌ — файл snapshot.json вне плана», списав это из отчёта
+    // ПРЕДЫДУЩЕЙ попытки, лежавшего рядом в артефактах; «худший из двух» honestly взял
+    // ❌ — и виток, у которого сошлось всё, остался красным по выдумке.
+    //
+    // Ослаблением защиты это не является: правило существует против ЛОЖНОГО ЗЕЛЁНОГО
+    // («модель может ошибиться в статусе, но не может выдать зелёный за красный»), а тут
+    // рантайм своими руками получил код возврата 0. Настоящие находки рецензента роняют
+    // вердикт по другим каналам — расхождения, пункты приёмки, регрессии, инварианты, —
+    // и подделанный зелёный ловит отдельный гейт «Анти-обход тест-гейта».
+    const runtimeExecutedGreen = run !== undefined && run.status === '✅' && run.exitCode !== null;
     const authoritative =
       run !== undefined &&
       run.status === '✅' &&
-      reported === '⏭' &&
-      (i.runtimeAuthoritativeWhenGreen ?? []).includes(key);
+      (runtimeExecutedGreen ||
+        (reported === '⏭' && (i.runtimeAuthoritativeWhenGreen ?? []).includes(key)));
 
     const status = run === undefined ? reported : authoritative ? '✅' : worstGateStatus(run.status, reported);
     // `authoritative` — ШТАТНЫЙ, ожидаемый случай, а не спор источников: прогон гейтов
@@ -471,6 +491,14 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       disagreements.push(
         `гейт «${row.name}»: в отчёте ${reported}, фактический прогон дал ${run.status} — ` +
           `в вердикт идёт худший из двух (${status})`,
+      );
+    }
+    // Отчёт разошёлся с прогоном, но прогон авторитетен — вердикт не роняем, а качество
+    // отчёта называем: это замечание к рецензенту, а не к работе исполнителя.
+    if (run !== undefined && run.status !== reported && authoritative && runtimeExecutedGreen) {
+      reportQuality.push(
+        `гейт «${row.name}»: рецензент вписал ${reported}, хотя фактический прогон дал ✅ ` +
+          `(${run.command ?? 'встроенная реализация'}, код ${run.exitCode}) — в вердикт идёт факт`,
       );
     }
     gates.push({
@@ -485,6 +513,7 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
 
   return {
     disagreements,
+    reportQuality,
     input: {
       gates,
       // Заявленный рецензентом `manual` действителен только для пунктов, помеченных

@@ -1736,7 +1736,7 @@ export class Run {
       readArtifact(this.paths.verificationReport(this.chunk, this.attempt, r)).text,
     ).filter((t) => t.trim() !== '');
 
-    const { input, disagreements } = collectVerdictInput({
+    const { input, disagreements, reportQuality } = collectVerdictInput({
       gates,
       // Статусы гейтов, которые рантайм не исполняет скриптом, пересчитываются здесь:
       // прогон идёт ДО ревью, и на его момент рецензент заведомо не отработал. Без
@@ -1793,7 +1793,9 @@ export class Run {
           ]
         : [];
 
-    const notes = [...disagreements, ...closenessNote, ...calibrationNote];
+    // Замечания к качеству отчёта идут в заметки вердикта, но НЕ в причины красного:
+    // рантайм исполнил гейт сам и получил зелёный, а рецензент вписал красный (r23).
+    const notes = [...disagreements, ...reportQuality, ...closenessNote, ...calibrationNote];
     const withNotes: Verdict =
       notes.length === 0 ? verdict : { ...verdict, reasons: [...verdict.reasons, ...notes] };
 
