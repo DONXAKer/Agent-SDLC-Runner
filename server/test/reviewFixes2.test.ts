@@ -270,6 +270,28 @@ describe('вердикт при расхождении отчёта и прог�
     strictEqual(res.reportQuality.length, 1, 'но качество отчёта обязано быть названо');
   });
 
+  // r31: три сэмпла подряд с кодом 9/9 покраснели на «артефакт этапа 5 устарел» — только
+  // потому, что слабый рецензент не написал «Сверка с деревом: да». Условие роняет
+  // вердикт, а держалось на прозе; теперь патч сверяет сам рантайм.
+  it('факт сверки патча с деревом побеждает прозу отчёта в обе стороны (r31)', () => {
+    const report = (sync: string): string =>
+      ['- **Сверка с деревом:** ' + sync, '', '## Гейты', '', '| Гейт | Статус |', '|---|---|', '| Сборка | ✅ |'].join('\n');
+    const call = (sync: string, fact: boolean | null): boolean =>
+      collectVerdictInput({
+        gates,
+        gateResults: [],
+        reports: [report(sync)],
+        diffMatchesTreeFact: fact,
+        attempt: 1,
+        attemptBudget: 3,
+        noProgress: false,
+      }).input.diffMatchesTree;
+
+    strictEqual(call('нет', true), true, 'рантайм сверил — патч совпадает, проза не спорит');
+    strictEqual(call('да', false), false, 'рантайм сверил — патч устарел, заявление отчёта не спасает');
+    strictEqual(call('да', null), true, 'сверки не было — действует прежнее правило');
+  });
+
   it('на прочих гейтах правило прежнее — худший из двух', () => {
     const st = collectVerdictInput({
       gates,

@@ -1701,6 +1701,39 @@ export class Run {
     this.reviewerRan = true;
   }
 
+  /**
+   * Факт сверки патча с деревом, посчитанный перед вердиктом. `null` — не считался либо
+   * посчитать было нечем; тогда действует прежнее правило «сказано в отчёте».
+   */
+  private diffFactMatchesTree: boolean | null = null;
+
+  /**
+   * Совпадает ли патч попытки с фактическим деревом — ФАКТ рантайма, не слова отчёта.
+   *
+   * `null` — проверить нечем (патча нет, дерево не репозиторий): тогда действует прежнее
+   * правило «сказано в отчёте». Сравнение — по тому же `workingDiff`, которым патч и
+   * снимался, поэтому расхождение означает ровно одно: дерево изменилось ПОСЛЕ снятия
+   * улики, и артефакт этапа 5 устарел по-настоящему.
+   */
+  private async diffStillMatchesTree(): Promise<boolean | null> {
+    const patchPath = this.paths.chunkDiff(this.chunk, this.attempt);
+    const saved = readArtifact(patchPath);
+    if (!saved.exists) return null;
+    try {
+      if (!(await isRepo(this.project.projectRoot))) return null;
+      const now = await workingDiff(
+        this.project.projectRoot,
+        [],
+        ...(this.aborter === null ? [] : [this.aborter.signal]),
+      );
+      return now.trim() === saved.text.trim();
+    } catch {
+      // Сверка не состоялась — это «не знаю», а не «разошлось»: превращать сбой git в
+      // красный вердикт значило бы ронять виток из-за среды.
+      return null;
+    }
+  }
+
   /** Итоги прогона с пересчитанными статусами «не скриптовых» гейтов. */
   private gateResultsForVerdict(): GateRunResult[] {
     const external = this.externalGateStatuses();
@@ -1746,6 +1779,13 @@ export class Run {
       // в отчёте не может опровергнуть состоявшийся вызов субагента. Красный отчёта при
       // этом всё равно побеждает — см. `collectVerdictInput`.
       runtimeAuthoritativeWhenGreen: [gateKey(REVIEW_GATE)],
+      // Совпадение патча попытки с фактическим деревом рантайм проверяет САМ — сверкой
+      // побайтово, а не чтением прозы «Сверка с деревом: да» из отчёта. Живая серия r31:
+      // три сэмпла подряд с безупречным кодом (9/9) получили красный вердикт «артефакт
+      // этапа 5 устарел» только потому, что слабый рецензент не написал нужного слова.
+      // Критическое условие вердикта не может висеть на формулировке модели, когда
+      // рантайм в состоянии посчитать его механически.
+      diffMatchesTreeFact: this.diffFactMatchesTree,
       // Ручные пункты приходят из ЗАДАЧИ, а не из отчёта: освобождение от автоматической
       // проверки — решение человека, написавшего приёмочный лист.
       manualClaims: manualClaimIds(readArtifact(this.paths.intent).text),
@@ -2380,7 +2420,12 @@ export class Run {
       // Вердикт считается сразу после этапа 6 — по отчёту, который только что записан,
       // и по прогону гейтов, который был до ревью. Отдельной кнопки у него нет: вердикт,
       // который надо не забыть посчитать, рано или поздно не считают.
-      if (stage === 'verify') this.computeStageVerdict(this.detectNoProgress());
+      if (stage === 'verify') {
+        // Сверку патча с деревом делает рантайм и делает её ЗДЕСЬ — после ревью, но до
+        // подсчёта вердикта: раньше это условие держалось на фразе рецензента (r31).
+        this.diffFactMatchesTree = await this.diffStillMatchesTree();
+        this.computeStageVerdict(this.detectNoProgress());
+      }
 
       // Последнее слово об исходе — за диском, а не за исполнителем. Модель, объявившая
       // ход завершённым и не записавшая ни одного из объявленных этапом артефактов,

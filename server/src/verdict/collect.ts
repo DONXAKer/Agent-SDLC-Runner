@@ -317,6 +317,15 @@ export interface CollectInput {
    */
   runtimeAuthoritativeWhenGreen?: readonly string[];
   /**
+   * Факт рантайма: совпал ли патч попытки с фактическим деревом. `undefined`/`null` —
+   * сверки не было, и тогда действует прежнее правило «сказано в отчёте».
+   *
+   * Зачем факт вообще: условие «артефакт этапа 5 устарел» роняет вердикт, а держалось
+   * оно на фразе «Сверка с деревом: да» в отчёте модели. Серия r31 — три сэмпла подряд
+   * с кодом 9/9 покраснели только потому, что слабый рецензент не написал этого слова.
+   */
+  diffMatchesTreeFact?: boolean | null;
+  /**
    * Пункты приёмки, помеченные в ЗАДАЧЕ тегом `[manual]` — id в канонической форме.
    *
    * Источник освобождения от автоматической проверки — приёмочный лист человека, а не
@@ -511,6 +520,18 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
     });
   }
 
+  if (
+    i.diffMatchesTreeFact !== undefined &&
+    i.diffMatchesTreeFact !== null &&
+    i.diffMatchesTreeFact !== facts.diffMatchesTree
+  ) {
+    reportQuality.push(
+      i.diffMatchesTreeFact
+        ? 'сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает'
+        : 'сверка с деревом: рецензент заявил совпадение, но рантайм сверил сам — патч устарел',
+    );
+  }
+
   return {
     disagreements,
     reportQuality,
@@ -528,7 +549,9 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       brokenInvariants: facts.brokenInvariants,
       regressions: facts.regressions,
       plannedPathsUntouched: facts.plannedPathsUntouched,
-      diffMatchesTree: facts.diffMatchesTree,
+      // Факт рантайма побеждает прозу отчёта в ОБЕ стороны: он получен той же командой,
+      // которой снимался патч, и спорить с ним рецензенту нечем.
+      diffMatchesTree: i.diffMatchesTreeFact ?? facts.diffMatchesTree,
       attempt: i.attempt,
       attemptBudget: i.attemptBudget,
       noProgress: i.noProgress,
