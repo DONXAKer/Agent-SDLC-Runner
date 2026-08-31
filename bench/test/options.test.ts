@@ -130,6 +130,37 @@ describe('аргументы бенчмарка', () => {
   });
 });
 
+describe('посев (--seed)', () => {
+  const base = ['--model', 'x', '--stage', 'verify', '--from-snapshot', 'snap'];
+
+  it('ключ не задан — посева нет', () => {
+    strictEqual(parseArgs(base).seed, null);
+  });
+
+  it('посев принимается вместе со снимком и --stage verify', () => {
+    strictEqual(parseArgs([...base, '--seed', 'silent-price-change']).seed, 'silent-price-change');
+  });
+
+  it('контрольный прогон none не требует ни снимка, ни этапа', () => {
+    strictEqual(parseArgs(['--model', 'x', '--all', '--seed', 'none']).seed, 'none');
+  });
+
+  it('неизвестный класс посева отвергается', () => {
+    throws(() => parseArgs([...base, '--seed', 'нет-такого']), /неизвестный посев/);
+  });
+
+  it('без снимка посев запрещён: исполнитель этапа 5 увидел бы дефект как свой', () => {
+    throws(() => parseArgs(['--model', 'x', '--stage', 'verify', '--seed', 'silent-price-change']), /--from-snapshot/);
+  });
+
+  it('вне --stage verify посев запрещён', () => {
+    throws(
+      () => parseArgs(['--model', 'x', '--stage', 'chunk', '--from-snapshot', 'snap', '--seed', 'silent-price-change']),
+      /--stage verify/,
+    );
+  });
+});
+
 describe('раскладка измеряемых этапов', () => {
   it('режим одного этапа измеряет ровно его', () => {
     deepStrictEqual(measuredStages({ kind: 'stage', stage: 'chunk' }), ['chunk']);

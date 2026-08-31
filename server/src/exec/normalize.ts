@@ -9,7 +9,8 @@
  * считать его записью по худшему случаю и отклонить, а не пропустить молча.
  */
 
-import type { CallKind, EditOp, NormalizedCall, Question } from '@sdlc-runner/shared';
+import type { CallKind, ClaimStatus, EditOp, NormalizedCall, Question } from '@sdlc-runner/shared';
+import { FINDING_SECTIONS } from '@sdlc-runner/shared';
 
 /** Инструменты, которые рантайм подаёт через MCP во флоу `sdk`. */
 const MCP_PREFIX = 'mcp__sdlc__';
@@ -36,6 +37,10 @@ const NAME_TO_KIND = new Map<string, CallKind>([
   ['Agent', 'subagent'],
   ['RequestScopeExtension', 'request_scope_extension'],
   ['request_scope_extension', 'request_scope_extension'],
+  ['RecordClaim', 'record_claim'],
+  ['record_claim', 'record_claim'],
+  ['RecordFinding', 'record_finding'],
+  ['record_finding', 'record_finding'],
 ]);
 
 function str(input: Record<string, unknown>, ...keys: string[]): string | null {
@@ -44,6 +49,29 @@ function str(input: Record<string, unknown>, ...keys: string[]): string | null {
     if (typeof v === 'string') return v;
   }
   return null;
+}
+
+/**
+ * Статус пункта приёмки из строки модели. `null` — не одно из четырёх значений таблицы.
+ *
+ * Слова принимаются наравне со значками: локальная модель регулярно пишет `passed`/`failed`
+ * вместо `✅`/`❌`, и отклонять такую запись значило бы мерить владение эмодзи, а не разбор.
+ * Пятой градации нет: «частично» не превращается ни во что.
+ */
+function claimStatusOf(raw: string): ClaimStatus | null {
+  const t = raw.trim().toLowerCase();
+  if (t.includes('✅') || t === 'passed' || t === 'pass' || t === 'true' || t === 'да') return '✅';
+  if (t.includes('❌') || t === 'failed' || t === 'fail' || t === 'false' || t === 'нет') return '❌';
+  if (t.includes('⚠') || t === 'unknown' || t === 'unverifiable') return '⚠';
+  if (t === 'manual') return 'manual';
+  return null;
+}
+
+/** Имя пункта в канонической форме `claim-N`. `claim-3`, `Claim-3`, `3` — одно и то же. */
+function claimIdOf(raw: string): string {
+  const t = raw.replace(/`/g, '').trim().toLowerCase();
+  const m = /^(?:claim-)?(\d+)\b/.exec(t);
+  return m === null ? t : `claim-${m[1]!}`;
 }
 
 function num(input: Record<string, unknown>, key: string): number | null {
@@ -225,6 +253,40 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
       const reason = str(input, 'reason');
       if (path === null || reason === null) return { kind: 'unknown', toolName, raw: input };
       return { kind: 'request_scope_extension', path, reason };
+    }
+
+    case 'record_claim': {
+      const id = str(input, 'id', 'claim', 'claim_id');
+      const status = str(input, 'status', 'passed');
+      const evidence = str(input, 'evidence', 'proof', 'confirmed_by');
+      if (id === null || status === null || evidence === null) {
+        return { kind: 'unknown', toolName, raw: input };
+      }
+      const claimStatus = claimStatusOf(status);
+      // Статус вне четырёх значений методологии — это НЕ запись «на глазок»: пятой
+      // градации у таблицы вердикта нет, и принять «частично» значило бы завести её
+      // молча. Вызов уходит в `unknown`, то есть отклоняется политикой по худшему случаю,
+      // и модель получает отказ с перечнем допустимых значений.
+      if (claimStatus === null) return { kind: 'unknown', toolName, raw: input };
+      const whatToFix = str(input, 'what_to_fix', 'whatToFix', 'fix');
+      return {
+        kind: 'record_claim',
+        // `claim-3`, `Claim-3`, `3` — одно и то же имя пункта. Приведение здесь, а не у
+        // читателя: иначе одна и та же запись, сделанная дважды, дала бы две строки.
+        id: claimIdOf(id),
+        status: claimStatus,
+        evidence,
+        whatToFix,
+      };
+    }
+
+    case 'record_finding': {
+      const section = str(input, 'section', 'kind');
+      const text = str(input, 'text', 'finding', 'what');
+      if (section === null || text === null) return { kind: 'unknown', toolName, raw: input };
+      const known = FINDING_SECTIONS.find((s) => s === section.trim().toLowerCase());
+      if (known === undefined) return { kind: 'unknown', toolName, raw: input };
+      return { kind: 'record_finding', section: known, text, evidence: str(input, 'evidence', 'where') ?? '' };
     }
 
     // Недостижимо: `mcp` не приходит из `NAME_TO_KIND` — вызовы внешних серверов узнаются

@@ -61,6 +61,7 @@ function hooks(frictions: string[]): ExecHooks {
     onToolRequest: async () => ({ allowed: true, updatedInput: null, by: 'policy' as const }),
     onToolResult: () => {},
     onAskHuman: async () => ({}),
+    onRecord: () => 'записано',
     onUsage: () => {},
     onWarn: () => {},
     onFriction: (k: string) => frictions.push(k),

@@ -14,7 +14,7 @@
 import type { NormalizedCall, PolicyContext, PolicyVerdict } from '@sdlc-runner/shared';
 import { POLICY_OK, policyDeny } from '@sdlc-runner/shared';
 
-import { isWithinAny, relativizeWithin, resolveUserPath } from './paths.ts';
+import { isWindowsStyle, isWithinAny, pathsEqual, relativizeWithin, resolveUserPath } from './paths.ts';
 
 export type Access = 'read' | 'write';
 
@@ -37,9 +37,32 @@ export function within(ctx: PolicyContext, userPath: string, access: Access): st
   );
 }
 
+/**
+ * Путь, закрытый на чтение на этом этапе.
+ *
+ * Не «нижняя граница» и не границы проекта, а сужение чтения ради независимости
+ * рецензента: файл лежит внутри проекта и доступен всем остальным этапам. Сравнение —
+ * тем же `pathsEqual`, что и у защищённых от записи артефактов, чтобы «читать нельзя» и
+ * «писать нельзя» не разошлись в понимании одного и того же пути.
+ */
+function isReadDenied(ctx: PolicyContext, rel: string): boolean {
+  const ci = isWindowsStyle(ctx.projectRoot);
+  return (ctx.readDenied ?? []).some((p) => pathsEqual(p, rel, ci));
+}
+
 function checkPath(ctx: PolicyContext, userPath: string, access: Access): PolicyVerdict {
   const r = within(ctx, userPath, access);
-  return typeof r === 'string' ? POLICY_OK : r;
+  if (typeof r !== 'string') return r;
+  if (access === 'read' && isReadDenied(ctx, r)) {
+    return policyDeny(
+      'pathScope',
+      `чтение «${r}» на этапе ${ctx.stage} закрыто: это отчёт другой попытки. ` +
+        `Независимость ревью требует, чтобы находки предыдущей попытки не переезжали в ` +
+        `эту; связь между попытками несут retry_instruction и carry_forward, которые ` +
+        `подаёт машина витка.`,
+    );
+  }
+  return POLICY_OK;
 }
 
 /**

@@ -40,6 +40,7 @@ function route(stage: StageId, modelId: string): ResolvedRoute {
     params: null,
     leanTools: false,
     formFill: false,
+    claimFill: false,
   };
 }
 

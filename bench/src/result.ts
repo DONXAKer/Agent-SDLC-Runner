@@ -17,6 +17,7 @@ import type { OperatorDecisionLog } from './operator.ts';
 import type { CollectorState } from './collector.ts';
 import type { BenchOptions } from './options.ts';
 import type { BuiltProfile } from './profile.ts';
+import type { SeedProbe } from './seeds.ts';
 
 export interface BenchResult {
   /** Идентификация прогона — не измерение, а его паспорт. */
@@ -37,6 +38,11 @@ export interface BenchResult {
   finalVerdict: Verdict | null;
   operator: OperatorDecisionLog;
   observed: CollectorState;
+  /**
+   * Итог посева (`--seed`), `null` — прогон шёл без него. Лежит рядом с вердиктом, а не
+   * внутри «паспорта прогона»: это измерение, а не настройка.
+   */
+  seed: SeedProbe | null;
 }
 
 export function buildResult(args: {
@@ -48,6 +54,7 @@ export function buildResult(args: {
   metrics: RunMetrics;
   operator: OperatorDecisionLog;
   observed: CollectorState;
+  seed?: SeedProbe | null;
 }): BenchResult {
   const { opts, built } = args;
   return {
@@ -67,6 +74,7 @@ export function buildResult(args: {
     finalVerdict: args.driver.finalVerdict,
     operator: args.operator,
     observed: args.observed,
+    seed: args.seed ?? null,
   };
 }
 

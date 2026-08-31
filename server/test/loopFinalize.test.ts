@@ -52,6 +52,7 @@ function hooks(seen: Seen): ExecHooks {
     onToolRequest: async (_call: NormalizedCall) => ({ allowed: true, updatedInput: null, by: 'policy' as const }),
     onToolResult: (r: { ok: boolean; summary: string }) => seen.results.push(r),
     onAskHuman: async () => ({}),
+    onRecord: () => 'записано',
     onUsage: () => {},
     onWarn: () => {},
     onFriction: () => {},

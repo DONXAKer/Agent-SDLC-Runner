@@ -81,6 +81,7 @@ describe('buildResult', () => {
         makeSnapshot: null,
         fromSnapshot: null,
         repeat: 1,
+        seed: null,
       },
       built,
       startedAt,
@@ -133,6 +134,7 @@ describe('writeResult', () => {
         finalVerdict: null,
         operator: emptyOperatorLog(),
         observed: emptyCollectorState(),
+        seed: null,
       };
       writeResult(path, payload);
 

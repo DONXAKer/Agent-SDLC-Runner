@@ -69,6 +69,7 @@ function hooks(seen: Seen): ExecHooks {
     },
     onToolResult: (r: { ok: boolean; summary: string }) => seen.results.push(r),
     onAskHuman: async () => ({}),
+    onRecord: () => 'записано',
     onUsage: () => {},
     onWarn: (m: string) => seen.warns.push(m),
     onFriction: () => {},

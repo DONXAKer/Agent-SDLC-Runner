@@ -234,6 +234,7 @@ function hooks(): ExecHooks & { warns: string[] } {
         Promise.resolve<Decision>({ allowed: true, updatedInput: null, by: 'auto' }),
       onToolResult: () => {},
       onAskHuman: () => Promise.resolve({}),
+      onRecord: () => 'записано',
       onUsage: () => {},
       onWarn: (m: string) => warns.push(m),
       onFriction: () => {},

@@ -270,7 +270,7 @@ const RUNTIME_PROTECTED = (c: StageContext): string[] => [
   relOf(c, c.paths.intent),
 ];
 
-function relOf(c: StageContext, absolute: string): string {
+export function relOf(c: StageContext, absolute: string): string {
   const root = c.paths.projectRoot.replace(/\\/g, '/');
   const p = absolute.replace(/\\/g, '/');
   return p.startsWith(`${root}/`) ? p.slice(root.length + 1) : p;
@@ -442,7 +442,24 @@ export const STAGES: readonly StageDef[] = [
     // Edit нужен, чтобы обновить колонку «Итог» строки попытки в журнале chunk'а —
     // без него единственный способ это Write целиком, то есть верификатор переписывает
     // журнал исполнителя своей реконструкцией и уничтожает улику этапа 5.
-    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Task', 'AskHuman', 'FinalizeArtifact'],
+    //
+    // `RecordClaim`/`RecordFinding` — структурированный канал вывода: пункты приёмки и
+    // находки модель называет записями, а таблицу §1 и строки §2–§5 рисует рантайм.
+    // Заведено против измеренного класса отказа «форма отчёта не разобралась»: вердикт
+    // по пустому входу стоит ровно столько же, сколько несделанная работа. Обычные
+    // Write/Edit остаются — модель, справляющаяся с формой сама, ничего не теряет.
+    tools: [
+      'Read',
+      'Glob',
+      'Grep',
+      'Write',
+      'Edit',
+      'Task',
+      'AskHuman',
+      'FinalizeArtifact',
+      'RecordClaim',
+      'RecordFinding',
+    ],
     subagents: ['sdlc-reviewer'],
     produces: (c) => [c.paths.verificationReport(c.chunk, c.attempt)],
     requires: [

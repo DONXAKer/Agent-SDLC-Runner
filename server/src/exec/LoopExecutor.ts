@@ -36,7 +36,7 @@ import type {
   SubagentDef,
 } from './StageExecutor.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
-import { TOOL_SPECS, specsFor } from './toolSpecs.ts';
+import { isToolName, specsFor } from './toolSpecs.ts';
 import { readArtifact } from '../artifacts/artifact.ts';
 
 export interface LoopOptions {
@@ -99,21 +99,6 @@ const READ_KINDS = new Set(['read', 'glob', 'grep']);
 const BASH_STREAK_LIMIT = 4;
 const BASH_STREAK_REMINDERS = 2;
 
-/**
- * Имена инструментов субагента приходят строками из его YAML-шапки — файл пишет человек.
- * Незнакомое имя не превращается в право: оно просто не попадает в пересечение.
- */
-// Реестр `TOOL_SPECS` типизирован как `Record<ToolName, ToolSpec>`, и его полноту следит
-// компилятор. Рукописный список рядом был бы вторым знанием об одном: забытое в нём имя
-// молча выпадало бы из пересечения прав, и субагент терял бы объявленное право без
-// единого сообщения. `hasOwn`, а не `in`: объектный словарь отвечает `true` на `toString`.
-function isToolName(v: string): v is ToolName {
-  // Права на MCP в `TOOL_SPECS` не лежат — у них нет статических схем. Без этих двух имён
-  // право, объявленное человеком в шапке субагента, молча выпало бы из пересечения.
-  if (v === 'McpRead' || v === 'McpWrite') return true;
-  return Object.hasOwn(TOOL_SPECS, v);
-}
-
 /** Опросный ли это инструмент — по шаблонам из конфига сервера. */
 function isPolling(toolName: string, req: ExecRequest): boolean {
   const patterns = req.mcp?.pollingTools ?? [];
@@ -169,6 +154,8 @@ export class LoopExecutor implements StageExecutor {
     let finalText = '';
     let lastFingerprint: string | null = null;
     let repeats = 0;
+    /** Сколько работы было зафиксировано, когда началась текущая серия повторов. */
+    let progressAtStreakStart = req.progressSignal?.() ?? 0;
     let reminders = 0;
     let readStreak = 0;
     let readNudges = 0;
@@ -341,17 +328,33 @@ export class LoopExecutor implements StageExecutor {
         const fingerprint = callFingerprint(call);
         repeats = fingerprint === lastFingerprint ? repeats + 1 : 0;
         lastFingerprint = fingerprint;
+        if (repeats === 0) progressAtStreakStart = req.progressSignal?.() ?? 0;
 
         if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
 
         if (repeats + 1 >= REPEAT_LIMIT && !isPolling(call.name, req)) {
           const doneAnyway = finishedByDisk();
           if (doneAnyway !== null) return doneAnyway;
-          const note =
-            `цикл остановлен: «${call.name}» вызван ${repeats + 1} раза подряд с теми же ` +
-            `аргументами — прогресса нет`;
-          hooks.onWarn(note);
-          return { ok: false, finalText, usage, note };
+
+          // Работа за время серии прибавилась — значит модель не буксует, а повторяет
+          // вызов рядом с делом. Обрывать здесь значит терять этап, в котором результат
+          // уже накоплен: ровно так дважды терялся этап 6 ПОСЛЕ прогона гейтов.
+          const progressNow = req.progressSignal?.() ?? 0;
+          if (progressNow > progressAtStreakStart) {
+            hooks.onWarn(
+              `«${call.name}» повторён ${repeats + 1} раза подряд, но с начала серии ` +
+                `зафиксировано ${progressNow - progressAtStreakStart} новых результат(ов) — ` +
+                `этап продолжается, повторный вызов не исполняется`,
+            );
+            repeats = 0;
+            progressAtStreakStart = progressNow;
+          } else {
+            const note =
+              `цикл остановлен: «${call.name}» вызван ${repeats + 1} раза подряд с теми же ` +
+              `аргументами — прогресса нет`;
+            hooks.onWarn(note);
+            return { ok: false, finalText, usage, note };
+          }
         }
 
         // Нормализация один раз на вызов: она же нужна серии чтений ниже, а `handleCall`
@@ -648,6 +651,12 @@ export class LoopExecutor implements StageExecutor {
         }
         return `артефакт заявлен готовым: ${call.artifact}`;
       }
+
+      // Записи в отчёт этапа 6 принимает рантайм — он же и рисует из них таблицу. Здесь
+      // только передача: второго места, знающего форму отчёта, не заводим.
+      case 'record_claim':
+      case 'record_finding':
+        return hooks.onRecord(call);
 
       case 'request_scope_extension':
         // Само расширение `plan.md` и пересчёт политики уже произошли в `onToolRequest`

@@ -120,6 +120,57 @@ describe('makeSnapshot / restoreSnapshot', () => {
     restored.dispose();
   });
 
+  it('лента событий прошлого прогона в снимок не попадает', async () => {
+    // Иначе каждый прогон со снимка дописывает свои события в ЧУЖОЙ файл, а
+    // `readPersistedEvents` фильтра по прогону не имеет: щупы получают смесь двух
+    // прогонов. Бьёт в сторону ложного зелёного — щуп честности подтверждает утверждение
+    // журнала успешным вызовом bash из ленты, и вызов предыдущего прогона годится ему
+    // так же, как свой. Тот же класс, что протечка snapshot.json (r18).
+    const workspaceRoot = await makeWorkspace();
+    writeFileSync(
+      join(workspaceRoot, '.sdlc', 'demo', '.events.ndjson'),
+      '{"type":"tool_result","ok":true,"summary":"bash прошлого прогона"}\n',
+      'utf8',
+    );
+    const snapshotsDir = tmp('sdlc-bench-snap-dir-');
+    makeSnapshot({
+      workspaceRoot,
+      snapshotsDir,
+      name: 'слот',
+      slug: 'demo',
+      branch: 'sdlc/demo',
+      stoppedAfterStage: 'plan',
+    });
+
+    strictEqual(existsSync(join(snapshotsDir, 'слот', '.sdlc', 'demo', '.events.ndjson')), false);
+
+    const restored = restoreSnapshot({ snapshotsDir, name: 'слот', targetSlug: 'demo' });
+    roots.push(restored.root);
+    strictEqual(existsSync(join(restored.root, '.sdlc', 'demo', '.events.ndjson')), false);
+    // Артефакты витка при этом на месте — чистится ровно лента, а не каталог.
+    ok(existsSync(join(restored.root, '.sdlc', 'demo', 'plan.md')));
+  });
+
+  it('лента чистится и у снимков, снятых до этой правки', async () => {
+    const workspaceRoot = await makeWorkspace();
+    const snapshotsDir = tmp('sdlc-bench-snap-dir-');
+    makeSnapshot({
+      workspaceRoot,
+      snapshotsDir,
+      name: 'старый',
+      slug: 'demo',
+      branch: 'sdlc/demo',
+      stoppedAfterStage: 'plan',
+    });
+    // Имитируем прежний снимок: лента лежит внутри него.
+    writeFileSync(join(snapshotsDir, 'старый', '.sdlc', 'demo', '.events.ndjson'), '{"type":"usage"}\n', 'utf8');
+
+    const restored = restoreSnapshot({ snapshotsDir, name: 'старый', targetSlug: 'новый-слаг' });
+    roots.push(restored.root);
+    strictEqual(existsSync(join(restored.root, '.sdlc', 'новый-слаг', '.events.ndjson')), false);
+    ok(existsSync(join(restored.root, '.sdlc', 'новый-слаг', 'plan.md')));
+  });
+
   it('несуществующий снимок — понятная ошибка, а не ENOENT из fs', () => {
     const snapshotsDir = tmp('sdlc-bench-snaps-empty-');
     throws(() => restoreSnapshot({ snapshotsDir, name: 'нет-такого', targetSlug: 'x' }), SnapshotError);

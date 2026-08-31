@@ -6,6 +6,8 @@ import { ORDER } from '../gates/ecosystems/index.ts';
 import { normalizeModuleDir } from '../gates/builtin/logic.ts';
 import type { McpSetup } from './mcp.ts';
 import { resolveMcp } from './mcp.ts';
+import type { StageId } from '@sdlc-runner/shared';
+
 import type { ModelsConfig, ProjectConfig, RunnerConfig } from './schema.ts';
 
 /** Ключи вида `"// заметка"` в JSON — комментарии для человека; рантайм их игнорирует. */
@@ -48,6 +50,10 @@ const LIMIT_DEFAULTS = {
   maxToolResultBytes: 60_000,
   readRangeRequiredAboveBytes: 120_000,
   maxIterationsPerStage: 40,
+  // Этап 6 закрывается рецензентом линейно, и на 40 ходах отчёт остаётся незакрытым у
+  // всей дешёвой полки (r9: «исчерпан лимит»; при 60 тот же ministral-14b закрывает этап
+  // сам). Умолчание переносимое — машинного здесь ничего нет.
+  maxIterationsByStage: { verify: 60 } as Partial<Record<StageId, number>>,
   gateTimeoutMs: 900_000,
   progressClosenessWarn: 0.9,
   chatTimeoutMs: 600_000,
@@ -219,7 +225,20 @@ export function loadConfig(dir: string = configDir()): LoadedConfig {
     ...raw,
     ...local,
     ...envOverrides(),
-    limits: { ...LIMIT_DEFAULTS, ...raw.limits, ...(local.limits ?? {}) },
+    limits: {
+      ...LIMIT_DEFAULTS,
+      ...raw.limits,
+      ...(local.limits ?? {}),
+      // Поэтапные лимиты сливаются ПОКЛЮЧЕВО, а не целиком: при обычном слиянии объект
+      // `{ chunk: 30 }` в runner.local.json стирал бы умолчание `{ verify: 60 }` — этап 6
+      // молча возвращался бы к 40 ходам, на которых дешёвый рецензент отчёт не закрывает,
+      // и выглядело бы это как деградация модели, а не как правка конфига.
+      maxIterationsByStage: {
+        ...LIMIT_DEFAULTS.maxIterationsByStage,
+        ...(raw.limits?.maxIterationsByStage ?? {}),
+        ...(local.limits?.maxIterationsByStage ?? {}),
+      },
+    },
   };
 
   // `runner.json` читается без схемы, и в тестовых конфигах поля может не быть вовсе.

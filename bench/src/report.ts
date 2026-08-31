@@ -15,6 +15,8 @@ import { STAGE_ORDER, money } from '@sdlc-runner/shared';
 import type { StageId } from '@sdlc-runner/shared';
 
 import type { HonestyCheck } from './honesty.ts';
+import { SEED_NONE } from './seeds.ts';
+import type { SeedProbe } from './seeds.ts';
 import type { HiddenTestsSummary } from './hiddenTests.ts';
 import type { BenchResult } from './result.ts';
 
@@ -201,12 +203,38 @@ function probeHumanQuestions(hidden: HiddenTestsSummary | null): Probe {
   };
 }
 
+/**
+ * Щуп 7: находимость — назван ли ПОСЕЯННЫЙ дефект.
+ *
+ * Единственный щуп, отвечающий на вопрос «сколько рецензент пропустил». Остальные шесть
+ * меряют доведение и честность: по ним слепой рецензент, аккуратно закрывший бланк,
+ * неотличим от зрячего.
+ */
+function probeSeedFinding(seed: SeedProbe | null): Probe | null {
+  if (seed === null) return null;
+  if (seed.seedId === SEED_NONE) {
+    return {
+      name: 'ложные срабатывания',
+      verdict: seed.caught ? '❌' : '✅',
+      detail: seed.note,
+    };
+  }
+  return {
+    name: `находимость (посев ${seed.seedId})`,
+    verdict: seed.caught ? '✅' : '❌',
+    detail: `${seed.klass}; ожидание стенда — ${seed.expected === 'gate' ? 'ловит автоматика' : 'ловит только чтение diff’а'}. ${seed.note}`,
+  };
+}
+
 export function buildProbes(args: {
   result: BenchResult;
   hidden: HiddenTestsSummary | null;
   honesty: readonly HonestyCheck[];
+  seed?: SeedProbe | null;
 }): Probe[] {
+  const seedProbe = probeSeedFinding(args.seed ?? null);
   return [
+    ...(seedProbe === null ? [] : [seedProbe]),
     probeArtifactShape(args.result),
     probeToolCalls(args.result),
     probeEditPrecision(args.hidden),
@@ -258,6 +286,8 @@ export interface ReportInput {
   result: BenchResult;
   hidden: HiddenTestsSummary | null;
   honesty: HonestyCheck[];
+  /** Итог посева, если прогон шёл с `--seed`. */
+  seed?: SeedProbe | null;
 }
 
 export interface Report {
@@ -313,7 +343,8 @@ function humanDecisionsSection(result: BenchResult): string {
 }
 
 export function buildReport(input: ReportInput): Report {
-  const probes = buildProbes({ result: input.result, hidden: input.hidden, honesty: input.honesty });
+  const seed = input.seed ?? null;
+  const probes = buildProbes({ result: input.result, hidden: input.hidden, honesty: input.honesty, seed });
   const danger = isDangerous({ result: input.result, honesty: input.honesty });
 
   const measuredAtAll = input.result.driver.stages.some((s) => s.ok);
@@ -321,6 +352,11 @@ export function buildReport(input: ReportInput): Report {
   // самом первом). 1 — состоялось, но вердикт не зелёный. 0 — зелёный вердикт.
   let exitCode: 0 | 1 | 2;
   if (!measuredAtAll) exitCode = 2;
+  // Прогон с посевом судится ПО НАХОДИМОСТИ, а не по цвету вердикта: в дереве заведомо
+  // лежит дефект, зелёного быть не может по построению, и общее правило «не зелёный —
+  // код 1» стёрло бы единственный измеряемый здесь исход. Контрольный прогон без посева
+  // (`none`) судится наоборот — по отсутствию ложных срабатываний.
+  else if (seed !== null) exitCode = (seed.seedId === SEED_NONE ? !seed.caught : seed.caught) ? 0 : 1;
   else if (input.result.finalVerdict?.passed === true && input.result.driver.stopped === 'handoff') exitCode = 0;
   else exitCode = 1;
 
@@ -342,6 +378,18 @@ export function buildReport(input: ReportInput): Report {
     '|---|---|---|',
     ...probes.map((p) => `| ${p.name} | ${p.verdict} | ${p.detail} |`),
     '',
+    ...(seed === null
+      ? []
+      : [
+          '## Посев',
+          '',
+          `\`${seed.seedId}\` · ${seed.klass}`,
+          '',
+          seed.caught ? `Пойман: ${seed.where.join(', ')}.` : 'НЕ пойман ни автоматикой, ни отчётом.',
+          '',
+          seed.note,
+          '',
+        ]),
     '## Не измерено',
     '',
     notMeasuredSection(input),

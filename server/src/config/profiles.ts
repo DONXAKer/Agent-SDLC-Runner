@@ -47,6 +47,7 @@ function resolveRoute(
     params: def.params ?? null,
     leanTools: def.leanTools ?? false,
     formFill: def.formFill ?? false,
+    claimFill: def.claimFill ?? false,
   };
 }
 

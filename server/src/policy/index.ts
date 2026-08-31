@@ -41,6 +41,8 @@ const KIND_TO_TOOL: Record<CallKind, ToolName | null> = {
   finalize_artifact: 'FinalizeArtifact',
   subagent: 'Task',
   request_scope_extension: 'RequestScopeExtension',
+  record_claim: 'RecordClaim',
+  record_finding: 'RecordFinding',
   mcp: null,
   unknown: null,
 };

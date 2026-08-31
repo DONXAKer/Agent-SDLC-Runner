@@ -214,6 +214,7 @@ function hooks(over: Partial<ExecHooks> = {}): ExecHooks & { warns: string[]; ca
     },
     onToolResult: () => {},
     onAskHuman: () => Promise.resolve({}),
+    onRecord: () => 'записано',
     onUsage: () => {},
     onWarn: (m) => warns.push(m),
     onFriction: () => {},
@@ -306,6 +307,36 @@ describe('цикл tool-use', () => {
     strictEqual(r.ok, false);
     ok(/прогресса нет/.test(r.note), r.note);
     ok(h.warns.length > 0, 'остановка обязана быть названа, а не тихо случиться');
+  });
+
+  it('повтор при РАСТУЩЕМ результате этап не обрывает', async () => {
+    // Дважды измеренный обрыв (`Read`×3, `Edit`×3) случался ПОСЛЕ прогона гейтов и
+    // посреди заполнения отчёта: работа шла, повторялся один вызов, и этап терялся
+    // целиком вместе с уже оплаченными гейтами. «Прогресса нет» обязано означать
+    // «ничего не прибавилось», а не «вызов тот же».
+    const h = hooks();
+    let done = 0;
+    const p = provider([
+      { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+      { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+      { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    const r = await executor(p).run(request({ progressSignal: () => ++done }), h);
+    strictEqual(r.ok, true);
+    ok(
+      h.warns.some((w) => /новых результат/.test(w)),
+      h.warns.join(' | '),
+    );
+  });
+
+  it('повтор при ЗАСТЫВШЕМ результате обрывает по-прежнему', async () => {
+    const h = hooks();
+    const r = await executor(
+      provider([{ toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' }]),
+    ).run(request({ progressSignal: () => 7 }), h);
+    strictEqual(r.ok, false);
+    ok(/прогресса нет/.test(r.note), r.note);
   });
 
   it('сломанный JSON в аргументах объясняется модели, а не роняет этап', async () => {

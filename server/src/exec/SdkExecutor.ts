@@ -72,10 +72,36 @@ function sdlcMcpServer(hooks: ExecHooks) {
     },
   );
 
+  const recordClaim = tool(
+    'record_claim',
+    TOOL_SPECS.RecordClaim.description,
+    {
+      id: z.string(),
+      status: z.string(),
+      evidence: z.string(),
+      what_to_fix: z.string().optional(),
+    },
+    async (args) => {
+      // Политику вызов уже прошёл через `canUseTool` — см. комментарий в `ask_human`.
+      const call = normalize('record_claim', args as unknown as Record<string, unknown>);
+      return { content: [{ type: 'text' as const, text: hooks.onRecord(call) }] };
+    },
+  );
+
+  const recordFinding = tool(
+    'record_finding',
+    TOOL_SPECS.RecordFinding.description,
+    { section: z.string(), text: z.string(), evidence: z.string().optional() },
+    async (args) => {
+      const call = normalize('record_finding', args as unknown as Record<string, unknown>);
+      return { content: [{ type: 'text' as const, text: hooks.onRecord(call) }] };
+    },
+  );
+
   return createSdkMcpServer({
     name: 'sdlc',
     version: '0.1.0',
-    tools: [askHuman, finalize, requestScopeExtension],
+    tools: [askHuman, finalize, requestScopeExtension, recordClaim, recordFinding],
   });
 }
 

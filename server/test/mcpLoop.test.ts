@@ -90,6 +90,7 @@ function hooks(over: Partial<ExecHooks> = {}): ExecHooks & { friction: string[];
     },
     onToolResult: () => {},
     onAskHuman: () => Promise.resolve({}),
+    onRecord: () => 'записано',
     onUsage: () => {},
     onWarn: () => {},
     onFriction: (k) => friction.push(k),

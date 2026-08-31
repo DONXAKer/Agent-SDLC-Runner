@@ -31,6 +31,8 @@ import type { BenchOptions } from './options.ts';
 import { ControlError, buildProfile, readControl } from './profile.ts';
 import { WorkspaceError, prepareWorkspace } from './workspace.ts';
 import { makeSnapshot, restoreSnapshot, verifyRestoredBranch } from './snapshot.ts';
+import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
+import type { SeedProbe } from './seeds.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
 import { formatProbe, probeModel } from './probe.ts';
 import { runHiddenTests } from './hiddenTests.ts';
@@ -84,7 +86,15 @@ function benchConfig(base: LoadedConfig, opts: BenchOptions): LoadedConfig {
       // Имя оператора уходит в поля решений артефактов. «Бенчмарк» там стоит намеренно:
       // виток, подписанный автоответчиком, не должен читаться как виток, принятый человеком.
       operator: 'Бенчмарк',
-      limits: { ...base.runner.limits, maxIterationsPerStage: opts.maxIterationsPerStage },
+      limits: {
+        ...base.runner.limits,
+        maxIterationsPerStage: opts.maxIterationsPerStage,
+        // Поэтапные потолки конфига здесь СНИМАЮТСЯ: `--max-turns` обязан действовать на
+        // все этапы, включая verify. Иначе флаг молча не действовал бы ровно там, где
+        // ходы и решают (r9: 40 против 60; r28: 100), — а замер «одна ручка за прогон»
+        // держится на том, что названная ручка и есть единственная изменённая.
+        maxIterationsByStage: {},
+      },
     },
   };
 }
@@ -204,6 +214,22 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     startStage = nextStage;
     console.log(`снимок:        ${opts.fromSnapshot} (после ${restored.stoppedAfterStage}, старт с ${nextStage})`);
     console.log(`рабочая копия: ${wsRoot}`);
+    // Посев вносится ПОСЛЕ восстановления и ДО первого этапа прогона: патч попытки
+    // рантайм перегенерирует из дерева сам, и посеянное приходит рецензенту тем же
+    // путём, что работа исполнителя. Ошибка внесения роняет прогон — замер без
+    // внесённого дефекта выглядел бы как «рецензент ничего не нашёл».
+    if (opts.seed !== null && opts.seed !== SEED_NONE) {
+      const seed = seedById(opts.seed);
+      try {
+        applySeed(wsRoot, seed);
+      } catch (e) {
+        wsDispose();
+        throw e;
+      }
+      console.log(`посев:         ${seed.id} (${seed.klass}) в ${seed.file}`);
+    } else if (opts.seed === SEED_NONE) {
+      console.log('посев:         none — контрольный прогон, меряются ложные срабатывания');
+    }
   } else {
     const ws = await prepareWorkspace({ fixtureDir: FIXTURE_DIR, slug: opts.slug, branch });
     wsRoot = ws.root;
@@ -330,6 +356,21 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       return { code: 0, hidden: null, durationMs: finishedAt.getTime() - startedAt.getTime() };
     }
 
+    // Щуп посева считается по уже готовым фактам прогона: красный гейт фактического
+    // прогона рантайма и упоминание МЕСТА дефекта в отчёте приёмки (включая причины
+    // вердикта, куда попадают находки ревью). Второго суждения здесь не появляется.
+    let seedProbe: SeedProbe | null = null;
+    if (opts.seed !== null) {
+      const reportPath = run.ctx.paths.verificationReport(run.ctx.chunk, run.ctx.attempt);
+      const reportText = existsSync(reportPath) ? readFileSync(reportPath, 'utf8') : '';
+      const verdictReasons = driverResult.finalVerdict?.reasons ?? null;
+      seedProbe =
+        opts.seed === SEED_NONE
+          ? probeNoSeed({ verdictReasons, gateResults: run.gateResults })
+          : probeSeed({ seed: seedById(opts.seed), reportText, verdictReasons, gateResults: run.gateResults });
+      console.log(`посев:     ${seedProbe.note}`);
+    }
+
     const result = buildResult({
       opts,
       built,
@@ -339,6 +380,7 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       metrics: run.metrics,
       operator: operatorLog,
       observed: collector.state,
+      ...(seedProbe === null ? {} : { seed: seedProbe }),
     });
 
     const resultPath = join(RESULTS_DIR, `${opts.slug}.json`);
@@ -369,7 +411,9 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       operatorLog: operatorLog,
     });
 
-    const report = buildReport({ result, hidden, honesty });
+    // Щуп посева считается по уже готовым фактам прогона: красный гейт рантайма и
+    // упоминание МЕСТА дефекта в отчёте приёмки. Второго суждения здесь нет.
+    const report = buildReport({ result, hidden, honesty, ...(seedProbe === null ? {} : { seed: seedProbe }) });
     const reportPath = join(RESULTS_DIR, `${opts.slug}.report.md`);
     writeFileSync(reportPath, `${report.markdown}\n`, 'utf8');
     console.log(`отчёт:     ${reportPath}${report.dangerous ? '  ⚠️ ОПАСНА' : ''}`);

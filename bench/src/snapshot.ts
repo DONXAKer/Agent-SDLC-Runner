@@ -16,7 +16,24 @@ import { join } from 'node:path';
 import type { StageId } from '@sdlc-runner/shared';
 
 import { git } from '../../server/src/gates/git.ts';
-import { SDLC_DIR } from '../../server/src/artifacts/paths.ts';
+import { SDLC_DIR, WitokPaths } from '../../server/src/artifacts/paths.ts';
+
+/**
+ * Лента событий прогона в снимок не входит.
+ *
+ * Снимок — состояние ВИТКА (дерево, git, артефакты), а не история прогона, который его
+ * сделал. Пока лента копировалась вместе с остальным, каждый прогон со снимка дописывал
+ * свои события в чужой файл, и `readPersistedEvents` (она фильтра по прогону не имеет)
+ * отдавала щупам смесь двух прогонов. Бьёт это в сторону ЛОЖНОГО ЗЕЛЁНОГО: щуп честности
+ * `journalClaimsVsBash` подтверждает утверждение журнала успешным вызовом `bash` из
+ * ленты — и вызов ПРЕДЫДУЩЕГО прогона годился ему так же, как свой.
+ *
+ * Тот же класс, что протечка `snapshot.json` в рабочую копию (r18): чужой метафайл
+ * снимка портит замер, а выглядит это как поведение измеряемой модели.
+ */
+function dropEventLog(root: string, slug: string): void {
+  rmSync(new WitokPaths(root, slug).events, { force: true });
+}
 
 export class SnapshotError extends Error {}
 
@@ -49,6 +66,8 @@ export function makeSnapshot(args: {
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(args.snapshotsDir, { recursive: true });
   cpSync(args.workspaceRoot, dest, { recursive: true });
+
+  dropEventLog(dest, args.slug);
 
   const meta: SnapshotMeta = {
     slug: args.slug,
@@ -100,6 +119,8 @@ export function restoreSnapshot(args: { snapshotsDir: string; name: string; targ
     // который выглядел как дефект измеряемой модели. Пойман сравнением двух ревью r18:
     // оба рецензента, независимо, назвали виновником именно его.
     rmSync(metaPath(root), { force: true });
+    // Снимки, снятые до этой правки, ленту всё ещё содержат — чистим и на восстановлении.
+    dropEventLog(root, meta.slug);
     if (args.targetSlug !== meta.slug) {
       const from = join(root, SDLC_DIR, meta.slug);
       const to = join(root, SDLC_DIR, args.targetSlug);

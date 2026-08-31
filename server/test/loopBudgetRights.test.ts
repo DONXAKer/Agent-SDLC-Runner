@@ -83,6 +83,7 @@ function hooks(seen: Seen, allow = true): ExecHooks {
     },
     onToolResult: () => {},
     onAskHuman: async () => ({}),
+    onRecord: () => 'записано',
     onUsage: () => {},
     onWarn: (m: string) => seen.warns.push(m),
     onFriction: () => {},

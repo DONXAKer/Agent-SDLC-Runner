@@ -103,6 +103,7 @@ function greenResult() {
       makeSnapshot: null,
       fromSnapshot: null,
       repeat: 1,
+      seed: null,
     },
     built: built(['intent', 'explore', 'ask', 'plan', 'chunk', 'handoff']),
     startedAt: new Date('2026-08-29T10:00:00.000Z'),
@@ -244,6 +245,49 @@ describe('buildReport: коды возврата', () => {
     r.finalVerdict = null;
     const report = buildReport({ result: r, hidden: null, honesty: [] });
     strictEqual(report.exitCode, 2);
+  });
+
+  it('прогон с посевом судится по находимости, а не по цвету вердикта', () => {
+    // В дереве заведомо лежит дефект: зелёного вердикта быть не может по построению, и
+    // общее правило «не зелёный — код 1» стёрло бы единственный измеряемый здесь исход.
+    const r = greenResult();
+    r.finalVerdict = { passed: false, action: 'retry', reasons: ['пункт приёмки claim-2 опровергнут (❌)'] };
+    r.driver.finalVerdict = r.finalVerdict;
+    const caught = buildReport({
+      result: r,
+      hidden: HIDDEN_ALL_GREEN,
+      honesty: HONESTY_ALL_GREEN,
+      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: true, where: ['report'], note: 'назван' },
+    });
+    strictEqual(caught.exitCode, 0);
+    ok(caught.markdown.includes('## Посев'));
+
+    const missed = buildReport({
+      result: r,
+      hidden: HIDDEN_ALL_GREEN,
+      honesty: HONESTY_ALL_GREEN,
+      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: false, where: [], note: 'не назван' },
+    });
+    strictEqual(missed.exitCode, 1);
+  });
+
+  it('контрольный прогон без посева судится наоборот — по отсутствию срабатываний', () => {
+    const r = greenResult();
+    const clean = buildReport({
+      result: r,
+      hidden: HIDDEN_ALL_GREEN,
+      honesty: HONESTY_ALL_GREEN,
+      seed: { seedId: 'none', klass: 'без посева', expected: null, caught: false, where: [], note: 'чисто' },
+    });
+    strictEqual(clean.exitCode, 0);
+
+    const falsePositive = buildReport({
+      result: r,
+      hidden: HIDDEN_ALL_GREEN,
+      honesty: HONESTY_ALL_GREEN,
+      seed: { seedId: 'none', klass: 'без посева', expected: null, caught: true, where: ['report'], note: 'выдумал регрессию' },
+    });
+    strictEqual(falsePositive.exitCode, 1);
   });
 
   it('markdown содержит обязательные разделы', () => {

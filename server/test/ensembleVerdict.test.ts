@@ -105,6 +105,7 @@ function route(stage: StageId, modelId: string, rank: number): ResolvedRoute {
     params: null,
     leanTools: false,
     formFill: false,
+    claimFill: false,
   };
 }
 

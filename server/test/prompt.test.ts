@@ -154,6 +154,47 @@ describe('сборка промпта из эталона', { skip: нетЭта
       'независимый рецензент этапа 6 должен быть объявлен в промпте',
     );
   });
+
+  // Тело этапа приходит из SKILL.md эталона, писанного для сессии с оболочкой: там модели
+  // велено самой перегенерировать diff, прогнать гейты и исполнить flow-verdict.py. Здесь
+  // всё это делает рантайм, а Bash на этапе нет — без вычитающего блока дешёвая модель
+  // сжигает ходы на фазы, для которых у неё нет прав (замеренный класс отказа).
+  it('этап 6: adapter вычитает шаги, уже сделанные рантаймом', () => {
+    writeArtifact(paths.intent, '# Задача\n');
+    writeArtifact(paths.plan, '# План\n');
+    writeArtifact(paths.gates, '# Набор гейтов\n');
+    writeArtifact(paths.chunkDiff(2, 3), 'diff --git a/x b/x\n');
+
+    const p = buildPrompt({
+      runner: cfg.runner,
+      stage: stageById('verify'),
+      ctx,
+      flow: 'loop',
+      slug: 'demo',
+      now,
+    });
+
+    ok(p.system.includes('УЖЕ ВЫПОЛНЕНА рантаймом'), 'вычитающий блок обязан быть в adapter');
+    ok(p.system.includes('flow-verdict.py'), 'скрипт вердикта назван как не требующий запуска');
+    ok(p.system.includes('§1–§5'), 'работа модели названа явно');
+  });
+
+  it('вычитающий блок этапа 6 не протекает на другие этапы', () => {
+    writeArtifact(paths.intent, '# Задача\n');
+    writeArtifact(paths.plan, '# План\n');
+    writeArtifact(paths.chunkJournal(2), '# Журнал\n');
+
+    const p = buildPrompt({
+      runner: cfg.runner,
+      stage: stageById('chunk'),
+      ctx,
+      flow: 'loop',
+      slug: 'demo',
+      now,
+    });
+
+    ok(!p.system.includes('УЖЕ ВЫПОЛНЕНА рантаймом'));
+  });
 });
 
 

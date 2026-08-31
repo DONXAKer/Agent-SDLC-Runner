@@ -64,6 +64,7 @@ import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/sc
 import { FormFillExecutor } from '../exec/FormFillExecutor.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { normalize } from '../exec/normalize.ts';
+import { isToolName } from '../exec/toolSpecs.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
 import { createProvider } from '../provider/registry.ts';
 import type {
@@ -83,6 +84,11 @@ import { runGateByName, runGates } from '../gates/run.ts';
 import { git, hasCommits, stageNewPlanFiles, workingDiff } from '../gates/git.ts';
 import { autofillChunkJournal } from './journalAutofill.ts';
 import { autofillVerificationReport } from './verifyAutofill.ts';
+import { anchorFound, renderRecords } from './verifyReport.ts';
+import { claimIdOf } from '../artifacts/claims.ts';
+import { fillClaims } from './claimFill.ts';
+import type { ClaimAsk } from './claimFill.ts';
+import type { ClaimRecord, FindingRecord } from './verifyReport.ts';
 import type { BuiltinGate, GateContext } from '../gates/builtin/index.ts';
 import { recordAttemptEvidence } from './evidence.ts';
 import type { TreeChange } from './evidence.ts';
@@ -97,10 +103,12 @@ import { appendIteration, parseIterations } from './iterationsLog.ts';
 import { postmortemBlock } from './postmortem.ts';
 import { suggestEscalation } from './escalation.ts';
 import type { Escalation } from './escalation.ts';
+import { readReport } from '../verdict/collect.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
   checkPreconditions,
+  relOf,
   stageById,
   type PreconditionReport,
   type StageContext,
@@ -154,8 +162,16 @@ const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
  * Где действует режим заполнения по полям (`ModelDef.formFill`). Только этапы, чей
  * результат целиком выводится из входов промпта: у explore источник — разведка
  * субагентами, у chunk/verify — работа с деревом, им режим не подходит по построению.
+ *
+ * Этапа 3 здесь НЕТ, и это не пропуск. У `FormFillExecutor` нет `AskHuman` по построению
+ * (вопрос человеку требует цикла) — а этап 3 состоит ровно из вопроса человеку. Живой
+ * виток на `ministral-8b` показал, во что это обходится: в `clarification-report.md`
+ * записан вопрос «как обрабатывать сумму измерений ровно 300 см?» и тут же собственный
+ * ответ «(пропущено)», ни одного вызова `AskHuman`, весь этап — один `Write` за 7 секунд.
+ * Ставку, которую задача прямо называет незаписанной, никто не спросил, и все три
+ * human-кейса скрытых тестов покраснели — щуп мерил нашу конструкцию, а не модель.
  */
-const FORM_FILL_STAGES: ReadonlySet<StageId> = new Set(['intent', 'ask', 'plan']);
+const FORM_FILL_STAGES: ReadonlySet<StageId> = new Set(['intent', 'plan']);
 
 /**
  * Итоги прогона гейтов для входа рецензента.
@@ -187,6 +203,28 @@ function gateReportBlock(results: readonly GateRunResult[]): string {
     '| Гейт | Статус | Результат |',
     '|---|---|---|',
     ...rows,
+  ].join('\n');
+}
+
+/**
+ * Отчёт независимого рецензента, прогнанного рантаймом, — блоком во вход этапа.
+ *
+ * Текст рецензента подаётся как ФАКТ прогона, а не как мнение, которое можно
+ * переписать: ровно так же, как итоги гейтов. Отдельно сказано, что звать `Task` второй
+ * раз не нужно — иначе дешёвая модель тратит ходы на повторное ревью, которое уже
+ * состоялось (а анти-цикл на `Task` ×3 её же и обрывает).
+ */
+export function reviewerBlock(text: string): string {
+  return [
+    '## Отчёт независимого рецензента (прогон рантайма, этот этап)',
+    '',
+    'Ревью уже проведено: рецензент запущен рантаймом на отдельном маршруте, твоего рассказа',
+    'о работе он не получал. Повторно звать субагента `Task` не надо — перенеси находки в',
+    '§2–§5 отчёта приёмки и учти их в статусах пунктов. Своим мнением находки не отменяй:',
+    'расхождение, названное рецензентом, роняет вердикт, даже если пункта приёмки на это',
+    'поведение нет.',
+    '',
+    text,
   ].join('\n');
 }
 
@@ -784,7 +822,32 @@ export class Run {
       readOnlyRoots: this.readOnlyRoots,
       allowedTools: this.toolsFor(stage),
       mcpTools: rulesForStage(this.mcpSetup, stage),
+      readDenied: this.readDeniedFor(stage),
     };
+  }
+
+  /**
+   * Что закрыто на чтение на этом этапе.
+   *
+   * Сегодня одно: на этапе 6 — отчёты приёмки ПРЕДЫДУЩИХ попыток этого chunk'а.
+   * Методология требует, чтобы рецензент повторной попытки не получал находок прошлой:
+   * связь между попытками несут `retry_instruction` и `carry_forward`, которые подаёт
+   * машина витка. Живой прогон r23 показал цену доступности: слабая модель списала из
+   * соседнего отчёта красный статус гейта, объективно зелёного, и вердикт покраснел по
+   * факту, которого в дереве не было.
+   *
+   * Маршруты ансамбля ТЕКУЩЕЙ попытки не закрываются: они мнения об одном и том же
+   * состоянии дерева, а не о прошлой работе, и вердикт сводит их сам по худшему статусу.
+   */
+  private readDeniedFor(stage: StageId): string[] {
+    if (stage !== 'verify') return [];
+    const out: string[] = [];
+    for (let attempt = 1; attempt < this.attempt; attempt++) {
+      for (const route of this.profile.ensemble.verify.keys()) {
+        out.push(relOf(this.ctx, this.paths.verificationReport(this.chunk, attempt, route)));
+      }
+    }
+    return out;
   }
 
   /**
@@ -871,6 +934,183 @@ export class Run {
    * Результат ревью сюда не передаётся намеренно: на момент автозаполнения рецензент ещё
    * не запускался, и его строка в таблице остаётся модели.
    */
+  /**
+   * Потолок ходов ЭТАПА: поэтапное значение, иначе общее.
+   *
+   * Один хелпер на оба места вызова (основной исполнитель и дополнительные маршруты
+   * ансамбля) — посчитай их по-разному, и рецензент ансамбля пошёл бы с другим лимитом,
+   * чем первый, а сравнивать их отчёты стало бы нечестно.
+   */
+  private maxTurnsFor(stage: StageId): number {
+    const limits = this.config.runner.limits;
+    return limits.maxIterationsByStage?.[stage] ?? limits.maxIterationsPerStage;
+  }
+
+  /** Пункты приёмки, записанные моделью на ТЕКУЩЕЙ попытке (`RecordClaim`), по id. */
+  private claimRecords = new Map<string, ClaimRecord>();
+  /** Находки ревью текущей попытки (`RecordFinding`). */
+  private findingRecords: FindingRecord[] = [];
+
+  /**
+   * Текст, в котором ищется ссылка записи: патч попытки плюс отчёт этапа 5.
+   *
+   * Считается один раз на этап и лениво: `anchorFound` зовётся на каждую запись, а патч
+   * читается с диска — перечитывать его на каждый вызов значило бы платить диском за
+   * каждую строку отчёта.
+   */
+  private anchorHaystack: string | null = null;
+
+  private evidenceHaystack(): string {
+    if (this.anchorHaystack !== null) return this.anchorHaystack;
+    const parts: string[] = [];
+    for (const p of [
+      this.paths.chunkDiff(this.chunk, this.attempt),
+      this.paths.chunkTests(this.chunk, this.attempt),
+      this.paths.plan,
+    ]) {
+      const a = readArtifact(p);
+      if (a.exists) parts.push(a.text);
+    }
+    this.anchorHaystack = parts.join('\n');
+    return this.anchorHaystack;
+  }
+
+  /**
+   * Принимает запись модели в отчёт приёмки и отвечает ей подтверждением.
+   *
+   * Ссылка проверяется здесь, а не при рендере: модель обязана узнать об оговорке в тот
+   * ход, когда ещё может её исправить. Запись при этом принимается в любом случае —
+   * требование ссылки задумано против оформителя, закрывающего бланк вслепую, а не против
+   * рецензента, который что-то увидел и не смог показать пальцем.
+   */
+  private acceptRecord(call: NormalizedCall): string {
+    if (call.kind === 'record_claim') {
+      const anchored = anchorFound(call.evidence, this.evidenceHaystack());
+      const had = this.claimRecords.has(call.id);
+      this.claimRecords.set(call.id, {
+        id: call.id,
+        status: call.status,
+        evidence: anchored ? call.evidence : `${call.evidence} _(ссылка не найдена в патче попытки)_`,
+        whatToFix: call.whatToFix,
+      });
+      return (
+        `пункт ${call.id} записан со статусом ${call.status}${had ? ' (заменил прежнюю запись)' : ''}. ` +
+        (anchored
+          ? 'Ссылка на место найдена в патче попытки.'
+          : 'Ссылку на место в патче попытки найти не удалось — пункт помечен: доказательство не показано. ' +
+            'Если место есть, назови его точнее (файл:символ, имя теста, хунк) и запиши пункт заново.')
+      );
+    }
+
+    if (call.kind === 'record_finding') {
+      const anchored = anchorFound(call.evidence, this.evidenceHaystack());
+      this.findingRecords.push({
+        section: call.section,
+        text: call.text,
+        evidence: call.evidence,
+        anchored,
+      });
+      return anchored
+        ? `находка записана в секцию ${call.section} отчёта.`
+        : `находка принята, но БЕЗ привязки к месту: она уйдёт в отчёт отдельной строкой и в ` +
+            `вердикт не пойдёт. Назови место (файл:строка, символ, хунк) и запиши заново, если оно есть.`;
+    }
+
+    return 'запись не распознана';
+  }
+
+  /**
+   * Поклаймовый добор: спросить модель по каждому пункту, о котором она промолчала.
+   *
+   * Пункты берутся из приёмочного листа ЗАДАЧИ, а не из отчёта: список пунктов — решение
+   * человека этапа 1, и выводить его из того, что успела написать модель, значит терять
+   * ровно те пункты, до которых она не дошла. Уже записанные не переспрашиваются: добор
+   * дополняет работу модели, а не переделывает её.
+   */
+  private async topUpClaims(route: ResolvedRoute, system: string): Promise<void> {
+    const intent = readArtifact(this.paths.intent);
+    if (!intent.exists) return;
+
+    const asks: ClaimAsk[] = [];
+    for (const line of intent.text.split(/\r?\n/)) {
+      const id = claimIdOf(line);
+      if (id === null || this.claimRecords.has(id.toLowerCase())) continue;
+      asks.push({ id: id.toLowerCase(), text: line.trim() });
+    }
+    if (asks.length === 0) return;
+
+    const limits = this.config.runner.limits;
+    const calls = await fillClaims({
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+      model: route.model,
+      params: route.params,
+      system,
+      claims: asks,
+      diff: readArtifact(this.paths.chunkDiff(this.chunk, this.attempt)).text,
+      tests: readArtifact(this.paths.chunkTests(this.chunk, this.attempt)).text,
+      // Тот же потолок, что у результата инструмента локального контура: срез патча
+      // конкурирует за то же окно, что и всё остальное в вопросе.
+      evidenceBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+      signal: this.aborter?.signal ?? new AbortController().signal,
+    });
+
+    // Ответы проходят тем же приёмом, что и записи модели: проверка ссылки, замена по id,
+    // подтверждение. Второго места, знающего форму записи, не появляется.
+    for (const call of calls) this.acceptRecord(call);
+    if (calls.length > 0) {
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: 'verify',
+        message:
+          `поклаймовый добор: спрошено ${asks.length} пункт(ов), разобрано ответов — ${calls.length}`,
+      });
+    }
+  }
+
+  /**
+   * Вносит записи модели в отчёт приёмки — после хода, до вердикта.
+   *
+   * Запись на диск идёт тем же путём, что у спасения артефакта и заполнения по полям:
+   * нормализованный `Write` через политику и гейт одобрения. Второго места решения о
+   * доступе не появляется.
+   */
+  private async applyRecords(): Promise<void> {
+    if (this.claimRecords.size === 0 && this.findingRecords.length === 0) return;
+    const path = this.paths.verificationReport(this.chunk, this.attempt);
+    const report = readArtifact(path);
+    if (!report.exists) return;
+
+    const { text, filled } = renderRecords(report.text, {
+      claims: [...this.claimRecords.values()],
+      findings: this.findingRecords,
+    });
+    if (filled === 0 || text === report.text) return;
+
+    // Запись — тем же путём, что у спасения артефакта: нормализованный `Write` через
+    // политику и гейт одобрения. Оператор видит карточку и вправе её править; отказ
+    // означает, что отчёт остаётся таким, каким его оставила модель.
+    const call: NormalizedCall = { kind: 'write', path, content: text };
+    const decision = await this.gate.request({
+      runId: this.id,
+      stage: 'verify',
+      requestId: `records-${this.salvageSeq++}`,
+      toolName: 'Write',
+      rawInput: { file_path: path, content: text },
+      call,
+      ctx: this.policyContext('verify'),
+    });
+    if (!decision.allowed) return;
+    const edited = (decision.updatedInput as Record<string, unknown> | null)?.['content'];
+    writeArtifact(path, typeof edited === 'string' ? edited : text);
+    this.emit({
+      type: 'warning',
+      runId: this.id,
+      stage: 'verify',
+      message: `отчёт приёмки дополнен записями рецензента: строк — ${filled}`,
+    });
+  }
+
   private autofillVerification(seeded: { path: string; snapshot?: string }[]): void {
     // Сброс ДО ранних выходов: без него ансамбль попытки K+1 стартовал бы с бланка
     // попытки K — с её номером в шапке и её таблицей гейтов (ревью-2).
@@ -1164,6 +1404,215 @@ export class Run {
   }
 
   /**
+   * Независимое ревью, запущенное РАНТАЙМОМ, а не просьбой в промпте.
+   *
+   * Методология требует ревью другим агентом, не получающим рассказ исполнителя. До сих
+   * пор это держалось на том, что модель этапа догадается позвать `Task` — и на дешёвой
+   * полке это ровно тот шаг, который не случается: замеры дали и залипание анти-цикла на
+   * `Task` ×3 (`qwen3-14b`), и уход хода в оболочку вместо вызова, и просто нехватку ходов
+   * до вызова. Раз гейты рантайм прогоняет сам, ревью — та же природа: обязательный шаг
+   * этапа, а не поручение.
+   *
+   * Вход рецензента — пользовательское сообщение этапа как есть: методология перечисляет
+   * его входы исчерпывающе (задача, план, набор гейтов, diff), и `stageInputs` собирает
+   * ровно их, без журнала исполнителя. Второго места сборки входа не появляется.
+   *
+   * `null` — ревью не состоялось (определения агента нет, прав нет, прогон упал). Этап
+   * при этом не падает: у модели остаётся `Task`, а гейт «Ревью независимым агентом»
+   * честно останется `⏭`, если не отработал никто.
+   */
+  private async runReviewerDirectly(
+    prompt: PreparedPrompt,
+    agents: readonly SubagentDef[],
+    hooks: ExecHooks,
+  ): Promise<string | null> {
+    const def = agents.find((a) => REVIEWER_AGENTS.includes(a.name));
+    const aborter = this.aborter;
+    if (def === undefined || aborter === null) return null;
+
+    // Права — то же пересечение, что и у субагента, вызванного моделью: ни расширить
+    // права этапа прогоном рантайма, ни выдать рецензенту больше объявленного нельзя.
+    // Пустое пересечение — не ревью, а прогон вслепую (тот же отказ, что в LoopExecutor).
+    const stageTools = this.toolsFor('verify');
+    const declared = def.tools === null ? null : def.tools.filter((t): t is ToolName => isToolName(t));
+    const allowed = declared === null ? stageTools : stageTools.filter((t) => declared.includes(t));
+    if (allowed.length === 0) {
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: 'verify',
+        message:
+          `рецензент «${def.name}» не получил ни одного инструмента: пересечение прав этапа и ` +
+          `объявленных им пусто — ревью рантаймом не запускается`,
+      });
+      return null;
+    }
+
+    const route = this.profile.routes.verify;
+    try {
+      const result = await this.executorFor('verify', route).run(
+        {
+          prompt: {
+            presetNote: null,
+            // Тело определения агента — его системный промпт. Рассказа исполнителя здесь
+            // нет и быть не может: `stageInputs('verify')` журнала chunk'а не содержит.
+            system: def.prompt,
+            user: prompt.user,
+            tools: [],
+            editedByOperator: false,
+          },
+          cwd: this.project.projectRoot,
+          model: route.model,
+          allowedTools: allowed,
+          readOnlyDirs: this.readOnlyRoots,
+          // Одноуровневость: рецензент не разворачивает своих субагентов.
+          subagents: [],
+          mcp: await this.mcpAccess('verify'),
+          // Артефакт этапа пишет модель этапа, а не рецензент: он возвращает текст.
+          finishGuard: null,
+          salvageFromText: null,
+          maxTurns: this.maxTurnsFor('verify'),
+          maxBudgetUsd: this.project.maxBudgetUsd,
+          spentUsdBefore: this.totalUsage.costUsd ?? 0,
+          signal: aborter.signal,
+        },
+        hooks,
+      );
+
+      const text = result.finalText.trim();
+      if (!result.ok || text === '') {
+        // Причина обязана быть НАЗВАНА, а не сведена к «пусто»: живой прогон дал
+        // `ok=true`, 1174 выходных токена и пустой текст — то есть рецензент потратил ход
+        // на вызовы инструментов (часть — по протухшим абсолютным путям из артефактов
+        // снимка) и не сказал ни слова. По сообщению «вернул пустой ответ» это неотличимо
+        // от модели, которая просто промолчала, а чинится это разными способами.
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage: 'verify',
+          message:
+            `ревью рантаймом не состоялось: ${result.ok ? 'рецензент не вернул текста' : result.note}. ` +
+            `Исход прогона: ${result.note}; израсходовано токенов на выходе: ${result.usage.outputTokens}. ` +
+            `Гейт «${REVIEW_GATE}» зелёным от этого не станет`,
+        });
+        return null;
+      }
+
+      // Планка содержательности: ответ обязан ссылаться на МЕСТО из патча попытки.
+      // Замер r9 дал класс «оформитель» — `gpt-oss-20b` закрыла бланк за ₽0.48, пометив
+      // все гейты «⏭ не запускался» и не найдя ничего: прогон состоялся, ревью — нет.
+      // Отличить одно от другого можно ровно так: рецензент, читавший diff, называет
+      // файлы и символы из него. Планка низкая намеренно — достаточно одного совпадения.
+      if (!anchorFound(text, this.evidenceHaystack())) {
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage: 'verify',
+          message:
+            `рецензент отработал, но в его ответе нет ни одной ссылки на место из патча ` +
+            `попытки — прогон состоялся, ревью не состоялось. Гейт «${REVIEW_GATE}» остаётся ⏭, ` +
+            `текст всё равно уходит во вход этапа`,
+        });
+        return text;
+      }
+
+      // Факт ревью ставится ТОЛЬКО по непустому ответу состоявшегося прогона — тем же
+      // правилом, что и при вызове субагента моделью: «ход завершён» ревью не является.
+      this.markReviewerRan();
+      return text;
+    } catch (e) {
+      // Падение рецензента не роняет этап: у модели остаётся собственный `Task`, а
+      // несостоявшееся ревью честно видно по `⏭` гейта минимума.
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: 'verify',
+        message: `ревью рантаймом упало: ${(e as Error).message}. Гейт «${REVIEW_GATE}» останется ⏭`,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Пункты, в которых основной маршрут не уверен: `⚠` — «доказательство держится на
+   * непройденной проверке». Именно они и стоят второго мнения; зелёные и красные пункты
+   * второй раз не оплачиваются.
+   */
+  private uncertainClaims(report: string): ClaimAsk[] {
+    const intent = readArtifact(this.paths.intent);
+    if (!intent.exists) return [];
+    const unsure = new Set(
+      readReport(report)
+        .claims.filter((c) => c.status === '⚠')
+        .map((c) => c.id),
+    );
+    if (unsure.size === 0) return [];
+
+    const out: ClaimAsk[] = [];
+    for (const line of intent.text.split(/\r?\n/)) {
+      const id = claimIdOf(line);
+      if (id === null || !unsure.has(id.toLowerCase())) continue;
+      out.push({ id: id.toLowerCase(), text: line.trim() });
+    }
+    return out;
+  }
+
+  /**
+   * Узкий маршрут ансамбля: вопросы по названным пунктам вместо полного ревью.
+   *
+   * Отчёт маршрута собирается из бланка рантайма теми же `renderRecords`, что и отчёт
+   * основного маршрута: вторая форма отчёта в кодовой базе означала бы вторую форму
+   * разбора и, рано или поздно, расхождение вердикта с самим собой.
+   */
+  private async narrowRoute(
+    route: ResolvedRoute,
+    prompt: PreparedPrompt,
+    canonical: string,
+    claims: readonly ClaimAsk[],
+  ): Promise<void> {
+    const limits = this.config.runner.limits;
+    const calls = await fillClaims({
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+      model: route.model,
+      params: route.params,
+      system: prompt.system,
+      claims,
+      diff: readArtifact(this.paths.chunkDiff(this.chunk, this.attempt)).text,
+      tests: readArtifact(this.paths.chunkTests(this.chunk, this.attempt)).text,
+      evidenceBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+      signal: this.aborter?.signal ?? new AbortController().signal,
+    });
+
+    const records: ClaimRecord[] = [];
+    const haystack = this.evidenceHaystack();
+    for (const call of calls) {
+      if (call.kind !== 'record_claim') continue;
+      const anchored = anchorFound(call.evidence, haystack);
+      records.push({
+        id: call.id,
+        status: call.status,
+        evidence: anchored ? call.evidence : `${call.evidence} _(ссылка не найдена в патче попытки)_`,
+        whatToFix: call.whatToFix,
+      });
+    }
+
+    const { text } = renderRecords(this.verifyPrefill ?? readArtifact(canonical).text, {
+      claims: records,
+      findings: [],
+    });
+    writeArtifact(canonical, text);
+    this.emit({
+      type: 'warning',
+      runId: this.id,
+      stage: 'verify',
+      message:
+        `ансамбль, узкий маршрут ${route.modelId}: спрошено ${claims.length} неуверенных ` +
+        `пункт(ов), разобрано ответов — ${records.length}. Статусы сводятся по худшему, ` +
+        `как у любого маршрута`,
+    });
+  }
+
+  /**
    * Дополнительные маршруты ансамбля рецензентов. Только этап 6 и только он.
    *
    * Ансамбль на пишущем этапе — это второй исполнитель, который правит те же файлы поверх
@@ -1204,6 +1653,23 @@ export class Run {
       // прежнее поведение, пустой файл.
       writeArtifact(canonical, this.verifyPrefill ?? '');
       try {
+        // Узкий маршрут: спросить сильную модель ТОЛЬКО о пунктах, в которых слабая не
+        // уверена (`⚠`), вместо полного второго ревью. Дешевле в разы — замер r18 назвал
+        // цену независимости цифрой: контроль в 11 раз дороже и в 7 раз медленнее при
+        // одинаковом вердикте.
+        //
+        // Статусы при этом НЕ переписываются: ответ уходит в отчёт СВОЕГО маршрута, и
+        // вердикт сводит маршруты как всегда — по худшему статусу. Заменять `⚠` слабой
+        // модели зелёным сильной значило бы двигать вердикт к зелёному по слову модели, а
+        // это ровно то, против чего написано правило «худший из двух».
+        if (other.claimFill && other.flow === 'loop') {
+          const uncertain = this.uncertainClaims(primary);
+          if (uncertain.length > 0) {
+            await this.narrowRoute(other, prompt, canonical, uncertain);
+            continue;
+          }
+        }
+
         await this.executorFor('verify', other).run(
           {
             prompt,
@@ -1219,7 +1685,7 @@ export class Run {
         salvageFromText: null,
             readOnlyDirs: this.readOnlyRoots,
             subagents: agents,
-            maxTurns: this.config.runner.limits.maxIterationsPerStage,
+            maxTurns: this.maxTurnsFor('verify'),
             maxBudgetUsd: this.project.maxBudgetUsd,
             spentUsdBefore: this.totalUsage.costUsd ?? 0,
             signal: aborter.signal,
@@ -2080,6 +2546,13 @@ export class Run {
     let appended: string | undefined;
 
     if (stage === 'verify') {
+      // Записи принадлежат ПОПЫТКЕ: перезапуск этапа начинает отчёт заново, и пункты
+      // прошлого прогона не должны в него переезжать — той же логикой, по которой отчёты
+      // прошлых попыток закрыты на чтение.
+      this.claimRecords.clear();
+      this.findingRecords = [];
+      this.anchorHaystack = null;
+
       const results = await this.runVerifyGates(this.aborter.signal);
       if (results.length > 0) {
         appended = gateReportBlock(results);
@@ -2307,6 +2780,10 @@ export class Run {
         }
       },
 
+      // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
+      // одним `Write` после хода, обычным путём через политику и гейт.
+      onRecord: (call) => this.acceptRecord(call),
+
       onUsage: (usage) => {
         const st = this.stageStats.get(stage);
         if (st !== undefined) st.usage = addUsage(st.usage, usage);
@@ -2328,9 +2805,16 @@ export class Run {
       // интерфейсе не разблокировалась до перезагрузки страницы.
       const executor = this.executorFor(stage);
 
+      // Независимое ревью — шаг РАНТАЙМА, идущий до хода модели этапа (тем же порядком,
+      // что и автоматические гейты). Его текст приходит модели готовым блоком: ей остаётся
+      // перенести находки в §2–§5 отчёта, а не догадаться позвать `Task`. Не состоялось —
+      // `null`, и тогда всё как раньше: у модели остаётся собственный вызов субагента.
+      const reviewText = stage === 'verify' ? await this.runReviewerDirectly(prompt, agents, hooks) : null;
+      const stagePrompt = reviewText === null ? prompt : withExtra(prompt, reviewerBlock(reviewText));
+
       let result = await executor.run(
         {
-          prompt,
+          prompt: stagePrompt,
           cwd: this.project.projectRoot,
           model: route.model,
           allowedTools: this.toolsFor(stage),
@@ -2350,9 +2834,15 @@ export class Run {
           // Спасение напечатанного артефакта: модель составила его правильно, но не
           // записала. Идёт тем же путём, что обычная запись — политика и гейт одобрения.
           salvageFromText: (text) => this.salvageFromText(text, produced, stage),
-          maxTurns: this.config.runner.limits.maxIterationsPerStage,
+          maxTurns: this.maxTurnsFor(stage),
           maxBudgetUsd: this.project.maxBudgetUsd,
           spentUsdBefore: this.totalUsage.costUsd ?? 0,
+          // Прогресс этапа 6 — принятые записи отчёта. Анти-цикл обрывает этап только
+          // тогда, когда за серию повторов не прибавилось ничего: обрыв посреди
+          // заполняемого отчёта терял работу, уже сделанную (и оплаченную) целиком.
+          ...(stage === 'verify'
+            ? { progressSignal: () => this.claimRecords.size + this.findingRecords.length }
+            : {}),
           // Для режима заполнения по полям: где искать плейсхолдеры. Обычные исполнители
           // поле не читают.
           formArtifacts: produced,
@@ -2360,6 +2850,18 @@ export class Run {
         },
         hooks,
       );
+
+      // Поклаймовый добор (`ModelDef.claimFill`): пункты, о которых модель не сказала
+      // ничего, добираются по одному вопросу со срезом патча. ДО внесения записей —
+      // добранное идёт в отчёт тем же путём, что записанное вручную.
+      if (stage === 'verify' && route.flow === 'loop' && route.claimFill && !this.aborter.signal.aborted) {
+        await this.topUpClaims(route, stagePrompt.system);
+      }
+
+      // Записи рецензента вносятся в отчёт ДО дозаполнения по полям и до ансамбля:
+      // дозаполнение считает оставшиеся плейсхолдеры, а маршруты ансамбля снимают копию
+      // канонического отчёта — оба обязаны видеть уже внесённые пункты и находки.
+      if (stage === 'verify') await this.applyRecords();
 
       // Дозаполнение журнала chunk'а по полям (`ModelDef.formFill` у модели этапа 5):
       // серия r5 показала конструкционный провал — модель с идеальным кодом 7 прогонов
@@ -2386,7 +2888,10 @@ export class Run {
           stage,
           formFinishPath,
           result,
-          prompt,
+          // Тот же промпт, что видел основной ход, — на этапе 6 он включает блок с
+          // отчётом рецензента. Дозаполнение по полям без него добирало бы поля §2–§5
+          // «по памяти», не зная о находках, ради которых этап и существует.
+          stagePrompt,
           hooks,
           notDone,
           this.aborter.signal,

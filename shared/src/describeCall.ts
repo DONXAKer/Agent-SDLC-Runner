@@ -36,6 +36,10 @@ export function describeCall(call: NormalizedCall): string {
       return `Субагент ${call.agent}`;
     case 'request_scope_extension':
       return `Расширить scope: ${call.path} (${call.reason})`;
+    case 'record_claim':
+      return `Пункт приёмки ${call.id}: ${call.status}`;
+    case 'record_finding':
+      return `Находка (${call.section}): ${firstLine(call.text)}`;
     case 'mcp':
       return `MCP ${call.server}.${call.tool} ${firstLine(JSON.stringify(call.args))}`;
     case 'unknown':

@@ -187,6 +187,53 @@ export const TOOL_SPECS: Record<BuiltinToolName, ToolSpec> = {
     ),
   },
 
+  RecordClaim: {
+    name: 'RecordClaim',
+    sdkName: 'mcp__sdlc__record_claim',
+    description:
+      'Записать вывод по одному пункту приёмки. Таблицу §1 отчёта из этих записей рисует ' +
+      'рантайм — колонки и форма получаются правильными по построению, а не по аккуратности ' +
+      'оформления. Один вызов на пункт; повторный вызов с тем же id заменяет прежнюю запись. ' +
+      '«Чем подтверждён» обязано указывать на МЕСТО: файл и символ, имя теста, хунк диффа.',
+    schema: obj(
+      {
+        id: str('Идентификатор пункта из приёмочного листа задачи, например claim-3'),
+        status: {
+          type: 'string',
+          enum: ['✅', '❌', '⚠', 'manual'],
+          description:
+            'Подтверждён / опровергнут / не проверяем / проверяется вручную. `manual` ' +
+            'действителен, только если пункт помечен [manual] в задаче человеком.',
+        },
+        evidence: str('Чем подтверждён: файл:символ, имя теста, хунк диффа'),
+        what_to_fix: str('Что чинить, если пункт не зелёный'),
+      },
+      ['id', 'status', 'evidence'],
+    ),
+  },
+
+  RecordFinding: {
+    name: 'RecordFinding',
+    sdkName: 'mcp__sdlc__record_finding',
+    description:
+      'Записать находку ревью в свою секцию отчёта: расхождение (review), выход за границы ' +
+      'плана (scope), нарушенный инвариант (invariant), регрессия ранее работавшего ' +
+      'поведения (regression). Находка без ссылки на место принимается, но помечается ' +
+      '«без привязки» — потерять её нельзя, выдать за доказанную тоже.',
+    schema: obj(
+      {
+        section: {
+          type: 'string',
+          enum: ['review', 'scope', 'invariant', 'regression'],
+          description: 'Секция отчёта приёмки, к которой относится находка',
+        },
+        text: str('Находка одной-двумя фразами: что именно не так'),
+        evidence: str('Где это видно: файл:строка, символ, хунк диффа'),
+      },
+      ['section', 'text'],
+    ),
+  },
+
   RequestScopeExtension: {
     name: 'RequestScopeExtension',
     sdkName: 'mcp__sdlc__request_scope_extension',
@@ -209,6 +256,22 @@ export const TOOL_SPECS: Record<BuiltinToolName, ToolSpec> = {
 /** Права на MCP схемы не имеют — они приходят от сервера отдельным списком. */
 export function isBuiltinToolName(name: ToolName): name is BuiltinToolName {
   return name !== 'McpRead' && name !== 'McpWrite';
+}
+
+/**
+ * Имена инструментов, приходящие СТРОКАМИ извне рантайма — из YAML-шапки субагента,
+ * которую пишет человек. Незнакомое имя не превращается в право: оно просто не попадает
+ * в пересечение.
+ *
+ * Живёт рядом с реестром, а не у вызывающих: рукописный список имён был бы вторым
+ * знанием об одном, и забытое в нём имя молча отнимало бы у субагента объявленное право.
+ * `hasOwn`, а не `in`: объектный словарь отвечает `true` на `toString`.
+ */
+export function isToolName(v: string): v is ToolName {
+  // Права на MCP в `TOOL_SPECS` не лежат — у них нет статических схем. Без этих двух имён
+  // право, объявленное человеком в шапке субагента, молча выпало бы из пересечения.
+  if (v === 'McpRead' || v === 'McpWrite') return true;
+  return Object.hasOwn(TOOL_SPECS, v);
 }
 
 export function specsFor(tools: readonly ToolName[]): ToolSpec[] {

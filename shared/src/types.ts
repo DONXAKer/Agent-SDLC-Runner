@@ -51,6 +51,17 @@ export type ToolName =
    */
   | 'RequestScopeExtension'
   /**
+   * Запись пункта приёмки в отчёт этапа 6 — структурированно, а не строкой markdown.
+   *
+   * Заведено против измеренного класса отказа: у дешёвого рецензента ломается ФОРМА
+   * отчёта (колонка `№` вместо `id`, разъехавшаяся труба, статус словом), и вердикт
+   * считается по пустому входу — «в отчёте не прочитан ни один пункт». Таблицу из
+   * записей рисует рантайм, поэтому разобраться она обязана по построению.
+   */
+  | 'RecordClaim'
+  /** То же для находки ревью, scope, инварианта или регрессии. */
+  | 'RecordFinding'
+  /**
    * Читающие вызовы внешних MCP-серверов. Идут без шага человека — как `Read` и `Grep`.
    *
    * Права на MCP выражены двумя токенами, а не одним, из-за сужения прав субагента: оно
@@ -131,6 +142,27 @@ export type NormalizedCall =
   | { kind: 'subagent'; agent: string; prompt: string }
   | { kind: 'request_scope_extension'; path: string; reason: string }
   /**
+   * Пункт приёмки этапа 6 записью, а не строкой таблицы.
+   *
+   * `status` — те же четыре значения, что у методологии; `evidence` обязана указывать на
+   * место (файл, символ, имя теста, хунк), а не на впечатление: именно по ссылке рантайм
+   * отличает разбор от оформительства.
+   */
+  | {
+      kind: 'record_claim';
+      id: string;
+      status: ClaimStatus;
+      evidence: string;
+      whatToFix: string | null;
+    }
+  /** Находка ревью — в свою секцию отчёта. */
+  | {
+      kind: 'record_finding';
+      section: FindingSection;
+      text: string;
+      evidence: string;
+    }
+  /**
    * Вызов инструмента внешнего MCP-сервера.
    *
    * Класса «читает или пишет» здесь намеренно НЕТ. Он берётся из разрешительного списка
@@ -146,6 +178,13 @@ export type NormalizedCall =
   | { kind: 'unknown'; toolName: string; raw: unknown };
 
 export type CallKind = NormalizedCall['kind'];
+
+/**
+ * Куда идёт находка рецензента. Ровно секции отчёта приёмки — новых сущностей не
+ * заводим: секция, которой нет в шаблоне, оказалась бы записью в никуда.
+ */
+export const FINDING_SECTIONS = ['review', 'scope', 'invariant', 'regression'] as const;
+export type FindingSection = (typeof FINDING_SECTIONS)[number];
 
 /**
  * Все виды вызова списком — чтобы про новый вид нельзя было забыть молча.
@@ -166,6 +205,8 @@ export const CALL_KINDS = Object.keys({
   finalize_artifact: true,
   subagent: true,
   request_scope_extension: true,
+  record_claim: true,
+  record_finding: true,
   mcp: true,
   unknown: true,
 } satisfies Record<CallKind, true>) as readonly CallKind[];
@@ -268,6 +309,20 @@ export interface PolicyContext {
   readOnlyRoots: readonly string[];
   /** Инструменты, разрешённые на текущем этапе. */
   allowedTools: readonly ToolName[];
+  /**
+   * Пути внутри проекта, закрытые на ЧТЕНИЕ на этом этапе (относительно корня).
+   *
+   * Заведено ради независимости рецензента: методология запрещает давать ему находки
+   * предыдущей попытки, а живой прогон (r23) показал, чем оборачивается доступность —
+   * слабая модель списала «Scope ❌ — snapshot.json вне плана» из отчёта соседней
+   * попытки, лежавшего рядом в артефактах, и вердикт покраснел по факту, которого в
+   * дереве давно не было. Правило `runtimeExecutedGreen` чинит это ПОСЛЕ; здесь убрана
+   * причина.
+   *
+   * Необязательное поле: пусто — ничего не закрыто, прежнее поведение. Сужение, а не
+   * нижняя граница, поэтому пустое значение безопасно.
+   */
+  readDenied?: readonly string[];
   /**
    * Разрешительный список MCP-инструментов на этап. Пустой список — MCP не выдан.
    *

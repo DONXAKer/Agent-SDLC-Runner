@@ -5,6 +5,8 @@
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { StageId } from '@sdlc-runner/shared';
 
+import { SEED_NONE, seedIds } from './seeds.ts';
+
 export type BenchMode =
   /** Измеряемая модель на одном этапе, остальные — контрольный маршрут. */
   | { kind: 'stage'; stage: StageId }
@@ -82,6 +84,14 @@ export interface BenchOptions {
    * только chunk'а (шаг «снимки на каждый этап» из анализа порогов слабых моделей).
    */
   snapshotAfter: StageId;
+  /**
+   * Посев дефекта известного класса перед этапом 6 (`--seed`), `null` — ключ не задан.
+   *
+   * Мерит НАХОДИМОСТЬ рецензента, а не доведение этапа: без посева «ничего не нашёл»
+   * и «нечего было находить» — одно и то же наблюдение. `none` — контрольный прогон
+   * без посева, которым меряются ложные срабатывания.
+   */
+  seed: string | null;
 }
 
 export class OptionsError extends Error {}
@@ -119,6 +129,8 @@ export const USAGE = `
   --make-snapshot <имя> остановиться после точки снимка и сохранить снимок под этим именем
   --snapshot-after <этап> точка снимка для --make-snapshot (умолчание plan)
   --from-snapshot <имя> начать с этого снимка — со следующего этапа после его точки
+  --seed <класс>        посеять дефект перед этапом 6 и замерить, назван ли он:
+                        ${seedIds().join(' | ')}
 `.trimStart();
 
 function isStageId(v: string): v is StageId {
@@ -155,6 +167,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   // `null` — ключ не задан; умолчание `plan` подставляется на выходе. Один факт в одной
   // переменной, а не значение + флаг-спутник, которые разъезжаются при правке разбора.
   let snapshotAfter: StageId | null = null;
+  let seed: string | null = null;
 
   const next = (i: number, key: string): string => {
     const v = argv[i + 1];
@@ -268,6 +281,15 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         fromSnapshot = next(i, key);
         i++;
         break;
+      case '--seed': {
+        const value = next(i, key);
+        if (!seedIds().includes(value)) {
+          throw new OptionsError(`неизвестный посев «${value}»; допустимы: ${seedIds().join(', ')}`);
+        }
+        seed = value;
+        i++;
+        break;
+      }
       default:
         throw new OptionsError(`неизвестный ключ «${key}»`);
     }
@@ -292,6 +314,18 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   // стороне, а n одинаковых снимков затирали бы друг друга одним именем.
   if (repeat > 1 && (probe || dryRun || makeSnapshot !== null)) {
     throw new OptionsError('--repeat совместим только с живым измерением (--stage/--all без --make-snapshot)');
+  }
+  // Посев вносится в рабочую копию ПОСЛЕ этапа 5 и меряет этап 6. Прогон, который сам
+  // проходит chunk, посевом мерить нельзя: исполнитель увидит внесённый дефект как часть
+  // своего же кода и вправе его починить — измерялась бы не находимость рецензента, а
+  // случайность. Отсюда требование снимка и режима одного этапа.
+  if (seed !== null && seed !== SEED_NONE) {
+    if (fromSnapshot === null) {
+      throw new OptionsError('--seed требует --from-snapshot: дефект сеется поверх готового сэмпла этапа 5');
+    }
+    if (mode === null || mode.kind !== 'stage' || mode.stage !== 'verify') {
+      throw new OptionsError('--seed имеет смысл только с --stage verify: посевом меряется находимость этапа 6');
+    }
   }
   // Точка снимка без самого снимка — почти наверняка опечатка в наборе ключей, и молчаливое
   // игнорирование стоило бы платного прогона, который остановился не там, где ждали.
@@ -321,5 +355,6 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     makeSnapshot,
     fromSnapshot,
     snapshotAfter: snapshotAfter ?? 'plan',
+    seed,
   };
 }

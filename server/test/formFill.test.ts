@@ -55,6 +55,7 @@ function hooks(seen: { writes: NormalizedCall[] }, allow: boolean): ExecHooks {
     },
     onToolResult: () => {},
     onAskHuman: async () => ({}),
+    onRecord: () => 'записано',
     onUsage: () => {},
     onWarn: () => {},
     onFriction: () => {},
