@@ -22,6 +22,27 @@ const EXCLUDED_RE = /^.*Из задачи исключено/im;
 /** Разделительная строка markdown-таблицы: `|---|---|`. */
 const TABLE_SEPARATOR = /^\|[\s|:-]+\|?$/;
 
+/**
+ * Артефакты витка, названные КОРОТКИМ именем: в прозе плана они поминаются постоянно
+ * («список совпадает с „Что придётся тронуть“ из `intent.md`»), и без этого списка такое
+ * упоминание становилось четвёртым «путём плана». Последствия были в обе стороны сразу:
+ * PlanScope выдавал право писать в артефакт человека, а гейт «Scope: пути плана без
+ * правок» краснел на пути, который править никто и не собирался, — вердикт не мог
+ * позеленеть в принципе (пойман r21: «путей плана без правок: 1 из 4» при трёх реально
+ * тронутых). Путь `.sdlc/…` отсекается отдельным правилом ниже — здесь именно короткие
+ * имена, какими артефакты зовут в тексте.
+ */
+const WITOK_ARTIFACTS = new Set([
+  'intent.md',
+  'readiness.md',
+  'exploration-report.md',
+  'clarification-report.md',
+  'plan.md',
+  'handoff.md',
+  'gates.md',
+]);
+const WITOK_ARTIFACT_RE = /^(chunk-\d+-journal\.md|verification-report-\d+-attempt-\d+\.md|self-review-\d+-attempt-\d+\.md|chunk-\d+-attempt-\d+-(diff\.patch|tests\.txt))$/i;
+
 /** Файлы без расширения, которые встречаются в планах как обычные цели правки. */
 const EXTENSIONLESS = new Set([
   'makefile',
@@ -52,6 +73,8 @@ function looksLikePath(raw: string): boolean {
   if (/^[#\d.,)]+$/.test(t)) return false; // номер строки таблицы
   if (t.includes('::')) return false; // `путь:символ` — форма отчёта разведки
   if (t === '.sdlc' || t.startsWith('.sdlc/')) return false; // артефакты процесса
+  const base = t.slice(t.lastIndexOf('/') + 1).toLowerCase();
+  if (WITOK_ARTIFACTS.has(base) || WITOK_ARTIFACT_RE.test(base)) return false;
   if (t.includes('/')) return true;
   if (t.includes('.')) return true;
   return EXTENSIONLESS.has(t.toLowerCase());

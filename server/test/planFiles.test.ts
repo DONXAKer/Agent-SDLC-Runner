@@ -117,6 +117,25 @@ describe('files_to_touch', () => {
     deepStrictEqual(extractFilesToTouch(afterSecond), ['src/a.java', 'src/first.java', 'src/second.java']);
   });
 
+  it('артефакт витка, помянутый в прозе секции, путём плана не становится (r21)', () => {
+    // Живой план: «**Добавлено сверх разведки:** нет — список совпадает с … из `intent.md`».
+    // Упоминание давало ЧЕТВЁРТЫЙ путь: PlanScope выдавал право писать в артефакт человека,
+    // а гейт «Scope: пути плана без правок» краснел на пути, который никто не правит, —
+    // вердикт не мог позеленеть в принципе.
+    const plan = [
+      '## files_to_touch',
+      '',
+      '| Путь | Что делаем |',
+      '|---|---|',
+      '| `src/a.ts` | правка |',
+      '',
+      '- **Добавлено сверх разведки:** нет — список совпадает с «Что придётся тронуть» из `intent.md`',
+      '- Пункты приёмки перенесены из `readiness.md`, журнал витка — `chunk-1-journal.md`',
+      '',
+    ].join('\n');
+    deepStrictEqual(extractFilesToTouch(plan), ['src/a.ts']);
+  });
+
   it('живой пример методологии разбирается целиком', { skip: нетЭталона(loadConfig().runner.methodologyDir) }, () => {
     const cfg = loadConfig();
     const example = join(cfg.runner.methodologyDir, 'example', 'plan.md');
