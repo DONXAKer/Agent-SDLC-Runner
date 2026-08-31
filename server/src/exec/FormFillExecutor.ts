@@ -110,19 +110,37 @@ export type FormField =
       header: string;
     };
 
-/** Первая строка элемента списка, которому принадлежит строка-продолжение с `lineStart`. */
-function listItemFirstLine(text: string, lineStart: number): string {
+/**
+ * Принадлежит ли строка-продолжение (с `lineStart`) полю решения человека.
+ *
+ * Обход вверх до первой строки элемента списка, с тремя уроками ревью-5:
+ *  - защита прогресса: на файле, начинающемся с пустой строки, `lastIndexOf` с
+ *    отрицательным fromIndex клампится к 0 и возвращал ту же позицию — вечный
+ *    синхронный цикл вешал event loop сервера (воспроизведено);
+ *  - решение узнаётся и по СКЛЕЕННОМУ элементу, не только построчно: в старой форме
+ *    шаблона двоеточие уезжает на продолжение («…не имя\n  оператора)_: н/п»), и ни
+ *    одна строка по отдельности меткой не выглядит — а проекты, скопировавшие шаблон
+ *    до канонизации, живут именно с такой формой;
+ *  - каждая поднятая строка проверяется отдельно (вложенный пункт-решение не
+ *    проскакивается), пробельная строка внутри элемента обход не рвёт.
+ */
+function continuationOfDecision(text: string, lineStart: number): boolean {
+  const lineEndIdx = text.indexOf('\n', lineStart);
+  let joined = text.slice(lineStart, lineEndIdx < 0 ? text.length : lineEndIdx).trimStart();
   let start = lineStart;
   for (;;) {
     const prevEnd = start - 1;
-    if (prevEnd < 0) break;
+    if (prevEnd < 0) return false;
     const prevStart = text.lastIndexOf('\n', prevEnd - 1) + 1;
-    const cur = text.slice(start, text.indexOf('\n', start) < 0 ? text.length : text.indexOf('\n', start));
-    if (!/^\s+\S/.test(cur)) break; // дошли до первой строки элемента
+    if (prevStart >= start) return false; // пустая первая строка файла — прогресса нет
+    const prev = text.slice(prevStart, prevEnd);
+    joined = `${prev.trimEnd()} ${joined}`;
+    if (isDecisionLine(prev) || isDecisionLine(joined)) return true;
+    // Первая строка элемента (не отступная и не пробельная) достигнута и решением
+    // не оказалась — выше начинается чужой элемент.
+    if (prev.trim() !== '' && !/^\s+\S/.test(prev)) return false;
     start = prevStart;
   }
-  const end = text.indexOf('\n', start);
-  return text.slice(start, end < 0 ? text.length : end);
 }
 
 /** Шапка таблицы, которой принадлежит строка с позиции `lineStart`: верхняя `|`-строка блока. */
@@ -163,7 +181,7 @@ export function groupFields(text: string): FormField[] {
     // переносится, и плейсхолдер ‹имя› живёт на строке без метки — ревью-4 воспроизвёл
     // это на живом handoff-шаблоне (фикс по одной строке был холостым).
     if (isDecisionLine(line)) continue;
-    if (/^\s+\S/.test(line) && isDecisionLine(listItemFirstLine(text, lineStart))) continue;
+    if (/^\s+\S/.test(line) && continuationOfDecision(text, lineStart)) continue;
     if (line.trimStart().startsWith('|')) {
       if (lineStart === lastRowStart) continue; // колонка того же образца — уже учтён
       // Шапка блока не пересчитывается для соседних строк той же таблицы: обход вверх на

@@ -112,8 +112,14 @@ export function extractHumanFacts(text: string): HumanFact[] {
     // Найденный по имени индекс НЕ перетирается (ревью-4); полностью безымянная шапка —
     // возможно, съеденная parseTables первая строка данных, и она сканируется как данные.
     const positional = qi < 0 && ai < 0 && table.header.length >= 5;
-    if (qi < 0 && table.header.length >= 5) qi = 1;
-    if (ai < 0 && table.header.length >= 5) ai = 3;
+    if (positional) {
+      qi = 1;
+      ai = 3;
+    }
+    // Смешанный режим (одна колонка нашлась по имени, вторая — нет) позиционным ходом
+    // не спасается: форма заведомо не шаблонная, и индекс 3 указывал бы в чужую колонку
+    // («Блокирующий» уходил ложным фактом answer='да' — ревью-5). Таблица пропускается
+    // целиком — fail-closed.
     if (qi < 0 || ai < 0) continue;
     for (const row of positional ? [table.header, ...table.rows] : table.rows) {
       // В позиционном режиме первая строка может оказаться и настоящей шапкой — её
