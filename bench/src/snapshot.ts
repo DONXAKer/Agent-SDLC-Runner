@@ -94,6 +94,12 @@ export function restoreSnapshot(args: { snapshotsDir: string; name: string; targ
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-snap-')));
   try {
     cpSync(src, root, { recursive: true });
+    // Метафайл снимка — принадлежность БЕНЧМАРКА, и в рабочей копии ему не место:
+    // untracked `snapshot.json` в корне проекта роняет гейт «Scope: файлы вне плана»
+    // (и «нетракованные файлы») на каждом прогоне со снимка — красный вердикт по scope,
+    // который выглядел как дефект измеряемой модели. Пойман сравнением двух ревью r18:
+    // оба рецензента, независимо, назвали виновником именно его.
+    rmSync(metaPath(root), { force: true });
     if (args.targetSlug !== meta.slug) {
       const from = join(root, SDLC_DIR, meta.slug);
       const to = join(root, SDLC_DIR, args.targetSlug);

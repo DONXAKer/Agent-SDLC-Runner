@@ -56,6 +56,11 @@ describe('makeSnapshot / restoreSnapshot', () => {
 
     const planPath = join(restored.root, '.sdlc', 'demo', 'plan.md');
     ok(planPath, 'путь собран');
+
+    // Метафайл бенчмарка в рабочей копии — untracked-файл в корне ЦЕЛЕВОГО проекта:
+    // он ронял scope-гейты на каждом прогоне со снимка (r18).
+    strictEqual(existsSync(join(restored.root, 'snapshot.json')), false, 'snapshot.json утёк в рабочую копию');
+    ok(existsSync(join(snapshotsDir, 'demo', 'snapshot.json')), 'в самом снимке метафайл обязан остаться');
     restored.dispose();
   });
 
