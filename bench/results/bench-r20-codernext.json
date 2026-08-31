@@ -1,0 +1,518 @@
+{
+  "run": {
+    "slug": "bench-r20-codernext",
+    "model": "polza:qwen3-coder-next",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "polza:qwen3-coder-next",
+      "verify": "polza:deepseek-v4-pro-0813",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "RUB",
+      "verify": "RUB",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-08-31T11:00:50.202Z",
+    "finishedAt": "2026-08-31T11:34:23.807Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "запрос к модели отменён",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 936723,
+          "outputTokens": 13139,
+          "cacheReadTokens": 841024,
+          "cacheWriteTokens": 0,
+          "costUsd": 10.169275379999997,
+          "durationMs": 212521
+        },
+        "durationMs": 213527
+      },
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 701595,
+          "outputTokens": 116062,
+          "cacheReadTokens": 554880,
+          "cacheWriteTokens": 0,
+          "costUsd": 69.08401046,
+          "durationMs": 1568743
+        },
+        "durationMs": 1800038
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 36,
+        "reminders": 1
+      },
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 5,
+        "toolCalls": 45,
+        "reminders": 2
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:8751f5dc-d39d-4c43-ad9b-d0e4fd540556",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:3793c766-f325-44a1-be22-938eb9dc0d7c",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:59cf4842-b53c-456b-8ccb-feda056bc630",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-r20-codernext/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:efd1fdf2-b3f6-491a-ba49-800447834b99",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-6RVurr/.sdlc/bench-r20-codernext/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:9fb28ec8-660a-4677-971e-4b44675c417b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-6RVurr/src/oversize.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:376a16c7-ded8-42e9-82a9-52feacb68f83",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-6RVurr/src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:01002328-ea0b-462c-8303-772b28594701",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-6RVurr/src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:df8b877a-0f94-4a3e-a073-a21c0e6b4324",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-6RVurr/src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:b44f73d6-9beb-4a77-873f-5c1b3e072b63",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-6RVurr/test/oversize.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:2211c7e7-6d84-495b-9dfa-719300e34a13",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:ffa67a12-b672-4b9d-8f9e-31ba9c03ccc3",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:597dc8be-3f60-4043-9f43-6fe3e81e571a",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [
+          ".sdlc/bench-r20-codernext/chunk-1-attempt-1-diff.patch"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:6cc82a66-2112-4e6d-a73f-8b53c52440db",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:23111d14-a044-47ca-a37d-84c3221247df",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [
+          ".sdlc/bench-r20-codernext/chunk-1-attempt-1-diff.patch"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:4c166bbc-4f79-408a-9b5d-2ed4cd6397f2",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:9f4878ab-f04c-44d0-8386-8abb7e9d40b6",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-6RVurr/.sdlc/bench-r20-codernext/chunk-1-attempt-1-tests.txt"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:021b7d1f-c372-463e-a110-97f10c57c799",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-6RVurr/.sdlc/bench-r20-codernext/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:10ceb859-d2cb-46aa-8d42-f420d2a63362",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-snap-6RVurr/.sdlc/bench-r20-codernext/self-review-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:49f424d9-0728-4df2-9675-288d57b8d2d4",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:136dbccd-5ef7-4386-a41b-c21750325500",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:624bfd6b-cf7e-46c6-a1d2-bd6ceec38581",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:b0c3eefa-6296-4182-a5f6-ec68fde0637a",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Task",
+        "kind": "subagent"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12587,
+        "userChars": 18902,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 16142,
+        "userChars": 33396,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  }
+}
