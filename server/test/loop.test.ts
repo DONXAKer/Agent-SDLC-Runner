@@ -116,6 +116,77 @@ describe('инструменты цикла', () => {
     strictEqual(readFileSync(join(root, 'batch.ts'), 'utf8'), before);
   });
 
+  // Живой прогон (`docs/model-runs.md`, серия r33): модель написала `import { Add, Subtract }`
+  // с заглавной буквы, которых в целевом файле нет, — и не заметила, что код не грузится.
+  it('Write ловит несуществующий именованный импорт из соседнего файла', async () => {
+    writeFileSync(join(root, 'money.ts'), 'export function add(a: number, b: number) {\n  return a + b;\n}\n');
+    const r = await executeTool(
+      { kind: 'write', path: 'broken.ts', content: "import { Add } from './money.ts';\n" },
+      ctx,
+    );
+    strictEqual(r.ok, false);
+    ok(r.text.includes('«Add» не экспортируется'), r.text);
+    ok(r.text.includes('add'), r.text);
+    // Файл при этом уже лежит на диске — правку модель делает следующим ходом, не Write заново.
+    ok(readFileSync(join(root, 'broken.ts'), 'utf8').includes('Add'));
+  });
+
+  it('Write с верным импортом проверку не трогает', async () => {
+    const r = await executeTool(
+      { kind: 'write', path: 'fine.ts', content: "import { add } from './money.ts';\n" },
+      ctx,
+    );
+    ok(r.ok, r.text);
+  });
+
+  it('Edit, ломающий импорт правкой, ловится так же, как Write', async () => {
+    writeFileSync(join(root, 'consumer.ts'), "import { add } from './money.ts';\n");
+    const r = await executeTool(
+      {
+        kind: 'edit',
+        path: 'consumer.ts',
+        edits: [{ oldStr: 'import { add }', newStr: 'import { Add }', replaceAll: false }],
+      },
+      ctx,
+    );
+    strictEqual(r.ok, false);
+    ok(r.text.includes('«Add» не экспортируется'), r.text);
+  });
+
+  it('импорт из файла без единого распознанного экспорта не считается расхождением', async () => {
+    writeFileSync(join(root, 'opaque.ts'), 'export default function () {}\n');
+    const r = await executeTool(
+      { kind: 'write', path: 'usesOpaque.ts', content: "import { anything } from './opaque.ts';\n" },
+      ctx,
+    );
+    ok(r.ok, r.text);
+  });
+
+  it('импорт пакета (не относительный путь) проверкой не трогается', async () => {
+    const r = await executeTool(
+      { kind: 'write', path: 'usesPkg.ts', content: "import { z } from 'zod';\n" },
+      ctx,
+    );
+    ok(r.ok, r.text);
+  });
+
+  // Серии из 4–26 промахов подряд у одной и той же модели по одному и тому же файлу
+  // (`docs/model-runs.md`, серия r33) — модель не звала Read между попытками.
+  it('промах Edit возвращает текущее содержимое файла, а не только «прочитай заново»', async () => {
+    writeFileSync(join(root, 'target.txt'), 'первая строка\nвторая строка\n');
+    const r = await executeTool(
+      {
+        kind: 'edit',
+        path: 'target.txt',
+        edits: [{ oldStr: 'такого текста тут нет', newStr: 'x', replaceAll: false }],
+      },
+      ctx,
+    );
+    strictEqual(r.ok, false);
+    ok(r.text.includes('1\tпервая строка'), r.text);
+    ok(r.text.includes('2\tвторая строка'), r.text);
+  });
+
   it('Glob находит файлы и пропускает служебные каталоги', async () => {
     mkdirSync(join(root, 'node_modules/pkg'), { recursive: true });
     writeFileSync(join(root, 'node_modules/pkg/B.ts'), '');

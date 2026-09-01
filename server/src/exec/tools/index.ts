@@ -14,7 +14,7 @@
 import type { Dirent } from 'node:fs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, resolve as resolvePath } from 'node:path';
 
 import type { NormalizedCall } from '@sdlc-runner/shared';
 
@@ -71,6 +71,97 @@ export function cap(text: string, limitBytes: number): string {
 
 function rel(root: string, abs: string): string {
   return toPosix(relative(root, abs)) || toPosix(abs);
+}
+
+/** Тот же формат, что у `Read`: без номеров строк модель не с чем сверить старый `old_string`. */
+function numberedLines(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((l, i) => `${i + 1}\t${l}`)
+    .join('\n');
+}
+
+/**
+ * Именованные экспорты файла — грубым разбором текста, не компилятором.
+ *
+ * Ловит `export const/function/class/interface/type/enum X` и `export { X, Y as Z }`.
+ * Не ловит `export default`, реэкспорты через `export * from`, и любой синтаксис, до
+ * которого эти два выражения не дотягиваются — то есть недобор возможен, перебора нет.
+ * Пустой результат (регексп ничего не понял в файле) — сигнал НЕ доверять этому файлу для
+ * сверки: `verifyTsImports` из-за этого молчит, если множество пусто, а не считает файл
+ * без единого экспорта.
+ */
+function namedExportsOf(source: string): Set<string> {
+  const names = new Set<string>();
+  const DECL_RE = /\bexport\s+(?:declare\s+)?(?:const|function|class|interface|type|enum|abstract\s+class)\s+(\w+)/g;
+  for (const m of source.matchAll(DECL_RE)) names.add(m[1]!);
+  const LIST_RE = /\bexport\s*\{([^}]+)\}/g;
+  for (const m of source.matchAll(LIST_RE)) {
+    for (const part of m[1]!.split(',')) {
+      const name = part.trim().split(/\s+as\s+/).pop()?.trim();
+      if (name !== undefined && name !== '') names.add(name);
+    }
+  }
+  return names;
+}
+
+/**
+ * Резолвит спецификатор относительного импорта в абсолютный путь на диске.
+ *
+ * Соглашение проекта — относительные импорты пишутся с расширением `.ts` явно (см.
+ * CLAUDE.md), поэтому прямое совпадение пробуется первым; `.ts`/`index.ts` — на случай
+ * файла из другого проекта, где соглашение не соблюдено. `null` — не относительный путь
+ * (пакет, алиас) или файла нет ни в одном варианте: не наш случай, молчим.
+ */
+function resolveRelativeImport(fromFileAbs: string, specifier: string): string | null {
+  if (!specifier.startsWith('.')) return null;
+  const base = resolvePath(dirname(fromFileAbs), specifier);
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Найден живым прогоном (`docs/model-runs.md`, серия r33, `qwen3:30b-a3b` с продлённым
+ * `--stage-timeout`): модель написала `import { Add, Subtract } from './money.ts'` — с
+ * заглавной буквы, которых там нет (реальные имена — `add`/`subtract`), тесты прогнала
+ * один раз задолго до этой правки и не заметила, что импорт с тех пор сломался. Не
+ * подменяет typecheck — это точечная проверка ровно того класса ошибки, что уже пойман, и
+ * работает без запуска компилятора на КАЖДУЮ правку (дорого на большом проекте).
+ *
+ * `null` — нареканий нет либо проверить нечем (файл не найден, регексп не понял его
+ * структуру). Строка — готовый к показу модели список расхождений.
+ */
+function verifyTsImports(content: string, fileAbs: string, projectRoot: string): string | null {
+  const IMPORT_RE = /import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+['"](\.[^'"]+)['"]/g;
+  const problems: string[] = [];
+  for (const m of content.matchAll(IMPORT_RE)) {
+    const names = m[1]!
+      .split(',')
+      .map((n) => n.trim())
+      .filter((n) => n !== '')
+      .map((n) => n.replace(/^type\s+/, '').split(/\s+as\s+/)[0]!.trim());
+    const targetAbs = resolveRelativeImport(fileAbs, m[2]!);
+    if (targetAbs === null) continue;
+    let targetSrc: string;
+    try {
+      targetSrc = readFileSync(targetAbs, 'utf8');
+    } catch {
+      continue;
+    }
+    const exported = namedExportsOf(targetSrc);
+    if (exported.size === 0) continue;
+    for (const name of names) {
+      if (!exported.has(name)) {
+        problems.push(
+          `«${name}» не экспортируется из ${rel(projectRoot, targetAbs)} ` +
+            `(там есть: ${[...exported].slice(0, 12).join(', ')})`,
+        );
+      }
+    }
+  }
+  return problems.length === 0 ? null : problems.join('; ');
 }
 
 /** Замена первого вхождения ровно тем текстом, что передан: без раскрытия `$`-групп. */
@@ -134,10 +225,18 @@ function writeTool(call: NormalizedCall & { kind: 'write' }, ctx: ToolContext): 
   const existed = existsSync(abs);
   writeFileSync(abs, call.content, 'utf8');
   const lines = call.content.split('\n').length;
-  return {
-    ok: true,
-    text: `${existed ? 'перезаписан' : 'создан'} ${rel(ctx.projectRoot, abs)} (${lines} строк)`,
-  };
+  const base = `${existed ? 'перезаписан' : 'создан'} ${rel(ctx.projectRoot, abs)} (${lines} строк)`;
+
+  if (/\.tsx?$/.test(abs)) {
+    const problem = verifyTsImports(call.content, abs, ctx.projectRoot);
+    if (problem !== null) {
+      return {
+        ok: false,
+        text: `${base}\nимпорт не сходится с целевым файлом: ${problem}. Файл уже записан на диск — поправь импорт следующей правкой.`,
+      };
+    }
+  }
+  return { ok: true, text: base };
 }
 
 function editTool(call: NormalizedCall & { kind: 'edit' }, ctx: ToolContext): ToolOutcome {
@@ -150,9 +249,16 @@ function editTool(call: NormalizedCall & { kind: 'edit' }, ctx: ToolContext): To
   for (const [i, e] of call.edits.entries()) {
     const count = text.split(e.oldStr).length - 1;
     if (count === 0) {
+      // Текущее содержимое — прямо в ответе, а не отсылкой «прочитай заново»: живые прогоны
+      // (`docs/model-runs.md`, серия r33) показали серии из 4–26 подряд промахов той же
+      // модели по тому же файлу — она не звала повторный Read и гадала по памяти. Здесь
+      // `text` уже учитывает правки ЭТОГО ЖЕ вызова, применённые раньше в цикле.
       return {
         ok: false,
-        text: `правка ${i + 1}: фрагмент не найден. Ни одна правка не применена — прочитай файл заново.`,
+        text:
+          `правка ${i + 1}: фрагмент не найден. Ни одна правка не применена.\n` +
+          `Текущее содержимое ${rel(ctx.projectRoot, abs)} (для сверки, отдельный Read не нужен):\n` +
+          cap(numberedLines(text), ctx.maxResultBytes),
       };
     }
     // Единственность обязательна, иначе правка попадёт не туда, где её ждали, и это
@@ -176,7 +282,18 @@ function editTool(call: NormalizedCall & { kind: 'edit' }, ctx: ToolContext): To
   }
 
   writeFileSync(abs, text, 'utf8');
-  return { ok: true, text: `${rel(ctx.projectRoot, abs)} — правок применено: ${applied.join(', ')}` };
+  const base = `${rel(ctx.projectRoot, abs)} — правок применено: ${applied.join(', ')}`;
+
+  if (/\.tsx?$/.test(abs)) {
+    const problem = verifyTsImports(text, abs, ctx.projectRoot);
+    if (problem !== null) {
+      return {
+        ok: false,
+        text: `${base}\nимпорт не сходится с целевым файлом: ${problem}. Правка уже применена — поправь импорт следующей правкой.`,
+      };
+    }
+  }
+  return { ok: true, text: base };
 }
 
 async function globTool(
