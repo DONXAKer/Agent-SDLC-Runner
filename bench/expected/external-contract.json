@@ -1,0 +1,63 @@
+{
+  "// назначение": "Эталон задачи external-contract. Значения выведены из контракта README и поведения мока (mock.ts) — не списаны с вывода модели. Human-кейсов нет: контракт исчерпывающе записан в README, вопросов человеку задача не содержит — это контроль ложных AskHuman.",
+  "// категории": "regression — мок сам по контракту (обязано быть верным ДО всякой правки); precision — поведение и точное тело запроса реализованной моделью charge(), которой на пристинной фикстуре нет.",
+  "task": "external-contract",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "Мок отвечает успехом на tok_ok: HTTP 200, ok:true, charge_id непустой.",
+      "call": { "fn": "mockCharge", "args": ["tok_ok", "12345"] },
+      "expect": { "status": 200, "ok": true }
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Мок отвечает отказом на tok_decline — тоже HTTP 200, ok:false, код insufficient_funds.",
+      "call": { "fn": "mockCharge", "args": ["tok_decline", "100"] },
+      "expect": { "status": 200, "ok": false, "code": "insufficient_funds" }
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "charge() по контракту: успех tok_ok → status ok с chargeId.",
+      "call": { "fn": "charge", "args": [{ "cardToken": "tok_ok", "amountK": 12345, "currency": "RUB" }] },
+      "expect": { "status": "ok" }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Отказ при HTTP 200 распознаётся по телу: tok_decline → declined/insufficient_funds.",
+      "call": { "fn": "charge", "args": [{ "cardToken": "tok_decline", "amountK": 100, "currency": "RUB" }] },
+      "expect": { "status": "declined", "code": "insufficient_funds" }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Второй код отказа тоже доезжает: tok_fraud → declined/fraud_suspected.",
+      "call": { "fn": "charge", "args": [{ "cardToken": "tok_fraud", "amountK": 100, "currency": "RUB" }] },
+      "expect": { "status": "declined", "code": "fraud_suspected" }
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Тело запроса побайтово по контракту: змеиный регистр, сумма строкой, порядок полей как в README.",
+      "call": { "fn": "chargeSpy", "args": [{ "cardToken": "tok_ok", "amountK": 12345, "currency": "RUB" }] },
+      "expect": { "body": "{\"card_token\":\"tok_ok\",\"amount_minor\":\"12345\",\"currency\":\"RUB\"}", "path": "/charge" }
+    },
+    {
+      "id": "Pr5",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Неизвестный токен — declined/unknown_card, а не исключение и не ok.",
+      "call": { "fn": "charge", "args": [{ "cardToken": "tok_zzz", "amountK": 100, "currency": "RUB" }] },
+      "expect": { "status": "declined", "code": "unknown_card" }
+    }
+  ]
+}

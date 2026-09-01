@@ -1,0 +1,47 @@
+{
+  "// назначение": "Эталон задачи silent-contract. Спецификация в тексте задачи — human-кейсов нет: это контроль сохранения публичного контракта (необязательность параметра).",
+  "// категории": "regression — существующие функции; precision — правило из текста задачи.",
+  "task": "silent-contract",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "lineTotal существует до витка и считает верно.",
+      "call": { "fn": "lineTotal", "args": [{ "title": "Пакет", "qty": 2, "priceK": 333 }] },
+      "expect": 666
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "subtotal на эталонном наборе: 2×333 + 1×334 = 1000.",
+      "call": { "fn": "subtotal", "args": [[{ "title": "Пакет", "qty": 2, "priceK": 333 }, { "title": "Коробка", "qty": 1, "priceK": 334 }]] },
+      "expect": 1000
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Без выставителя форма счёта прежняя: поля issuer нет вовсе (существующие вызовы не ломаются). Зелёный на пристинной ПО ДИЗАЙНУ: сторож неизменности, сигнал фичи несёт Pr2.",
+      "bill": { "number": "СЧ-1", "lines": [{ "title": "Пакет", "qty": 1, "priceK": 100 }] },
+      "expect": { "issuerAbsent": true, "total": 100 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "С выставителем — поле issuer в счёте с переданным значением.",
+      "bill": { "number": "СЧ-2", "lines": [{ "title": "Пакет", "qty": 1, "priceK": 100 }], "opts": { "issuer": "ООО Ромашка" } },
+      "expect": { "issuer": "ООО Ромашка", "total": 100 }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Суммы от появления выставителя не меняются: подытог и итог те же, что без него. Зелёный на пристинной по той же причине — сторож неизменности.",
+      "bill": { "number": "СЧ-3", "lines": [{ "title": "Пакет", "qty": 2, "priceK": 333 }, { "title": "Коробка", "qty": 1, "priceK": 334 }], "opts": { "issuer": "ООО Ромашка" } },
+      "expect": { "subtotal": 1000, "total": 1000 }
+    }
+  ]
+}

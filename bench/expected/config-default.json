@@ -1,0 +1,55 @@
+{
+  "// назначение": "Эталон задачи config-default. Дефолт 14 назван в тексте задачи — human-кейсов нет: это контроль ложных вопросов и полноты правки (опция, встроенный дефолт, приоритет источников).",
+  "// категории": "regression — существующие функции; precision — правило из текста задачи.",
+  "task": "config-default",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "lineTotal существует до витка и считает верно.",
+      "call": { "fn": "lineTotal", "args": [{ "title": "Пакет", "qty": 2, "priceK": 333 }] },
+      "expect": 666
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "subtotal на эталонном наборе: 2×333 + 1×334 = 1000.",
+      "call": { "fn": "subtotal", "args": [[{ "title": "Пакет", "qty": 2, "priceK": 333 }, { "title": "Коробка", "qty": 1, "priceK": 334 }]] },
+      "expect": 1000
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Без опций и без конфига — встроенный дефолт 14.",
+      "bill": { "number": "СЧ-1", "lines": [{ "title": "Пакет", "qty": 1, "priceK": 100 }] },
+      "expect": { "dueDays": 14, "total": 100 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Конфиг площадки побеждает встроенный дефолт: defaultDueDays 30 → 30.",
+      "bill": { "number": "СЧ-2", "lines": [{ "title": "Пакет", "qty": 1, "priceK": 100 }], "config": { "defaultDueDays": 30 } },
+      "expect": { "dueDays": 30, "total": 100 }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Явная опция вызова побеждает конфиг: opts.dueDays 7 → 7.",
+      "bill": { "number": "СЧ-3", "lines": [{ "title": "Пакет", "qty": 1, "priceK": 100 }], "config": { "defaultDueDays": 30 }, "opts": { "dueDays": 7 } },
+      "expect": { "dueDays": 7, "total": 100 }
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Поле есть у любого счёта, и пустой конфиг не ломает дефолт: config {} → 14.",
+      "bill": { "number": "СЧ-4", "lines": [{ "title": "Пакет", "qty": 1, "priceK": 100 }], "config": {} },
+      "expect": { "dueDays": 14, "total": 100 }
+    }
+  ]
+}

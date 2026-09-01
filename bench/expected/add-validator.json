@@ -1,0 +1,71 @@
+{
+  "// назначение": "Эталон задачи add-validator. Правила валидации полностью в тексте задачи — human-кейсов нет НАМЕРЕННО: это контроль ложных вопросов человеку.",
+  "// категории": "regression — существующие функции; precision — спецификация из текста задачи.",
+  "task": "add-validator",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "lineTotal существует до витка и считает верно.",
+      "call": { "fn": "lineTotal", "args": [{ "title": "Пакет", "qty": 2, "priceK": 333 }] },
+      "expect": 666
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "subtotal на эталонном наборе: 2×333 + 1×334 = 1000.",
+      "call": { "fn": "subtotal", "args": [[{ "title": "Пакет", "qty": 2, "priceK": 333 }, { "title": "Коробка", "qty": 1, "priceK": 334 }]] },
+      "expect": 1000
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Валидный покупатель: нарушений нет.",
+      "call": { "fn": "validateCustomer", "args": [{ "name": "Иван", "email": "a@b.ru", "phone": "+79001234567" }] },
+      "expect": []
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Две собаки — нарушение email (ровно одна @).",
+      "call": { "fn": "validateCustomer", "args": [{ "name": "Иван", "email": "a@@b.ru", "phone": "+79001234567" }] },
+      "expect": ["email"]
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Домен без точки — нарушение email.",
+      "call": { "fn": "validateCustomer", "args": [{ "name": "Иван", "email": "a@b", "phone": "+79001234567" }] },
+      "expect": ["email"]
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Короткий телефон — нарушение phone (+7 и ровно 10 цифр).",
+      "call": { "fn": "validateCustomer", "args": [{ "name": "Иван", "email": "a@b.ru", "phone": "+7900123" }] },
+      "expect": ["phone"]
+    },
+    {
+      "id": "Pr5",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Формат через восьмёрку — валиден (8 и ровно 10 цифр).",
+      "call": { "fn": "validateCustomer", "args": [{ "name": "Иван", "email": "a@b.ru", "phone": "89001234567" }] },
+      "expect": []
+    },
+    {
+      "id": "Pr6",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Оба поля неверны — оба кода, в фиксированном порядке: email раньше phone.",
+      "call": { "fn": "validateCustomer", "args": [{ "name": "Иван", "email": "a@@b", "phone": "123" }] },
+      "expect": ["email", "phone"]
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "// назначение": "Эталон задачи vat-rounding. Каждое значение посчитано вручную из правил фикстуры (percent — половина вверх) — не списано с вывода модели.",
+  "// категории": "regression — существующие функции, обязаны зеленеть ДО всякой правки; precision — правило из текста задачи, выводимо из документа (ставка 20%, отсутствие поля при 'none'); human — верно только если модель довела до кода льготную ставку 10% и условие «все позиции reduced», которых нигде в репозитории нет (fixture human-vat-rounding.json → rules[0]).",
+  "task": "vat-rounding",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "lineTotal существует до витка и считает верно.",
+      "call": { "fn": "lineTotal", "args": [{ "title": "Пакет", "qty": 2, "priceK": 333 }] },
+      "expect": 666
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "subtotal на эталонном наборе позиций: 2×333 + 1×334 = 1000.",
+      "call": { "fn": "subtotal", "args": [[{ "title": "Пакет", "qty": 2, "priceK": 333 }, { "title": "Коробка", "qty": 1, "priceK": 334 }]] },
+      "expect": 1000
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Облагаемый счёт: НДС 20% от подытога 1000 → 200, итог 1200.",
+      "bill": { "number": "СЧ-1", "lines": [{ "title": "Пакет", "qty": 2, "priceK": 333 }, { "title": "Коробка", "qty": 1, "priceK": 334 }], "opts": { "vat": "std" } },
+      "expect": { "subtotal": 1000, "vat": 200, "total": 1200 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Подытог 505: 505×20/100 = 101.0 ровно — округление не даёт лишнего +1 (ловит floor(x+0.5) vs ceil-подобные ошибки).",
+      "bill": { "number": "СЧ-2", "lines": [{ "title": "Коробка", "qty": 1, "priceK": 505 }], "opts": { "vat": "std" } },
+      "expect": { "subtotal": 505, "vat": 101, "total": 606 }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Необлагаемый счёт (без опции): поля vat НЕТ вовсе — форма Invoice прежняя, итог равен подытогу. Зелёный на пристинной ПО ДИЗАЙНУ: это сторож неизменности формы, сигнал фичи несут Pr1/Pr2/H1-H3.",
+      "bill": { "number": "СЧ-3", "lines": [{ "title": "Пакет", "qty": 2, "priceK": 333 }, { "title": "Коробка", "qty": 1, "priceK": 334 }] },
+      "expect": { "subtotal": 1000, "vatAbsent": true, "total": 1000 }
+    },
+    {
+      "id": "H1",
+      "category": "human",
+      "claim": "claim-4",
+      "description": "Все позиции льготные (reduced): ставка 10%. Подытог 105 → 105×10/100 = 10.5 → половина вверх 11, НЕ 10 (отбрасывание здесь — ошибка).",
+      "bill": { "number": "СЧ-4", "lines": [{ "title": "Книга", "qty": 1, "priceK": 105, "reduced": true }], "opts": { "vat": "std" } },
+      "expect": { "subtotal": 105, "vat": 11, "total": 116 }
+    },
+    {
+      "id": "H2",
+      "category": "human",
+      "claim": "claim-4",
+      "description": "Смешанный счёт (одна позиция reduced, одна нет) — целиком по стандартным 20%.",
+      "bill": { "number": "СЧ-5", "lines": [{ "title": "Книга", "qty": 1, "priceK": 500, "reduced": true }, { "title": "Пакет", "qty": 1, "priceK": 500 }], "opts": { "vat": "std" } },
+      "expect": { "subtotal": 1000, "vat": 200, "total": 1200 }
+    },
+    {
+      "id": "H3",
+      "category": "human",
+      "claim": "claim-4",
+      "description": "Льготная ставка на ДРУГОМ подытоге: 1000, все reduced → 100, итог 1100 — ловит копирование числа H1 вместо пересчёта.",
+      "bill": { "number": "СЧ-6", "lines": [{ "title": "Книга", "qty": 2, "priceK": 500, "reduced": true }], "opts": { "vat": "std" } },
+      "expect": { "subtotal": 1000, "vat": 100, "total": 1100 }
+    }
+  ]
+}
