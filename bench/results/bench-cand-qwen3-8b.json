@@ -1,0 +1,273 @@
+{
+  "run": {
+    "slug": "bench-cand-qwen3-8b",
+    "model": "ollama:qwen3:8b-ctx16k",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:qwen3:8b-ctx16k",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-01T08:04:39.582Z",
+    "finishedAt": "2026-09-01T08:34:39.644Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "запрос к модели отменён",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 139413,
+          "outputTokens": 7621,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1755186
+        },
+        "durationMs": 1799958
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 13,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:35b2d1f0-4cf5-4857-9dbe-eb05a3a7010c",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:f39befe1-0fe0-4b2c-9634-1e4472eb04fc",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:2b921414-53a1-4b1d-8931-43b246b73f8c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-qwen3-8b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:8cd0f1f2-43b9-4f71-bba0-df5fb194a3b7",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "src/oversize.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:6ae8e3c9-44fd-4551-9b6d-23b912539482",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "test/oversize.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:6f9c06c4-76c7-48cd-98ff-f2325c46d373",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-qwen3-8b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:cc68e10c-4d54-4db7-b0c5-eb81f804f91a",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-qwen3-8b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите, какие изменения вы хотите выполнить:"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Пожалуйста, подтвердите, какие изменения вы хотите выполнить (выберите один вариант):"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12674,
+        "userChars": 16291,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "chunk",
+        "requestId": "ask-89162fee-7d87-4cdd-8b6b-93f4a42a787c-1",
+        "questionId": "q1",
+        "text": "Подтвердите, какие изменения вы хотите выполнить:"
+      },
+      {
+        "stage": "chunk",
+        "requestId": "ask-89162fee-7d87-4cdd-8b6b-93f4a42a787c-2",
+        "questionId": "q1",
+        "text": "Пожалуйста, подтвердите, какие изменения вы хотите выполнить (выберите один вариант):"
+      }
+    ]
+  },
+  "seed": null
+}

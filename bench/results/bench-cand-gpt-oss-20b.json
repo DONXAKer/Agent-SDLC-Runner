@@ -1,0 +1,169 @@
+{
+  "run": {
+    "slug": "bench-cand-gpt-oss-20b",
+    "model": "ollama:gpt-oss-20b",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:gpt-oss-20b",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-01T10:30:14.511Z",
+    "finishedAt": "2026-09-01T10:44:23.604Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап закончился, но дерево не изменилось: правки не было",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 75195,
+          "outputTokens": 4259,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 847456
+        },
+        "durationMs": 848927
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 5,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:642b5551-c6e8-4038-b6d4-af654c826747",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-gpt-oss-20b/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите, что согласны с перечисленными изменениями: \n- src/oversize.ts: (new module)\n- src/tariffs.ts:surchargeFor (import)\n- src/tariffs.ts:Quote (surcharge field)\n- src/tariffs.ts:priceFor (modified calculation)\n- test/oversize.test.ts: (new tests per claim‑2…8)"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите, что согласны с перечисленными изменениями: \n- src/oversize.ts: (new модуль)\n- src/tariffs.ts:surchargeFor (import)\n- src/tariffs.ts:Quote (surcharge field)\n- src/tariffs.ts:priceFor (modified calculation)\n- test/oversize.test.ts: (new tests per claim‑2…8)"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12692,
+        "userChars": 16300,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "chunk",
+        "requestId": "ask-254e6e39-81fa-419d-96ec-926d8362bebe-1",
+        "questionId": "q1",
+        "text": "Подтвердите, что согласны с перечисленными изменениями: \n- src/oversize.ts: (new module)\n- src/tariffs.ts:surchargeFor (import)\n- src/tariffs.ts:Quote (surcharge field)\n- src/tariffs.ts:priceFor (modified calculation)\n- test/oversize.test.ts: (new tests per claim‑2…8)"
+      },
+      {
+        "stage": "chunk",
+        "requestId": "ask-254e6e39-81fa-419d-96ec-926d8362bebe-2",
+        "questionId": "q1",
+        "text": "Подтвердите, что согласны с перечисленными изменениями: \n- src/oversize.ts: (new модуль)\n- src/tariffs.ts:surchargeFor (import)\n- src/tariffs.ts:Quote (surcharge field)\n- src/tariffs.ts:priceFor (modified calculation)\n- test/oversize.test.ts: (new tests per claim‑2…8)"
+      }
+    ]
+  },
+  "seed": null
+}

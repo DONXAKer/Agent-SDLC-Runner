@@ -1,0 +1,189 @@
+{
+  "run": {
+    "slug": "bench-cand-agents-a1-4b-ctx16k",
+    "model": "ollama:agents-a1-4b",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:agents-a1-4b",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-01T09:55:50.389Z",
+    "finishedAt": "2026-09-01T09:59:04.563Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель упёрлась в лимит длины ответа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 168555,
+          "outputTokens": 10506,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 192820
+        },
+        "durationMs": 194071
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 13,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:f8dc5951-2cbd-42c0-b37f-6820a9202fc8",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      }
+    ],
+    "asks": [
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите точки правки для chunk 1: создание src/oversize.ts, внесение изменений в src/tariffs.ts, создание test/oversize.test.ts. Все ли они корректны?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите точки правки для chunk 1: создание src/oversize.ts, внесение изменений в src/tariffs.ts, создание test/oversize.test.ts."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите точки правки для chunk 1: создание src/oversize.ts, внесение изменений в src/tariffs.ts, создание test/oversize.test.ts."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12740,
+        "userChars": 16324,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "chunk",
+        "requestId": "ask-ce70735f-f935-4679-88e2-bad3e1e57d1d-1",
+        "questionId": "q1",
+        "text": "Подтвердите точки правки для chunk 1: создание src/oversize.ts, внесение изменений в src/tariffs.ts, создание test/oversize.test.ts. Все ли они корректны?"
+      },
+      {
+        "stage": "chunk",
+        "requestId": "ask-ce70735f-f935-4679-88e2-bad3e1e57d1d-2",
+        "questionId": "q1",
+        "text": "Подтвердите точки правки для chunk 1: создание src/oversize.ts, внесение изменений в src/tariffs.ts, создание test/oversize.test.ts."
+      },
+      {
+        "stage": "chunk",
+        "requestId": "ask-ce70735f-f935-4679-88e2-bad3e1e57d1d-3",
+        "questionId": "q1",
+        "text": "Подтвердите точки правки для chunk 1: создание src/oversize.ts, внесение изменений в src/tariffs.ts, создание test/oversize.test.ts."
+      }
+    ]
+  },
+  "seed": null
+}

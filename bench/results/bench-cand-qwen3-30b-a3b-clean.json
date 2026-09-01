@@ -1,0 +1,217 @@
+{
+  "run": {
+    "slug": "bench-cand-qwen3-30b-a3b-clean",
+    "model": "ollama:qwen3:30b-a3b",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:qwen3:30b-a3b",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-01T10:44:55.701Z",
+    "finishedAt": "2026-09-01T11:14:55.816Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "запрос к модели отменён",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 83822,
+          "outputTokens": 20899,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1652178
+        },
+        "durationMs": 1800011
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 8,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:51f1d880-714f-43cf-b991-99e36466f400",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:6ef84b5f-777b-45e5-bc89-5d1d17d6ba14",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-qwen3-30b-a3b-clean/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:6a85b84e-9634-4ef6-aaf3-eed71d6e1df5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "src/oversize.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:88be822f-13f2-47fd-9890-ef89697eb098",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:ec652f47-441d-40b7-9430-a7cf5fb15cfc",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтверждаете ли вы следующие изменения по плану:\n\n- Создать файл src/oversize.ts с порогами (120, 300 см) и ставками (40%, 90%)\n- Добавить импорт surchargeFor в src/tariffs.ts\n- Изменить функцию priceFor в src/tariffs.ts по шагам плана (добавить вычисление surcharge и условную сборку Quote)\n- Создать тесты в test/oversize.test.ts для claim-2..8"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.rate"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12740,
+        "userChars": 16324,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "chunk",
+        "requestId": "ask-36e4796f-f05c-4ba4-a316-7339097d0c75-1",
+        "questionId": "q1",
+        "text": "Подтверждаете ли вы следующие изменения по плану:\n\n- Создать файл src/oversize.ts с порогами (120, 300 см) и ставками (40%, 90%)\n- Добавить импорт surchargeFor в src/tariffs.ts\n- Изменить функцию priceFor в src/tariffs.ts по шагам плана (добавить вычисление surcharge и условную сборку Quote)\n- Создать тесты в test/oversize.test.ts для claim-2..8"
+      }
+    ]
+  },
+  "seed": null
+}
