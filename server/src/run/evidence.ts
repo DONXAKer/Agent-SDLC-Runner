@@ -37,6 +37,8 @@ export interface EvidenceResult {
   tree: TreeChange;
   /** Первая строка записи о тестах — для журнала событий. */
   testsNote: string;
+  /** Тот же текст, что лёг в `diffPath` — вызывающему он нужен ещё раз (сверка с планом). */
+  diff: string;
 }
 
 /**
@@ -93,5 +95,5 @@ export async function recordAttemptEvidence(args: {
     writeFileSync(args.testsPath, text, 'utf8');
   }
 
-  return { tree, testsNote };
+  return { tree, testsNote, diff };
 }

@@ -92,6 +92,7 @@ import type { ClaimRecord, FindingRecord } from './verifyReport.ts';
 import type { BuiltinGate, GateContext } from '../gates/builtin/index.ts';
 import { recordAttemptEvidence } from './evidence.ts';
 import type { TreeChange } from './evidence.ts';
+import { planConstantsMissingFromDiff } from './planConstants.ts';
 import { salvageBlocks } from './salvage.ts';
 import { preflightBlockers } from '../sandbox/preflight.ts';
 import { ensureSandboxFor } from '../sandbox/registry.ts';
@@ -2094,7 +2095,7 @@ export class Run {
         });
       }
 
-      const { tree, testsNote } = await recordAttemptEvidence({
+      const { tree, testsNote, diff } = await recordAttemptEvidence({
         projectRoot: this.project.projectRoot,
         diffPath: this.paths.chunkDiff(this.chunk, this.attempt),
         testsPath: this.paths.chunkTests(this.chunk, this.attempt),
@@ -2113,6 +2114,23 @@ export class Run {
           stage: 'chunk',
           message: 'дерево не изменилось за эту попытку — правки не было',
         });
+      } else {
+        // Тесты, написанные под собственную выдумку исполнителя, зеленеют, ничего не
+        // доказывая: живой прогон (docs/model-runs.md, серия r33) поймал модель, что
+        // проигнорировала явные числа плана и подставила свои. Узкая сверка — не подмена
+        // ревью, просто самый дешёвый и самый прямой сигнал из всех возможных.
+        const planText = readArtifact(this.paths.plan).text;
+        if (planText !== '') {
+          const mismatches = planConstantsMissingFromDiff(planText, diff);
+          if (mismatches.length > 0) {
+            this.emit({
+              type: 'warning',
+              runId: this.id,
+              stage: 'chunk',
+              message: `числа плана разошлись с diff'ом: ${mismatches.join('; ')}`,
+            });
+          }
+        }
       }
       this.emit({
         type: 'warning',
