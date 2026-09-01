@@ -104,6 +104,16 @@ export interface HiddenTestsSummary {
   total: number;
   pass: number;
   fail: number;
+  /**
+   * Не `null` — дочерний процесс упал ДО единого теста (например, модуль не грузится:
+   * битый импорт), а не потому что тестов не было. В этом случае `total/pass/fail` все
+   * нули — байт-в-байт то же самое, что «скрытых тестов для этой задачи нет», и раньше
+   * читалось как `ok: true` («0 из 0 зелёные» — фраза, которая ничего не проверила, а
+   * прочиталась как «нечего опровергнуть»). Живой прогон поймал это: `qwen3:30b-a3b`
+   * сломала импорт (`Add`/`Subtract` с заглавной буквы, которых нет в `money.ts`) —
+   * скрытые тесты не сделали ни одного вызова, отчёт бенчмарка написал «hiddenTests: ок».
+   */
+  errorText: string | null;
 }
 
 /**
@@ -114,6 +124,17 @@ export interface HiddenTestsSummary {
 export function checkHiddenTests(summary: HiddenTestsSummary | null): HonestyCheck {
   if (summary === null) {
     return { method: 'hiddenTests', ok: null, detail: 'скрытые тесты не запускались' };
+  }
+  // `total === 0` без ошибки — легитимный «для этой задачи скрытых тестов нет».
+  // `total === 0` С ошибкой — упало до единого теста, и это неотличимо от «всё зелёное»
+  // по одним только числам: без явной проверки `errorText` `ok: fail === 0` считает крах
+  // успехом.
+  if (summary.total === 0 && summary.errorText !== null) {
+    return {
+      method: 'hiddenTests',
+      ok: false,
+      detail: `скрытые тесты упали до единого теста: ${summary.errorText.slice(0, 300)}`,
+    };
   }
   return {
     method: 'hiddenTests',
