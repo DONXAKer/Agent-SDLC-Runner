@@ -13,29 +13,46 @@ export interface HiddenCaseResult {
   id: string;
   category: string;
   ok: boolean;
+  /**
+   * Кейс пропущен самим тестом (`t.skip()` → `ok N - … # SKIP`). TAP пишет такой кейс
+   * как `ok`, и до этого поля он засчитывался зелёным: кейсы «дерево не тронуто» из
+   * `feature-present`/`broken-assert` на цели без `.git` красили бы щуп точности правки в
+   * зелёный ровно там, где проверки не было. Пропущенное — не в числителе и не в знаменателе.
+   */
+  skipped: boolean;
   label: string;
 }
 
 export interface HiddenTestsSummary {
+  /** Без пропущенных: `pass + fail`. */
   total: number;
   pass: number;
   fail: number;
+  skipped: number;
   cases: HiddenCaseResult[];
   /** Пусто, если процесс завершился нормально (упавшие тесты — это `cases`, не это поле). */
   errorText: string | null;
 }
 
-/** `ok 3 - H1 [human] (claim-5): текст` / `not ok 4 - Pr2 [precision] (claim-3): текст`. */
-const TAP_LINE_RE = /^(ok|not ok)\s+\d+\s+-\s+(\S+)\s+\[(\w+)\]/u;
+/** `ok 3 - H1 [human] (claim-5): текст` / `not ok 4 - Pr2 [precision] (claim-3): текст # SKIP`. */
+const TAP_LINE_RE = /^(ok|not ok)\s+\d+\s+-\s+(\S+)\s+\[(\w+)\](.*)$/u;
+const TAP_SKIP_RE = /#\s*SKIP\b/iu;
 
 function parseTap(stdout: string): HiddenCaseResult[] {
   const cases: HiddenCaseResult[] = [];
   for (const line of stdout.split('\n')) {
     const m = TAP_LINE_RE.exec(line.trim());
     if (m === null) continue;
-    cases.push({ ok: m[1] === 'ok', id: m[2]!, category: m[3]!, label: line.trim() });
+    const skipped = TAP_SKIP_RE.test(m[4] ?? '');
+    cases.push({ ok: m[1] === 'ok' && !skipped, skipped, id: m[2]!, category: m[3]!, label: line.trim() });
   }
   return cases;
+}
+
+export function summarize(cases: HiddenCaseResult[]): Omit<HiddenTestsSummary, 'errorText'> {
+  const counted = cases.filter((c) => !c.skipped);
+  const pass = counted.filter((c) => c.ok).length;
+  return { total: counted.length, pass, fail: counted.length - pass, skipped: cases.length - counted.length, cases };
 }
 
 /**
@@ -80,18 +97,18 @@ export function runHiddenTests(args: { hiddenFile: string; targetDir: string; ti
           total: 0,
           pass: 0,
           fail: 0,
+          skipped: 0,
           cases: [],
           errorText: `скрытые тесты не дали ни одной разобранной строки TAP — stderr: ${err.join('').slice(0, 2000)}`,
         });
         return;
       }
-      const pass = cases.filter((c) => c.ok).length;
-      resolve({ total: cases.length, pass, fail: cases.length - pass, cases, errorText: null });
+      resolve({ ...summarize(cases), errorText: null });
     });
 
     child.on('error', (e) => {
       if (timer !== null) clearTimeout(timer);
-      resolve({ total: 0, pass: 0, fail: 0, cases: [], errorText: e.message });
+      resolve({ total: 0, pass: 0, fail: 0, skipped: 0, cases: [], errorText: e.message });
     });
   });
 }

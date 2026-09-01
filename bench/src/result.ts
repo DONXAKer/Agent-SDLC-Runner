@@ -18,12 +18,16 @@ import type { CollectorState } from './collector.ts';
 import type { BenchOptions } from './options.ts';
 import type { BuiltProfile } from './profile.ts';
 import type { SeedProbe } from './seeds.ts';
+import { taskById } from './tasks.ts';
 
 export interface BenchResult {
   /** Идентификация прогона — не измерение, а его паспорт. */
   run: {
     slug: string;
     model: string;
+    /** Задача и каталог её фикстуры: с одним каталогом это выводилось из слага, с реестром — нет. */
+    task: string;
+    fixtureDir: string;
     mode: BenchOptions['mode'];
     profileLabel: string;
     routes: BuiltProfile['routes'];
@@ -61,6 +65,8 @@ export function buildResult(args: {
     run: {
       slug: opts.slug,
       model: opts.model,
+      task: opts.task,
+      fixtureDir: taskById(opts.task).fixtureDir,
       mode: opts.mode,
       profileLabel: built.profile.label,
       routes: built.routes,

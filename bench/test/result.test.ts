@@ -113,6 +113,8 @@ describe('writeResult', () => {
         run: {
           slug: 's',
           model: 'm',
+          task: 'oversize',
+          fixtureDir: 'fixture',
           mode: { kind: 'stage' as const, stage: 'intent' as const },
           profileLabel: 'l',
           routes: {

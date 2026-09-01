@@ -31,6 +31,7 @@ import type { BenchOptions } from './options.ts';
 import { ControlError, buildProfile, readControl } from './profile.ts';
 import { WorkspaceError, prepareWorkspace } from './workspace.ts';
 import { makeSnapshot, restoreSnapshot, verifyRestoredBranch } from './snapshot.ts';
+import { TaskError, taskById } from './tasks.ts';
 import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
 import type { SeedProbe } from './seeds.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
@@ -43,24 +44,40 @@ import { draftJournalEntry } from './journal.ts';
 const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RESULTS_DIR = join(BENCH_DIR, 'results');
 const SNAPSHOTS_DIR = join(BENCH_DIR, 'snapshots');
-const FIXTURE_DIR = join(BENCH_DIR, 'fixture');
 const CONTROL_FILE = join(BENCH_DIR, 'control.json');
 
 /**
- * Пути задачи фикстуры. `oversize` — первая задача, заведена до многозадачности, имена
- * файлов без суффикса; более новые задачи (`freeship`, …) — с суффиксом `-<task>`/`.<task>`.
- * Каждая задача несёт СВОЙ банк ответов человека: `denyWritesTo` одной задачи может быть
- * ровно тем файлом, который вторая обязана тронуть (обнаружено при заведении `freeship` —
- * `discounts.ts` был запрещён для `oversize` и нужен для `freeship`), общий банк на все
- * задачи здесь в принципе не годится.
+ * Пути задачи фикстуры — из реестра `tasks.ts`, а не из соглашения об именах: с несколькими
+ * каталогами фикстур (`fixtures/<family>`) каталог и оба файла выводить из одного id уже
+ * не выходит. Каждая задача несёт СВОЙ банк ответов человека: `denyWritesTo` одной задачи
+ * может быть ровно тем файлом, который вторая обязана тронуть (обнаружено при заведении
+ * `freeship` — `discounts.ts` был запрещён для `oversize` и нужен для `freeship`), общий
+ * банк на все задачи здесь в принципе не годится.
  */
-function taskFiles(task: BenchOptions['task']): { taskFile: string; humanFile: string; hiddenFile: string } {
-  const suffix = task === 'oversize' ? '' : `-${task}`;
-  return {
-    taskFile: join(FIXTURE_DIR, task === 'oversize' ? 'task.md' : `task${suffix}.md`),
-    humanFile: join(FIXTURE_DIR, task === 'oversize' ? 'human.json' : `human${suffix}.json`),
-    hiddenFile: join(BENCH_DIR, 'checks', 'hidden', `${task}.hidden.mjs`),
+function taskFiles(task: BenchOptions['task']): {
+  fixtureDir: string;
+  taskFile: string;
+  humanFile: string;
+  hiddenFile: string;
+} {
+  const def = taskById(task);
+  const fixtureDir = join(BENCH_DIR, def.fixtureDir);
+  const files = {
+    fixtureDir,
+    taskFile: join(fixtureDir, def.taskFile),
+    humanFile: join(fixtureDir, def.humanFile),
+    hiddenFile: join(BENCH_DIR, 'checks', 'hidden', `${def.id}.hidden.mjs`),
   };
+  // Реестр описывает задачи наперёд, каталоги семейств появляются постепенно. Без этой
+  // проверки задача без фикстуры валилась сырым ENOENT из readFileSync с кодом 1 — «модель
+  // не прошла», хотя измерение не начиналось; здесь это код 2 и понятная причина.
+  if (!existsSync(fixtureDir)) {
+    throw new TaskError(`задача «${def.id}» есть в реестре, но каталога фикстуры ${def.fixtureDir} на диске ещё нет`);
+  }
+  for (const f of [files.taskFile, files.humanFile]) {
+    if (!existsSync(f)) throw new TaskError(`задача «${def.id}»: нет файла ${f}`);
+  }
+  return files;
 }
 
 /**
@@ -103,9 +120,10 @@ async function dryRun(opts: BenchOptions): Promise<number> {
   const base = loadConfig();
   const config = benchConfig(base, opts);
   const control = readControl(CONTROL_FILE);
-  const branch = branchFromTask(taskFiles(opts.task).taskFile);
+  const files = taskFiles(opts.task);
+  const branch = branchFromTask(files.taskFile);
 
-  const ws = await prepareWorkspace({ fixtureDir: FIXTURE_DIR, slug: opts.slug, branch });
+  const ws = await prepareWorkspace({ fixtureDir: files.fixtureDir, slug: opts.slug, branch });
   console.log(`рабочая копия: ${ws.root}`);
   console.log(`ветка витка:   ${ws.branch} (база ${ws.baseCommit.slice(0, 8)})`);
 
@@ -195,7 +213,17 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
   let startStage: StageId | undefined;
 
   if (opts.fromSnapshot !== null) {
-    const restored = restoreSnapshot({ snapshotsDir: SNAPSHOTS_DIR, name: opts.fromSnapshot, targetSlug: opts.slug });
+    const restored = restoreSnapshot({
+      snapshotsDir: SNAPSHOTS_DIR,
+      name: opts.fromSnapshot,
+      targetSlug: opts.slug,
+      expectedTask: opts.task,
+    });
+    if (restored.taskUnverified) {
+      console.warn(
+        `предупреждение: снимок «${opts.fromSnapshot}» снят до появления поля task — принадлежность задаче «${opts.task}» не сверена`,
+      );
+    }
     await verifyRestoredBranch(restored.root, restored.branch);
     wsRoot = restored.root;
     wsBranch = restored.branch;
@@ -217,7 +245,9 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     // Посев вносится ПОСЛЕ восстановления и ДО первого этапа прогона: патч попытки
     // рантайм перегенерирует из дерева сам, и посеянное приходит рецензенту тем же
     // путём, что работа исполнителя. Ошибка внесения роняет прогон — замер без
-    // внесённого дефекта выглядел бы как «рецензент ничего не нашёл».
+    // внесённого дефекта выглядел бы как «рецензент ничего не нашёл». Применимость посева
+    // к задаче уже проверил разбор ключей, а принадлежность снимка задаче — restoreSnapshot:
+    // дерево здесь гарантированно той задачи, для которой посев объявлен.
     if (opts.seed !== null && opts.seed !== SEED_NONE) {
       const seed = seedById(opts.seed);
       try {
@@ -231,7 +261,7 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       console.log('посев:         none — контрольный прогон, меряются ложные срабатывания');
     }
   } else {
-    const ws = await prepareWorkspace({ fixtureDir: FIXTURE_DIR, slug: opts.slug, branch });
+    const ws = await prepareWorkspace({ fixtureDir: files.fixtureDir, slug: opts.slug, branch });
     wsRoot = ws.root;
     wsBranch = ws.branch;
     wsDispose = ws.dispose;
@@ -351,6 +381,7 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
         slug: opts.slug,
         branch: wsBranch,
         stoppedAfterStage: opts.snapshotAfter,
+        task: opts.task,
       });
       console.log(`\nснимок сохранён: ${opts.makeSnapshot} (после ${opts.snapshotAfter})`);
       return { code: 0, hidden: null, durationMs: finishedAt.getTime() - startedAt.getTime() };
@@ -398,7 +429,10 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : '';
     const events = readPersistedEvents(wsRoot, opts.slug);
 
-    const hasFeature = existsSync(files.hiddenFile) && existsSync(join(wsRoot, 'src', 'index.ts'));
+    // Раскладку цели здесь не угадываем (`src/index.ts` был допущением одной фикстуры):
+    // если точки входа нет, скрытый тест сам упадёт с `errorText` — а «не запускались» в
+    // отчёте означало бы, что проверки не было, и это неправда.
+    const hasFeature = existsSync(files.hiddenFile);
     const chunkRan = driverResult.stages.some((s) => s.stage === 'chunk');
     const hidden =
       hasFeature && chunkRan ? await runHiddenTests({ hiddenFile: files.hiddenFile, targetDir: wsRoot }) : null;
@@ -575,7 +609,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       console.error(`профиль не собрался:\n  ${e.problems.join('\n  ')}`);
       return 2;
     }
-    if (e instanceof ControlError || e instanceof WorkspaceError || e instanceof HumanScriptError) {
+    if (e instanceof ControlError || e instanceof WorkspaceError || e instanceof HumanScriptError || e instanceof TaskError) {
       console.error(`подготовка не удалась: ${e.message}`);
       return 2;
     }

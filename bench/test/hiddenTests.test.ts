@@ -45,6 +45,35 @@ describe('runHiddenTests: разбор TAP на синтетическом фа�
     ok(r.errorText !== null);
   });
 
+  it('кейс, пропущенный самим тестом (# SKIP), не зелёный и не в знаменателе', async () => {
+    // Кейсы «дерево не тронуто» пропускают себя на цели без `.git` — TAP пишет их `ok … # SKIP`,
+    // и без отдельного разбора они красили бы щуп точности правки в зелёный там, где проверки не было.
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-hidden-')));
+    roots.push(dir);
+    const file = join(dir, 'skip.hidden.mjs');
+    writeFileSync(
+      file,
+      [
+        "import { test } from 'node:test';",
+        "test('R1 [regression]: есть', () => {});",
+        "test('Pr1 [precision]: дерево не тронуто', (t) => { t.skip('цели без .git'); });",
+        "test('Pr2 [precision]: падает', () => { throw new Error('нет'); });",
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const r = await runHiddenTests({ hiddenFile: file, targetDir: dir });
+    strictEqual(r.errorText, null);
+    strictEqual(r.cases.length, 3);
+    strictEqual(r.skipped, 1);
+    strictEqual(r.total, 2);
+    strictEqual(r.pass, 1);
+    strictEqual(r.fail, 1);
+    const pr1 = r.cases.find((c) => c.id === 'Pr1')!;
+    strictEqual(pr1.skipped, true);
+    strictEqual(pr1.ok, false);
+  });
+
   it('несуществующий файл — errorText от spawn, не исключение наружу', async () => {
     const r = await runHiddenTests({ hiddenFile: '/нет/такого/файла.mjs', targetDir: '.' });
     strictEqual(r.total, 0);

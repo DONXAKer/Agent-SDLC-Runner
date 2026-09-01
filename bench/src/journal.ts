@@ -43,7 +43,7 @@ export function draftJournalEntry(args: { result: BenchResult; report: Report })
   const spent = [...byCurrency.entries()].map(([cur, v]) => money(v, cur)).join(' + ');
 
   return [
-    `## \`${result.run.model}\` — bench, ${dateOnly}${report.dangerous ? ' — ⚠️ ОПАСНА' : ''}`,
+    `## \`${result.run.model}\` — bench/${result.run.task}, ${dateOnly}${report.dangerous ? ' — ⚠️ ОПАСНА' : ''}`,
     '',
     '| Этапы 1–4 | Этап 5 | Этап 6 |',
     '|---|---|---|',

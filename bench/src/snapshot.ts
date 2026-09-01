@@ -44,6 +44,15 @@ export interface SnapshotMeta {
   /** Этап, после которого сделан снимок — дальше начинает `--from-snapshot`. */
   stoppedAfterStage: StageId;
   createdAt: string;
+  /**
+   * Задача (`--task`), для которой снят снимок. Без неё снимок `vat-rounding-plan` под
+   * `--task oversize` (умолчание ключа!) восстанавливался молча: дерево — от billing, а
+   * банк ответов, текст задачи и скрытый тест — от oversize; все кейсы красные при
+   * исправной модели, и по отчёту это неотличимо от провала. Необязательное поле только
+   * ради снимков, снятых до его появления (`oversize-plan`, `freeship-plan` — оплаченные
+   * прогоны на claude-sdk): у них сверка пропускается с предупреждением.
+   */
+  task?: string;
 }
 
 function metaPath(dir: string): string {
@@ -61,6 +70,7 @@ export function makeSnapshot(args: {
   slug: string;
   branch: string;
   stoppedAfterStage: StageId;
+  task: string;
 }): void {
   const dest = join(args.snapshotsDir, args.name);
   rmSync(dest, { recursive: true, force: true });
@@ -74,6 +84,7 @@ export function makeSnapshot(args: {
     branch: args.branch,
     stoppedAfterStage: args.stoppedAfterStage,
     createdAt: new Date().toISOString(),
+    task: args.task,
   };
   writeFileSync(metaPath(dest), `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
 }
@@ -83,6 +94,11 @@ export interface RestoredSnapshot {
   slug: string;
   branch: string;
   stoppedAfterStage: StageId;
+  /**
+   * `true` — снимок снят до поля `task`, принадлежность задаче сверить было нечем: прогон
+   * идёт под честное слово ключа `--task`. Печатается предупреждением, прогон не роняет.
+   */
+  taskUnverified: boolean;
   dispose(): void;
 }
 
@@ -99,7 +115,13 @@ export interface RestoredSnapshot {
  * дойдя до модели). Каталог `.sdlc/<исходный слаг>/` переименовывается в
  * `.sdlc/<targetSlug>/` внутри копии — снимка это не касается, копия одноразовая.
  */
-export function restoreSnapshot(args: { snapshotsDir: string; name: string; targetSlug: string }): RestoredSnapshot {
+export function restoreSnapshot(args: {
+  snapshotsDir: string;
+  name: string;
+  targetSlug: string;
+  /** Задача прогона (`--task`): снимок чужой задачи отвергается ДО копирования дерева. */
+  expectedTask: string;
+}): RestoredSnapshot {
   const src = join(args.snapshotsDir, args.name);
   if (!existsSync(src)) {
     throw new SnapshotError(`снимка «${args.name}» нет в ${args.snapshotsDir}`);
@@ -109,6 +131,12 @@ export function restoreSnapshot(args: { snapshotsDir: string; name: string; targ
     throw new SnapshotError(`${src}: нет snapshot.json — это не снимок бенчмарка`);
   }
   const meta = JSON.parse(readFileSync(metaFile, 'utf8')) as SnapshotMeta;
+  if (meta.task !== undefined && meta.task !== args.expectedTask) {
+    throw new SnapshotError(
+      `снимок «${args.name}» снят для задачи «${meta.task}», прогон запрошен для «${args.expectedTask}» — ` +
+        'банк ответов и скрытые тесты не совпали бы с деревом; укажи --task ' + meta.task,
+    );
+  }
 
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-snap-')));
   try {
@@ -131,6 +159,7 @@ export function restoreSnapshot(args: { snapshotsDir: string; name: string; targ
       slug: args.targetSlug,
       branch: meta.branch,
       stoppedAfterStage: meta.stoppedAfterStage,
+      taskUnverified: meta.task === undefined,
       dispose: () => rmSync(root, { recursive: true, force: true }),
     };
   } catch (e) {

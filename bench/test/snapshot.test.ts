@@ -1,5 +1,5 @@
 import { ok, rejects, strictEqual, throws } from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -43,9 +43,10 @@ describe('makeSnapshot / restoreSnapshot', () => {
       slug: 'demo',
       branch: 'sdlc/demo',
       stoppedAfterStage: 'plan',
+      task: 'oversize',
     });
 
-    const restored = restoreSnapshot({ snapshotsDir, name: 'demo', targetSlug: 'demo' });
+    const restored = restoreSnapshot({ snapshotsDir, name: 'demo', targetSlug: 'demo', expectedTask: 'oversize' });
     roots.push(restored.root);
 
     strictEqual(restored.slug, 'demo');
@@ -81,9 +82,10 @@ describe('makeSnapshot / restoreSnapshot', () => {
       slug: 'demo',
       branch: 'sdlc/demo',
       stoppedAfterStage: 'plan',
+      task: 'oversize',
     });
 
-    const restored = restoreSnapshot({ snapshotsDir, name: 'demo', targetSlug: 'bench-local-qwen' });
+    const restored = restoreSnapshot({ snapshotsDir, name: 'demo', targetSlug: 'bench-local-qwen', expectedTask: 'oversize' });
     roots.push(restored.root);
 
     strictEqual(restored.slug, 'bench-local-qwen');
@@ -103,6 +105,7 @@ describe('makeSnapshot / restoreSnapshot', () => {
       slug: 'first',
       branch: 'sdlc/demo',
       stoppedAfterStage: 'plan',
+      task: 'oversize',
     });
     makeSnapshot({
       workspaceRoot,
@@ -111,9 +114,10 @@ describe('makeSnapshot / restoreSnapshot', () => {
       slug: 'second',
       branch: 'sdlc/demo',
       stoppedAfterStage: 'chunk',
+      task: 'oversize',
     });
 
-    const restored = restoreSnapshot({ snapshotsDir, name: 'demo', targetSlug: 'second' });
+    const restored = restoreSnapshot({ snapshotsDir, name: 'demo', targetSlug: 'second', expectedTask: 'oversize' });
     roots.push(restored.root);
     strictEqual(restored.slug, 'second');
     strictEqual(restored.stoppedAfterStage, 'chunk');
@@ -140,11 +144,12 @@ describe('makeSnapshot / restoreSnapshot', () => {
       slug: 'demo',
       branch: 'sdlc/demo',
       stoppedAfterStage: 'plan',
+      task: 'oversize',
     });
 
     strictEqual(existsSync(join(snapshotsDir, 'слот', '.sdlc', 'demo', '.events.ndjson')), false);
 
-    const restored = restoreSnapshot({ snapshotsDir, name: 'слот', targetSlug: 'demo' });
+    const restored = restoreSnapshot({ snapshotsDir, name: 'слот', targetSlug: 'demo', expectedTask: 'oversize' });
     roots.push(restored.root);
     strictEqual(existsSync(join(restored.root, '.sdlc', 'demo', '.events.ndjson')), false);
     // Артефакты витка при этом на месте — чистится ровно лента, а не каталог.
@@ -161,11 +166,12 @@ describe('makeSnapshot / restoreSnapshot', () => {
       slug: 'demo',
       branch: 'sdlc/demo',
       stoppedAfterStage: 'plan',
+      task: 'oversize',
     });
     // Имитируем прежний снимок: лента лежит внутри него.
     writeFileSync(join(snapshotsDir, 'старый', '.sdlc', 'demo', '.events.ndjson'), '{"type":"usage"}\n', 'utf8');
 
-    const restored = restoreSnapshot({ snapshotsDir, name: 'старый', targetSlug: 'новый-слаг' });
+    const restored = restoreSnapshot({ snapshotsDir, name: 'старый', targetSlug: 'новый-слаг', expectedTask: 'oversize' });
     roots.push(restored.root);
     strictEqual(existsSync(join(restored.root, '.sdlc', 'новый-слаг', '.events.ndjson')), false);
     ok(existsSync(join(restored.root, '.sdlc', 'новый-слаг', 'plan.md')));
@@ -173,18 +179,51 @@ describe('makeSnapshot / restoreSnapshot', () => {
 
   it('несуществующий снимок — понятная ошибка, а не ENOENT из fs', () => {
     const snapshotsDir = tmp('sdlc-bench-snaps-empty-');
-    throws(() => restoreSnapshot({ snapshotsDir, name: 'нет-такого', targetSlug: 'x' }), SnapshotError);
+    throws(() => restoreSnapshot({ snapshotsDir, name: 'нет-такого', targetSlug: 'x', expectedTask: 'oversize' }), SnapshotError);
   });
 
   it('каталог без snapshot.json — не считается снимком бенчмарка', () => {
     const snapshotsDir = tmp('sdlc-bench-snaps-foreign-');
     mkdirSync(join(snapshotsDir, 'чужое'), { recursive: true });
     writeFileSync(join(snapshotsDir, 'чужое', 'x.txt'), 'x', 'utf8');
-    throws(() => restoreSnapshot({ snapshotsDir, name: 'чужое', targetSlug: 'x' }), SnapshotError);
+    throws(() => restoreSnapshot({ snapshotsDir, name: 'чужое', targetSlug: 'x', expectedTask: 'oversize' }), SnapshotError);
   });
 
   it('verifyRestoredBranch падает понятной ошибкой на расхождении ветки', async () => {
     const workspaceRoot = await makeWorkspace();
     await rejects(verifyRestoredBranch(workspaceRoot, 'sdlc/другая-ветка'), SnapshotError);
+  });
+
+  it('снимок чужой задачи отвергается до копирования дерева', async () => {
+    // Умолчание `--task oversize` делало это поведением по умолчанию: снимок billing под
+    // oversize давал чужой банк ответов и чужие скрытые тесты поверх дерева — все кейсы
+    // красные при исправной модели.
+    const workspaceRoot = await makeWorkspace();
+    const snapshotsDir = tmp('sdlc-bench-snaps-');
+    makeSnapshot({ workspaceRoot, snapshotsDir, name: 'vat', slug: 'demo', branch: 'sdlc/demo', stoppedAfterStage: 'plan', task: 'vat-rounding' });
+    throws(
+      () => restoreSnapshot({ snapshotsDir, name: 'vat', targetSlug: 'x', expectedTask: 'oversize' }),
+      (e: unknown) => e instanceof SnapshotError && /vat-rounding/.test(e.message) && /oversize/.test(e.message),
+    );
+    const ok2 = restoreSnapshot({ snapshotsDir, name: 'vat', targetSlug: 'x', expectedTask: 'vat-rounding' });
+    roots.push(ok2.root);
+    strictEqual(ok2.taskUnverified, false);
+    ok2.dispose();
+  });
+
+  it('снимок без поля task (снят до его появления) принимается с пометкой, а не ошибкой', async () => {
+    // `oversize-plan`/`freeship-plan` — оплаченные прогоны на claude-sdk; ломать их
+    // ради нового поля нельзя.
+    const workspaceRoot = await makeWorkspace();
+    const snapshotsDir = tmp('sdlc-bench-snaps-');
+    makeSnapshot({ workspaceRoot, snapshotsDir, name: 'старый', slug: 'demo', branch: 'sdlc/demo', stoppedAfterStage: 'plan', task: 'oversize' });
+    const metaFile = join(snapshotsDir, 'старый', 'snapshot.json');
+    const meta = JSON.parse(readFileSync(metaFile, 'utf8')) as Record<string, unknown>;
+    delete meta['task'];
+    writeFileSync(metaFile, JSON.stringify(meta), 'utf8');
+    const restored = restoreSnapshot({ snapshotsDir, name: 'старый', targetSlug: 'x', expectedTask: 'freeship' });
+    roots.push(restored.root);
+    strictEqual(restored.taskUnverified, true);
+    restored.dispose();
   });
 });

@@ -5,7 +5,8 @@
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { StageId } from '@sdlc-runner/shared';
 
-import { SEED_NONE, seedIds } from './seeds.ts';
+import { SEED_NONE, seedById, seedIds } from './seeds.ts';
+import { TASK_DEFS } from './tasks.ts';
 
 export type BenchMode =
   /** Измеряемая модель на одном этапе, остальные — контрольный маршрут. */
@@ -20,11 +21,16 @@ export type BenchMode =
   | { kind: 'all' };
 
 /**
- * Задачи фикстуры `parcel-price` — по имени собираются пути `task-<task>.md`,
- * `human-<task>.json`, `<task>.hidden.mjs` (кроме `oversize`, у неё имена без суффикса по
- * историческим причинам — первая задача, заведена раньше многозадачности).
+ * Задачи бенчмарка — выводятся из реестра `tasks.ts`, который же знает каталог и файлы
+ * каждой. `oversize` — первая задача, у неё имена файлов без суффикса по историческим
+ * причинам (заведена раньше многозадачности).
  */
-export const TASKS = ['oversize', 'freeship'] as const;
+export const TASKS = TASK_DEFS.map((t) => t.id);
+/**
+ * Намеренно `string`, а не union литералов: реестр собирается функцией `familyTask()`, и
+ * вывести из него литеральные id без переустройства реестра нельзя. Гарантию даёт не тип,
+ * а `isTask()` при разборе ключей и `taskById()` везде дальше.
+ */
 export type Task = (typeof TASKS)[number];
 
 export interface BenchOptions {
@@ -106,13 +112,24 @@ const DEFAULTS = {
   attempts: 3,
 };
 
+/**
+ * Список задач для справки — по строке на каталог фикстуры. Один ряд из тридцати id
+ * печатался при ЛЮБОЙ ошибке ключей и читался как шум.
+ */
+function taskListForUsage(): string {
+  const byDir = new Map<string, string[]>();
+  for (const t of TASK_DEFS) byDir.set(t.fixtureDir, [...(byDir.get(t.fixtureDir) ?? []), t.id]);
+  return [...byDir.entries()].map(([dir, ids]) => `                          ${dir}: ${ids.join(' | ')}`).join('\n');
+}
+
 export const USAGE = `
 Бенчмарк моделей на фикстурном витке.
 
   npm run bench -- --model <id> (--stage <этап> | --all) [ключи]
 
   --model <id>          измеряемая модель, id из config/models.json
-  --task <имя>          задача фикстуры (умолчание oversize): ${TASKS.join('|')}
+  --task <имя>          задача бенчмарка (умолчание oversize), по семействам фикстур:
+${taskListForUsage()}
   --stage <этап>        измерять один этап: intent|explore|ask|plan|chunk|verify|handoff
   --all                 измерять все этапы, КРОМЕ verify (правило рецензента)
   --slug <имя>          слаг витка (умолчание: bench-<модель>-<режим>)
@@ -325,6 +342,15 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     }
     if (mode === null || mode.kind !== 'stage' || mode.stage !== 'verify') {
       throw new OptionsError('--seed имеет смысл только с --stage verify: посевом меряется находимость этапа 6');
+    }
+    // Якорь посева — дословный текст конкретной фикстуры, поэтому посев применим ровно к
+    // задачам из его списка. Отклонить комбинацию здесь дешевле, чем упасть на дорогом
+    // замере с «якорь не найден» из applySeed.
+    const def = seedById(seed);
+    if (!def.tasks.includes(task)) {
+      throw new OptionsError(
+        `посев «${seed}» применим только к задачам: ${def.tasks.join(', ')} — задача «${task}» не входит в список`,
+      );
     }
   }
   // Точка снимка без самого снимка — почти наверняка опечатка в наборе ключей, и молчаливое

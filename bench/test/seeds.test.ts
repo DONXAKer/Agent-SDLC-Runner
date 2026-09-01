@@ -8,8 +8,16 @@ import { describe, it } from 'node:test';
 import type { GateRunResult } from '@sdlc-runner/shared';
 
 import { SEEDS, SEED_NONE, SeedError, applySeed, probeNoSeed, probeSeed, seedById, seedIds } from '../src/seeds.ts';
+import type { SeedDef } from '../src/seeds.ts';
+import { TASKS } from '../src/options.ts';
+import { taskById } from '../src/tasks.ts';
 
-const FIXTURE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixture');
+const BENCH_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Каталог фикстуры посева — из его первой задачи: якорь живёт в дереве конкретного семейства. */
+function fixtureDirOf(seed: SeedDef): string {
+  return join(BENCH_DIR, taskById(seed.tasks[0]!).fixtureDir);
+}
 
 function gate(name: string, status: GateRunResult['status']): GateRunResult {
   return {
@@ -23,9 +31,9 @@ function gate(name: string, status: GateRunResult['status']): GateRunResult {
   };
 }
 
-function workspace(): { root: string; dispose: () => void } {
+function workspace(seed: SeedDef = seedById('silent-price-change')): { root: string; dispose: () => void } {
   const root = mkdtempSync(join(tmpdir(), 'sdlc-seed-test-'));
-  cpSync(FIXTURE_DIR, root, { recursive: true });
+  cpSync(fixtureDirOf(seed), root, { recursive: true });
   return { root, dispose: () => rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -35,8 +43,20 @@ describe('посев: якоря', () => {
   // выглядеть будет как «модель ничего не нашла». Здесь это ловится набором.
   it('каждый якорь встречается в своём файле фикстуры ровно один раз', () => {
     for (const seed of SEEDS) {
-      const text = readFileSync(join(FIXTURE_DIR, seed.file), 'utf8');
+      const text = readFileSync(join(fixtureDirOf(seed), seed.file), 'utf8');
       strictEqual(text.split(seed.find).length - 1, 1, `посев ${seed.id}: якорь в ${seed.file}`);
+    }
+  });
+
+  it('задачи посева известны реестру и делят один каталог фикстуры', () => {
+    // Опечатка в `tasks` давала бы вечный OptionsError «не входит в список» — посев
+    // становился незапускаемым при зелёных тестах. Две задачи из разных каталогов у одного
+    // посева означали бы поиск якоря одного семейства в дереве другого.
+    for (const seed of SEEDS) {
+      ok(seed.tasks.length > 0, `посев ${seed.id}: список задач пуст`);
+      for (const t of seed.tasks) ok(TASKS.includes(t), `посев ${seed.id}: задача «${t}» не в реестре`);
+      const dirs = new Set(seed.tasks.map((t) => taskById(t).fixtureDir));
+      strictEqual(dirs.size, 1, `посев ${seed.id}: задачи из разных каталогов ${[...dirs].join(', ')}`);
     }
   });
 
