@@ -1,0 +1,221 @@
+{
+  "run": {
+    "slug": "bench-cand-devstral-small-2-v2",
+    "model": "ollama:devstral-small-2",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:devstral-small-2",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-01T16:07:14.505Z",
+    "finishedAt": "2026-09-01T16:34:48.988Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель упёрлась в лимит длины ответа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 99766,
+          "outputTokens": 2123,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1653066
+        },
+        "durationMs": 1654377
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 9,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "loop:69a056fa-d602-4712-a055-b18081c7f596",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:3eb6caba-b7b5-4382-bc96-001ac966e143",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-devstral-small-2-v2/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:64913c05-0800-4d8d-bb72-f70f610287fa",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-devstral-small-2-v2/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "loop:e0250b06-ecf4-4fcf-ac56-16e2bfc76ea0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-devstral-small-2-v2/chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите точки правки:\n- src/oversize.ts (новый модуль)\n- src/tariffs.ts (импорты и изменения в Quote/priceFor)\n- test/oversize.test.ts (новый тестовый файл)\n\nПлан одобрен earlier сессии, использую его — сказано явно."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "chunk",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите точки правки на этапе 5:\n- src/oversize.ts (новый модуль)\n- src/tariffs.ts (импорты и изменения в Quote/priceFor)\n- test/oversize.test.ts (новый тестовый файл)\n\nПлан одобрен earlier сессии, использую его — сказано явно."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12740,
+        "userChars": 16323,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "chunk",
+        "requestId": "ask-2b7d6ac1-7b6b-4d9f-84bb-0757f0c810d9-1",
+        "questionId": "q1",
+        "text": "Подтвердите точки правки:\n- src/oversize.ts (новый модуль)\n- src/tariffs.ts (импорты и изменения в Quote/priceFor)\n- test/oversize.test.ts (новый тестовый файл)\n\nПлан одобрен earlier сессии, использую его — сказано явно."
+      },
+      {
+        "stage": "chunk",
+        "requestId": "ask-2b7d6ac1-7b6b-4d9f-84bb-0757f0c810d9-2",
+        "questionId": "q1",
+        "text": "Подтвердите точки правки на этапе 5:\n- src/oversize.ts (новый модуль)\n- src/tariffs.ts (импорты и изменения в Quote/priceFor)\n- test/oversize.test.ts (новый тестовый файл)\n\nПлан одобрен earlier сессии, использую его — сказано явно."
+      }
+    ]
+  },
+  "seed": null
+}

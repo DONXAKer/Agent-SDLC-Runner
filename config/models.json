@@ -38,13 +38,13 @@
     { "id": "ollama:qwen3:8b-ctx16k",         "provider": "ollama", "model": "qwen3:8b-ctx16k",        "rank": 32 },
     { "id": "ollama:qwen3.5:9b-ctx16k",       "provider": "ollama", "model": "qwen3.5:9b-ctx16k",       "rank": 35 },
     { "id": "ollama:qwen2.5:14b-ctx16k",      "provider": "ollama", "model": "qwen2.5:14b-ctx16k",      "rank": 40 },
-    { "// qwen3-30b-a3b-ctx16k": "2026-09-01: первый прогон был на голом теге без num_ctx — chunk сгорел на промпте без единого вызова инструмента (та же ловушка, что описана выше). Перевели на тег с зашитым контекстом. Чистый прогон (r33, изоляция): написала реальный src/oversize.ts, не успела дозаполнить журнал chunk'а за 30 мин — тот же класс отказа, что у ministral-14b до formFill. Включили formFill на пробу.",
-      "id": "ollama:qwen3:30b-a3b",           "provider": "ollama", "model": "qwen3:30b-a3b-ctx16k",    "rank": 55, "formFill": true },
+    { "// qwen3-30b-a3b-ctx16k": "2026-09-01: первый прогон был на голом теге без num_ctx — chunk сгорел на промпте без единого вызова инструмента (та же ловушка, что описана выше). Перевели на тег с зашитым контекстом. Чистый прогон (r33, изоляция): написала реальный src/oversize.ts, не успела дозаполнить журнал chunk'а за 30 мин. formFill ПРОБОВАЛАСЬ и ОТКАЧЕНА (docs/model-runs.md): стала хуже — 0 строк кода вместо 16, весь бюджет ушёл на борьбу с Edit по журналу. У этой модели порог в самой правке кода, не в оформлении.",
+      "id": "ollama:qwen3:30b-a3b",           "provider": "ollama", "model": "qwen3:30b-a3b-ctx16k",    "rank": 55 },
     { "id": "ollama:qwen3.6:35b-a3b",         "provider": "ollama", "model": "qwen3.6:35b-a3b",         "rank": 60 },
 
     { "// agents-a1-4b": "Добавлена 2026-09-01 для скрининга: плотная 4B, дообучена именно на агентные/tool-calling задачи (не на текст кода) — та же гипотеза, что у cline_roocode, но на модели вдвое меньше. GGUF Q4_K_M ~3.4 ГБ. Первый прогон chunk был на голом теге (0 вызовов, контекст 4096) — та же ловушка, что у qwen3:30b-a3b (серия r33); переведена на тег -ctx16k. Не обкатана, ранг ниже cline_roocode до результатов пробы.",
       "id": "ollama:agents-a1-4b",     "provider": "ollama", "model": "agents-a1-4b-ctx16k", "rank": 28 },
-    { "// qwen3-coder-30b-a3b": "Добавлена 2026-09-01: кодовый брат-близнец qwen3:30b-a3b (та же MoE, ~3B активных), дообучен на agentic coding с отдельным форматом function call. Тег -ctx16k по причине из серии r33 (голый тег → контекст 4096). Не обкатана.",
+    { "// qwen3-coder-30b-a3b": "Добавлена 2026-09-01: кодовый брат-близнец qwen3:30b-a3b (та же MoE, ~3B активных), дообучен на agentic coding с отдельным форматом function call. Тег -ctx16k по причине из серии r33 (голый тег → контекст 4096). После трёх правок раннера — 7/9 скрытых тестов, упирается в лимит 25 ходов на журнале при почти готовом коде. formFill ПРОБОВАЛАСЬ и ОТКАЧЕНА (docs/model-runs.md): тот же лимит 25 ходов исчерпан и с ней — эта модель не завершает ход сама (весь бюджет уходит на сам цикл работы), formFill подключается только ПОСЛЕ естественного завершения хода и просто не успевает. Кандидат на следующий замер — --max-turns выше, не formFill.",
       "id": "ollama:qwen3-coder-30b-a3b", "provider": "ollama", "model": "qwen3-coder-30b-ctx16k",   "rank": 58 },
     { "// gpt-oss-20b-local": "Добавлена 2026-09-01: локальный аналог уже обкатанного облачного polza:gpt-oss-20b (MoE ~3.6B активных из 20B, MXFP4 ≈ 12 ГБ) — закрывает пробел «облачная версия обкатана, локальной нет». Тег -ctx16k — та же ловушка «голый тег даёт контекст 4096», пойманная на qwen3:30b-a3b (серия r33). Не обкатана.",
       "id": "ollama:gpt-oss-20b",      "provider": "ollama", "model": "gpt-oss-20b-ctx16k",       "rank": 52 },
@@ -55,6 +55,8 @@
 
     { "id": "lmstudio:qwen3.5-9b",                   "provider": "lmstudio", "model": "qwen/qwen3.5-9b",                                          "rank": 35 },
     { "id": "lmstudio:qwen3.6-35b-a3b-opus-distill", "provider": "lmstudio", "model": "qwen3.6-35b-a3b-claude-4.6-opus-reasoning-distilled",      "rank": 65 },
+    { "// glm-4.7-flash": "Добавлена 2026-09-01: MoE 64x2.6B, «сильнейшая модель класса 30B» по независимым обзорам, tool-calling улучшен в калибровке специально под GGUF. Известны проблемы совместимости с Ollama — заведена только под LM Studio (bartowski GGUF, Q4_K_S ≈ 17.8 ГБ). Не обкатана.",
+      "id": "lmstudio:glm-4.7-flash",           "provider": "lmstudio", "model": "zai-org_glm-4.7-flash",                                            "rank": 60 },
 
     { "id": "vllm:Qwen/Qwen3-8B-AWQ", "provider": "vllm", "model": "Qwen/Qwen3-8B-AWQ", "rank": 30 },
     { "id": "vllm:Qwen/Qwen3-4B-AWQ", "provider": "vllm", "model": "Qwen/Qwen3-4B-AWQ", "rank": 20 },
