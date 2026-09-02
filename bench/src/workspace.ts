@@ -8,7 +8,10 @@
 
 import { cpSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+
+/** Файлы бенчмарка в корне каталога семейства, которым в дереве модели не место (см. prepareWorkspace). */
+export const BENCH_ONLY_FILE = /^(human(-[\w.-]+)?\.json|task(-[\w.-]+)?\.md)$/u;
 
 import { git } from '../../server/src/gates/git.ts';
 
@@ -48,7 +51,17 @@ export async function prepareWorkspace(args: PrepareArgs): Promise<Workspace> {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-')));
 
   try {
-    cpSync(args.fixtureDir, root, { recursive: true });
+    // Банки ответов человека и тексты задач лежат в каталоге семейства рядом с проектом, но
+    // модели в дереве не принадлежат: `human-*.json` несёт СЕКРЕТ вопроса (ставку, порог,
+    // категорию), ради которого заведён щуп «вопросы человеку», и Grep по корню копии
+    // отдавал бы его без единого вопроса; `task-*.md` соседних задач — чужие требования в
+    // разведке. Текст своей задачи модель получает промптом, банк читает автоответчик из
+    // каталога бенчмарка — в копии им делать нечего.
+    const fixtureRoot = resolve(args.fixtureDir);
+    cpSync(args.fixtureDir, root, {
+      recursive: true,
+      filter: (src) => !(dirname(resolve(src)) === fixtureRoot && BENCH_ONLY_FILE.test(basename(src))),
+    });
 
     await run(['init', '--initial-branch=main'], root);
     await run(['config', 'user.name', 'Бенчмарк'], root);

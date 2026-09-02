@@ -6,7 +6,8 @@ import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { StageId } from '@sdlc-runner/shared';
 
 import { SEED_NONE, seedById, seedIds } from './seeds.ts';
-import { TASK_DEFS } from './tasks.ts';
+import { TASK_DEFS, isTaskId, taskById } from './tasks.ts';
+import type { TaskId } from './tasks.ts';
 
 export type BenchMode =
   /** Измеряемая модель на одном этапе, остальные — контрольный маршрут. */
@@ -25,13 +26,9 @@ export type BenchMode =
  * каждой. `oversize` — первая задача, у неё имена файлов без суффикса по историческим
  * причинам (заведена раньше многозадачности).
  */
-export const TASKS = TASK_DEFS.map((t) => t.id);
-/**
- * Намеренно `string`, а не union литералов: реестр собирается функцией `familyTask()`, и
- * вывести из него литеральные id без переустройства реестра нельзя. Гарантию даёт не тип,
- * а `isTask()` при разборе ключей и `taskById()` везде дальше.
- */
-export type Task = (typeof TASKS)[number];
+export const TASKS: readonly TaskId[] = TASK_DEFS.map((t) => t.id);
+/** Литеральный union из реестра: опечатка в умолчании или в тесте — ошибка компиляции. */
+export type Task = TaskId;
 
 export interface BenchOptions {
   mode: BenchMode;
@@ -155,7 +152,7 @@ function isStageId(v: string): v is StageId {
 }
 
 function isTask(v: string): v is Task {
-  return (TASKS as readonly string[]).includes(v);
+  return isTaskId(v);
 }
 
 function positiveNumber(raw: string, what: string): number {
@@ -344,12 +341,13 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
       throw new OptionsError('--seed имеет смысл только с --stage verify: посевом меряется находимость этапа 6');
     }
     // Якорь посева — дословный текст конкретной фикстуры, поэтому посев применим ровно к
-    // задачам из его списка. Отклонить комбинацию здесь дешевле, чем упасть на дорогом
+    // задачам её каталога. Отклонить комбинацию здесь дешевле, чем упасть на дорогом
     // замере с «якорь не найден» из applySeed.
     const def = seedById(seed);
-    if (!def.tasks.includes(task)) {
+    if (taskById(task).fixtureDir !== def.fixtureDir) {
+      const applicable = TASK_DEFS.filter((t) => t.fixtureDir === def.fixtureDir).map((t) => t.id);
       throw new OptionsError(
-        `посев «${seed}» применим только к задачам: ${def.tasks.join(', ')} — задача «${task}» не входит в список`,
+        `посев «${seed}» применим только к фикстуре ${def.fixtureDir} (задачи: ${applicable.join(', ')}) — задача «${task}» из другой`,
       );
     }
   }

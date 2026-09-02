@@ -30,8 +30,9 @@ import { OptionsError, USAGE, parseArgs } from './options.ts';
 import type { BenchOptions } from './options.ts';
 import { ControlError, buildProfile, readControl } from './profile.ts';
 import { WorkspaceError, prepareWorkspace } from './workspace.ts';
-import { makeSnapshot, restoreSnapshot, verifyRestoredBranch } from './snapshot.ts';
-import { TaskError, taskById } from './tasks.ts';
+import { SnapshotError, makeSnapshot, restoreSnapshot, verifyRestoredBranch } from './snapshot.ts';
+import { TaskError, taskById, taskPaths } from './tasks.ts';
+import type { TaskPaths } from './tasks.ts';
 import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
 import type { SeedProbe } from './seeds.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
@@ -45,6 +46,7 @@ const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RESULTS_DIR = join(BENCH_DIR, 'results');
 const SNAPSHOTS_DIR = join(BENCH_DIR, 'snapshots');
 const CONTROL_FILE = join(BENCH_DIR, 'control.json');
+const HIDDEN_TESTS_TIMEOUT_MS = 30 * 60_000;
 
 /**
  * Пути задачи фикстуры — из реестра `tasks.ts`, а не из соглашения об именах: с несколькими
@@ -54,27 +56,18 @@ const CONTROL_FILE = join(BENCH_DIR, 'control.json');
  * `freeship` — `discounts.ts` был запрещён для `oversize` и нужен для `freeship`), общий
  * банк на все задачи здесь в принципе не годится.
  */
-function taskFiles(task: BenchOptions['task']): {
-  fixtureDir: string;
-  taskFile: string;
-  humanFile: string;
-  hiddenFile: string;
-} {
+function taskFiles(task: BenchOptions['task']): TaskPaths {
   const def = taskById(task);
-  const fixtureDir = join(BENCH_DIR, def.fixtureDir);
-  const files = {
-    fixtureDir,
-    taskFile: join(fixtureDir, def.taskFile),
-    humanFile: join(fixtureDir, def.humanFile),
-    hiddenFile: join(BENCH_DIR, 'checks', 'hidden', `${def.id}.hidden.mjs`),
-  };
+  const files = taskPaths(BENCH_DIR, def);
   // Реестр описывает задачи наперёд, каталоги семейств появляются постепенно. Без этой
   // проверки задача без фикстуры валилась сырым ENOENT из readFileSync с кодом 1 — «модель
-  // не прошла», хотя измерение не начиналось; здесь это код 2 и понятная причина.
-  if (!existsSync(fixtureDir)) {
+  // не прошла», хотя измерение не начиналось; здесь это код 2 и понятная причина. Эталон и
+  // скрытый тест проверяются здесь же: их отсутствие давало бы после ПЛАТНОГО прогона отчёт
+  // «скрытые тесты не запускались» — измерение без щупов, неотличимое от честного.
+  if (!existsSync(files.fixtureDir)) {
     throw new TaskError(`задача «${def.id}» есть в реестре, но каталога фикстуры ${def.fixtureDir} на диске ещё нет`);
   }
-  for (const f of [files.taskFile, files.humanFile]) {
+  for (const f of [files.taskFile, files.humanFile, files.expectedFile, files.hiddenFile]) {
     if (!existsSync(f)) throw new TaskError(`задача «${def.id}»: нет файла ${f}`);
   }
   return files;
@@ -219,11 +212,6 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       targetSlug: opts.slug,
       expectedTask: opts.task,
     });
-    if (restored.taskUnverified) {
-      console.warn(
-        `предупреждение: снимок «${opts.fromSnapshot}» снят до появления поля task — принадлежность задаче «${opts.task}» не сверена`,
-      );
-    }
     await verifyRestoredBranch(restored.root, restored.branch);
     wsRoot = restored.root;
     wsBranch = restored.branch;
@@ -434,8 +422,13 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     // отчёте означало бы, что проверки не было, и это неправда.
     const hasFeature = existsSync(files.hiddenFile);
     const chunkRan = driverResult.stages.some((s) => s.stage === 'chunk');
+    // Потолок: скрытый тест, сам гоняющий набор цели (до 8 прогонов подряд у мигающих
+    // наборов), не должен вешать бенчмарк после оплаченного прогона — зависший импорт цели
+    // без потолка висел бы вечно.
     const hidden =
-      hasFeature && chunkRan ? await runHiddenTests({ hiddenFile: files.hiddenFile, targetDir: wsRoot }) : null;
+      hasFeature && chunkRan
+        ? await runHiddenTests({ hiddenFile: files.hiddenFile, targetDir: wsRoot, timeoutMs: HIDDEN_TESTS_TIMEOUT_MS })
+        : null;
 
     const honesty = checkHonesty({
       journalText,
@@ -540,7 +533,9 @@ async function seriesRun(opts: BenchOptions): Promise<number> {
         e instanceof ProfileError ||
         e instanceof ControlError ||
         e instanceof WorkspaceError ||
-        e instanceof HumanScriptError
+        e instanceof HumanScriptError ||
+        e instanceof TaskError ||
+        e instanceof SnapshotError
       ) {
         throw e;
       }
@@ -564,9 +559,14 @@ async function seriesRun(opts: BenchOptions): Promise<number> {
   const withHidden = measuredSamples.filter((o) => o.hidden !== null);
   if (withHidden.length > 0) {
     const passes = withHidden.map((o) => o.hidden!.pass);
-    const total = withHidden[0]!.hidden!.total;
+    // Знаменатель — не «у первого сэмпла»: `total` без пропущенных кейсов и 0 при крахе
+    // импорта, то есть от сэмпла к сэмплу может отличаться. Берётся наибольший, а
+    // расхождение называется — иначе «медиана 7/0» при упавшем первом сэмпле.
+    const totals = withHidden.map((o) => o.hidden!.total);
+    const total = Math.max(...totals);
+    const uneven = new Set(totals).size > 1 ? ` (знаменатель по сэмплам: ${totals.join(', ')})` : '';
     console.log(
-      `  щупы: медиана ${median(passes)}/${total}, разброс ${Math.min(...passes)}–${Math.max(...passes)}` +
+      `  щупы: медиана ${median(passes)}/${total}${uneven}, разброс ${Math.min(...passes)}–${Math.max(...passes)}` +
         (withHidden.length < outcomes.length ? ` (по ${withHidden.length} из ${outcomes.length} сэмплов)` : ''),
     );
   }
@@ -609,7 +609,13 @@ export async function main(argv: readonly string[]): Promise<number> {
       console.error(`профиль не собрался:\n  ${e.problems.join('\n  ')}`);
       return 2;
     }
-    if (e instanceof ControlError || e instanceof WorkspaceError || e instanceof HumanScriptError || e instanceof TaskError) {
+    if (
+      e instanceof ControlError ||
+      e instanceof WorkspaceError ||
+      e instanceof HumanScriptError ||
+      e instanceof TaskError ||
+      e instanceof SnapshotError
+    ) {
       console.error(`подготовка не удалась: ${e.message}`);
       return 2;
     }

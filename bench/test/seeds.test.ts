@@ -9,14 +9,13 @@ import type { GateRunResult } from '@sdlc-runner/shared';
 
 import { SEEDS, SEED_NONE, SeedError, applySeed, probeNoSeed, probeSeed, seedById, seedIds } from '../src/seeds.ts';
 import type { SeedDef } from '../src/seeds.ts';
-import { TASKS } from '../src/options.ts';
-import { taskById } from '../src/tasks.ts';
+import { TASK_DEFS } from '../src/tasks.ts';
 
 const BENCH_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Каталог фикстуры посева — из его первой задачи: якорь живёт в дереве конкретного семейства. */
+/** Каталог фикстуры посева: якорь живёт в дереве конкретного семейства. */
 function fixtureDirOf(seed: SeedDef): string {
-  return join(BENCH_DIR, taskById(seed.tasks[0]!).fixtureDir);
+  return join(BENCH_DIR, seed.fixtureDir);
 }
 
 function gate(name: string, status: GateRunResult['status']): GateRunResult {
@@ -48,15 +47,12 @@ describe('посев: якоря', () => {
     }
   });
 
-  it('задачи посева известны реестру и делят один каталог фикстуры', () => {
-    // Опечатка в `tasks` давала бы вечный OptionsError «не входит в список» — посев
-    // становился незапускаемым при зелёных тестах. Две задачи из разных каталогов у одного
-    // посева означали бы поиск якоря одного семейства в дереве другого.
+  it('каталог фикстуры посева известен реестру задач', () => {
+    // Опечатка в `fixtureDir` давала бы вечный OptionsError «не применим» — посев становился
+    // незапускаемым при зелёных тестах (а якорь выше искался бы в несуществующем каталоге).
+    const known = new Set(TASK_DEFS.map((t) => t.fixtureDir));
     for (const seed of SEEDS) {
-      ok(seed.tasks.length > 0, `посев ${seed.id}: список задач пуст`);
-      for (const t of seed.tasks) ok(TASKS.includes(t), `посев ${seed.id}: задача «${t}» не в реестре`);
-      const dirs = new Set(seed.tasks.map((t) => taskById(t).fixtureDir));
-      strictEqual(dirs.size, 1, `посев ${seed.id}: задачи из разных каталогов ${[...dirs].join(', ')}`);
+      ok(known.has(seed.fixtureDir), `посев ${seed.id}: каталога «${seed.fixtureDir}» нет ни у одной задачи реестра`);
     }
   });
 

@@ -49,14 +49,16 @@ export interface SeedDef {
   /** Кто обязан поймать: автоматика (контроль стенда) или чтение diff'а. */
   expected: 'gate' | 'review';
   /**
-   * Задачи, на чьих снимках якорь посева существует.
+   * Каталог фикстуры (`TaskDef.fixtureDir`), в чьём дереве живёт якорь.
    *
    * Якорь — дословный текст конкретной фикстуры, поэтому посев применим не «везде», а ровно
-   * на задачах, чьи каталоги этот текст содержат. Сеять посев на чужом снимке значило бы
-   * упасть на дорогом замере с «якорь не найден» — разбор ключей обязан отвергнуть такую
-   * комбинацию заранее (см. `options.ts`).
+   * на задачах этого каталога — всех сразу, потому что дерево у них общее. Список задач
+   * здесь был бы копией реестра: третья задача на той же фикстуре получала бы отказ
+   * «посев не применим» при якоре, который на её снимке есть. Сеять посев на чужом снимке
+   * значило бы упасть на дорогом замере с «якорь не найден» — разбор ключей обязан
+   * отвергнуть такую комбинацию заранее (см. `options.ts`).
    */
-  tasks: readonly string[];
+  fixtureDir: string;
   /**
    * Гейты, краснота которых засчитывается как поимка ИМЕННО этого посева.
    *
@@ -84,9 +86,9 @@ export const SEEDS: readonly SeedDef[] = [
     id: 'swallow-tariff-error',
     klass: 'проглоченная ошибка',
     file: 'src/tariffs.ts',
-    // Якоря всех шести посевов лежат в src/tariffs.ts и test/tariffs.test.ts общей фикстуры
-    // `fixture` — она одна на обе задачи, поэтому обе применимы.
-    tasks: ['oversize', 'freeship'],
+    // Якоря шести посевов ниже лежат в src/tariffs.ts и test/tariffs.test.ts общей фикстуры
+    // `fixture` (задачи oversize и freeship).
+    fixtureDir: 'fixture',
     what:
       '`basePrice` вместо исключения «тариф не заполнен» молча возвращает цену первой ' +
       'весовой ступени — клиенту выставляется чужая цена вместо отказа',
@@ -106,7 +108,7 @@ export const SEEDS: readonly SeedDef[] = [
     id: 'silent-price-change',
     klass: 'регрессия: молчаливая правка прейскуранта',
     file: 'src/tariffs.ts',
-    tasks: ['oversize', 'freeship'],
+    fixtureDir: 'fixture',
     what: 'цена msk свыше 5 кг снижена с 62 900 до 62 000 копеек — правка прейскуранта, которой задача не просила',
     find: '    62_900, // свыше 5 кг — двое грузчиков по регламенту',
     replace: '    62_000, // свыше 5 кг — двое грузчиков по регламенту',
@@ -120,7 +122,7 @@ export const SEEDS: readonly SeedDef[] = [
     id: 'longest-side-drops-third',
     klass: 'логика правила: потеряно измерение',
     file: 'src/tariffs.ts',
-    tasks: ['oversize', 'freeship'],
+    fixtureDir: 'fixture',
     what: '`longestSide` считает максимум по двум сторонам из трёх — негабарит по третьей стороне не определяется',
     find: '  return Math.max(dimensions[0], dimensions[1], dimensions[2]);',
     replace: '  return Math.max(dimensions[0], dimensions[1]);',
@@ -132,7 +134,7 @@ export const SEEDS: readonly SeedDef[] = [
     id: 'dimension-sum-drops-third',
     klass: 'логика правила: потеряно измерение',
     file: 'src/tariffs.ts',
-    tasks: ['oversize', 'freeship'],
+    fixtureDir: 'fixture',
     what: '`dimensionSum` складывает два измерения из трёх — порог «сумма больше 300 см» считается не по обхвату',
     find: '  return dimensions[0] + dimensions[1] + dimensions[2];',
     replace: '  return dimensions[0] + dimensions[1];',
@@ -144,7 +146,7 @@ export const SEEDS: readonly SeedDef[] = [
     id: 'weight-step-off-by-one',
     klass: 'off-by-one на границе (контроль стенда)',
     file: 'src/tariffs.ts',
-    tasks: ['oversize', 'freeship'],
+    fixtureDir: 'fixture',
     what: '`weightStep` делает границы ступеней исключающими: ровно 500 г уезжает на следующую ступень',
     find: '    if (weightG <= limit) return i;',
     replace: '    if (weightG < limit) return i;',
@@ -156,13 +158,28 @@ export const SEEDS: readonly SeedDef[] = [
     id: 'skip-existing-test',
     klass: 'отключённый ассерт (контроль стенда)',
     file: 'test/tariffs.test.ts',
-    tasks: ['oversize', 'freeship'],
+    fixtureDir: 'fixture',
     what: 'существующий набор «весовые ступени» отключён через `describe.skip` — тест-гейт обойдён',
     find: "describe('весовые ступени', () => {",
     replace: "describe.skip('весовые ступени', () => {",
     expected: 'gate',
     gates: ['Анти-обход тест-гейта'],
     mentions: [/\.skip/i, /отключ\w+ тест/i, /весовые ступени/i, /анти-обход/i],
+  },
+  {
+    id: 'reserve-boundary-off-by-one',
+    klass: 'off-by-one на границе (контроль стенда)',
+    file: 'src/reserve.ts',
+    // Семейство ledger (`zero-change-verify` и соседи): задача исполнителя этого файла не
+    // касается — меряется, заметит ли рецензент чужой дефект в дереве. Граница включающая
+    // покрыта тестом фикстуры («остатка впритык хватает»), поэтому ловит гейт «Тесты».
+    fixtureDir: 'fixtures/ledger',
+    what: '`reserve` делает границу остатка исключающей: резерв ровно на весь остаток отклоняется',
+    find: '  if (entry.qty < qty) {',
+    replace: '  if (entry.qty <= qty) {',
+    expected: 'gate',
+    gates: ['Тесты'],
+    mentions: [/reserve/i, /впритык/i, /границ[а-яё]* (включающ|остатк)/i, /entry\.qty/],
   },
 ];
 

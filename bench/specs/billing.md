@@ -108,8 +108,9 @@ Human-банк: rules пусто, noise + fallback. denyWritesTo: `src/money.ts`
 решение не проходило гейт «Тесты» (13/14), а решение с условным полем краснело на Pr4.
 
 Expected: R1-R2 regression; Pr1: без опций → dueDays 14; Pr2: `config: { defaultDueDays: 30 }`
-→ 30; Pr3: явный `opts.dueDays: 7` побеждает конфиг → 7; Pr4: поле присутствует всегда
-(`typeof invoice.dueDays === 'number'`).
+→ 30; Pr3: явный `opts.dueDays: 7` побеждает конфиг → 7; Pr4: пустой конфиг площадки
+`config: {}` не ломает встроенный дефолт → 14 (интерпретатор семейства сверяет значения, а
+не типы, поэтому «поле присутствует всегда» проверяется равенством в Pr1/Pr4, не `typeof`).
 
 ## Задача `silent-contract` (M)
 

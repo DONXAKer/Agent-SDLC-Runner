@@ -48,11 +48,12 @@ export interface SnapshotMeta {
    * Задача (`--task`), для которой снят снимок. Без неё снимок `vat-rounding-plan` под
    * `--task oversize` (умолчание ключа!) восстанавливался молча: дерево — от billing, а
    * банк ответов, текст задачи и скрытый тест — от oversize; все кейсы красные при
-   * исправной модели, и по отчёту это неотличимо от провала. Необязательное поле только
-   * ради снимков, снятых до его появления (`oversize-plan`, `freeship-plan` — оплаченные
-   * прогоны на claude-sdk): у них сверка пропускается с предупреждением.
+   * исправной модели, и по отчёту это неотличимо от провала. Поле обязательное: снимки
+   * машинно-специфичны и не версионируются, снятые до поля дописываются одной строкой в
+   * `snapshot.json` — ошибка называет её; «принять под честное слово `--task`» было бы тем
+   * же молчаливым прогоном, только с предупреждением, которое в серии `--repeat` тонет.
    */
-  task?: string;
+  task: string;
 }
 
 function metaPath(dir: string): string {
@@ -94,11 +95,6 @@ export interface RestoredSnapshot {
   slug: string;
   branch: string;
   stoppedAfterStage: StageId;
-  /**
-   * `true` — снимок снят до поля `task`, принадлежность задаче сверить было нечем: прогон
-   * идёт под честное слово ключа `--task`. Печатается предупреждением, прогон не роняет.
-   */
-  taskUnverified: boolean;
   dispose(): void;
 }
 
@@ -130,8 +126,14 @@ export function restoreSnapshot(args: {
   if (!existsSync(metaFile)) {
     throw new SnapshotError(`${src}: нет snapshot.json — это не снимок бенчмарка`);
   }
-  const meta = JSON.parse(readFileSync(metaFile, 'utf8')) as SnapshotMeta;
-  if (meta.task !== undefined && meta.task !== args.expectedTask) {
+  const meta = JSON.parse(readFileSync(metaFile, 'utf8')) as Partial<SnapshotMeta> & SnapshotMeta;
+  if (typeof meta.task !== 'string' || meta.task === '') {
+    throw new SnapshotError(
+      `снимок «${args.name}» снят до появления поля task, принадлежность задаче сверить нечем — ` +
+        `допиши в ${metaFile} строку "task": "<id задачи, для которой снимался>" и повтори`,
+    );
+  }
+  if (meta.task !== args.expectedTask) {
     throw new SnapshotError(
       `снимок «${args.name}» снят для задачи «${meta.task}», прогон запрошен для «${args.expectedTask}» — ` +
         'банк ответов и скрытые тесты не совпали бы с деревом; укажи --task ' + meta.task,
@@ -159,7 +161,6 @@ export function restoreSnapshot(args: {
       slug: args.targetSlug,
       branch: meta.branch,
       stoppedAfterStage: meta.stoppedAfterStage,
-      taskUnverified: meta.task === undefined,
       dispose: () => rmSync(root, { recursive: true, force: true }),
     };
   } catch (e) {

@@ -16,7 +16,7 @@ import { describe, it } from 'node:test';
 
 import type { NormalizedCall, PolicyContext, Question } from '@sdlc-runner/shared';
 
-import { ApprovalBus, AskBus, attachOperator, emptyOperatorLog, readHumanScript } from '../src/operator.ts';
+import { ApprovalBus, AskBus, attachOperator, bankRegExp, emptyOperatorLog, readHumanScript } from '../src/operator.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HUMAN_JSON = join(HERE, '..', 'fixture', 'human.json');
@@ -156,6 +156,44 @@ describe('автоответчик человека (bench/src/operator.ts)', ()
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('denyWritesTo срабатывает и на абсолютном пути с обратными слэшами (flow sdk на Windows)', async () => {
+    // Претендент приходит с `D:\…\src\discounts.ts`, а банк говорит `src/discounts.ts`:
+    // подстрочное сравнение без приведения разделителей пропускало запись «default → allow».
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-bench-op-'));
+    try {
+      const bus = new ApprovalBus();
+      const script = readHumanScript(HUMAN_JSON);
+      const log = emptyOperatorLog();
+      const runId = 'r3w';
+      const handle = attachOperator({ gate: bus, askGate: new AskBus(), runId: () => runId, script, log });
+      const ctx = baseCtx(root);
+      const winPath = `${root.replace(/\//g, '\\')}\\src\\discounts.ts`;
+      const decision = await bus.gate.request({
+        runId,
+        stage: 'chunk',
+        requestId: requestId(),
+        toolName: 'Write',
+        rawInput: { path: winPath, content: 'x\n' },
+        call: { kind: 'write', path: winPath, content: 'x\n' },
+        ctx,
+      });
+      strictEqual(decision.allowed, false, JSON.stringify(decision));
+      handle.detach();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('bankRegExp: \\w в регулярке банка берёт кириллицу, экранированный \\\\w не трогается', () => {
+    // `\w` в JS — ASCII даже под флагом u; шаблоны банков написаны по-русски и без подмены
+    // не совпадали ни с одной русской формой (28 файлов).
+    ok(bankRegExp('как\\s+запуск\\w*\\s+тест').test('Как запускать тесты?'));
+    ok(bankRegExp('обязател\\w*\\s+ли').test('Обязателен ли параметр issuer?'));
+    ok(bankRegExp('дальн\\w*\\s+зон').test('что с дальней зоной?'));
+    strictEqual(bankRegExp('строк\\w+').test('строк'), false, '\\w+ требует хотя бы один символ');
+    ok(bankRegExp('a\\\\w').test('a\\w'), 'литеральный обратный слэш перед w — не класс');
   });
 
   it('AskHuman отвечает из банка: развилка получает настоящий ответ', async () => {

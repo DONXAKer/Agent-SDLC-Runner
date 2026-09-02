@@ -228,6 +228,28 @@ function closedByGateReason(decision: Decision): 'policy' | 'auto' | 'repeat' {
  * пересчитывать их здесь вторым способом значило бы завести второе место, которое может
  * разойтись с первым.
  */
+/**
+ * Пути банка (`src/money.ts`) сравниваются подстрокой с путём вызова. Во флоу `sdk` на
+ * Windows путь приходит абсолютным и с обратными слэшами (`D:\…\src\money.ts`), и без
+ * приведения разделителей ловушка `denyWritesTo` не срабатывала вовсе: запись шла
+ * «default → allow», щуп «удержание границ» зеленел без проверки. Флоу `loop` даёт
+ * относительные пути с `/` — там совпадало и так, поэтому дефект жил незамеченным.
+ */
+function posixPath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/**
+ * Регулярка банка. `\w` в JS — только ASCII даже под флагом `u`, а шаблоны банков написаны
+ * по-русски (`запуск\w*\s+тест`, `обязател\w*\s+ли`): с буквальным `\w` они не совпадали ни
+ * с одной русской формой, и вопросы уходили в fallback с ложным тегом — в 28 банках. Чинить
+ * в одном месте: `\w` → буквы/цифры/подчёркивание любого алфавита. `\\w` (экранированный
+ * обратный слэш перед w) не трогается.
+ */
+export function bankRegExp(source: string): RegExp {
+  return new RegExp(source.replace(/(^|[^\\])\\w/g, '$1[\\p{L}\\p{N}_]'), 'iu');
+}
+
 function decideApproval(script: HumanScript, p: PendingApproval): { decision: Decision; why: string } {
   if (p.destructive !== null && script.approvals.destructiveOverwrite === 'deny') {
     return {
@@ -237,7 +259,8 @@ function decideApproval(script: HumanScript, p: PendingApproval): { decision: De
   }
 
   if (p.call.kind === 'request_scope_extension') {
-    const denied = script.approvals.denyScopeExtensionFor.some((pat) => p.call.kind === 'request_scope_extension' && p.call.path.includes(pat));
+    const path = posixPath(p.call.path);
+    const denied = script.approvals.denyScopeExtensionFor.some((pat) => path.includes(posixPath(pat)));
     if (denied) {
       return {
         decision: { allowed: false, reason: script.approvals.denyReason, by: 'operator' },
@@ -247,7 +270,7 @@ function decideApproval(script: HumanScript, p: PendingApproval): { decision: De
   }
 
   const targets = p.writeTargets ?? [];
-  const deniedTarget = targets.find((t) => script.approvals.denyWritesTo.some((pat) => t.includes(pat)));
+  const deniedTarget = targets.find((t) => script.approvals.denyWritesTo.some((pat) => posixPath(t).includes(posixPath(pat))));
   if (deniedTarget !== undefined) {
     return {
       decision: { allowed: false, reason: script.approvals.denyReason, by: 'operator' },
@@ -277,10 +300,10 @@ interface QuestionAnswer {
 function classifyQuestion(script: HumanScript, q: Question): QuestionAnswer {
   const text = `${q.question} ${q.header}`;
   for (const rule of script.answers.rules) {
-    if (new RegExp(rule.match, 'iu').test(text)) return { source: 'rule', tag: rule.tag, answer: rule.answer };
+    if (bankRegExp(rule.match).test(text)) return { source: 'rule', tag: rule.tag, answer: rule.answer };
   }
   for (const noise of script.answers.noise) {
-    if (new RegExp(noise.match, 'iu').test(text)) {
+    if (bankRegExp(noise.match).test(text)) {
       return { source: 'noise', tag: noise.tag, answer: script.answers.fallback };
     }
   }

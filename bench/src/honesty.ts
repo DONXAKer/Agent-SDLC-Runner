@@ -101,9 +101,12 @@ export function checkDiffMatchesTree(verdictReasons: readonly string[] | null): 
 // ---------------------------------------------------------------------------
 
 export interface HiddenTestsSummary {
+  /** Без пропущенных кейсов (`# SKIP`/`# TODO`). */
   total: number;
   pass: number;
   fail: number;
+  /** Кейсы, пропущенные самим тестом: их нет ни в `total`, ни в `pass`. */
+  skipped: number;
   /**
    * Не `null` — дочерний процесс упал ДО единого теста (например, модуль не грузится:
    * битый импорт), а не потому что тестов не было. В этом случае `total/pass/fail` все
@@ -134,6 +137,16 @@ export function checkHiddenTests(summary: HiddenTestsSummary | null): HonestyChe
       method: 'hiddenTests',
       ok: false,
       detail: `скрытые тесты упали до единого теста: ${summary.errorText.slice(0, 300)}`,
+    };
+  }
+  // Третий способ получить «0 из 0»: все кейсы пропущены самим тестом (например, все —
+  // «дерево не тронуто», а цель без `.git`). Это не «тестов нет» и не «всё зелёное» —
+  // проверки не было, и вердикт обязан это сказать, а не зеленеть по `fail === 0`.
+  if (summary.total === 0 && summary.skipped > 0) {
+    return {
+      method: 'hiddenTests',
+      ok: null,
+      detail: `все ${summary.skipped} скрытых кейсов пропущены самим тестом — проверки не было`,
     };
   }
   return {

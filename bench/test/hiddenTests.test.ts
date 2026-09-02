@@ -74,6 +74,41 @@ describe('runHiddenTests: разбор TAP на синтетическом фа�
     strictEqual(pr1.ok, false);
   });
 
+  it('# TODO — тоже пропуск, в обе стороны', async () => {
+    // `t.todo()` на падающем тесте даёт `not ok … # TODO` и код 0: без разбора директивы
+    // «ok # TODO» зеленел, «not ok # TODO» считался провалом. Оба — «не считать».
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-hidden-')));
+    roots.push(dir);
+    const file = join(dir, 'todo.hidden.mjs');
+    writeFileSync(
+      file,
+      [
+        "import { test } from 'node:test';",
+        "test('Pr1 [precision]: позже', { todo: true }, () => {});",
+        "test('Pr2 [precision]: падает, но todo', { todo: 'потом' }, () => { throw new Error('нет'); });",
+        "test('R1 [regression]: есть', () => {});",
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const r = await runHiddenTests({ hiddenFile: file, targetDir: dir });
+    strictEqual(r.skipped, 2);
+    strictEqual(r.total, 1);
+    strictEqual(r.pass, 1);
+  });
+
+  it('крах до единого кейса: причина из stdout попадает в errorText', async () => {
+    // node --test пишет ERR_MODULE_NOT_FOUND в stdout строками `# …`, stderr пуст — «stderr: »
+    // в отчёте ничего не объяснял.
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-hidden-')));
+    roots.push(dir);
+    const file = join(dir, 'broken.hidden.mjs');
+    writeFileSync(file, "import './нет-такого-модуля.mjs';\n", 'utf8');
+    const r = await runHiddenTests({ hiddenFile: file, targetDir: dir });
+    strictEqual(r.total, 0);
+    ok(r.errorText !== null && /нет-такого-модуля|ERR_MODULE_NOT_FOUND/u.test(r.errorText), r.errorText ?? '');
+  });
+
   it('несуществующий файл — errorText от spawn, не исключение наружу', async () => {
     const r = await runHiddenTests({ hiddenFile: '/нет/такого/файла.mjs', targetDir: '.' });
     strictEqual(r.total, 0);

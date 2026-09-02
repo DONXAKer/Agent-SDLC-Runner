@@ -1,10 +1,10 @@
 /**
  * Реестр задач бенчмарка.
  *
- * Существование файлов проверяется ТОЛЬКО для задач общей фикстуры `fixture`: каталоги
- * `fixtures/<family>` заводятся постепенно, другими шагами роадмапа, и требовать их здесь
- * значило бы сделать реестр нерасширяемым без готового контента — ровно то, от чего реестр
- * и заведён.
+ * Существование файлов проверяется для каждой задачи, чей каталог фикстуры лежит на диске:
+ * каталог есть — семейство заявлено построенным, и все четыре файла задачи обязаны быть.
+ * Задача без каталога — ещё в роадмапе, её файлы не требуются: иначе реестр был бы
+ * нерасширяем без готового контента — ровно то, от чего он и заведён.
  */
 
 import { existsSync } from 'node:fs';
@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import { ok, strictEqual, throws } from 'node:assert/strict';
 
 import { TASKS } from '../src/options.ts';
-import { TASK_DEFS, TaskError, taskById } from '../src/tasks.ts';
+import { TASK_DEFS, TaskError, taskById, taskPaths } from '../src/tasks.ts';
 
 const BENCH_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -41,10 +41,12 @@ describe('реестр задач', () => {
     const present = TASK_DEFS.filter((t) => existsSync(join(BENCH_DIR, t.fixtureDir)));
     ok(present.length >= 2, 'общая фикстура обязана нести минимум oversize и freeship');
     for (const def of present) {
-      ok(existsSync(join(BENCH_DIR, def.fixtureDir, def.taskFile)), `${def.id}: ${def.taskFile}`);
-      ok(existsSync(join(BENCH_DIR, def.fixtureDir, def.humanFile)), `${def.id}: ${def.humanFile}`);
-      ok(existsSync(join(BENCH_DIR, 'expected', `${def.id}.json`)), `${def.id}: expected/${def.id}.json`);
-      ok(existsSync(join(BENCH_DIR, 'checks', 'hidden', `${def.id}.hidden.mjs`)), `${def.id}: checks/hidden/${def.id}.hidden.mjs`);
+      // Пути — из taskPaths(), тех же, что берёт CLI: тест по своей копии правила зеленел бы
+      // там, где CLI ищет файл в другом месте.
+      const p = taskPaths(BENCH_DIR, def);
+      for (const f of [p.taskFile, p.humanFile, p.expectedFile, p.hiddenFile]) {
+        ok(existsSync(f), `${def.id}: нет ${f}`);
+      }
     }
   });
 

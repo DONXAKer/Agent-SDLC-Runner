@@ -207,13 +207,13 @@ describe('makeSnapshot / restoreSnapshot', () => {
     );
     const ok2 = restoreSnapshot({ snapshotsDir, name: 'vat', targetSlug: 'x', expectedTask: 'vat-rounding' });
     roots.push(ok2.root);
-    strictEqual(ok2.taskUnverified, false);
+    strictEqual(ok2.slug, 'x');
     ok2.dispose();
   });
 
-  it('снимок без поля task (снят до его появления) принимается с пометкой, а не ошибкой', async () => {
-    // `oversize-plan`/`freeship-plan` — оплаченные прогоны на claude-sdk; ломать их
-    // ради нового поля нельзя.
+  it('снимок без поля task (снят до его появления) отвергается с подсказкой, как починить', async () => {
+    // Принять «под честное слово --task» значило бы тот же молчаливый прогон с чужим банком,
+    // только с предупреждением; снимки машинно-специфичны, поле дописывается одной строкой.
     const workspaceRoot = await makeWorkspace();
     const snapshotsDir = tmp('sdlc-bench-snaps-');
     makeSnapshot({ workspaceRoot, snapshotsDir, name: 'старый', slug: 'demo', branch: 'sdlc/demo', stoppedAfterStage: 'plan', task: 'oversize' });
@@ -221,9 +221,9 @@ describe('makeSnapshot / restoreSnapshot', () => {
     const meta = JSON.parse(readFileSync(metaFile, 'utf8')) as Record<string, unknown>;
     delete meta['task'];
     writeFileSync(metaFile, JSON.stringify(meta), 'utf8');
-    const restored = restoreSnapshot({ snapshotsDir, name: 'старый', targetSlug: 'x', expectedTask: 'freeship' });
-    roots.push(restored.root);
-    strictEqual(restored.taskUnverified, true);
-    restored.dispose();
+    throws(
+      () => restoreSnapshot({ snapshotsDir, name: 'старый', targetSlug: 'x', expectedTask: 'freeship' }),
+      (e: unknown) => e instanceof SnapshotError && /snapshot\.json/.test(e.message) && /"task"/.test(e.message),
+    );
   });
 });

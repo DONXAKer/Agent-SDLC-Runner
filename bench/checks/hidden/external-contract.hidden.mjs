@@ -10,20 +10,14 @@
  * транспортом-шпионом поверх мока, записывающим точное тело запроса.
  */
 
-import { strictEqual } from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const EXPECTED_PATH = resolve(HERE, '..', '..', 'expected', 'external-contract.json');
-const TARGET_DIR = process.env.BENCH_TARGET_DIR ?? resolve(HERE, '..', '..', 'fixtures', 'payments-mock');
+import { importIndex, readExpected, targetDir } from './lib/target.mjs';
 
-const expected = JSON.parse(readFileSync(EXPECTED_PATH, 'utf8'));
-
-const indexUrl = pathToFileURL(join(TARGET_DIR, 'src', 'index.ts')).href;
-const mod = await import(indexUrl);
+const TARGET_DIR = targetDir('payments-mock');
+const expected = readExpected('external-contract');
+const mod = await importIndex(TARGET_DIR);
 
 describe(`скрытые тесты external-contract (цель: ${TARGET_DIR})`, () => {
   for (const c of expected.cases) {
@@ -36,6 +30,9 @@ describe(`скрытые тесты external-contract (цель: ${TARGET_DIR})`
         const body = JSON.parse(res.body);
         strictEqual(body.ok, c.expect.ok, 'ok');
         if (c.expect.code !== undefined) strictEqual(body.error.code, c.expect.code, 'code');
+        if (c.expect.ok === true) {
+          strictEqual(typeof body.charge_id === 'string' && body.charge_id.length > 0, true, 'charge_id непустой');
+        }
         return;
       }
 
@@ -54,7 +51,14 @@ describe(`скрытые тесты external-contract (цель: ${TARGET_DIR})`
         };
         mod.charge(spy, c.call.args[0]);
         strictEqual(seenPath, c.expect.path, 'path запроса');
-        strictEqual(seenBody, c.expect.body, 'тело запроса обязано совпасть с контрактом побайтово');
+        // Контракт фиксирует имена, типы и ПОРЯДОК полей, но не пробелы: мок сам делает
+        // JSON.parse и принял бы тело с пробелами — сравнивать побайтово значило бы требовать
+        // строже эталона контракта. Сравниваются разбор и порядок ключей.
+        strictEqual(typeof seenBody, 'string', 'тело запроса — JSON-строка');
+        const sent = JSON.parse(seenBody);
+        const want = JSON.parse(c.expect.body);
+        deepStrictEqual(sent, want, 'тело запроса: имена полей в змеином регистре, сумма строкой');
+        deepStrictEqual(Object.keys(sent), Object.keys(want), 'порядок полей — как в примере README');
         return;
       }
 

@@ -23,13 +23,26 @@ function git(target, args) {
   return r.stdout;
 }
 
+/**
+ * Пути обязательны: без них `git status` видит всё дерево, а рабочая копия витка никогда не
+ * чиста (untracked `.sdlc/<slug>/`, артефакты этапов) — кейс «не тронуто» краснел бы на
+ * любом прогоне, включая идеальное решение.
+ */
+function requirePaths(paths, what) {
+  if (!Array.isArray(paths) || paths.length === 0) {
+    throw new Error(`${what}: нужен непустой список путей — дерево витка целиком «не тронутым» не бывает`);
+  }
+}
+
 /** `git status --porcelain -- <paths>` цели; пустая строка — дерево по этим путям не тронуто (включая untracked). */
-export function porcelain(target, paths = []) {
+export function porcelain(target, paths) {
+  requirePaths(paths, 'porcelain');
   return git(target, ['status', '--porcelain', '--', ...paths]).trim();
 }
 
-/** `git diff --stat HEAD -- <paths>`; пусто — отслеживаемые файлы по путям не менялись. */
-export function diffStat(target, paths = []) {
+/** `git diff --stat HEAD -- <paths>`; пусто — отслеживаемые файлы по путям не менялись. Требует хотя бы одного коммита. */
+export function diffStat(target, paths) {
+  requirePaths(paths, 'diffStat');
   return git(target, ['diff', '--stat', 'HEAD', '--', ...paths]).trim();
 }
 

@@ -1,5 +1,6 @@
 export interface TargetTestRun {
   exitCode: number | null;
+  timedOut: boolean;
   stdout: string;
   stderr: string;
   tests: number;
@@ -14,6 +15,7 @@ export interface TargetTestsOptions {
   timeoutMs?: number;
 }
 export function runTargetTestsOnce(target: string, opts?: TargetTestsOptions): Promise<TargetTestRun>;
+export function isGreenRun(r: TargetTestRun): boolean;
 export function runTargetTests(
   target: string,
   opts?: TargetTestsOptions & { times?: number },

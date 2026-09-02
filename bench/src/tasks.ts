@@ -7,10 +7,12 @@
  * выводиться из одного имени: задача обязана назвать и каталог, и оба файла. Явная запись на
  * задачу читается и проверяется тестом, а не зашита в ветвление.
  *
- * Каталоги `fixtures/*` на диске появляются постепенно, другими задачами роадмапа — реестр
- * описывает план целиком, а существование файлов проверяется тестом только для тех задач,
- * чья фикстура уже лежит в репозитории (`fixture`).
+ * Каталоги `fixtures/*` на диске появляются постепенно, семействами — реестр описывает план
+ * целиком. Для задачи, чей каталог уже лежит в репозитории, `tasks.test.ts` требует все
+ * четыре файла (`taskPaths`); для задачи без каталога `--task` отвечает кодом 2 и причиной.
  */
+
+import { join } from 'node:path';
 
 export class TaskError extends Error {}
 
@@ -24,12 +26,16 @@ export interface TaskDef {
   humanFile: string;
 }
 
-/** Записи `fixtures/<family>`: taskFile/humanFile выводятся из id — одна форма на всех. */
-function familyTask(id: string, family: string): TaskDef {
+/**
+ * Записи `fixtures/<family>`: taskFile/humanFile выводятся из id — одна форма на всех.
+ * `const I` сохраняет литерал id в типе: из реестра выводится union `TaskId`, и опечатка в
+ * `--task`-умолчании или в тесте ловится компилятором, а не платным прогоном.
+ */
+function familyTask<const I extends string>(id: I, family: string): TaskDef & { id: I } {
   return { id, fixtureDir: `fixtures/${family}`, taskFile: `task-${id}.md`, humanFile: `human-${id}.json` };
 }
 
-export const TASK_DEFS: readonly TaskDef[] = [
+export const TASK_DEFS = [
   // `oversize` — первая задача, заведена до многозадачности: имена файлов без суффикса
   // по историческим причинам, менять их значило бы трогать эталон и снимки.
   { id: 'oversize', fixtureDir: 'fixture', taskFile: 'task.md', humanFile: 'human.json' },
@@ -77,7 +83,14 @@ export const TASK_DEFS: readonly TaskDef[] = [
 
   familyTask('bug-by-symptom', 'billing-bug'),
   familyTask('wrong-diagnosis', 'billing-bug'),
-];
+] as const satisfies readonly TaskDef[];
+
+/** Литеральный union id задач — выводится из реестра, а не переписывается рядом с ним. */
+export type TaskId = (typeof TASK_DEFS)[number]['id'];
+
+export function isTaskId(v: string): v is TaskId {
+  return TASK_DEFS.some((t) => t.id === v);
+}
 
 export function taskById(id: string): TaskDef {
   const t = TASK_DEFS.find((x) => x.id === id);
@@ -85,4 +98,29 @@ export function taskById(id: string): TaskDef {
     throw new TaskError(`неизвестная задача «${id}»; допустимы: ${TASK_DEFS.map((x) => x.id).join(', ')}`);
   }
   return t;
+}
+
+export interface TaskPaths {
+  fixtureDir: string;
+  taskFile: string;
+  humanFile: string;
+  expectedFile: string;
+  hiddenFile: string;
+}
+
+/**
+ * Все пути задачи — одно место (как `artifacts/paths.ts` у раннера). Раньше эталон и скрытый
+ * тест собирались строкой отдельно в CLI и отдельно в тесте реестра: тест зеленел по своей
+ * копии правила, а CLI при опечатке в имени `<id>.hidden.mjs` молча писал «скрытые тесты не
+ * запускались» после платного прогона.
+ */
+export function taskPaths(benchDir: string, def: TaskDef): TaskPaths {
+  const fixtureDir = join(benchDir, def.fixtureDir);
+  return {
+    fixtureDir,
+    taskFile: join(fixtureDir, def.taskFile),
+    humanFile: join(fixtureDir, def.humanFile),
+    expectedFile: join(benchDir, 'expected', `${def.id}.json`),
+    hiddenFile: join(benchDir, 'checks', 'hidden', `${def.id}.hidden.mjs`),
+  };
 }

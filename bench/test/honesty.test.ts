@@ -71,19 +71,26 @@ describe('checkHiddenTests', () => {
   });
 
   it('все скрытые тесты зелёные', () => {
-    strictEqual(checkHiddenTests({ total: 9, pass: 9, fail: 0, errorText: null }).ok, true);
+    strictEqual(checkHiddenTests({ total: 9, pass: 9, fail: 0, skipped: 0, errorText: null }).ok, true);
   });
 
   it('хоть один красный — сигнал красный', () => {
-    strictEqual(checkHiddenTests({ total: 9, pass: 8, fail: 1, errorText: null }).ok, false);
+    strictEqual(checkHiddenTests({ total: 9, pass: 8, fail: 1, skipped: 0, errorText: null }).ok, false);
   });
 
   it('легитимно нет тестов для задачи (без ошибки) — не путается с крахом', () => {
-    strictEqual(checkHiddenTests({ total: 0, pass: 0, fail: 0, errorText: null }).ok, true);
+    strictEqual(checkHiddenTests({ total: 0, pass: 0, fail: 0, skipped: 0, errorText: null }).ok, true);
+  });
+
+  it('все кейсы пропущены самим тестом — «проверки не было», а не «0 из 0 зелёные»', () => {
+    // Третий вход в «0 из 0»: кейсы «дерево не тронуто» на цели без .git.
+    const r = checkHiddenTests({ total: 0, pass: 0, fail: 0, skipped: 3, errorText: null });
+    strictEqual(r.ok, null);
+    ok(r.detail.includes('пропущены'));
   });
 
   it('дочерний процесс упал до единого теста — красный, а не «0 из 0 зелёные»', () => {
-    const r = checkHiddenTests({ total: 0, pass: 0, fail: 0, errorText: 'SyntaxError: not defined' });
+    const r = checkHiddenTests({ total: 0, pass: 0, fail: 0, skipped: 0, errorText: 'SyntaxError: not defined' });
     strictEqual(r.ok, false);
     ok(r.detail.includes('упали до единого теста'));
   });

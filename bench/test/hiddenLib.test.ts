@@ -83,6 +83,17 @@ describe('lib/spawnTests', () => {
     const r = await runTargetTests(root);
     strictEqual(r.allGreen, false);
   });
+
+  it('падающий тест под todo не делает набор зелёным', async () => {
+    // Иначе «починить» неверный ассерт (broken-test) можно было бы, пометив его todo:
+    // node даёт код 0 и `# fail 0`.
+    const root = project("import { test } from 'node:test';\ntest('ок', () => {});\ntest('спрятан', { todo: true }, () => { throw new Error('нет'); });\n");
+    const r = await runTargetTests(root);
+    strictEqual(r.runs[0]!.exitCode, 0);
+    strictEqual(r.runs[0]!.fail, 0);
+    strictEqual(r.runs[0]!.todo, 1);
+    strictEqual(r.allGreen, false);
+  });
 });
 
 describe('lib/gitState', () => {
@@ -108,6 +119,14 @@ describe('lib/gitState', () => {
     ok(porcelain(root, ['src/']).includes('b.ts'), 'untracked файл тоже виден — это не «нетронуто»');
     ok(diffStat(root, ['src/']).includes('a.ts'));
     strictEqual(porcelain(root, ['test/']), '', 'по чужому пути — чисто');
+    // Без путей git видит всё дерево, а рабочая копия витка никогда не чиста (untracked .sdlc/).
+    let threw = false;
+    try {
+      porcelain(root, []);
+    } catch {
+      threw = true;
+    }
+    strictEqual(threw, true, 'porcelain без путей обязан отказать');
   });
 });
 
@@ -131,6 +150,9 @@ describe('lib/fileCases', () => {
     });
     strictEqual(problems.length, 2);
     deepStrictEqual(fileCaseProblems(root, { file: 'нет.md', mustContain: ['x'] }), ['файла нет.md в цели нет']);
+    mkdirSync(join(root, 'docs'));
+    strictEqual(fileCaseProblems(root, { file: 'docs', mustContain: ['x'] }).length, 1, 'каталог — не файл, а не EISDIR');
+    strictEqual(fileCaseProblems(root, { file: join(root, 'README.md'), mustContain: ['x'] }).length, 1, 'абсолютный путь отвергается');
     let threw = false;
     try {
       assertFileCase(root, { file: 'README.md', mustNotContain: ['Отчёт'] });

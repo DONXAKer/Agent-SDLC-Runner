@@ -18,23 +18,17 @@
  */
 
 import { deepStrictEqual, strictEqual } from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, it } from 'node:test';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
+import { importIndex, readExpected, targetDir } from './target.mjs';
+
 const SLUG = process.env.BENCH_EXPECTED_SLUG;
 if (SLUG === undefined || SLUG === '') {
   throw new Error('BENCH_EXPECTED_SLUG не задан: hidden-раннеру семейства нужно имя эталона');
 }
-const EXPECTED_PATH = resolve(HERE, '..', '..', '..', 'expected', `${SLUG}.json`);
-const TARGET_DIR = process.env.BENCH_TARGET_DIR ?? resolve(HERE, '..', '..', '..', 'fixtures', 'cli-tool');
-
-const expected = JSON.parse(readFileSync(EXPECTED_PATH, 'utf8'));
-
-const indexUrl = pathToFileURL(join(TARGET_DIR, 'src', 'index.ts')).href;
-const mod = await import(indexUrl);
+const TARGET_DIR = targetDir('cli-tool');
+const expected = readExpected(SLUG);
+const mod = await importIndex(TARGET_DIR);
 
 /** Таблица → ячейки: строки по переводу строки, ячейки по двум и более пробелам. */
 function tableRows(text) {

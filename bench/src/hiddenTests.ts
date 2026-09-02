@@ -7,17 +7,18 @@
  * дочернего процесса.
  */
 
-import { spawn } from 'node:child_process';
+import { spawnNodeTest } from './nodeTest.ts';
 
 export interface HiddenCaseResult {
   id: string;
   category: string;
   ok: boolean;
   /**
-   * Кейс пропущен самим тестом (`t.skip()` → `ok N - … # SKIP`). TAP пишет такой кейс
-   * как `ok`, и до этого поля он засчитывался зелёным: кейсы «дерево не тронуто» из
-   * `feature-present`/`broken-assert` на цели без `.git` красили бы щуп точности правки в
-   * зелёный ровно там, где проверки не было. Пропущенное — не в числителе и не в знаменателе.
+   * Кейс не исполнялся по решению самого теста: `t.skip()` → `ok N - … # SKIP`, `t.todo()`
+   * → `ok|not ok N - … # TODO`. TAP пишет пропущенный кейс как `ok`, и до этого поля он
+   * засчитывался зелёным: кейсы «дерево не тронуто» (`skipUnlessGit` в раннерах семейств)
+   * на цели без `.git` красили бы щуп точности правки в зелёный ровно там, где проверки не
+   * было. Пропущенное — не в числителе и не в знаменателе.
    */
   skipped: boolean;
   label: string;
@@ -34,9 +35,10 @@ export interface HiddenTestsSummary {
   errorText: string | null;
 }
 
-/** `ok 3 - H1 [human] (claim-5): текст` / `not ok 4 - Pr2 [precision] (claim-3): текст # SKIP`. */
+/** `ok 3 - H1 [human] (claim-5): текст` / `ok 4 - Pr2 [precision] (claim-3): текст # SKIP причина`. */
 const TAP_LINE_RE = /^(ok|not ok)\s+\d+\s+-\s+(\S+)\s+\[(\w+)\](.*)$/u;
-const TAP_SKIP_RE = /#\s*SKIP\b/iu;
+/** Директивы TAP: `# SKIP` всегда идёт с `ok`, `# TODO` — с любым исходом; обе означают «не считать». */
+const TAP_SKIP_RE = /#\s*(SKIP|TODO)\b/iu;
 
 function parseTap(stdout: string): HiddenCaseResult[] {
   const cases: HiddenCaseResult[] = [];
@@ -60,55 +62,36 @@ export function summarize(cases: HiddenCaseResult[]): Omit<HiddenTestsSummary, '
  * где лежит `src/`, обычно копия рабочей копии витка ПОСЛЕ chunk'а, снятая на одноразовой
  * копии — см. комментарий в самом `.hidden.mjs`).
  */
-export function runHiddenTests(args: { hiddenFile: string; targetDir: string; timeoutMs?: number }): Promise<HiddenTestsSummary> {
-  return new Promise((resolve) => {
-    // `--test-reporter=tap`: репортёр по умолчанию (`spec`) не даёт машиночитаемых строк
-    // «ok N - имя» — только символы ✔/✖ для терминала. TAP — единственный штатный формат,
-    // который парсится регуляркой, а не угадыванием по эмодзи.
-    // `NODE_TEST_CONTEXT`/`NODE_TEST_WORKER_ID` наследуются от `process.env`, когда сам
-    // бенчмарк вызван из-под `node --test` (например этим же тестом): дочерний узел видит
-    // себя «внутри уже идущего прогона» и молча пропускает файл вместо запуска — вывод
-    // пуст, будто тестов не было ни одного. Гасим обе, дочерний прогон обязан быть
-    // независимым от того, кто его вызвал.
-    const { NODE_TEST_CONTEXT: _ctx, NODE_TEST_WORKER_ID: _worker, ...cleanEnv } = process.env;
-    const child = spawn(process.execPath, ['--test', '--test-reporter=tap', args.hiddenFile], {
-      env: { ...cleanEnv, BENCH_TARGET_DIR: args.targetDir },
-      windowsHide: true,
-    });
-
-    const out: string[] = [];
-    const err: string[] = [];
-    child.stdout.on('data', (d: Buffer) => out.push(d.toString('utf8')));
-    child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
-
-    const timer =
-      args.timeoutMs === undefined
-        ? null
-        : setTimeout(() => {
-            child.kill();
-          }, args.timeoutMs);
-
-    child.on('close', () => {
-      if (timer !== null) clearTimeout(timer);
-      const stdout = out.join('');
-      const cases = parseTap(stdout);
-      if (cases.length === 0) {
-        resolve({
-          total: 0,
-          pass: 0,
-          fail: 0,
-          skipped: 0,
-          cases: [],
-          errorText: `скрытые тесты не дали ни одной разобранной строки TAP — stderr: ${err.join('').slice(0, 2000)}`,
-        });
-        return;
-      }
-      resolve({ ...summarize(cases), errorText: null });
-    });
-
-    child.on('error', (e) => {
-      if (timer !== null) clearTimeout(timer);
-      resolve({ total: 0, pass: 0, fail: 0, skipped: 0, cases: [], errorText: e.message });
-    });
+export async function runHiddenTests(args: { hiddenFile: string; targetDir: string; timeoutMs?: number }): Promise<HiddenTestsSummary> {
+  // `--test-reporter=tap` (внутри spawnNodeTest): репортёр по умолчанию (`spec`) не даёт
+  // машиночитаемых строк «ok N - имя» — только символы ✔/✖ для терминала. TAP — единственный
+  // штатный формат, который парсится регуляркой, а не угадыванием по эмодзи.
+  const out = await spawnNodeTest({
+    testArgs: [args.hiddenFile],
+    env: { BENCH_TARGET_DIR: args.targetDir },
+    ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
   });
+  const cases = parseTap(out.stdout);
+  if (cases.length === 0) {
+    // Причина краха до единого кейса (битый импорт цели) приходит от `node --test` в STDOUT
+    // строками-комментариями `# …`, stderr при этом пуст — «stderr: » в отчёте ничего не
+    // объяснял. Берём и то и другое.
+    const comments = out.stdout
+      .split('\n')
+      .filter((l) => l.startsWith('#') && !/^# (tests|suites|pass|fail|cancelled|skipped|todo|duration_ms) /u.test(l))
+      .join('\n');
+    const why = [out.timedOut ? `снято по таймауту ${args.timeoutMs} мс` : '', out.stderr.trim(), comments.trim()]
+      .filter((s) => s !== '')
+      .join('\n')
+      .slice(0, 2000);
+    return {
+      total: 0,
+      pass: 0,
+      fail: 0,
+      skipped: 0,
+      cases: [],
+      errorText: `скрытые тесты не дали ни одной разобранной строки TAP — ${why === '' ? 'вывод пуст' : why}`,
+    };
+  }
+  return { ...summarize(cases), errorText: null };
 }
