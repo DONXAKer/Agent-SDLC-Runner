@@ -186,7 +186,7 @@ export class ApprovalGate {
     // «правки внутри плана»: файл из плана — это разрешение писать в него, а не разрешение
     // стереть его целиком. Замер поймал ровно этот случай — 1235 строк заменены заглушкой,
     // и все проверки отработали как написаны (см. `destructive.ts`).
-    if (destructiveOverwrite(call, ctx.projectRoot) !== null) return false;
+    if (destructiveOverwrite(call, ctx.projectRoot, ctx.stageArtifacts ?? []) !== null) return false;
 
     // `writeTargetPaths` возвращает `null` для вызовов, которые вообще не пишут: такой
     // вызов «внутри плана» не бывает, и правило про правки к нему не относится.
@@ -271,12 +271,12 @@ export class ApprovalGate {
       return { allowed: true, updatedInput: null, by: 'auto' };
     }
 
-    const preview = buildPreview(args.call, args.ctx.projectRoot);
+    const preview = buildPreview(args.call, args.ctx.projectRoot, args.ctx.stageArtifacts ?? []);
 
     // Предупреждение о потере содержимого считается здесь, а не в панели: оператор
     // принимает решение по тому, что ему показали, и «−1233 строки» обязано быть в самом
     // запросе, а не выводиться клиентом заново из превью.
-    const loss = destructiveOverwrite(args.call, args.ctx.projectRoot);
+    const loss = destructiveOverwrite(args.call, args.ctx.projectRoot, args.ctx.stageArtifacts ?? []);
     const destructive = loss === null ? null : destructiveNote(loss);
 
     if (this.matchesRule(args.call, args.ctx, this.autoApproveRules(args.runId, args.stage))) {

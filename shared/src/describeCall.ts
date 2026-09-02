@@ -40,6 +40,8 @@ export function describeCall(call: NormalizedCall): string {
       return `Пункт приёмки ${call.id}: ${call.status}`;
     case 'record_finding':
       return `Находка (${call.section}): ${firstLine(call.text)}`;
+    case 'fill_field':
+      return `Поле ${call.artifact}.${call.field} (${call.op}): ${firstLine(call.value)}`;
     case 'mcp':
       return `MCP ${call.server}.${call.tool} ${firstLine(JSON.stringify(call.args))}`;
     case 'unknown':
@@ -60,6 +62,8 @@ export function callTitle(call: NormalizedCall): string {
       return `Финализировать ${call.artifact}`;
     case 'subagent':
       return `Запустить субагента ${call.agent}`;
+    case 'fill_field':
+      return `Заполнить поле ${call.artifact}.${call.field}`;
     case 'mcp':
       return `Сервер ${call.server} · ${call.tool}`;
     case 'unknown':

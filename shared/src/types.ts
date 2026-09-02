@@ -62,6 +62,19 @@ export type ToolName =
   /** То же для находки ревью, scope, инварианта или регрессии. */
   | 'RecordFinding'
   /**
+   * Заполнить ОДНО поле артефакта значением — без `old_string`, без разметки таблиц,
+   * без экранирования `|`. Модель называет id артефакта (из `ArtifactKey`, не путь — тот
+   * же приём, что уже держит `humanGate.artifact`) и id поля из карточки бланка; рантайм
+   * находит место в тексте (`artifacts/formSchema.ts`) и рисует markdown сам
+   * (`artifacts/applyFill.ts`). Заведено против того же класса отказа, что и
+   * `RecordClaim`/`RecordFinding`, но для содержательных полей этапов-документов и
+   * chunk-журнала: 44 промаха `Edit` на пять рабочих копий, треть–половина из-за переноса
+   * строки внутри поля шаблона, которого модель не видит в сплошном тексте
+   * (`docs/model-runs.md`). Право выдаётся только при включённой ручке
+   * `ModelDef.compactForms`.
+   */
+  | 'FillField'
+  /**
    * Читающие вызовы внешних MCP-серверов. Идут без шага человека — как `Read` и `Grep`.
    *
    * Права на MCP выражены двумя токенами, а не одним, из-за сужения прав субагента: оно
@@ -93,6 +106,44 @@ export type FlowId = 'sdk' | 'loop';
  * на стороне интерфейса проверялась сборкой, а не глазами.
  */
 export type RunStatus = 'idle' | 'running' | 'awaiting' | 'done' | 'failed' | 'cancelled';
+
+/**
+ * Короткие имена артефактов витка.
+ *
+ * Нужны там, где артефакт называет не код, а внешний мир: интерфейс просит записать
+ * решение в «plan», а не в путь — путь рантайм собирает сам (`server/src/artifacts/paths.ts`,
+ * единственное место, где эти ключи превращаются в файл). Живёт в общем пакете, потому
+ * что тот же словарь называет и цель `FillField` (`NormalizedCall`) — вторая копия здесь
+ * разошлась бы с картой путей молча.
+ */
+export type ArtifactKey =
+  | 'intent'
+  | 'readiness'
+  | 'exploration'
+  | 'clarification'
+  | 'plan'
+  | 'journal'
+  | 'verification'
+  | 'iterations'
+  | 'selfReview'
+  | 'handoff';
+
+export const ARTIFACT_KEYS: readonly ArtifactKey[] = [
+  'intent',
+  'readiness',
+  'exploration',
+  'clarification',
+  'plan',
+  'journal',
+  'verification',
+  'iterations',
+  'selfReview',
+  'handoff',
+];
+
+export function isArtifactKey(v: string): v is ArtifactKey {
+  return (ARTIFACT_KEYS as readonly string[]).includes(v);
+}
 
 // ---------------------------------------------------------------------------
 // Нормализованный вызов инструмента
@@ -163,6 +214,20 @@ export type NormalizedCall =
       evidence: string;
     }
   /**
+   * Значение одного поля артефакта. `artifact` — ключ, не путь: путь резолвит
+   * `stageArtifacts` (`Run.stageArtifacts`), тот же список, что задаёт право на запись —
+   * второго способа назвать файл здесь нет по построению. `op: 'add'` — дописать к уже
+   * стоящим строкам списка/таблицы, не заменяя их (список пунктов «Что делаем», куда
+   * шаг находит добавить ещё одну строку, не отменяя предыдущие).
+   */
+  | {
+      kind: 'fill_field';
+      artifact: ArtifactKey;
+      field: string;
+      value: string;
+      op: 'set' | 'add';
+    }
+  /**
    * Вызов инструмента внешнего MCP-сервера.
    *
    * Класса «читает или пишет» здесь намеренно НЕТ. Он берётся из разрешительного списка
@@ -207,6 +272,7 @@ export const CALL_KINDS = Object.keys({
   request_scope_extension: true,
   record_claim: true,
   record_finding: true,
+  fill_field: true,
   mcp: true,
   unknown: true,
 } satisfies Record<CallKind, true>) as readonly CallKind[];
@@ -330,6 +396,14 @@ export interface PolicyContext {
    * написание здесь читалось бы как «всё разрешено» — противоположность замыслу.
    */
   mcpTools: readonly McpToolRule[];
+  /**
+   * Ключ артефакта → путь, для `FillField`. Не задано или пусто — этап не производит ни
+   * одного именованного артефакта: `FillField` отклоняется как «этап не производит такой
+   * артефакт», тот же fail-closed приём, что у `readDenied` ниже. Считает
+   * `Run.stageArtifacts(stage)` — та же функция, что резолвит путь при исполнении, чтобы
+   * ключ→путь не разошёлся между решением о доступе и записью на диск.
+   */
+  stageArtifacts?: readonly { key: ArtifactKey; path: string }[];
 }
 
 // ---------------------------------------------------------------------------

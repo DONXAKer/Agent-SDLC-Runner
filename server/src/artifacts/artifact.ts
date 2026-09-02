@@ -277,6 +277,42 @@ export function isDecisionLine(line: string): boolean {
 }
 
 /**
+ * Принадлежит ли строка-продолжение (с `lineStart`) полю решения человека.
+ *
+ * Обход вверх до первой строки элемента списка, с тремя уроками ревью-5:
+ *  - защита прогресса: на файле, начинающемся с пустой строки, `lastIndexOf` с
+ *    отрицательным fromIndex клампится к 0 и возвращал ту же позицию — вечный
+ *    синхронный цикл вешал event loop сервера (воспроизведено);
+ *  - решение узнаётся и по СКЛЕЕННОМУ элементу, не только построчно: в старой форме
+ *    шаблона двоеточие уезжает на продолжение («…не имя\n  оператора)_: н/п»), и ни
+ *    одна строка по отдельности меткой не выглядит — а проекты, скопировавшие шаблон
+ *    до канонизации, живут именно с такой формой;
+ *  - каждая поднятая строка проверяется отдельно (вложенный пункт-решение не
+ *    проскакивается), пробельная строка внутри элемента обход не рвёт.
+ *
+ * Живёт рядом с `isDecisionLine`, а не в `FormFillExecutor`: тем же вопросом задаётся
+ * схема формы (`formSchema.ts`), и две копии обхода разошлись бы на первом же уроке.
+ */
+export function continuationOfDecision(text: string, lineStart: number): boolean {
+  const lineEndIdx = text.indexOf('\n', lineStart);
+  let joined = text.slice(lineStart, lineEndIdx < 0 ? text.length : lineEndIdx).trimStart();
+  let start = lineStart;
+  for (;;) {
+    const prevEnd = start - 1;
+    if (prevEnd < 0) return false;
+    const prevStart = text.lastIndexOf('\n', prevEnd - 1) + 1;
+    if (prevStart >= start) return false; // пустая первая строка файла — прогресса нет
+    const prev = text.slice(prevStart, prevEnd);
+    joined = `${prev.trimEnd()} ${joined}`;
+    if (isDecisionLine(prev) || isDecisionLine(joined)) return true;
+    // Первая строка элемента (не отступная и не пробельная) достигнута и решением
+    // не оказалась — выше начинается чужой элемент.
+    if (prev.trim() !== '' && !/^\s+\S/.test(prev)) return false;
+    start = prevStart;
+  }
+}
+
+/**
  * Ячейка ШАПКИ таблицы, означающая колонку подписи человека: «Утвердил (человек)» в
  * таблице неприменимости, «Кто» / «Кто утвердил» в таблицах набора гейтов. Отдельно от
  * меток полей: в таблицах решение живёт колонкой, и жирного поля там нет. Начало ячейки,

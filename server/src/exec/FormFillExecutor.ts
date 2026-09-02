@@ -40,17 +40,26 @@
 import { randomUUID } from 'node:crypto';
 import { relative } from 'node:path';
 
-import type { Usage } from '@sdlc-runner/shared';
+import type { StageId, Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
 
 import {
+  continuationOfDecision,
   isDecisionCell,
   isDecisionLine,
   lineAt,
   placeholderRanges,
   readArtifact,
 } from '../artifacts/artifact.ts';
+import { applyFill } from '../artifacts/applyFill.ts';
 import { CLAIMS_MINIMUM, claimIdOf, countClaims } from '../artifacts/claims.ts';
+import {
+  deriveSchema,
+  modelFields,
+  type FormField as SchemaField,
+} from '../artifacts/formSchema.ts';
+import { isSheetError, parseFieldValue } from '../artifacts/sheet.ts';
+import { templateNameFor } from '../run/seed.ts';
 import { isSeparatorRow, splitRow } from '../md/table.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
@@ -73,6 +82,16 @@ export interface FormFillOptions {
   params?: Record<string, unknown> | null;
   /** Валюта провайдера маршрута — для честной подписи трат. Умолчание USD. */
   currency?: string;
+  /**
+   * Схема формы вместо сплошного текста бланка (`ModelDef.compactForms ∈ {fill, all}`):
+   * поля ищутся `artifacts/formSchema.ts`, карточка поля вместо строки/секции бланка,
+   * ответ разбирает и рисует `artifacts/applyFill.ts` — без `‹…›` в ответе-признаке
+   * пустоты, без ручной чистки таблицы. Умолчание — `false`, прежний путь
+   * (`groupFields`/`cleanFieldAnswer`/`cleanRowAnswer`) не трогается ни строкой.
+   */
+  compact?: boolean;
+  /** Этап, на котором исполняется бланк — только для `compact`: отсекает `stageOnly`. */
+  stage?: StageId;
 }
 
 /**
@@ -110,39 +129,6 @@ export type FormField =
       /** Шапка таблицы — для дедупа продублированной моделью шапки. */
       header: string;
     };
-
-/**
- * Принадлежит ли строка-продолжение (с `lineStart`) полю решения человека.
- *
- * Обход вверх до первой строки элемента списка, с тремя уроками ревью-5:
- *  - защита прогресса: на файле, начинающемся с пустой строки, `lastIndexOf` с
- *    отрицательным fromIndex клампится к 0 и возвращал ту же позицию — вечный
- *    синхронный цикл вешал event loop сервера (воспроизведено);
- *  - решение узнаётся и по СКЛЕЕННОМУ элементу, не только построчно: в старой форме
- *    шаблона двоеточие уезжает на продолжение («…не имя\n  оператора)_: н/п»), и ни
- *    одна строка по отдельности меткой не выглядит — а проекты, скопировавшие шаблон
- *    до канонизации, живут именно с такой формой;
- *  - каждая поднятая строка проверяется отдельно (вложенный пункт-решение не
- *    проскакивается), пробельная строка внутри элемента обход не рвёт.
- */
-function continuationOfDecision(text: string, lineStart: number): boolean {
-  const lineEndIdx = text.indexOf('\n', lineStart);
-  let joined = text.slice(lineStart, lineEndIdx < 0 ? text.length : lineEndIdx).trimStart();
-  let start = lineStart;
-  for (;;) {
-    const prevEnd = start - 1;
-    if (prevEnd < 0) return false;
-    const prevStart = text.lastIndexOf('\n', prevEnd - 1) + 1;
-    if (prevStart >= start) return false; // пустая первая строка файла — прогресса нет
-    const prev = text.slice(prevStart, prevEnd);
-    joined = `${prev.trimEnd()} ${joined}`;
-    if (isDecisionLine(prev) || isDecisionLine(joined)) return true;
-    // Первая строка элемента (не отступная и не пробельная) достигнута и решением
-    // не оказалась — выше начинается чужой элемент.
-    if (prev.trim() !== '' && !/^\s+\S/.test(prev)) return false;
-    start = prevStart;
-  }
-}
 
 /** Шапка таблицы, которой принадлежит строка с позиции `lineStart`: верхняя `|`-строка блока. */
 function tableHeaderOf(text: string, lineStart: number): string {
@@ -314,7 +300,13 @@ export class FormFillExecutor implements StageExecutor {
       artifacts.reduce((n, p) => {
         if (retriableOnly && writeDenied.has(p)) return n;
         const a = readArtifact(p);
-        return n + (a.exists ? groupFields(a.text).length : 0);
+        if (!a.exists) return n;
+        return (
+          n +
+          (this.o.compact
+            ? modelFields(deriveSchema(a.text, templateNameFor(p)), this.o.stage).length
+            : groupFields(a.text).length)
+        );
       }, 0);
 
     /**
@@ -466,6 +458,192 @@ export class FormFillExecutor implements StageExecutor {
       });
 
     /**
+     * Карточка поля вместо строки/секции бланка (`compact`): id, вид, допустимые
+     * значения, минимум, альтернатива «пусто» — модель отвечает ЗНАЧЕНИЕМ по грамматике
+     * `artifacts/sheet.ts`, а не куском разметки. Хинт режется явно: `field.hint` уже
+     * ограничен внутри `deriveSchema`, но легенда секции могла набежать за несколько
+     * абзацев на многострочном поле.
+     */
+    const askFieldCompact = (field: SchemaField): ReturnType<ChatProvider['chat']> => {
+      const card = [
+        `## Сейчас — ровно одно поле`,
+        '',
+        `- id: \`${field.id}\``,
+        `- вид: ${field.kind}`,
+        ...(field.options === undefined
+          ? []
+          : [`- варианты: ${field.options.map((o) => `\`${o.key}\``).join(', ')}`]),
+        ...(field.columns === undefined
+          ? []
+          : [`- колонки записи: ${field.columns.filter((c) => c.kind !== 'mechanical').map((c) => `\`${c.id}\``).join(', ')}`]),
+        ...(field.min === undefined ? [] : [`- минимум строк: ${field.min.rows}, из них с тегом [edge]: ${field.min.edges ?? 0}`]),
+        ...(field.emptyAlternative === undefined ? [] : [`- если элементов нет — ответь пустой строкой`]),
+        `- подсказка: ${field.hint === '' ? '(нет)' : field.hint.slice(0, 800)}`,
+        '',
+        '## Формат ответа',
+        '',
+        field.kind === 'choice'
+          ? 'Верни ТОЛЬКО ключ выбранного варианта (слово или значок из списка «варианты» ' +
+            'выше), и если по смыслу нужен комментарий — через тире после ключа. Без ‹›, ' +
+            'без пересказа условия.'
+          : field.kind === 'list'
+            ? 'Верни по одному пункту на строку, каждая начинается с `- `. Метку поля ' +
+              '(«- **Метка:**») не повторяй.'
+            : field.kind === 'records'
+              ? 'Верни по одной записи на элемент: `- значение1 — значение2` (по порядку ' +
+                'колонок из списка выше), либо `- колонка: значение` под отдельной строкой ' +
+                'на каждую колонку, если значений больше двух. Id/номер не указывай — его ' +
+                'проставит рантайм.'
+              : 'Верни ТОЛЬКО значение поля — без метки, без ‹›, без пояснений вокруг.',
+      ].join('\n');
+
+      return this.o.provider.chat({
+        model: req.model,
+        messages: [
+          { role: 'system', content: req.prompt.system },
+          { role: 'user', content: [req.prompt.user, '', card].join('\n') },
+        ],
+        tools: [],
+        signal: req.signal,
+        temperature: null,
+        params: this.o.params ?? null,
+      });
+    };
+
+    /** Добор записи ниже минимума (`compact`) — та же идея, что `askClaimsTopUp`, через `applyFill('add')`. */
+    const askTopUpCompact = (field: SchemaField, already: string): ReturnType<ChatProvider['chat']> =>
+      this.o.provider.chat({
+        model: req.model,
+        messages: [
+          { role: 'system', content: req.prompt.system },
+          {
+            role: 'user',
+            content: [
+              req.prompt.user,
+              '',
+              `## Добор поля \`${field.id}\``,
+              '',
+              `Уже отвечено:\n\`\`\`\n${already}\n\`\`\``,
+              '',
+              `Строк меньше минимума методологии (нужно не меньше ${field.min?.rows ?? 0}` +
+                (field.min?.edges === undefined || field.min.edges === 0 ? '' : `, из них с [edge] не меньше ${field.min.edges}`) +
+                '). Верни ТОЛЬКО дополнительные записи в том же формате — уже названные не повторяй.',
+            ].join('\n'),
+          },
+        ],
+        tools: [],
+        signal: req.signal,
+        temperature: null,
+        params: this.o.params ?? null,
+      });
+
+    /**
+     * Бюджет исчерпан — общая проверка для обоих режимов, после каждой пачки.
+     */
+    const budgetHit = (): string | null => {
+      const spent = usage.costUsd === null ? null : usage.costUsd + (req.spentUsdBefore ?? 0);
+      if (req.maxBudgetUsd !== null && spent !== null && spent >= req.maxBudgetUsd) {
+        return `бюджет прогона исчерпан: ${money(spent, currency)} из ${money(req.maxBudgetUsd, currency)}`;
+      }
+      return null;
+    };
+
+    /**
+     * Проход по ОДНОМУ бланку в режиме `compact`: поля — `deriveSchema`/`modelFields`
+     * вместо `groupFields`, ответ рисует `applyFill`. Добор записи ниже минимума — теми
+     * же СЫРЫМИ ТЕКСТАМИ ответов, склеенными до единственного вызова `applyFill`: поле,
+     * уже заполненное ОДИН раз, из схемы исчезает (строка без `‹…›` не образец), и второй
+     * `applyFill('add')` на том же id её бы не нашёл — то же правило, что у «незаполненное
+     * место и есть определение поля» в герметичных тестах.
+     */
+    const sweepArtifactCompact = async (
+      path: string,
+      startText: string,
+    ): Promise<{ stop: StageResult | null; changed: boolean; text: string }> => {
+      let text = startText;
+      let changed = false;
+      const schema = deriveSchema(text, templateNameFor(path));
+      const fields = modelFields(schema, this.o.stage);
+
+      for (let batchStart = 0; batchStart < fields.length; batchStart += FIELD_PARALLEL) {
+        if (req.signal.aborted) return { stop: { ok: false, finalText: '', usage, note: 'этап отменён' }, changed, text };
+
+        const allowed = Math.min(FIELD_PARALLEL, req.maxTurns - callsSpent);
+        const batch = fields.slice(batchStart, batchStart + FIELD_PARALLEL);
+        if (allowed <= 0) continue;
+        const asked = batch.slice(0, allowed);
+        callsSpent += asked.length;
+
+        const answers = await Promise.allSettled(asked.map((f) => askFieldCompact(f)));
+        for (const a of answers) {
+          if (a.status !== 'fulfilled') continue;
+          usage = addUsage(usage, a.value.usage);
+          hooks.onUsage(a.value.usage);
+        }
+
+        for (const [idx, field] of asked.entries()) {
+          const a = answers[idx]!;
+          if (a.status !== 'fulfilled') {
+            const why = (a.reason as Error | undefined)?.message ?? String(a.reason);
+            notes.push(`поле не спрошено (${relative(req.cwd, path)}, ${field.id}): ${why.slice(0, 160)}`);
+            continue;
+          }
+
+          let answerText = a.value.text;
+
+          // Добор ДО commit'а: минимум листа проверяется по СЫРОМУ ответу, вопрос
+          // задаётся один раз, оба текста склеиваются, и только тогда — единственный
+          // applyFill. Дубли верхнего уровня из повторного ответа модели отсекаются по
+          // нормализованному содержимому строки, тем же приёмом, что у legacy-добора.
+          if (field.kind === 'records' && field.min !== undefined && callsSpent < req.maxTurns) {
+            const peek = parseFieldValue(field, answerText);
+            if (!isSheetError(peek) && peek.kind === 'records') {
+              const edges = peek.rows.filter((r) => Object.values(r).some((v) => /\[edge\]/i.test(v))).length;
+              const short = peek.rows.length < field.min.rows || edges < (field.min.edges ?? 0);
+              if (short) {
+                callsSpent++;
+                try {
+                  const more = await askTopUpCompact(field, answerText);
+                  usage = addUsage(usage, more.usage);
+                  hooks.onUsage(more.usage);
+                  const seen = new Set(
+                    answerText
+                      .split('\n')
+                      .map((l) => l.trim().toLowerCase())
+                      .filter((l) => l !== ''),
+                  );
+                  const fresh = more.text
+                    .split('\n')
+                    .filter((l) => !seen.has(l.trim().toLowerCase()))
+                    .join('\n');
+                  if (fresh.trim() !== '') answerText = `${answerText}\n${fresh}`;
+                  notes.push(`добор поля ${field.id}: запрошен и добавлен`);
+                } catch (e) {
+                  const why = e instanceof Error ? e.message : String(e);
+                  notes.push(`добор поля ${field.id} не удался: ${why.slice(0, 160)}`);
+                }
+              }
+            }
+          }
+
+          const applied = applyFill(text, field.id, answerText, 'set', templateNameFor(path));
+          if (!applied.ok) {
+            notes.push(`поле ${field.id} не заполнено: ${applied.problem}`);
+            continue;
+          }
+          text = applied.text;
+          fieldsFilled++;
+          changed = true;
+        }
+
+        const over = budgetHit();
+        if (over !== null) return { stop: { ok: false, finalText: '', usage, note: over }, changed, text };
+      }
+
+      return { stop: null, changed, text };
+    };
+
+    /**
      * Проход по бланкам. `StageResult` — обрыв всего этапа (бюджет, отмена), `null` —
      * проход закончен штатно. Вынесен в функцию ради ВТОРОГО прохода: поле, не взятое
      * одним сэмплом (пустой ответ, ответ с плейсхолдером), со второго захода часто
@@ -502,6 +680,17 @@ export class FormFillExecutor implements StageExecutor {
         }
 
         let text = artifact.text;
+
+        if (this.o.compact) {
+          const outcome = await sweepArtifactCompact(path, text);
+          // Оплаченные ответы не выбрасываются даже при обрыве (бюджет, отмена) — тот же
+          // принцип, что у некомпактного пути ниже: флаш ПЕРЕД возвратом `stop`, иначе
+          // накопленный `outcome.text` теряется вместе с уже оплаченными полями.
+          if (outcome.changed) await flushArtifact(path, outcome.text);
+          if (outcome.stop !== null) return outcome.stop;
+          continue;
+        }
+
         // С конца к началу: сплайс не сдвигает позиции ещё не обработанных диапазонов.
         // Строка таблицы с плейсхолдерами — поле-ОБРАЗЕЦ, одно на весь будущий список
         // (пункты приёмки, вопросы): спрошенная «по одному полю» она давала список из

@@ -20,6 +20,8 @@ function title(call: NormalizedCall): string {
       return 'Выполнить команду';
     case 'finalize_artifact':
       return `Финализировать ${call.artifact}`;
+    case 'fill_field':
+      return `Заполнить поле ${call.artifact}.${call.field}`;
     case 'mcp':
       return `Сервер ${call.server} · ${call.tool}`;
     case 'unknown':

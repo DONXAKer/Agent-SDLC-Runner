@@ -11,8 +11,10 @@
 
 import { readFileSync, statSync } from 'node:fs';
 
+import { applyFill } from '../artifacts/applyFill.ts';
 import { resolveUserPath } from '../policy/paths.ts';
-import type { DiffPreview, NormalizedCall } from '@sdlc-runner/shared';
+import { templateNameFor } from '../run/seed.ts';
+import type { ArtifactKey, DiffPreview, NormalizedCall } from '@sdlc-runner/shared';
 
 export class EditApplyError extends Error {}
 
@@ -83,8 +85,33 @@ function readCurrent(abs: string): { text: string | null; note: string | null } 
   }
 }
 
-/** `null` — вызов ничего не пишет, показывать нечего. */
-export function buildPreview(call: NormalizedCall, projectRoot: string): DiffPreview | null {
+/**
+ * `null` — вызов ничего не пишет, показывать нечего.
+ *
+ * `stageArtifacts` — только для `fill_field`: путь у него не в самом вызове, а в карте
+ * ключей этапа (та же, что решала доступ политикой). Оператор видит ОТРЕНДЕРЕННЫЙ
+ * результат — `applyFill` уже нарисовал markdown, значит панель показывает ровно то, что
+ * ляжет на диск, а не сырое значение поля.
+ */
+export function buildPreview(
+  call: NormalizedCall,
+  projectRoot: string,
+  stageArtifacts: readonly { key: ArtifactKey; path: string }[] = [],
+): DiffPreview | null {
+  if (call.kind === 'fill_field') {
+    const entry = stageArtifacts.find((a) => a.key === call.artifact);
+    if (entry === undefined) return null; // политика уже отклонила бы такой вызов раньше
+    const current = readCurrent(entry.path);
+    if (current.text === null) {
+      return { path: entry.path, before: null, after: `‹бланк не найден: ${current.note ?? 'файла нет'}›` };
+    }
+    const applied = applyFill(current.text, call.field, call.value, call.op, templateNameFor(entry.path));
+    if (!applied.ok) {
+      return { path: entry.path, before: current.text, after: `‹значение не применяется: ${applied.problem}›` };
+    }
+    return { path: entry.path, before: current.text, after: applied.text };
+  }
+
   if (call.kind !== 'write' && call.kind !== 'edit') return null;
 
   const abs = resolveUserPath(projectRoot, call.path);

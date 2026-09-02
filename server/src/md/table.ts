@@ -113,3 +113,20 @@ export function columnIndex(header: readonly string[], name: string): number {
   const want = name.toLowerCase().replace(/ё/g, 'е');
   return header.findIndex((h) => h.toLowerCase().replace(/ё/g, 'е').startsWith(want));
 }
+
+/**
+ * Ключ колонки по её заголовку: текст до первой скобки, без обратных кавычек и лишних
+ * пробелов, в нижнем регистре с `ё→е`. «Как проверить (процедура + критерий)» и
+ * «Как проверить» — одна колонка; тем же правилом сопоставляются ключи в ответе модели
+ * (`artifacts/sheet.ts`) и колонки схемы формы (`artifacts/formSchema.ts`).
+ */
+export function headerKey(header: string): string {
+  return header
+    .replace(/`/g, '')
+    .replace(/\s*\(.*$/, '')
+    .replace(/\*\*/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ');
+}

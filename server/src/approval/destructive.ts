@@ -16,8 +16,11 @@
 
 import { readFileSync, statSync } from 'node:fs';
 
+import { applyFill } from '../artifacts/applyFill.ts';
+import { deriveSchema, findField } from '../artifacts/formSchema.ts';
 import { resolveUserPath } from '../policy/paths.ts';
-import type { NormalizedCall } from '@sdlc-runner/shared';
+import { templateNameFor } from '../run/seed.ts';
+import type { ArtifactKey, NormalizedCall } from '@sdlc-runner/shared';
 
 /**
  * Порог доли потерянного. 0.5 — не «половина важнее сорока процентов», а точка, ниже
@@ -34,12 +37,22 @@ const LOSS_RATIO = 0.5;
  */
 const MIN_LINES = 40;
 
+/**
+ * Тот же порог для поля `FillField`, а не для файла целиком: поле по природе короче
+ * документа, вокруг него всегда стоит остальное содержимое артефакта, которое в `MIN_LINES`
+ * файла и не заметит потерю. Число взято из failure_scenario ревью — «десятки накопленных
+ * строк» листа/списка, а не сотни.
+ */
+const MIN_LINES_FIELD = 10;
+
 export interface DestructiveOverwrite {
   path: string;
   linesBefore: number;
   linesAfter: number;
   /** Сколько строк исчезает. Число, а не доля: доля не проверяется глазами. */
   linesLost: number;
+  /** Поле артефакта, если разрушение — по `FillField`, а не по `Write` файла целиком. */
+  field?: string;
 }
 
 function lineCount(text: string): number {
@@ -52,8 +65,49 @@ function lineCount(text: string): number {
 }
 
 /**
- * `null` — вызов не разрушающий: не `Write`, файла нет, он нечитаем, слишком короток либо
- * потеря ниже порога.
+ * Та же проверка для `FillField`: `op: 'set'` заменяет диапазон поля целиком (`applyFill`),
+ * и это тот же класс потери, что `Write` поверх файла — только масштабом в поле, не в
+ * документ. `op: 'add'` дописывает и терять нечего по построению (см. `applyFill.ts`).
+ */
+function fillFieldLoss(
+  call: NormalizedCall & { kind: 'fill_field' },
+  projectRoot: string,
+  stageArtifacts: readonly { key: ArtifactKey; path: string }[],
+): DestructiveOverwrite | null {
+  if (call.op !== 'set') return null;
+
+  const entry = stageArtifacts.find((a) => a.key === call.artifact);
+  if (entry === undefined) return null;
+
+  let before: string;
+  try {
+    before = readFileSync(resolveUserPath(projectRoot, entry.path), 'utf8');
+  } catch {
+    return null;
+  }
+
+  const templateName = templateNameFor(entry.path);
+  const schema = deriveSchema(before, templateName);
+  const field = findField(schema, call.field);
+  if (field === undefined) return null;
+
+  const applied = applyFill(before, call.field, call.value, call.op, templateName);
+  if (!applied.ok) return null;
+
+  const linesBefore = lineCount(before.slice(field.range.start, field.range.end));
+  const linesAfter = lineCount(applied.rendered);
+  if (linesBefore < MIN_LINES_FIELD) return null;
+
+  const linesLost = linesBefore - linesAfter;
+  if (linesLost <= 0) return null;
+  if (linesLost / linesBefore < LOSS_RATIO) return null;
+
+  return { path: entry.path, linesBefore, linesAfter, linesLost, field: call.field };
+}
+
+/**
+ * `null` — вызов не разрушающий: не `Write`/`FillField`, файла нет, он нечитаем, слишком
+ * короток либо потеря ниже порога.
  *
  * Чтение файла здесь допустимо по той же причине, по какой оно допустимо в `buildPreview`:
  * функция вызывается ПОСЛЕ разрешения политики, то есть по пути, который агенту и так
@@ -62,7 +116,9 @@ function lineCount(text: string): number {
 export function destructiveOverwrite(
   call: NormalizedCall,
   projectRoot: string,
+  stageArtifacts: readonly { key: ArtifactKey; path: string }[] = [],
 ): DestructiveOverwrite | null {
+  if (call.kind === 'fill_field') return fillFieldLoss(call, projectRoot, stageArtifacts);
   if (call.kind !== 'write') return null;
 
   const abs = resolveUserPath(projectRoot, call.path);
@@ -108,6 +164,12 @@ export function destructiveOverwrite(
 export function destructiveNote(d: DestructiveOverwrite): string {
   if (d.linesBefore < 0) {
     return `перезапись очень большого файла ${d.path} целиком — прежнее содержимое будет потеряно`;
+  }
+  if (d.field !== undefined) {
+    return (
+      `запись поля «${d.field}» ${d.path} теряет большую часть его содержимого: было ` +
+      `${d.linesBefore} строк, станет ${d.linesAfter} (−${d.linesLost}). Автоодобрение на такой вызов не распространяется`
+    );
   }
   return (
     `перезапись ${d.path} целиком: было ${d.linesBefore} строк, станет ${d.linesAfter} ` +

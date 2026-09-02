@@ -9,8 +9,8 @@
  * считать его записью по худшему случаю и отклонить, а не пропустить молча.
  */
 
-import type { CallKind, ClaimStatus, EditOp, NormalizedCall, Question } from '@sdlc-runner/shared';
-import { FINDING_SECTIONS } from '@sdlc-runner/shared';
+import type { CallKind, ClaimStatus, EditOp, GateStatus, NormalizedCall, Question } from '@sdlc-runner/shared';
+import { FINDING_SECTIONS, isArtifactKey } from '@sdlc-runner/shared';
 
 /** Инструменты, которые рантайм подаёт через MCP во флоу `sdk`. */
 const MCP_PREFIX = 'mcp__sdlc__';
@@ -40,6 +40,8 @@ const NAME_TO_KIND = new Map<string, CallKind>([
   ['RecordClaim', 'record_claim'],
   ['record_claim', 'record_claim'],
   ['RecordFinding', 'record_finding'],
+  ['FillField', 'fill_field'],
+  ['fill_field', 'fill_field'],
   ['record_finding', 'record_finding'],
 ]);
 
@@ -58,13 +60,25 @@ function str(input: Record<string, unknown>, ...keys: string[]): string | null {
  * вместо `✅`/`❌`, и отклонять такую запись значило бы мерить владение эмодзи, а не разбор.
  * Пятой градации нет: «частично» не превращается ни во что.
  */
-function claimStatusOf(raw: string): ClaimStatus | null {
+export function claimStatusOf(raw: string): ClaimStatus | null {
   const t = raw.trim().toLowerCase();
   if (t.includes('✅') || t === 'passed' || t === 'pass' || t === 'true' || t === 'да') return '✅';
   if (t.includes('❌') || t === 'failed' || t === 'fail' || t === 'false' || t === 'нет') return '❌';
   if (t.includes('⚠') || t === 'unknown' || t === 'unverifiable') return '⚠';
   if (t === 'manual') return 'manual';
   return null;
+}
+
+/**
+ * Статус гейта из строки модели — тот же словарь слов, что у пункта, плюс `⏭`.
+ * Экспортирован рядом с `claimStatusOf`, а не скопирован в `artifacts/sheet.ts`:
+ * словарь «слово → значок» один на рантайм.
+ */
+export function gateStatusOf(raw: string): GateStatus | null {
+  const t = raw.trim().toLowerCase();
+  if (t.includes('⏭') || t === 'skip' || t === 'skipped' || t === 'пропущен' || t === 'н/п') return '⏭';
+  const claim = claimStatusOf(t);
+  return claim === '✅' || claim === '❌' ? claim : null;
 }
 
 /** Имя пункта в канонической форме `claim-N`. `claim-3`, `Claim-3`, `3` — одно и то же. */
@@ -287,6 +301,25 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
       const known = FINDING_SECTIONS.find((s) => s === section.trim().toLowerCase());
       if (known === undefined) return { kind: 'unknown', toolName, raw: input };
       return { kind: 'record_finding', section: known, text, evidence: str(input, 'evidence', 'where') ?? '' };
+    }
+
+    case 'fill_field': {
+      const artifact = str(input, 'artifact');
+      const field = str(input, 'field');
+      const value = str(input, 'value');
+      // Пустая СТРОКА — законный ответ для list/records («элементов нет» — applyFill сам
+      // подставит альтернативу поля или откажет содержательным сообщением, если у поля её
+      // нет). Нормализатор не знает вид поля (это знает только схема бланка, посчитанная
+      // позже) и потому не вправе отклонять пустой value заранее — иначе у полей list/records
+      // не остаётся ни одного законного способа сказать «пусто» вне `FormFillExecutor`.
+      // Отклоняется только ОТСУТСТВУЮЩИЙ ключ (`value === null`), не его пустое значение.
+      if (artifact === null || field === null || value === null) {
+        return { kind: 'unknown', toolName, raw: input };
+      }
+      if (!isArtifactKey(artifact)) return { kind: 'unknown', toolName, raw: input };
+      const opRaw = str(input, 'op');
+      const op = opRaw === 'add' ? 'add' : 'set';
+      return { kind: 'fill_field', artifact, field, value, op };
     }
 
     // Недостижимо: `mcp` не приходит из `NAME_TO_KIND` — вызовы внешних серверов узнаются

@@ -10,43 +10,13 @@
 
 import { join } from 'node:path';
 
+import type { ArtifactKey } from '@sdlc-runner/shared';
+// Реэкспорт: до этой правки `ArtifactKey`/`isArtifactKey` жили только здесь, и часть
+// кодовой базы импортирует их отсюда — молчаливая ломка импортов дороже одной строки.
+export { isArtifactKey } from '@sdlc-runner/shared';
+export type { ArtifactKey } from '@sdlc-runner/shared';
+
 export const SDLC_DIR = '.sdlc';
-
-/**
- * Короткие имена артефактов витка.
- *
- * Нужны там, где артефакт называет не код, а внешний мир: интерфейс просит записать
- * решение в «plan», а не в путь. Путь рантайм собирает сам — иначе поле решения можно
- * было бы записать в произвольный файл на диске, в том числе в чужой виток.
- */
-export type ArtifactKey =
-  | 'intent'
-  | 'readiness'
-  | 'exploration'
-  | 'clarification'
-  | 'plan'
-  | 'journal'
-  | 'verification'
-  | 'iterations'
-  | 'selfReview'
-  | 'handoff';
-
-const ARTIFACT_KEYS: readonly string[] = [
-  'intent',
-  'readiness',
-  'exploration',
-  'clarification',
-  'plan',
-  'journal',
-  'verification',
-  'iterations',
-  'selfReview',
-  'handoff',
-];
-
-export function isArtifactKey(v: string): v is ArtifactKey {
-  return ARTIFACT_KEYS.includes(v);
-}
 
 export function artifactPathOf(
   paths: WitokPaths,

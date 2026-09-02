@@ -245,3 +245,163 @@ describe('cleanFieldAnswer', () => {
     strictEqual(cleanFieldAnswer('  строка как есть  '), 'строка как есть');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Режим compact: схема формы вместо сплошного текста (`compactForms ∈ {fill, all}`)
+// ---------------------------------------------------------------------------
+
+const COMPACT_FORM = [
+  '# Задача: demo',
+  '',
+  '- **Ветка витка:** ‹sdlc/слаг›',
+  '- **Контур:** полный / мелкий — критерий в SDLC.md',
+  '',
+  '## Приёмочный лист',
+  '',
+  '| id | Пункт | Как проверить |',
+  '|---|---|---|',
+  '| claim-1 | ‹наблюдаемое поведение› | ‹процедура и критерий годности› |',
+  '',
+  '## Что придётся тронуть',
+  '',
+  '- ‹path/to/file› — ‹что здесь меняем›',
+  '',
+  '- **Одобрение:** ‹имя› · ‹дата› / **не одобрен**',
+  '',
+].join('\n');
+
+function setupCompact(): { root: string; artifact: string } {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-form-compact-'));
+  roots.push(root);
+  const artifact = join(root, 'intent.md');
+  writeFileSync(artifact, COMPACT_FORM);
+  return { root, artifact };
+}
+
+/** Провайдер: отвечает по id поля из карточки («- id: `...`») в последнем user-сообщении. */
+function compactProvider(answers: Record<string, string>): ChatProvider {
+  return {
+    name: 'stub',
+    async chat(req: ChatRequest) {
+      const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+      const found = Object.entries(answers).find(([id]) => user.includes(`\`${id}\``));
+      return {
+        text: found?.[1] ?? '',
+        toolCalls: [],
+        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+        finishReason: 'end_turn' as const,
+      };
+    },
+  } as unknown as ChatProvider;
+}
+
+const execCompact = (provider: ChatProvider, stage: 'intent' | 'explore' = 'intent'): FormFillExecutor =>
+  new FormFillExecutor({
+    provider,
+    maxResultBytes: 10_000,
+    readRangeRequiredAboveBytes: 10_000,
+    bashTimeoutMs: 1000,
+    compact: true,
+    stage,
+  });
+
+describe('режим compact: поля из схемы, ответ рисует applyFill', () => {
+  it('scalar/choice/records заполняются без разметки в ответе модели, запись — через гейт', async () => {
+    const { root, artifact } = setupCompact();
+    const seen = { writes: [] as NormalizedCall[] };
+    const result = await execCompact(
+      compactProvider({
+        'ветка витка': 'sdlc/oversize',
+        контур: 'мелкий',
+        'приемочный лист': '- пункт: код 200\n  как проверить: retryReturns200',
+      }),
+    ).run(request(root, artifact), hooks(seen, true));
+
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('sdlc/oversize'));
+    ok(text.includes('мелкий') && !text.includes('полный'), 'выбранная ветка меню заменяет обе');
+    ok(text.includes('| claim-1 |'), 'записи приёмочного листа нумерует рантайм');
+    ok(seen.writes.some((c) => c.kind === 'write'), 'запись идёт нормализованным Write через гейт');
+    strictEqual(result.ok, false); // "Что придётся тронуть" (stageOnly: explore) и "Одобрение" (decision) остаются
+  });
+
+  it('поле stageOnly не спрашивается на чужом этапе, но спрашивается на своём', async () => {
+    const { root, artifact } = setupCompact();
+    const asked: string[] = [];
+    const spy: ChatProvider = {
+      name: 'spy',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        asked.push(user);
+        return {
+          text: '',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execCompact(spy, 'intent').run(request(root, artifact), hooks({ writes: [] }, true));
+    ok(!asked.some((u) => u.includes('что придется тронуть') || u.includes('что придётся тронуть')));
+  });
+
+  it('поле решения человека («Одобрение») не спрашивается ни в каком виде', async () => {
+    const { root, artifact } = setupCompact();
+    const asked: string[] = [];
+    const spy: ChatProvider = {
+      name: 'spy',
+      async chat(req: ChatRequest) {
+        asked.push(req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '');
+        return {
+          text: 'x',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execCompact(spy).run(request(root, artifact), hooks({ writes: [] }, true));
+    ok(!asked.some((u) => u.includes('одобрение')));
+  });
+
+  it('лист приёмки ниже минимума добирается повторным запросом (compact)', async () => {
+    const { root, artifact } = setupCompact();
+    let claimCalls = 0;
+    const provider: ChatProvider = {
+      name: 'topup',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        if (user.includes('Добор поля')) {
+          return {
+            text: '- пункт: без ключа код 201 [edge]\n  как проверить: noKeyReturns201',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+          };
+        }
+        if (user.includes('`приемочный лист`') || user.includes('приемочный лист')) {
+          claimCalls++;
+          return {
+            text: '- пункт: код 200\n  как проверить: retryReturns200',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+          };
+        }
+        return {
+          text: 'x',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execCompact(provider).run(request(root, artifact, { maxTurns: 20 }), hooks({ writes: [] }, true));
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('claim-1') && text.includes('claim-2'), 'добор добавил вторую запись');
+    strictEqual(claimCalls, 1, 'начальный ответ на лист запрошен один раз');
+  });
+});

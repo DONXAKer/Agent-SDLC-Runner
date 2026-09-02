@@ -148,6 +148,27 @@ export interface ModelDef {
    * Умолчание — выключено: ручка заведена под замер серией, не для всех.
    */
   stepFill?: boolean;
+  /**
+   * Схема формы вместо сплошного текста бланка — три независимых эффекта под одной
+   * ручкой, потому что журнал замеров требует «одна ручка на прогон», а разводить их на
+   * отдельные пока не для чего:
+   *  - `'fill'` — `FormFillExecutor` спрашивает по карточке поля (id, вид, допустимые
+   *    значения) вместо строки/секции бланка, ответ разбирает `artifacts/sheet.ts`,
+   *    пишет `artifacts/applyFill.ts`; плюс инструмент `FillField` выдаётся модели
+   *    (`Run.toolsFor`) — без `old_string`, без разметки таблиц, без экранирования `|`;
+   *  - `'inputs'` — входные артефакты на входе loop-этапов intent/explore/ask/plan и план
+   *    на входе chunk идут КОМПАКТНОЙ ПРОЕКЦИЕЙ (`prompt/build.ts`, `renderSheet`):
+   *    значения полей без легенд, цитат и разметки таблиц; verify/handoff и патчи —
+   *    полный текст, как сейчас;
+   *  - `'all'` — оба эффекта разом.
+   *
+   * Заведено против того же класса отказа, что `RecordClaim`/`RecordFinding`, но для
+   * содержательных полей этапов-документов и chunk-журнала: 44 промаха `Edit` на пять
+   * рабочих копий, треть–половина из-за переноса строки внутри поля шаблона, которого
+   * модель не видит в сплошном тексте (`docs/model-runs.md`). Умолчание — `'off'`: ручка
+   * заведена под замер серией, не для всех.
+   */
+  compactForms?: 'off' | 'fill' | 'inputs' | 'all';
 }
 
 export interface ModelsConfig {
@@ -282,6 +303,8 @@ export interface ResolvedRoute {
   claimFill: boolean;
   /** Этап 5 по шагам плана без tool-use — см. `ModelDef.stepFill`. */
   stepFill: boolean;
+  /** Схема формы вместо сплошного текста — см. `ModelDef.compactForms`. */
+  compactForms: 'off' | 'fill' | 'inputs' | 'all';
 }
 
 export interface ResolvedProfile {

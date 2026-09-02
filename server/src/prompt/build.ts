@@ -14,7 +14,12 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
+import { deriveSchema, modelFields } from '../artifacts/formSchema.ts';
 import { extractHumanFacts } from '../artifacts/humanFacts.ts';
+import { artifactPathOf } from '../artifacts/paths.ts';
+import { renderSheet } from '../artifacts/sheet.ts';
+import { templateNameFor } from '../run/seed.ts';
+import { ARTIFACT_KEYS } from '@sdlc-runner/shared';
 import type { RunnerConfig } from '../config/schema.ts';
 import { specsFor } from '../exec/toolSpecs.ts';
 import { toPosix } from '../policy/paths.ts';
@@ -118,6 +123,13 @@ export interface BuildPromptInput {
     test: string | null;
   }[];
   now: Date;
+  /**
+   * `ModelDef.compactForms` маршрута этапа. `'inputs'`/`'all'` включают компактную
+   * проекцию входных артефактов (`renderSheet`) на этапах-документах флоу `loop` и на
+   * плане, поданном в chunk. `'off'`/не задано — прежнее поведение, входы идут текстом
+   * шаблона целиком, как сейчас.
+   */
+  compactForms?: 'off' | 'fill' | 'inputs' | 'all';
 }
 
 export function readSkillBody(skillsDir: string, skill: string): string {
@@ -215,6 +227,17 @@ function adapterBlock(i: BuildPromptInput): string {
       'правит человек, а не ты. Нужна правка плана — это новая редакция и новое одобрение.',
     '- Входные артефакты приложены ниже целиком. Не пересказывай их по памяти и не ' +
       'догадывайся о содержимом — работай по тексту.',
+    // Проекция МЕНЯЕТ форму, не содержание: то же правило («работай по тексту, не по
+    // памяти») остаётся в силе — только формат теперь ближе к тому, каким модель отвечает
+    // сама (`sheet.ts`), а не к оригинальной разметке шаблона.
+    ...(i.flow === 'loop' && (i.compactForms === 'inputs' || i.compactForms === 'all')
+      ? [
+          '- Часть входов ниже показана СЖАТОЙ ПРОЕКЦИЕЙ: значения полей без легенд, цитат ' +
+            'и разметки таблиц (пометка `<!-- … · сжатая проекция -->` над блоком). Ни одно ' +
+            'значение не потеряно — снята только форма бланка; нужен оригинал целиком — ' +
+            'открой файл `Read`.',
+        ]
+      : []),
     // Самопросмотр — шаг ВНУТРИ этапа 5, а не восьмой этап: `STAGE_ORDER` это контракт
     // методологии, и лишний этап означал бы расхождение с каноническим форматом `.sdlc/`,
     // который читают и скиллы `/sdlc-*`.
@@ -323,10 +346,50 @@ function adapterBlock(i: BuildPromptInput): string {
  * артефакта ЭТОГО этапа: такой `old_string` гарантированно найдётся, а путь гарантированно
  * разрешён к записи. Бланков с плейсхолдерами нет — примера нет, блок молчит.
  */
+/**
+ * Пример «мысль → FillField» для режима `compactForms ∈ {fill, all}` — тем же приёмом,
+ * что обычный few-shot: берётся РЕАЛЬНОЕ первое поле модели из уже разложенного бланка
+ * этого этапа, а не переписанная копия шаблона (та однажды разошлась с формой при первой
+ * же её правке). `null` — нечем показать: бланка нет, или у него нет ни одного поля модели.
+ */
+function fillFieldFewShot(i: BuildPromptInput, path: string, text: string): string[] | null {
+  const key = ARTIFACT_KEYS.find(
+    (k) => artifactPathOf(i.ctx.paths, k, i.ctx.chunk, i.ctx.attempt) === path,
+  );
+  if (key === undefined) return null;
+  const schema = deriveSchema(text, templateNameFor(path));
+  const field = modelFields(schema, i.stage.id)[0];
+  if (field === undefined) return null;
+  const callJson = JSON.stringify({
+    tool: 'FillField',
+    arguments: { artifact: key, field: field.id, value: '(твоё содержимое по факту задачи)' },
+  });
+  return [
+    '- Как выглядит сделанный шаг. Вот настоящее незаполненное поле твоего бланка — ' +
+      'правильное действие это ОДИН вызов инструмента со значением поля, без разметки:',
+    '  ```json',
+    `  ${callJson}`,
+    '  ```',
+    '  Метку поля («- **Метка:** …») в значении повторять не надо — рантайм сам найдёт ' +
+      'место и нарисует разметку. Когда в артефакте не осталось `‹…›` — вызови ' +
+      '`FinalizeArtifact` с путём артефакта.',
+    '- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе, самому вписывать `|` или ' +
+      '`**`, спрашивать человека о том, что видно из кода.',
+  ];
+}
+
 function fewShotLines(i: BuildPromptInput): string[] {
+  const useFillField = i.flow === 'loop' && (i.compactForms === 'fill' || i.compactForms === 'all');
   for (const path of i.stage.produces(i.ctx)) {
     const a = readArtifact(path);
     if (!a.exists) continue;
+
+    if (useFillField) {
+      const lines = fillFieldFewShot(i, path, a.text);
+      if (lines !== null) return lines;
+      continue;
+    }
+
     const r = placeholderRanges(a.text)[0];
     if (r === undefined) continue;
 
@@ -356,12 +419,15 @@ function fewShotLines(i: BuildPromptInput): string[] {
   return [];
 }
 
-function fence(path: string, text: string, maxBytes: number): string {
+function fence(path: string, text: string, maxBytes: number, projected = false): string {
   const r = capBytes(text, maxBytes);
   const body = r.capped
     ? `${r.text}\n…[обрезано рантаймом: файл длиннее ${maxBytes} байт]`
     : r.text;
-  return ['````markdown', `<!-- ${path} -->`, body, '````'].join('\n');
+  const label = projected
+    ? `<!-- ${path} · сжатая проекция: значения полей без легенд и разметки; полный текст — Read -->`
+    : `<!-- ${path} -->`;
+  return ['````markdown', label, body, '````'].join('\n');
 }
 
 /**
@@ -408,6 +474,15 @@ function userMessage(i: BuildPromptInput): string {
     i.flow === 'loop' && LOOP_CAPPED_STAGES.has(i.stage.id)
       ? LOOP_MAX_ARTIFACT_BYTES
       : MAX_ARTIFACT_BYTES;
+  // Компактная проекция: значения полей без легенд, цитат и разметки таблиц —
+  // `artifacts/sheet.ts: renderSheet`. Только на loop-этапах-документах и на плане,
+  // поданном во вход chunk'а: verify/handoff и патчи читает независимый рецензент, и
+  // «лучше промпт не влез, чем вердикт по трети правки» здесь сильнее экономии контекста.
+  // Проекция БЕЗ ПОТЕРЬ содержимого (не фильтрует по схеме) — режется тем же потолком,
+  // что и полный текст, а не отдельным, более щедрым: цель этого режима — не тратить
+  // выигранные байты обратно на больший лимит, а оставить с той же формой больше места
+  // истории хода.
+  const compact = i.compactForms === 'inputs' || i.compactForms === 'all';
   for (const input of inputs) {
     const a = readArtifact(input.path);
     const rel = toPosix(relative(i.ctx.paths.projectRoot, input.path));
@@ -419,8 +494,16 @@ function userMessage(i: BuildPromptInput): string {
       i.flow === 'loop' && i.stage.id === 'chunk' && rel.endsWith('.patch')
         ? LOOP_MAX_ARTIFACT_BYTES
         : maxBytes;
-    if (a.exists) present.push(fence(rel, a.text, cap));
-    else if (!input.optional) missing.push(rel);
+    if (!a.exists) {
+      if (!input.optional) missing.push(rel);
+      continue;
+    }
+    const useProjection =
+      compact &&
+      i.flow === 'loop' &&
+      (LOOP_CAPPED_STAGES.has(i.stage.id) || (i.stage.id === 'chunk' && input.path === i.ctx.paths.plan));
+    const text = useProjection ? renderSheet(a.text) : a.text;
+    present.push(fence(rel, text, cap, useProjection));
   }
 
   if (present.length > 0) {

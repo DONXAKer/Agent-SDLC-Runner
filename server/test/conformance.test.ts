@@ -141,6 +141,12 @@ const CASES: Case[] = [
     loop: ['FinalizeArtifact', { artifact: 'plan', note: 'готово' }],
     expect: { kind: 'finalize_artifact', artifact: 'plan', note: 'готово' },
   },
+  {
+    what: 'заполнение поля артефакта',
+    sdk: ['mcp__sdlc__fill_field', { artifact: 'plan', field: 'подход', value: 'Используем guard' }],
+    loop: ['FillField', { artifact: 'plan', field: 'подход', value: 'Используем guard' }],
+    expect: { kind: 'fill_field', artifact: 'plan', field: 'подход', value: 'Используем guard', op: 'set' },
+  },
 ];
 
 describe('нормализация одинакова в обоих флоу', () => {
@@ -295,7 +301,9 @@ describe('новый вид вызова не проходит мимо разб
   // новый `kind` их не ломает — он через них просто проходит. Этот тест требует, чтобы
   // автор нового вида ОТНЁС его к одному из двух списков, а не забыл про него.
   it('каждый вид вызова назван явно', () => {
-    const проверяется: CallKind[] = ['read', 'write', 'edit', 'bash', 'mcp'];
+    // `fill_field` — своя цель записи, разрешённая по ключу артефакта (`stageArtifacts`),
+    // а не по пути от модели: та же природа, что у `mcp`, и своё покрытие — `fillField.test.ts`.
+    const проверяется: CallKind[] = ['read', 'write', 'edit', 'bash', 'mcp', 'fill_field'];
     const пропускается: CallKind[] = [
       'glob',
       'grep',

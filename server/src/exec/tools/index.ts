@@ -16,10 +16,12 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { glob } from 'node:fs/promises';
 import { dirname, join, relative, resolve as resolvePath } from 'node:path';
 
-import type { NormalizedCall } from '@sdlc-runner/shared';
+import type { ArtifactKey, NormalizedCall } from '@sdlc-runner/shared';
 
+import { applyFill } from '../../artifacts/applyFill.ts';
 import { resolveUserPath, toPosix } from '../../policy/paths.ts';
 import { runShell } from '../../gates/shell.ts';
+import { templateNameFor } from '../../run/seed.ts';
 
 export interface ToolContext {
   projectRoot: string;
@@ -29,6 +31,13 @@ export interface ToolContext {
   readRangeRequiredAboveBytes: number;
   timeoutMs: number;
   signal: AbortSignal;
+  /**
+   * Ключ артефакта → путь, для `FillField`. Тот же список, что решал доступ политикой
+   * (`PolicyContext.stageArtifacts`) — второй карты здесь нет, только выборка нужных
+   * инструментов из общей. Не задан — `FillField` этого исполнителя не достигает вовсе
+   * (право не выдано без него), но функция остаётся честной и на пустом списке.
+   */
+  artifacts?: readonly { key: ArtifactKey; path: string }[];
 }
 
 export interface ToolOutcome {
@@ -237,6 +246,25 @@ function writeTool(call: NormalizedCall & { kind: 'write' }, ctx: ToolContext): 
     }
   }
   return { ok: true, text: base };
+}
+
+/**
+ * Заполняет одно поле артефакта. Путь берётся из `ctx.artifacts` по ключу — политика уже
+ * проверила, что этап производит этот артефакт (`policy/index.ts: evaluateFillField`), а
+ * второй раз резолвить ключ здесь означало бы второе место, где ключ→путь может разойтись.
+ * Разбор значения и рендер markdown — `applyFill`, здесь только диск.
+ */
+function fillFieldTool(call: NormalizedCall & { kind: 'fill_field' }, ctx: ToolContext): ToolOutcome {
+  const entry = (ctx.artifacts ?? []).find((a) => a.key === call.artifact);
+  if (entry === undefined) return { ok: false, text: `артефакт «${call.artifact}» не найден на этом этапе` };
+  if (!existsSync(entry.path)) {
+    return { ok: false, text: `бланк ${call.artifact} ещё не разложен на диске — заполнять нечего` };
+  }
+  const current = readFileSync(entry.path, 'utf8');
+  const applied = applyFill(current, call.field, call.value, call.op, templateNameFor(entry.path));
+  if (!applied.ok) return { ok: false, text: applied.problem };
+  writeFileSync(entry.path, applied.text, 'utf8');
+  return { ok: true, text: `${rel(ctx.projectRoot, entry.path)}.${call.field} — записано: ${applied.rendered}` };
 }
 
 function editTool(call: NormalizedCall & { kind: 'edit' }, ctx: ToolContext): ToolOutcome {
@@ -482,6 +510,8 @@ export async function executeTool(call: NormalizedCall, ctx: ToolContext): Promi
       return guard(() => grepTool(call, ctx));
     case 'bash':
       return guard(() => bashTool(call, ctx));
+    case 'fill_field':
+      return guard(() => fillFieldTool(call, ctx));
     default:
       return { ok: false, text: `инструмент «${call.kind}» этот цикл не исполняет` };
   }

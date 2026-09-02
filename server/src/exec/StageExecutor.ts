@@ -9,7 +9,7 @@
  * отдать его в `onToolRequest`, а решение принимают общие для обоих флоу чистые функции.
  */
 
-import type { Decision, NormalizedCall, PreparedPrompt, ToolName, Usage } from '@sdlc-runner/shared';
+import type { ArtifactKey, Decision, NormalizedCall, PreparedPrompt, ToolName, Usage } from '@sdlc-runner/shared';
 
 export interface ExecHooks {
   /** Текст ассистента по мере поступления. */
@@ -178,6 +178,13 @@ export interface ExecRequest {
    * поле не читают — их источник правды о готовности остаётся `finishGuard`.
    */
   formArtifacts?: readonly string[];
+  /**
+   * Ключ артефакта → путь, для `FillField` — тот же список, что уже отдан политике
+   * (`PolicyContext.stageArtifacts`). Нужен обоим исполнителям: `LoopExecutor` кладёт его
+   * в `ToolContext.artifacts` для `executeTool`, `SdkExecutor` — в MCP-обработчик
+   * `fill_field`, у которого своего способа узнать путь артефакта нет по построению.
+   */
+  stageArtifacts?: readonly { key: ArtifactKey; path: string }[];
   /**
    * Сколько уже потрачено ВНЕ этого вызова `run()` — другими маршрутами ансамбля и
    * прогонами вышестоящих этапов.

@@ -21,9 +21,16 @@ import { describeCall, emptyUsage } from '@sdlc-runner/shared';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { TOOL_SPECS, isBuiltinToolName } from './toolSpecs.ts';
+import { executeTool, type ToolContext } from './tools/index.ts';
 
-/** Инструменты рантайма, которых у Claude Code нет: вопрос человеку и финализация артефакта. */
-function sdlcMcpServer(hooks: ExecHooks) {
+/**
+ * Инструменты рантайма, которых у Claude Code нет: вопрос человеку, финализация артефакта
+ * и `fill_field`. Последний — не просто уведомление о решении, принятом в `onToolRequest`
+ * (как у остальных здесь): у него нет встроенного аналога в SDK, значит запись на диск
+ * обязана произойти в ЭТОМ обработчике, тем же `executeTool`, что и во флоу `loop` — иначе
+ * появилось бы второе место, исполняющее `FillField` по-своему.
+ */
+function sdlcMcpServer(hooks: ExecHooks, toolCtx: ToolContext) {
   const askHuman = tool(
     'ask_human',
     TOOL_SPECS.AskHuman.description,
@@ -98,10 +105,29 @@ function sdlcMcpServer(hooks: ExecHooks) {
     },
   );
 
+  const fillField = tool(
+    'fill_field',
+    TOOL_SPECS.FillField.description,
+    {
+      artifact: z.string(),
+      field: z.string(),
+      value: z.string(),
+      op: z.enum(['set', 'add']).optional(),
+    },
+    async (args) => {
+      // Политику вызов уже прошёл через `canUseTool` — см. комментарий в `ask_human`. Сама
+      // запись — здесь: `fill_field` не встроен в SDK, аналога «SDK сам пишет файл» у него
+      // нет, и `executeTool` тот же, что у флоу `loop` (единая точка исполнения).
+      const call = normalize('fill_field', args as unknown as Record<string, unknown>);
+      const outcome = await executeTool(call, toolCtx);
+      return { content: [{ type: 'text' as const, text: outcome.text }] };
+    },
+  );
+
   return createSdkMcpServer({
     name: 'sdlc',
     version: '0.1.0',
-    tools: [askHuman, finalize, requestScopeExtension, recordClaim, recordFinding],
+    tools: [askHuman, finalize, requestScopeExtension, recordClaim, recordFinding, fillField],
   });
 }
 
@@ -206,7 +232,20 @@ export class SdkExecutor implements StageExecutor {
         permissionMode: 'default',
         // Внешние серверы соседствуют с нашим in-process. Соединения к ним держит SDK, а
         // не наш хаб: два клиента к одному редактору спорили бы за одну PIE-сессию.
-        mcpServers: { sdlc: sdlcMcpServer(hooks), ...(req.mcp?.sdkServers ?? {}) },
+        mcpServers: {
+          sdlc: sdlcMcpServer(hooks, {
+            projectRoot: req.cwd,
+            // `FillField` не режет результат по этим потолкам (артефакты витка — markdown
+            // на десятки КБ, не то, ради чего заведён `maxResultBytes`); значения здесь —
+            // только чтобы `ToolContext` был валиден для общего `executeTool`.
+            maxResultBytes: 5_000_000,
+            readRangeRequiredAboveBytes: 5_000_000,
+            timeoutMs: 0,
+            signal: req.signal,
+            ...(req.stageArtifacts === undefined ? {} : { artifacts: req.stageArtifacts }),
+          }),
+          ...(req.mcp?.sdkServers ?? {}),
+        },
         // `settingSources: []` не перекрывает автоподключение личных claude.ai-коннекторов
         // (Gmail/Drive/Calendar) — это отдельный канал SDK, живущий вне «настроек».
         // Контрольный прогон бенчмарка поймал их подключенными к сессии витка: агент

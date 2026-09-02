@@ -333,7 +333,7 @@ export const STAGES: readonly StageDef[] = [
     // задачу оболочкой — копирует форму в проект и перебирает команды вместо того, чтобы
     // заполнить документ (у 35B двенадцать вызовов из четырнадцати были shell'ом). Этап 1
     // читает, спрашивает человека и пишет артефакт — команда ему не нужна ни для чего.
-    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact'],
+    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact', 'FillField'],
     subagents: [],
     produces: (c) => [c.paths.gates, c.paths.intent, c.paths.readiness],
     requires: [],
@@ -347,7 +347,7 @@ export const STAGES: readonly StageDef[] = [
     id: 'explore',
     skill: 'sdlc-explore',
     title: 'Разведка',
-    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Task', 'AskHuman', 'FinalizeArtifact'],
+    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Task', 'AskHuman', 'FinalizeArtifact', 'FillField'],
     // Второй агент выводит приёмочный лист вслепую: агент, прочитавший авторский лист,
     // выведет тот же самый, и сверка станет декорацией.
     subagents: ['sdlc-claims'],
@@ -369,7 +369,7 @@ export const STAGES: readonly StageDef[] = [
     id: 'ask',
     skill: 'sdlc-ask',
     title: 'Вопросы',
-    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact'],
+    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact', 'FillField'],
     subagents: [],
     produces: (c) => [c.paths.clarificationReport],
     requires: [
@@ -409,7 +409,7 @@ export const STAGES: readonly StageDef[] = [
     // Оболочки нет по той же причине, что на этапе 1: план — это документ, а не прогон
     // команд. Разведка, которой нужно смотреть в дерево, идёт этапом раньше и своими
     // инструментами чтения.
-    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact'],
+    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact', 'FillField'],
     subagents: [],
     produces: (c) => [c.paths.plan, c.paths.readiness],
     requires: [
@@ -448,6 +448,7 @@ export const STAGES: readonly StageDef[] = [
       'Task',
       'AskHuman',
       'FinalizeArtifact',
+      'FillField',
       'RequestScopeExtension',
     ],
     // Точечная разведка места правки — read-only по построению.
@@ -499,6 +500,7 @@ export const STAGES: readonly StageDef[] = [
       'Task',
       'AskHuman',
       'FinalizeArtifact',
+      'FillField',
       'RecordClaim',
       'RecordFinding',
     ],
@@ -523,7 +525,7 @@ export const STAGES: readonly StageDef[] = [
     id: 'handoff',
     skill: 'sdlc-handoff',
     title: 'Передача',
-    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'AskHuman', 'FinalizeArtifact'],
+    tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'AskHuman', 'FinalizeArtifact', 'FillField'],
     subagents: [],
     produces: (c) => [c.paths.handoff],
     requires: [

@@ -49,6 +49,7 @@ function resolveRoute(
     formFill: def.formFill ?? false,
     claimFill: def.claimFill ?? false,
     stepFill: def.stepFill ?? false,
+    compactForms: def.compactForms ?? 'off',
   };
 }
 

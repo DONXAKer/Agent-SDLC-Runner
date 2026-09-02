@@ -43,6 +43,7 @@ const KIND_TO_TOOL: Record<CallKind, ToolName | null> = {
   request_scope_extension: 'RequestScopeExtension',
   record_claim: 'RecordClaim',
   record_finding: 'RecordFinding',
+  fill_field: 'FillField',
   mcp: null,
   unknown: null,
 };
@@ -120,6 +121,8 @@ export function evaluate(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
   // объявленным аргументам-путям, а не по вызову целиком.
   if (call.kind === 'mcp') return evaluateMcpPaths(call, ctx);
 
+  if (call.kind === 'fill_field') return evaluateFillField(call, ctx);
+
   const checks = [
     (): PolicyVerdict => denyList.check(call),
     (): PolicyVerdict => pathScope.check(call, ctx),
@@ -168,6 +171,38 @@ function evaluateMcpPaths(
 }
 
 /**
+ * `FillField` — тот же приём, что у MCP: путь неизвестен вызову, известен контексту
+ * (`ctx.stageArtifacts`, та же карта, что резолвит запись при исполнении), и три
+ * оставшиеся проверки идут над синтетическим `write` с этим путём. Ключ, которого этап
+ * не производит, — отдельная причина отказа с тем же именем `stageTools`, что и у
+ * неразрешённого инструмента: это тот же вопрос «имел ли этап право», просто ключ
+ * артефакта пришёл не из закрытого union'а инструментов, а из объявленного списка.
+ */
+function evaluateFillField(
+  call: Extract<NormalizedCall, { kind: 'fill_field' }>,
+  ctx: PolicyContext,
+): PolicyVerdict {
+  const entry = (ctx.stageArtifacts ?? []).find((a) => a.key === call.artifact);
+  if (entry === undefined) {
+    const known = (ctx.stageArtifacts ?? []).map((a) => a.key).join(', ');
+    return policyDeny(
+      'stageTools',
+      `этап ${ctx.stage} не производит артефакт «${call.artifact}». Доступны: ${known || '(нет)'}.`,
+    );
+  }
+  const synthetic: NormalizedCall = { kind: 'write', path: entry.path, content: '' };
+  for (const run of [
+    (): PolicyVerdict => denyList.check(synthetic),
+    (): PolicyVerdict => pathScope.check(synthetic, ctx),
+    (): PolicyVerdict => planScope.check(synthetic, ctx),
+  ]) {
+    const v = run();
+    if (!v.ok) return v;
+  }
+  return POLICY_OK;
+}
+
+/**
  * Во что запишет вызов — ПУТИ, без пояснений для человека.
  *
  * Это то, что скармливают проверкам: канонизации, сверке с планом, детекту побега через
@@ -176,6 +211,14 @@ function evaluateMcpPaths(
  * получал несуществующий файл, не видел симлинка и пропускал ровно тот случай, ради
  * которого проверка написана.
  */
+/** Путь артефакта `FillField` по его ключу — та же карта, что решала доступ. */
+function fillFieldPath(
+  call: Extract<NormalizedCall, { kind: 'fill_field' }>,
+  ctx: PolicyContext,
+): string | null {
+  return (ctx.stageArtifacts ?? []).find((a) => a.key === call.artifact)?.path ?? null;
+}
+
 export function writeTargetPaths(call: NormalizedCall, ctx: PolicyContext): string[] | null {
   switch (call.kind) {
     case 'write':
@@ -188,6 +231,10 @@ export function writeTargetPaths(call: NormalizedCall, ctx: PolicyContext): stri
       // это ложь: он пишет в дерево проекта, просто не файлом, имя которого мы знаем.
       const paths = mcpPaths(call, ctx, 'write');
       return paths.length === 0 ? null : paths;
+    }
+    case 'fill_field': {
+      const path = fillFieldPath(call, ctx);
+      return path === null ? null : [path];
     }
     default:
       return null;
@@ -207,6 +254,10 @@ export function writeTargetsOf(call: NormalizedCall, ctx: PolicyContext): string
     case 'mcp': {
       const paths = mcpPaths(call, ctx, 'write');
       return paths.length === 0 ? null : paths;
+    }
+    case 'fill_field': {
+      const path = fillFieldPath(call, ctx);
+      return path === null ? null : [path];
     }
     case 'bash': {
       const targets = redirectTargets(call.command);
