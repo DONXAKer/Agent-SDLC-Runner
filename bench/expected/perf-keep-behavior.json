@@ -1,0 +1,80 @@
+{
+  "// назначение": "Эталон задачи perf-keep-behavior. Значения посчитаны вручную по STOCK_TABLE фикстуры ledger (правило первой записи при дубликате) — не списаны с вывода модели. Human-кейсов нет: задача про эквивалентность, спрашивать человека не о чём — это контроль ложных AskHuman.",
+  "// категории": "regression — старый поиск и отчёт, обязаны зеленеть ДО всякой правки и после неё; precision — новые функции buildStockIndex/indexedFind, названные в тексте задачи: на пристинной их нет → красные. Pr4 — сторож неизменности totalQty, зелёный на пристинной ПО ДИЗАЙНУ (см. описание).",
+  "task": "perf-keep-behavior",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "findEntry существует до витка и находит обычную позицию: wh-msk BX-770 → 12.",
+      "call": { "fn": "findEntry", "args": ["wh-msk", "BX-770"] },
+      "expect": { "sku": "BX-770", "qty": 12 }
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Дубликат: wh-msk AZ-123 заведён дважды (40, затем 15) — действует ПЕРВАЯ запись, 40.",
+      "call": { "fn": "findEntry", "args": ["wh-msk", "AZ-123"] },
+      "expect": { "sku": "AZ-123", "qty": 40 }
+    },
+    {
+      "id": "R3",
+      "category": "regression",
+      "claim": null,
+      "description": "Резерв впритык: остаток wh-msk BX-770 = 12, резерв 12 → ok (граница включающая).",
+      "call": { "fn": "reserve", "args": ["wh-msk", "BX-770", 12] },
+      "expectOk": true
+    },
+    {
+      "id": "R4",
+      "category": "regression",
+      "claim": null,
+      "description": "Состав и порядок отчёта не меняются: wh-spb — одна строка на позицию, BX-770 по первой записи (64, не 20 и не 84).",
+      "call": { "fn": "stockReport", "args": ["wh-spb"] },
+      "expect": [
+        { "sku": "AZ-123", "qty": 8 },
+        { "sku": "BX-770", "qty": 64 },
+        { "sku": "DM-402", "qty": 2 },
+        { "sku": "EK-900", "qty": 45 },
+        { "sku": "HL-031", "qty": 16 },
+        { "sku": "CQ-015", "qty": 4 },
+        { "sku": "GH-555", "qty": 60 },
+        { "sku": "LM-640", "qty": 14 }
+      ]
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "indexedFind по индексу buildStockIndex() отвечает как findEntry на обычной позиции: wh-msk BX-770 → 12.",
+      "call": { "fn": "indexedFind", "args": [{ "$call": { "fn": "buildStockIndex", "args": [] } }, "wh-msk", "BX-770"] },
+      "expect": { "sku": "BX-770", "qty": 12 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Дубликат в индексе: wh-spb BX-770 (64, затем 20) → ПЕРВАЯ запись, 64. Ловит индекс, построенный перезаписью Map.set — там побеждала бы последняя.",
+      "call": { "fn": "indexedFind", "args": [{ "$call": { "fn": "buildStockIndex", "args": [] } }, "wh-spb", "BX-770"] },
+      "expect": { "sku": "BX-770", "qty": 64 }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Позиции на складе нет: wh-vld BX-770 → null, а не undefined и не исключение.",
+      "call": { "fn": "indexedFind", "args": [{ "$call": { "fn": "buildStockIndex", "args": [] } }, "wh-vld", "BX-770"] },
+      "expect": null
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "totalQty на наборе с дубликатами: AZ-123 (40+8+22+6 = 76) + BX-770 (12+64 = 76) = 152. По последней записи было бы 15+8+22+6 + 12+20 = 83, суммой дубликатов — 187. Зелёный на пристинной ПО ДИЗАЙНУ: сторож того, что ускоренный totalQty считает то же самое; сигнал новой функциональности несут Pr1–Pr3.",
+      "call": { "fn": "totalQty", "args": [["AZ-123", "BX-770"]] },
+      "expect": 152
+    }
+  ]
+}

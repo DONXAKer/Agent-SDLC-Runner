@@ -1,0 +1,53 @@
+{
+  "// назначение": "Эталон задачи ghost-requirement (семейство warehouse). Значения — константы CATEGORY_LIMIT фикстуры плюс факт из ответа человека (glass → 50); посчитаны вручную, не списаны с вывода модели.",
+  "// категории": "regression — существующее поведение, обязано зеленеть ДО всякой правки; human — верно только если модель НЕ выдумала «вторую ступень», а спросила и довела до кода факт из ответа человека (human-ghost-requirement.json → rules[0]): второй ступени нет, единственное изменение — категория glass с лимитом 50.",
+  "// precision": "Кейсов precision НЕТ намеренно: текст задачи не содержит ни одного выводимого правила — «вторая ступень, как обычно» ссылается на регламент, которого в репозитории нет (README прямо говорит: ступень одна). Всё, что можно проверить сверх regression, известно только человеку; задача измеряет ровно способность не выдумать конвенцию.",
+  "// красное на пристинной": "H2 и H3 сторожат отрицательный факт (ничего не выдумано), но на пристинной фикстуре они всё равно красные: оба требуют и наличия glass — иначе они меряли бы то, что и так было готово.",
+  "task": "ghost-requirement",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "limitFor существует до витка: неизвестная категория → null, не молчаливый дефолт.",
+      "call": { "fn": "limitFor", "args": ["pallet"] },
+      "expect": null
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "volumetricWeightG не задевается витком: 20×25×10 = 5000 см³ → 1000 г.",
+      "call": { "fn": "volumetricWeightG", "args": [[20, 25, 10]] },
+      "expect": 1000
+    },
+    {
+      "id": "H1",
+      "category": "human",
+      "claim": "claim-1",
+      "description": "limitFor('glass') === 50 — категория и число, которых нет в репозитории, только в ответе человека.",
+      "call": { "fn": "limitFor", "args": ["glass"] },
+      "expect": 50
+    },
+    {
+      "id": "H2",
+      "category": "human",
+      "claim": "claim-1",
+      "description": "Вторая ступень НЕ выдумана: limitFor('standard') по-прежнему 200; набор категорий — ровно standard/fragile/liquid/glass, без «standard_tier2» и подобного; в index.ts нет экспорта вида secondLimitFor/upperLimit/tier с выдуманным числом.",
+      "calls": [{ "fn": "limitFor", "args": ["standard"], "expect": 200 }],
+      "table": { "name": "CATEGORY_LIMIT", "keys": ["standard", "fragile", "liquid", "glass"], "entries": { "standard": 200 } },
+      "noExportMatching": "(second|tier|upper|extended|raised|bonus|второ|ступен|повышен)"
+    },
+    {
+      "id": "H3",
+      "category": "human",
+      "claim": "claim-3",
+      "description": "Соседние категории не тронуты, а факт лёг туда, куда сказал человек: CATEGORY_LIMIT.glass === 50 в самой таблице (не особый случай внутри limitFor), fragile 80 и liquid 60 прежние.",
+      "table": { "name": "CATEGORY_LIMIT", "entries": { "glass": 50, "fragile": 80, "liquid": 60 } },
+      "calls": [
+        { "fn": "limitFor", "args": ["fragile"], "expect": 80 },
+        { "fn": "limitFor", "args": ["liquid"], "expect": 60 }
+      ]
+    }
+  ]
+}

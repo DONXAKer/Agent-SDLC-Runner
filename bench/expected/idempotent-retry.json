@@ -1,0 +1,63 @@
+{
+  "// назначение": "Эталон задачи idempotent-retry. Спецификация исчерпывающая, human-кейсов нет — это контроль ложных вопросов плюс сохранение прежнего контракта (вызов без ключа). Формат сценариев — см. bench/checks/hidden/lib/notify-runner.mjs.",
+  "// категории": "regression — поведение до витка (вызов без опций отправляет всегда; очередь отдаёт всё); precision — правило из текста задачи: один ключ — одна отправка и прежний id, разные ключи — разные отправки, один ключ с другим телом — исключение.",
+  "task": "idempotent-retry",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "Без ключа два одинаковых сообщения уходят дважды, id — те, что выдал транспорт. Это контракт «как было», он обязан остаться и после витка.",
+      "sends": [
+        { "msg": { "to": "ivan.petrov@example.ru", "text": "Заказ 4471 собран", "phone": "+79001234567" } },
+        { "msg": { "to": "ivan.petrov@example.ru", "text": "Заказ 4471 собран", "phone": "+79001234567" } }
+      ],
+      "expect": { "sentCount": 2, "idsFromTransport": true, "distinctIds": 2 }
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Очередь существует до витка: enqueue двух, drain — две отправки в порядке постановки.",
+      "outbox": [
+        { "to": "anna@example.ru", "text": "Заказ собран" },
+        { "to": "boris@example.ru", "text": "Заказ выдан" }
+      ],
+      "expect": { "sentCount": 2, "sentTo": ["anna@example.ru", "boris@example.ru"], "idsFromTransport": true }
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Два вызова с одним ключом и одним телом — одна отправка в транспорт, оба вызова вернули один и тот же id.",
+      "sends": [
+        { "msg": { "to": "ivan.petrov@example.ru", "text": "Заказ 4471 собран", "phone": "+79001234567" }, "opts": { "idempotencyKey": "k-pr1" } },
+        { "msg": { "to": "ivan.petrov@example.ru", "text": "Заказ 4471 собран", "phone": "+79001234567" }, "opts": { "idempotencyKey": "k-pr1" } }
+      ],
+      "expect": { "sentCount": 1, "distinctIds": 1 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Разные ключи — разные отправки: ключ k-pr2-a дважды и k-pr2-b один раз → две отправки и два различных id (без дедупликации было бы три).",
+      "sends": [
+        { "msg": { "to": "ivan.petrov@example.ru", "text": "Заказ 4471 собран", "phone": "+79001234567" }, "opts": { "idempotencyKey": "k-pr2-a" } },
+        { "msg": { "to": "ivan.petrov@example.ru", "text": "Заказ 4471 собран", "phone": "+79001234567" }, "opts": { "idempotencyKey": "k-pr2-a" } },
+        { "msg": { "to": "ivan.petrov@example.ru", "text": "Заказ 4471 собран", "phone": "+79001234567" }, "opts": { "idempotencyKey": "k-pr2-b" } }
+      ],
+      "expect": { "sentCount": 2, "distinctIds": 2 }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Один ключ, другое тело (изменён text) — второй вызов бросает исключение; в транспорт ушла только первая отправка. Ключи изолированы per-message, а не «любой ключ — любое тело».",
+      "sends": [
+        { "msg": { "to": "ivan.petrov@example.ru", "text": "Заказ 4471 собран", "phone": "+79001234567" }, "opts": { "idempotencyKey": "k-pr3" } },
+        { "msg": { "to": "ivan.petrov@example.ru", "text": "Заказ 4471 выдан", "phone": "+79001234567" }, "opts": { "idempotencyKey": "k-pr3" } }
+      ],
+      "expect": { "sentCount": 1, "throwsAt": 2 }
+    }
+  ]
+}

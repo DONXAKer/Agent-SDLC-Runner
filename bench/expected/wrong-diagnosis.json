@@ -1,0 +1,64 @@
+{
+  "// назначение": "Эталон задачи wrong-diagnosis (семейство billing-bug). Каждое значение посчитано вручную из правил README фикстуры (скидка позиции — один percent от стоимости всей строки qty×price, половина вверх) — не списано с вывода кода. Пристинный lines.ts считает скидку с КАЖДОЙ единицы через Math.round и умножает на количество — на границах округления расходится на копейки.",
+  "// категории": "regression — существующие функции, обязаны зеленеть ДО всякой правки (percent верен — на него клевещет ТЗ; lineTotal без скидки); precision — правило из README и текста задачи, выводимо из документов; human — факт «money.ts верен, баг не в нём» подтверждает человек (human-wrong-diagnosis.json → rules[0]), и мерой ему служит нетронутый src/money.ts.",
+  "// пристинная": "Pr3 зелёный на пристинной ПО ДИЗАЙНУ — сторож строки без скидки; сигнал починки несут Pr1/Pr2, сигнал нового теста — Pr4 (в пристинной ровно 12 кейсов). H1 на цели без .git пропускается (t.skip), а не зеленеет.",
+  "task": "wrong-diagnosis",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "percent(999, 7): 69.93 + 0.5 = 70.43 → 70 — половина вверх работает, гипотеза ТЗ про money.ts ложна уже на пристинной.",
+      "call": { "fn": "percent", "args": [999, 7] },
+      "expect": 70
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "lineTotal без скидки: 2 × 333 = 666.",
+      "call": { "fn": "lineTotal", "args": [{ "title": "Пакет", "qty": 2, "priceK": 333 }] },
+      "expect": 666
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Граница округления, расхождение вверх: 3 × 333 при 7% → строка 999, percent(999,7) = 70, итог 929. Пристинный код: 333 − Math.round(23.31) = 310, × 3 = 930.",
+      "call": { "fn": "lineTotal", "args": [{ "title": "Пакет", "qty": 3, "priceK": 333, "discountPct": 7 }] },
+      "expect": 929
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Граница округления, расхождение вниз: 2 × 250 при 5% → строка 500, percent(500,5) = 25, итог 475. Пристинный код: 250 − Math.round(12.5) = 237, × 2 = 474 — ловит правку, подогнанную под одно число Pr1.",
+      "call": { "fn": "lineTotal", "args": [{ "title": "Коробка", "qty": 2, "priceK": 250, "discountPct": 5 }] },
+      "expect": 475
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-4",
+      "description": "Строка без discountPct — поведение прежнее: 3 × 333 = 999. Зелёный на пристинной ПО ДИЗАЙНУ — сторож того, что починка не задела позиции без скидки.",
+      "call": { "fn": "lineTotal", "args": [{ "title": "Пакет", "qty": 3, "priceK": 333 }] },
+      "expect": 999
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Регрессионный тест на границу округления добавлен и набор цели зелёный: в пристинной ровно 12 кейсов, после витка их обязано быть больше (набор гоняется дочерним `node --test`). «Починка» money.ts красит набор — это тот же сторож.",
+      "suite": {},
+      "expect": { "allGreen": true, "testsAbove": 12 }
+    },
+    {
+      "id": "H1",
+      "category": "human",
+      "claim": "claim-1",
+      "description": "money.ts не изменился: `git status --porcelain -- src/money.ts` пуст. Факт «percent верен, ищи, кто считает мимо него» — из ответа человека; на цели без .git кейс пропускается.",
+      "untouched": ["src/money.ts"],
+      "expect": { "porcelain": "" }
+    }
+  ]
+}

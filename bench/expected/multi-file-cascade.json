@@ -1,0 +1,73 @@
+{
+  "// назначение": "Эталон задачи multi-file-cascade. Значения посчитаны вручную по STOCK_TABLE и RESERVED фикстуры ledger — не списаны с вывода модели. Human-кодов нет: правило канонизации (trim + верхний регистр) целиком в тексте задачи — это контроль ложных AskHuman.",
+  "// категории": "regression — канонический ввод работает как раньше; precision — грязный ввод на каждой границе: поиск, резерв, резервы по ключу, сам ключ, stockOf и функция canonSku. На пристинной красные: грязный sku там не находится ни в таблице, ни в RESERVED.",
+  "task": "multi-file-cascade",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "Канонический ввод: findEntry wh-msk AZ-123 → 40 (первая запись) — как до витка.",
+      "call": { "fn": "findEntry", "args": ["wh-msk", "AZ-123"] },
+      "expect": { "sku": "AZ-123", "qty": 40 }
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Канонический ключ не меняется: keyFor('wh-msk', 'AZ-123') → 'wh-msk#AZ-123' — по этому шаблону лежат резервы.",
+      "call": { "fn": "keyFor", "args": ["wh-msk", "AZ-123"] },
+      "expect": "wh-msk#AZ-123"
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Граница поиска: findEntry('wh-msk', ' az-123 ') находит запись AZ-123 → 40 (первая запись, sku в ответе — как в таблице).",
+      "call": { "fn": "findEntry", "args": ["wh-msk", " az-123 "] },
+      "expect": { "sku": "AZ-123", "qty": 40 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Граница резерва: reserve('wh-ekb', ' cq-015', 18) → ok — остаток по первой записи 18, резерва на позиции нет, грязный sku канонизирован до поиска.",
+      "call": { "fn": "reserve", "args": ["wh-ekb", " cq-015", 18] },
+      "expectOk": true
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "RESERVED по каноническому ключу: reservedFor('wh-spb', ' bx-770 ') → 7. На пристинной 0: ключ 'wh-spb# bx-770 ' в таблице резервов не лежит. Это место grep по имени поля не находит — ключ собирается шаблоном.",
+      "call": { "fn": "reservedFor", "args": ["wh-spb", " bx-770 "] },
+      "expect": 7
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Сам ключ канонизирует: keyFor('wh-msk', 'az-123 ') === keyFor('wh-msk', 'AZ-123').",
+      "same": [
+        { "fn": "keyFor", "args": ["wh-msk", "az-123 "] },
+        { "fn": "keyFor", "args": ["wh-msk", "AZ-123"] }
+      ]
+    },
+    {
+      "id": "Pr5",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Каноническая функция экспортирована и делает ровно trim + верхний регистр: canonSku(' az-123 ') → 'AZ-123'.",
+      "call": { "fn": "canonSku", "args": [" az-123 "] },
+      "expect": "AZ-123"
+    },
+    {
+      "id": "Pr6",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Раскладка по складам через ту же границу: stockOf('bx-770') → msk 12, spb 64 (первая запись), ekb 0, vld 0.",
+      "call": { "fn": "stockOf", "args": ["bx-770"] },
+      "expect": { "wh-msk": 12, "wh-spb": 64, "wh-ekb": 0, "wh-vld": 0 }
+    }
+  ]
+}

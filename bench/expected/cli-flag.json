@@ -1,0 +1,48 @@
+{
+  "// назначение": "Эталон задачи cli-flag (семейство cli-tool). Каждое значение посчитано вручную из RATE_PER_KG фикстуры (msk 22 900, center 31 900, ural 41 900 коп./кг) — не списано с вывода модели.",
+  "// категории": "regression — существующее поведение, обязано зеленеть ДО всякой правки; precision — правило из текста задачи (форма JSON, копейки, порядок ключей). human-кейсов нет: спецификация исчерпывающая, спрашивать нечего.",
+  "// формы кейсов": "call: { fn, args } — прямой вызов функции из index.ts цели, expect сравнивается strictEqual (скаляр) или deepStrictEqual (объект/массив); run: argv — вызов run(argv), expect-строка сравнивается точно.",
+  "task": "cli-flag",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "Текстовый вывод quote существует до витка: msk, 2 кг → 2 × 22 900 = 45 800 коп. → «458 ₽». Сумма меньше тысячи — группировка разрядов не задействована.",
+      "run": ["quote", "msk", "2"],
+      "expect": "msk, 2 кг: 458 ₽"
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Парсер уже понимает --flag после позиционных: переписывать его не надо (текст задачи, п. 3), и форма его ответа не меняется.",
+      "call": { "fn": "parseArgs", "args": [["quote", "msk", "2", "--json"]] },
+      "expect": { "cmd": "quote", "args": ["msk", "2"], "flags": { "json": true } }
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "--json: одна строка JSON.stringify({zone, kg, price}) — цена в копейках (45 800), kg числом, ключи в порядке zone, kg, price, без пробелов.",
+      "run": ["quote", "msk", "2", "--json"],
+      "expect": "{\"zone\":\"msk\",\"kg\":2,\"price\":45800}"
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "--json на ДРУГОЙ зоне и весе: center, 3 кг → 3 × 31 900 = 95 700 коп. Ловит захардкоженный вывод Pr1 вместо расчёта.",
+      "run": ["quote", "center", "3", "--json"],
+      "expect": "{\"zone\":\"center\",\"kg\":3,\"price\":95700}"
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Без флага текстовый вывод прежний: ural, 2 кг → 2 × 41 900 = 83 800 коп. → «838 ₽». Зелёный на пристинной ПО ДИЗАЙНУ: это сторож неизменности текстового вывода (текст задачи, п. 2), сигнал фичи несут Pr1/Pr2.",
+      "run": ["quote", "ural", "2"],
+      "expect": "ural, 2 кг: 838 ₽"
+    }
+  ]
+}

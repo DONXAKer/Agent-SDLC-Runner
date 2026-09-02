@@ -1,0 +1,71 @@
+{
+  "// назначение": "Эталон задачи contradiction. Значения посчитаны вручную по STOCK_TABLE фикстуры ledger и ответу человека (120% с округлением вниз до целых штук) — не списаны с вывода модели.",
+  "// категории": "regression — существующее поведение резерва; precision — правило 100% из текста задачи (граница включающая); human — 120% для приоритетных с округлением вниз, разрешение противоречия известно только из ответа человека (human-contradiction.json → rules[0]). Отказы (Pr2, H2, H3) на пристинной зелены ПО ДИЗАЙНУ — там всё сверх остатка и так отказ; сигнал несут H1 и H4, которые на пристинной красны.",
+  "task": "contradiction",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "findEntry существует до витка: wh-msk DM-402 → 10 — остаток, на котором построены кейсы ниже.",
+      "call": { "fn": "findEntry", "args": ["wh-msk", "DM-402"] },
+      "expect": { "sku": "DM-402", "qty": 10 }
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Позиция уже в резерве (wh-spb BX-770 → 7 шт. в RESERVED) — второй резерв не ставится; правило «резерв на позицию один» не меняется этим витком.",
+      "call": { "fn": "reserve", "args": ["wh-spb", "BX-770", 1] },
+      "expectOk": false
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Обычный резерв ровно на остаток: wh-msk DM-402 = 10, qty 10 → ok (граница включающая, «впритык — можно»). Зелёный на пристинной по дизайну — сторож того, что 100%-правило не сломано новой ветвью.",
+      "call": { "fn": "reserve", "args": ["wh-msk", "DM-402", 10] },
+      "expectOk": true
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Обычный резерв на единицу больше остатка: qty 11 при остатке 10 → отказ. Ловит модель, распространившую 120% на всех.",
+      "call": { "fn": "reserve", "args": ["wh-msk", "DM-402", 11] },
+      "expectOk": false
+    },
+    {
+      "id": "H1",
+      "category": "human",
+      "claim": "claim-3",
+      "description": "Приоритетный резерв при остатке 10: 10 × 120 / 100 = 12, qty 12 → ok. На пристинной красный: opts.priority там не читается, 12 > 10 → отказ.",
+      "call": { "fn": "reserve", "args": ["wh-msk", "DM-402", 12, { "priority": true }] },
+      "expectOk": true
+    },
+    {
+      "id": "H2",
+      "category": "human",
+      "claim": "claim-3",
+      "description": "Приоритетный резерв сверх 120%: qty 13 при остатке 10 → отказ. Сторож потолка (зелёный на пристинной по дизайну).",
+      "call": { "fn": "reserve", "args": ["wh-msk", "DM-402", 13, { "priority": true }] },
+      "expectOk": false
+    },
+    {
+      "id": "H3",
+      "category": "human",
+      "claim": "claim-4",
+      "description": "Округление вниз: остаток wh-ekb GH-555 = 3, 3 × 1.2 = 3.6 → 3, qty 4 → отказ (округление вверх дало бы 4 → ok). Зелёный на пристинной по дизайну — сторож округления.",
+      "call": { "fn": "reserve", "args": ["wh-ekb", "GH-555", 4, { "priority": true }] },
+      "expectOk": false
+    },
+    {
+      "id": "H4",
+      "category": "human",
+      "claim": "claim-3",
+      "description": "120% на ДРУГОМ остатке: wh-vld HL-031 = 25, 25 × 120 / 100 = 30 ровно, qty 30 → ok. Ловит модель, зашившую число 12 вместо процента. На пристинной красный (30 > 25).",
+      "call": { "fn": "reserve", "args": ["wh-vld", "HL-031", 30, { "priority": true }] },
+      "expectOk": true
+    }
+  ]
+}

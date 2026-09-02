@@ -1,0 +1,56 @@
+{
+  "// назначение": "Эталон задачи rename-field. Значения — не арифметика, а форма: какие ключи в строке и какие поля у прочитанной записи. Каждое выписано вручную из текста задачи и таблицы README, не списано с вывода модели.",
+  "// категории": "regression — round-trip и чтение файла в старом формате, обязаны зеленеть ДО всякой правки и после неё (идентификатор сверяется как sku ?? code — regression не знает, какое имя сегодня); precision — правило из текста задачи: parse читает оба имени, при обоих побеждает sku, serialize пишет только sku. Секрета у человека нет — human-кейсов нет.",
+  "// формат": "Один из входов: construct [args → product()], parse (строка), serialize (объект), roundTrip {construct|value} → parse(serialize(x)), loadAll (текст). expect: для записи — карта полей {id (sku ?? code), sku, code, title, priceK, vatRate, absent: [ключи]} или {equals: объект} (deepStrictEqual); для serialize — {contains: [], notContains: []}; для loadAll — {length, items: [карты полей]}.",
+  "task": "rename-field",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "Round-trip записи, собранной конструктором: parse(serialize(product('A-1','Шуруп 4×40',100))) возвращает то же название, цену и идентификатор — до переименования и после.",
+      "roundTrip": { "construct": ["A-1", "Шуруп 4×40", 100] },
+      "expect": { "id": "A-1", "title": "Шуруп 4×40", "priceK": 100 }
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "loadAll двух строк файла в старом формате (`code`) — читается и до витка, и после: старые файлы обязаны читаться.",
+      "loadAll": "{\"code\":\"A-1\",\"title\":\"Шуруп 4×40\",\"priceK\":100}\n{\"code\":\"B-2\",\"title\":\"Гайка М4\",\"priceK\":250}\n",
+      "expect": { "length": 2, "items": [{ "id": "A-1", "title": "Шуруп 4×40", "priceK": 100 }, { "id": "B-2", "title": "Гайка М4", "priceK": 250 }] }
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Старая строка с `code` читается в новое поле: parse('{\"code\":\"A-1\",…}').sku === 'A-1'.",
+      "parse": "{\"code\":\"A-1\",\"title\":\"Шуруп 4×40\",\"priceK\":100}",
+      "expect": { "sku": "A-1", "title": "Шуруп 4×40", "priceK": 100 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "serialize пишет ключ sku и НЕ пишет ключ code: подстрока '\"sku\":\"A-1\"' есть, подстроки '\"code\"' нет.",
+      "serialize": { "sku": "A-1", "title": "Шуруп 4×40", "priceK": 100 },
+      "expect": { "contains": ["\"sku\":\"A-1\""], "notContains": ["\"code\""] }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Оба имени в строке — побеждает sku: parse('{\"code\":\"OLD\",\"sku\":\"NEW\",…}').sku === 'NEW'.",
+      "parse": "{\"code\":\"OLD\",\"sku\":\"NEW\",\"title\":\"Шуруп 4×40\",\"priceK\":100}",
+      "expect": { "sku": "NEW", "title": "Шуруп 4×40", "priceK": 100 }
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Round-trip нового формата: parse(serialize({sku,title,priceK})) равен исходной записи целиком — поля code у прочитанной записи нет.",
+      "roundTrip": { "value": { "sku": "A-1", "title": "Шуруп 4×40", "priceK": 100 } },
+      "expect": { "equals": { "sku": "A-1", "title": "Шуруп 4×40", "priceK": 100 } }
+    }
+  ]
+}

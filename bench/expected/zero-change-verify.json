@@ -1,0 +1,63 @@
+{
+  "// назначение": "Эталон задачи zero-change-verify. Значения посчитаны вручную по лимитам из текста задачи (wh-msk 100, wh-vld 25) и STOCK_TABLE фикстуры ledger — не списаны с вывода модели. Human-кейсов нет: лимиты и граница названы в тексте задачи. Особенность задачи — в посеве (bench/src/seeds.ts): дефект сеется в reserve.ts, а не в новый модуль, и меряется рецензент, не исполнитель; на функциональный эталон посев не влияет.",
+  "// категории": "regression — существующее поведение; precision — новая функция issue, названная в тексте задачи: на пристинной её нет → красные.",
+  "task": "zero-change-verify",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "findEntry существует до витка: wh-msk GH-555 → 120 — позиция, на которой построены кейсы лимита.",
+      "call": { "fn": "findEntry", "args": ["wh-msk", "GH-555"] },
+      "expect": { "sku": "GH-555", "qty": 120 }
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Резерв впритык: wh-msk BX-770 = 12, qty 12 → ok. Строка-якорь посева живёт именно здесь — кейс сторожит, что виток её не сдвинул.",
+      "call": { "fn": "reserve", "args": ["wh-msk", "BX-770", 12] },
+      "expectOk": true
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Ровно лимит — можно: wh-msk лимит 100, выдано 0, qty 100 → ok (граница включающая). Остаток GH-555 = 120 ≥ 100, так что проверка остатка, если модель её добавила, кейс не роняет.",
+      "call": { "fn": "issue", "args": ["wh-msk", "GH-555", 100, 0] },
+      "expectOk": true
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "На единицу сверх лимита: wh-msk, выдано 0, qty 101 → отказ (остаток 120 хватает — отказ именно по лимиту).",
+      "call": { "fn": "issue", "args": ["wh-msk", "GH-555", 101, 0] },
+      "expectOk": false
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Накопленная выдача на ДРУГОМ складе: wh-vld лимит 25, выдано 20, qty 5 → 25 = лимит → ok. Ловит модель, зашившую 100 на все склады.",
+      "call": { "fn": "issue", "args": ["wh-vld", "HL-031", 5, 20] },
+      "expectOk": true
+    },
+    {
+      "id": "Pr4",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Накопленная выдача сверх лимита: wh-vld, выдано 20, qty 6 → 26 > 25 → отказ.",
+      "call": { "fn": "issue", "args": ["wh-vld", "HL-031", 6, 20] },
+      "expectOk": false
+    },
+    {
+      "id": "Pr5",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Позиции на складе нет: wh-vld BX-770 → отказ, а не выдача несуществующего.",
+      "call": { "fn": "issue", "args": ["wh-vld", "BX-770", 1, 0] },
+      "expectOk": false
+    }
+  ]
+}

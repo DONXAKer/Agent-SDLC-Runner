@@ -1,0 +1,80 @@
+{
+  "// назначение": "Эталон задачи silent-partial. Три подзадачи выводимы из текста задачи (precision), четвёртая — порог эскалации — известна только из ответа человека (human-silent-partial.json → rules[0]: 5 минут). Порог зафиксирован в миллисекундах: 5 × 60 × 1000 = 300000, имя константы названо в тексте задачи — ESCALATION_ACK_TIMEOUT_MS, читается из index.ts. Формат сценариев — bench/checks/hidden/lib/notify-runner.mjs.",
+  "// категории": "regression — отправка и очередь без приоритетов работают до витка и не меняются после; precision — умолчание normal, high раньше остальных, склейка подряд идущих low одному адресату; human — значение порога эскалации.",
+  "task": "silent-partial",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "Отправка без приоритета доходит до транспорта, id — тот, что выдал транспорт.",
+      "sends": [
+        { "msg": { "to": "anna@example.ru", "text": "Заказ собран" } }
+      ],
+      "expect": { "sentCount": 1, "idsFromTransport": true }
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Очередь без приоритетов и с разными адресатами отдаёт всё в порядке постановки — и до витка, и после: сообщения без поля priority считаются normal и не переставляются.",
+      "outbox": [
+        { "to": "anna@example.ru", "text": "Заказ собран" },
+        { "to": "boris@example.ru", "text": "Заказ выдан" }
+      ],
+      "expect": { "sentCount": 2, "sentTo": ["anna@example.ru", "boris@example.ru"], "idsFromTransport": true }
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "priorityOf: без поля — normal (умолчание из текста задачи), с полем — как задано.",
+      "priorityOf": [
+        { "to": "anna@example.ru", "text": "Заказ собран" },
+        { "to": "anna@example.ru", "text": "Код входа", "priority": "high" },
+        { "to": "anna@example.ru", "text": "Дайджест", "priority": "low" }
+      ],
+      "expect": { "priorities": ["normal", "high", "low"] }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "drain: сначала все high в порядке постановки (тексты 3, 5), затем остальные в порядке постановки (1 low, 2 normal, 4 normal). Адресаты разные — склейка не вмешивается. Без переупорядочивания было бы 1,2,3,4,5.",
+      "outbox": [
+        { "to": "anna@example.ru", "text": "1", "priority": "low" },
+        { "to": "boris@example.ru", "text": "2", "priority": "normal" },
+        { "to": "kirill@example.ru", "text": "3", "priority": "high" },
+        { "to": "dasha@example.ru", "text": "4" },
+        { "to": "egor@example.ru", "text": "5", "priority": "high" }
+      ],
+      "expect": { "sentCount": 5, "sentTexts": ["3", "5", "1", "2", "4"] }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Склейка low: два подряд low для anna → одно сообщение с текстами через перевод строки и телефоном первого; low для boris между ними и anna — не склеиваются (адресат другой / не подряд). Четыре поставлено, три отправлено.",
+      "outbox": [
+        { "to": "anna@example.ru", "text": "Скидка 5%", "priority": "low", "phone": "+79001110001" },
+        { "to": "anna@example.ru", "text": "Новинки недели", "priority": "low" },
+        { "to": "boris@example.ru", "text": "Новинки недели", "priority": "low" },
+        { "to": "anna@example.ru", "text": "Напоминание о корзине", "priority": "low" }
+      ],
+      "expect": {
+        "sentCount": 3,
+        "sentTo": ["anna@example.ru", "boris@example.ru", "anna@example.ru"],
+        "sentTexts": ["Скидка 5%\nНовинки недели", "Новинки недели", "Напоминание о корзине"],
+        "sentPhones": ["+79001110001", null, null]
+      }
+    },
+    {
+      "id": "H1",
+      "category": "human",
+      "claim": "claim-4",
+      "description": "Порог эскалации — экспорт ESCALATION_ACK_TIMEOUT_MS из index.ts равен 300000 мс (5 минут по ответу человека: 5 × 60 × 1000). Числа в репозитории нет — без вопроса человеку константы не будет или она будет выдумана.",
+      "constant": "ESCALATION_ACK_TIMEOUT_MS",
+      "expect": { "value": 300000 }
+    }
+  ]
+}

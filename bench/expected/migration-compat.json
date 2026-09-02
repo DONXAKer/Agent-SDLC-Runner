@@ -1,0 +1,64 @@
+{
+  "// назначение": "Эталон задачи migration-compat. Значения выписаны вручную из текста задачи и ответа человека, не списаны с вывода модели.",
+  "// категории": "regression — round-trip и чтение старого файла, зелёные ДО всякой правки и после (идентификатор сверяется как sku ?? code, лишние поля прочитанной записи не мешают); precision — правило из текста задачи: serialize пишет vatRate, явная ставка в записи переживает parse; human — верно только если модель довела до кода дефолт 20, которого в репозитории нет (fixture human-migration-compat.json → rules[0]).",
+  "// формат": "См. rename-field.json: construct / parse / serialize / roundTrip / loadAll; expect — карта полей, {equals}, {contains, notContains} или {length, items}.",
+  "task": "migration-compat",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "Round-trip записи, собранной конструктором: parse(serialize(product('A-1','Шуруп 4×40',100))) возвращает то же название, цену и идентификатор.",
+      "roundTrip": { "construct": ["A-1", "Шуруп 4×40", 100] },
+      "expect": { "id": "A-1", "title": "Шуруп 4×40", "priceK": 100 }
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "loadAll двух строк старого файла (без vatRate) — читается и до витка, и после.",
+      "loadAll": "{\"code\":\"A-1\",\"title\":\"Шуруп 4×40\",\"priceK\":100}\n{\"code\":\"B-2\",\"title\":\"Гайка М4\",\"priceK\":250}\n",
+      "expect": { "length": 2, "items": [{ "id": "A-1", "title": "Шуруп 4×40", "priceK": 100 }, { "id": "B-2", "title": "Гайка М4", "priceK": 250 }] }
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Новая запись пишется с полем: serialize записи с vatRate 10 даёт подстроку '\"vatRate\":10'.",
+      "serialize": { "code": "A-1", "title": "Шуруп 4×40", "priceK": 100, "vatRate": 10 },
+      "expect": { "contains": ["\"vatRate\":10"] }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-3",
+      "description": "Явная ставка в строке побеждает умолчание: parse строки с \"vatRate\":10 → 10, а не дефолт. Правило названо в тексте задачи, секрета не требует — потому precision, а не human.",
+      "parse": "{\"code\":\"A-1\",\"title\":\"Шуруп 4×40\",\"priceK\":100,\"vatRate\":10}",
+      "expect": { "id": "A-1", "priceK": 100, "vatRate": 10 }
+    },
+    {
+      "id": "H1",
+      "category": "human",
+      "claim": "claim-3",
+      "description": "Старая строка без поля → vatRate === 20: число, которого в репозитории нет — только в ответе человека.",
+      "parse": "{\"code\":\"A-1\",\"title\":\"Шуруп 4×40\",\"priceK\":100}",
+      "expect": { "id": "A-1", "title": "Шуруп 4×40", "priceK": 100, "vatRate": 20 }
+    },
+    {
+      "id": "H2",
+      "category": "human",
+      "claim": "claim-3",
+      "description": "То же через loadAll старого двухстрочного файла: у обеих записей vatRate 20 — дефолт подставляется каждой строке, а не «наследуется от соседней».",
+      "loadAll": "{\"code\":\"A-1\",\"title\":\"Шуруп 4×40\",\"priceK\":100}\n{\"code\":\"B-2\",\"title\":\"Гайка М4\",\"priceK\":250}\n",
+      "expect": { "length": 2, "items": [{ "id": "A-1", "vatRate": 20 }, { "id": "B-2", "vatRate": 20 }] }
+    },
+    {
+      "id": "H3",
+      "category": "human",
+      "claim": "claim-4",
+      "description": "Умолчание одно на оба входа: product('A-1','Шуруп 4×40',100) без четвёртого параметра получает те же 20, что и старая строка файла.",
+      "construct": ["A-1", "Шуруп 4×40", 100],
+      "expect": { "id": "A-1", "priceK": 100, "vatRate": 20 }
+    }
+  ]
+}

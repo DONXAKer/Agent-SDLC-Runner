@@ -1,0 +1,48 @@
+{
+  "// назначение": "Эталон задачи plan-only-trap (семейство cli-tool). Каждое значение посчитано вручную из RATE_PER_KG фикстуры (ural 41 900, far 119 000 коп./кг) — не списано с вывода модели.",
+  "// категории": "regression — существующее поведение, обязано зеленеть ДО всякой правки: formatQuote ВЕРНА (это и есть ловушка — текст задачи винит её); precision — исправленный вывод quote, красный на пристинной, пока quoteLine (src/lookup.ts) группирует точкой. human-кейсов нет: единственное правило банка отвечает тем, что и так видно из кода.",
+  "// формы кейсов": "call: { fn, args } — прямой вызов функции из index.ts цели; run: argv — вызов run(argv); expect-строка сравнивается точно.",
+  "task": "plan-only-trap",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "formatQuote группирует пробелом уже сейчас: 502 800 коп. → «5 028 ₽». Обвиняемая текстом задачи функция невиновна — зелёный на пристинной.",
+      "call": { "fn": "formatQuote", "args": ["ural", 12, 502800] },
+      "expect": "ural, 12 кг: 5 028 ₽"
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Парсер разбирает quote с позиционными аргументами и не меняется в этом витке.",
+      "call": { "fn": "parseArgs", "args": [["quote", "ural", "12"]] },
+      "expect": { "cmd": "quote", "args": ["ural", "12"], "flags": {} }
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "quote ural 12 → 12 × 41 900 = 502 800 коп. → «5 028 ₽» с пробелом. На пристинной quoteLine печатает «5.028 ₽» — красный.",
+      "run": ["quote", "ural", "12"],
+      "expect": "ural, 12 кг: 5 028 ₽"
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "То же на ДРУГОЙ зоне: far, 3 кг → 3 × 119 000 = 357 000 коп. → «3 570 ₽». Ловит правку под один конкретный вывод.",
+      "run": ["quote", "far", "3"],
+      "expect": "far, 3 кг: 3 570 ₽"
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "Вывод list не изменился, символ в символ (текст задачи, п. 2). Зелёный на пристинной ПО ДИЗАЙНУ: сторож против правки formatTable «заодно»; сигнал исправления несут Pr1/Pr2.",
+      "run": ["list"],
+      "expect": "msk     229\ncenter  319\nural    419\nfar     1 190"
+    }
+  ]
+}
