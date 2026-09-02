@@ -1,0 +1,807 @@
+{
+  "run": {
+    "slug": "bench-cand-qwen3-coder-30b-a3b-stepfill-v2",
+    "model": "ollama:qwen3-coder-30b-a3b",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:qwen3-coder-30b-a3b",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-02T10:34:18.566Z",
+    "finishedAt": "2026-09-02T10:55:22.639Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "шагов 3: применено 3, без правок 0, красных 0",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "этап завершён за 37 ход(ов)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 2,
+        "ok": false,
+        "note": "шагов 3: применено 2, без правок 0, красных 1",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 110925,
+          "outputTokens": 7798,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 963590
+        },
+        "durationMs": 882714
+      },
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 32,
+          "outputTokens": 28661,
+          "cacheReadTokens": 703332,
+          "cacheWriteTokens": 100824,
+          "costUsd": 2.108758,
+          "durationMs": 375625
+        },
+        "durationMs": 381077
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "gate",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [
+      {
+        "chunk": 1,
+        "attempts": 2
+      }
+    ],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 7,
+        "reminders": 0
+      },
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 42,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "step:1debb59c-494d-4cf6-8df8-1a522bb7f386",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "src/oversize.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:8689ffe8-518b-40ff-b5db-db3e3e2cf7d9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:65a72c8a-7430-4b01-9dda-9059b1e5c957",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "test/oversize.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "form:443c0497-4558-414a-89dd-b42ddbbbf2f0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-cand-qwen3-coder-30b-a3b-stepfill-v2\\chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01UMz9Vu6arXCcnz4HgU8hW9",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01GmRM7v2A57WivRGM6MCqFA",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01BLyLi3v85rQUiriuFPHPni",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_015yCDnhnRfmNrcxj4nqK4sQ",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01KeVKsjQkDdx5hgnX6UEYgv",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_015n8uwotEkv85WPxH82GeHg",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01TnR1kWNxd9qzimx8tM4vdy",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01EiHcUW4zSLE6ao5tUWK4sc",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_013GmMepctquGW2zRNJzDMaD",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01PjAGW2SURSEd2wkpGF8bwQ",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01XUWhqfwMgMr9jKdN4NT5iU",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01QqTD9xR1bhLEgPdtiMeXgb",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01RaMyYCHz1gd66fREr98eEa",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01P3gQxet84CK1fTGwotQApe",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01BATy4NrZDLBMC151bySLDA",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01RuchQqU8HnwLxj7zeD8te9",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01L4ryPcy9KKdZEAzUPpCqQv",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_0176mMz9a9pq5PLCADvrcDh1",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Enrct8p6qVzu89VDKQJRhm",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01QAWu2gvLSnCcKnhDoRiuZ3",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01X66SWPgSMZbufVy8ynJxKD",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01J8AkJFCN6u2ZYGgSNmz9Xe",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01WrbidBmhoU4WJXghGt1KfY",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01V2iE6BfnyoeCtU9Vh8uwUp",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-6DWqQ2\\.sdlc\\bench-cand-qwen3-coder-30b-a3b-stepfill-v2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01KEnm4Gw2LjP8sLdpSgRySN",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-6DWqQ2\\.sdlc\\bench-cand-qwen3-coder-30b-a3b-stepfill-v2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01XXSQdK1gMp9PDQbkwXZe6i",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-6DWqQ2\\.sdlc\\bench-cand-qwen3-coder-30b-a3b-stepfill-v2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01U1HsxHNHtVB4YvfnqFod5m",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-6DWqQ2\\.sdlc\\bench-cand-qwen3-coder-30b-a3b-stepfill-v2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01PpBNiGpvs19s8Df6KGZoSV",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-6DWqQ2\\.sdlc\\bench-cand-qwen3-coder-30b-a3b-stepfill-v2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_013hMxwAfJrUzsQMaX66fzwt",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-6DWqQ2\\.sdlc\\bench-cand-qwen3-coder-30b-a3b-stepfill-v2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01WXLd4cNyqUtYZ561iAFKxF",
+        "kind": "finalize_artifact",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-6DWqQ2\\.sdlc\\bench-cand-qwen3-coder-30b-a3b-stepfill-v2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:d2d39433-5c81-4c3e-9c2a-474a9c6ed15f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/oversize.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:a6369d7d-ac91-4d96-a913-ed5efa0c0adb",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:5f4248bc-d441-4d9d-bae4-7af7a026a42b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12812,
+        "userChars": 16359,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 17915,
+        "userChars": 30715,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 11968,
+        "userChars": 32781,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}
