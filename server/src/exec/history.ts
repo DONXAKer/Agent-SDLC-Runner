@@ -57,13 +57,22 @@ function stubFor(m: ChatMessage & { role: 'tool' }): string {
 
 /**
  * Возвращает историю, в которой суммарный объём результатов инструментов не превышает
- * `budgetBytes`. Заглушки ставятся от самого старого результата к новым; результат,
- * который сам меньше своей заглушки, не трогается — иначе «сокращение» росло бы.
+ * `budgetBytes` — НАСКОЛЬКО это вообще достижимо сокращением заглушками. Заглушки ставятся
+ * от самого старого результата к новым; результат, который сам меньше своей заглушки, не
+ * трогается — иначе «сокращение» росло бы.
+ *
+ * Гарантии тут нет: `NEVER_STUB` (ответы человека) и последние `keepLast` результатов не
+ * трогаются НИКОГДА, и если их сумма сама превышает бюджет, вернувшаяся история всё ещё
+ * будет больше него — та самая проблема «локальный сервер молча вытесняет системный
+ * промпт», ради которой функция и написана, воспроизводится снова именно в этом случае.
+ * `onOverBudget` вызывается ровно тогда — вызывающий (у него есть `hooks.onWarn`) решает,
+ * что с этим сказать оператору; сама функция про I/O ничего не знает.
  */
 export function trimHistory(
   messages: readonly ChatMessage[],
   budgetBytes: number,
   keepLast = HISTORY_KEEP_LAST,
+  onOverBudget?: (totalBytes: number, budgetBytes: number) => void,
 ): ChatMessage[] {
   const toolIdx: number[] = [];
   let total = 0;
@@ -93,6 +102,7 @@ export function trimHistory(
     out[i] = { ...m, content: stub };
     total -= saved;
   }
+  if (total > budgetBytes) onOverBudget?.(total, budgetBytes);
   return out;
 }
 

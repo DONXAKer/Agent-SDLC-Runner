@@ -136,6 +136,7 @@ export class LoopExecutor implements StageExecutor {
       readRangeRequiredAboveBytes: this.o.readRangeRequiredAboveBytes,
       timeoutMs: this.o.bashTimeoutMs,
       signal: req.signal,
+      ...(req.stageArtifacts === undefined ? {} : { artifacts: req.stageArtifacts }),
     };
 
     const tools = [
@@ -197,7 +198,12 @@ export class LoopExecutor implements StageExecutor {
         messages:
           this.o.historyBudgetBytes === undefined
             ? messages
-            : trimHistory(messages, this.o.historyBudgetBytes),
+            : trimHistory(messages, this.o.historyBudgetBytes, undefined, (total, budget) =>
+                hooks.onWarn(
+                  `история хода превышает бюджет даже после сокращения заглушками: ${total} байт ` +
+                    `из ${budget} — ответы человека и последние результаты рантайм не трогает никогда`,
+                ),
+              ),
         tools,
         signal: req.signal,
         temperature: this.o.temperature,

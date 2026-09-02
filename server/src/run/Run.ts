@@ -46,10 +46,12 @@ import {
   writeArtifact,
 } from '../artifacts/artifact.ts';
 import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
+import { ARTIFACT_KEYS as ARTIFACT_KEYS_ALL, type ArtifactKey } from '@sdlc-runner/shared';
 import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
+import { normalizePlanPath } from '../policy/paths.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
 import { effectiveMode } from '../policy/mcp.ts';
@@ -161,6 +163,10 @@ const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
   'Write',
   'AskHuman',
   'FinalizeArtifact',
+  // Не про leanTools как таковой: FillField выдаётся отдельной ручкой (compactForms), но
+  // урезание не должно ОТНИМАТЬ его, если обе ручки включены одновременно — иначе состав
+  // прав тихо зависел бы от порядка, в котором применяются два независимых фильтра.
+  'FillField',
 ]);
 
 /**
@@ -714,9 +720,14 @@ export class Run {
    * из записей рецензента, находки §2–§5 с местом. До этого бриф нёс id и числа.
    */
   /**
-   * Пункты приёмки задачи: id (нижний регистр) → строка листа дословно. Один разбор на
-   * бриф ретрая и на поклаймовый добор — правило «текст пункта = строка листа» живёт в
-   * одном месте.
+   * Пункты приёмки задачи: id (нижний регистр) → СЫРАЯ строка листа целиком, со всеми
+   * колонками. Один разбор на бриф ретрая и на поклаймовый добор — правило «строка листа —
+   * источник» живёт в одном месте, но каждый потребитель сам решает, что из неё взять:
+   * `retryDetail()` сжимает через `claimTextCell` (см. её докстринг про потолок 12 КБ в
+   * карточке шага), а `topUpClaims()` передаёт строку целиком в `packForClaim` — колонка
+   * «процедура» там называет конкретный тест/функцию и напрямую улучшает подбор хунков
+   * diff'а по словам; урезание её здесь обедняло бы совсем другого потребителя ради
+   * потолка байт, которого у него нет.
    */
   private intentClaimLines(): Map<string, string> {
     const out = new Map<string, string>();
@@ -724,13 +735,13 @@ export class Run {
     if (!intent.exists) return out;
     for (const line of intent.text.split(/\r?\n/)) {
       const id = claimIdOf(line);
-      if (id !== null && !out.has(id.toLowerCase())) out.set(id.toLowerCase(), claimTextCell(line));
+      if (id !== null && !out.has(id.toLowerCase())) out.set(id.toLowerCase(), line.trim());
     }
     return out;
   }
 
   private retryDetail(): RetryDetail {
-    const claimTexts = this.intentClaimLines();
+    const claimTexts = new Map([...this.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)] as const));
     const whatToFix = new Map<string, string>();
     for (const [id, r] of this.claimRecords) {
       if (r.whatToFix !== null && r.whatToFix.trim() !== '') whatToFix.set(id.toLowerCase(), r.whatToFix);
@@ -862,7 +873,24 @@ export class Run {
       allowedTools: this.toolsFor(stage),
       mcpTools: rulesForStage(this.mcpSetup, stage),
       readDenied: this.readDeniedFor(stage),
+      stageArtifacts: this.stageArtifacts(stage),
     };
+  }
+
+  /**
+   * Ключ артефакта → путь, для `FillField`: пересечение всех известных ключей
+   * (`ArtifactKey`) с тем, что этот этап реально производит (`def.produces`). Одна
+   * функция на политику и на исполнение (`ExecRequest.stageArtifacts`) — второй разбор
+   * здесь разошёлся бы с тем, что действительно решает доступ.
+   */
+  stageArtifacts(stage: StageId): readonly { key: ArtifactKey; path: string }[] {
+    const produced = new Set(stageById(stage).produces(this.ctx));
+    const out: { key: ArtifactKey; path: string }[] = [];
+    for (const key of ARTIFACT_KEYS_ALL) {
+      const path = artifactPathOf(this.paths, key, this.ctx.chunk, this.ctx.attempt);
+      if (produced.has(path)) out.push({ key, path });
+    }
+    return out;
   }
 
   /**
@@ -1246,6 +1274,8 @@ export class Run {
       bashTimeoutMs: limits.gateTimeoutMs,
       params: route.params,
       currency: route.providerDef.currency ?? 'USD',
+      compact: route.compactForms === 'fill' || route.compactForms === 'all',
+      stage,
     }).run(
       {
         prompt,
@@ -1288,10 +1318,15 @@ export class Run {
     // политика видит тот же список, и второго места решения о доступе не появляется.
     // На chunk/verify набор не трогаем: там Write/Bash нужны по делу.
     const route = this.profile.routes[stage];
-    const base =
+    const leaned =
       route.leanTools && LEAN_DOC_STAGES.has(stage)
         ? all.filter((t) => LEAN_TOOLS.has(t))
         : all;
+    // FillField выдаётся ТОЛЬКО при включённой ручке (compactForms 'fill'|'all') — иначе
+    // замер этой ручки перестал бы быть замером «одной ручки»: право появлялось бы у всех
+    // моделей стадии сразу, без записи в config/models.json, которую и сравнивает журнал.
+    const fillFieldOn = route.compactForms === 'fill' || route.compactForms === 'all';
+    const base = fillFieldOn ? leaned : leaned.filter((t) => t !== 'FillField');
     const rules = rulesForStage(this.mcpSetup, stage);
     if (rules.length === 0) return base;
 
@@ -1757,7 +1792,21 @@ export class Run {
 
   private executorFor(stage: StageId, forRoute?: ResolvedRoute): StageExecutor {
     const route = forRoute ?? this.profile.routes[stage];
-    if (route.flow === 'sdk') return new SdkExecutor();
+    if (route.flow === 'sdk') {
+      // `stepFill`/`formFill` — ручки исполнителей флоу `loop`, у `sdk` своего цикла нет,
+      // и молчаливое игнорирование выглядело бы как «настройка не сработала», не как
+      // «настройка сюда не применима». Оператор обязан узнать об этом из панели, а не
+      // догадываться по факту, что этап шёл как обычно.
+      if (route.stepFill) {
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage,
+          message: `stepFill включён у модели с flow «sdk» — ручка действует только для flow «loop», для этого этапа она проигнорирована`,
+        });
+      }
+      return new SdkExecutor();
+    }
 
     const limits = this.config.runner.limits;
 
@@ -1772,6 +1821,9 @@ export class Run {
         bashTimeoutMs: limits.gateTimeoutMs,
         params: route.params,
         currency: route.providerDef.currency ?? 'USD',
+        // Схема формы вместо сплошного текста — см. `ModelDef.compactForms`.
+        compact: route.compactForms === 'fill' || route.compactForms === 'all',
+        stage,
       });
     }
 
@@ -1784,10 +1836,16 @@ export class Run {
       // Шаг с файлом вне `files_to_touch` не исполняется: политика отклонит каждую запись,
       // и запрос к модели сгорел бы впустую. Явная форма шага берёт путь из карточки, и
       // тем же списком, что у политики, он сверяется здесь, а не на первом отказе.
-      const allowed = new Set(extractFilesToTouch(planText));
+      // Оба списка идут через ОДНУ нормализацию путей плана (`normalizePlanPath` —
+      // регистр, слэши, `./`, повторённый корень), а не сравниваются как сырые строки:
+      // `extractFilesToTouch` и парсер явного шага (`planSteps.ts`) — два независимых
+      // парсера одного и того же текста, и без общей нормализации расхождение написания
+      // одного и того же пути (регистр, `./`) молча роняло легитимный шаг в «вне плана».
+      const root = this.project.projectRoot;
+      const allowed = new Set(extractFilesToTouch(planText).map((f) => normalizePlanPath(root, f)));
       const all = planSteps(planText);
-      const steps = all.filter((s) => allowed.has(s.file));
-      const outside = all.filter((s) => !allowed.has(s.file));
+      const steps = all.filter((s) => allowed.has(normalizePlanPath(root, s.file)));
+      const outside = all.filter((s) => !allowed.has(normalizePlanPath(root, s.file)));
       const warn = (message: string): void => this.emit({ type: 'warning', runId: this.id, stage, message });
       warn(
         steps.length === 0
@@ -1898,6 +1956,7 @@ export class Run {
       ctx: this.ctx,
       flow: route.flow,
       slug: this.slug,
+      compactForms: route.compactForms,
       // Эффективный набор, а не `stage.tools`: урезание `leanTools` обязано быть видно
       // в промпте — панель показывает ровно тот список, с которым уйдёт запрос.
       // MCP-права здесь не нужны: у внешних инструментов своя строка в adapter-блоке.
@@ -2830,6 +2889,13 @@ export class Run {
      * chunk третий одинаковый вызов подряд обрывал этап безусловно — даже когда между
      * повторами модель успела записать половину кода. `pendingWrites` — requestId
      * разрешённых записей: исход знает `onToolResult`, вид вызова — `onToolRequest`.
+     *
+     * ЯВНО: счётчик подключается ко ВСЕМ исполнителям этапа chunk, не только к `stepFill`
+     * (`StepExecutor` его вообще не читает — у него свой ограничитель, `REPAIRS_PER_STEP`).
+     * Отсрочка при повторе одинакового вызова, если с начала серии был хоть один принятый
+     * вызов, — намеренное послабление антицикла и для обычного `LoopExecutor`, а не побочный
+     * эффект правки под `stepFill`: причины откатывать его для НЕ-stepFill моделей нет —
+     * критерий «есть реальный прогресс» не завязан на конкретный исполнитель.
      */
     const pendingWrites = new Set<string>();
     let acceptedWrites = 0;
@@ -3049,6 +3115,10 @@ export class Run {
           // Для режима заполнения по полям: где искать плейсхолдеры. Обычные исполнители
           // поле не читают.
           formArtifacts: produced,
+          // Ключ → путь для FillField — тот же список, что уже отдан политике
+          // (`policyContext`); нужен исполнителю, чтобы разрешённый политикой вызов дошёл
+          // до диска (LoopExecutor кладёт его в ToolContext, SdkExecutor — в свой MCP-сервер).
+          stageArtifacts: this.stageArtifacts(stage),
           signal: this.aborter.signal,
         },
         hooks,

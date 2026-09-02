@@ -51,15 +51,17 @@
  * (`humanFactsBlock`), а не собираются второй раз.
  */
 
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { basename } from 'node:path';
 
 import type { Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
 
 import { describeStep, type PlanStep } from '../artifacts/planSteps.ts';
+import { symlinkEscape } from '../approval/symlink.ts';
+import { git } from '../gates/git.ts';
+import { isAbsolute, relativizeWithin, resolveUserPath, toPosix } from '../policy/paths.ts';
 import type { ChatMessage, ChatProvider } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
@@ -223,13 +225,12 @@ export function renderStepReport(outcomes: readonly StepOutcome[], checkName: st
  * приносит переписанный файл, гард трижды отказывает, шаг красный — конфликт по построению
  * (bench, stepfill-v2).
  */
-function trackedInHead(root: string, rel: string): boolean | null {
-  const r = spawnSync('git', ['ls-tree', '--name-only', 'HEAD', '--', rel.replace(/\\/g, '/')], {
-    cwd: root,
-    encoding: 'utf8',
-    windowsHide: true,
-  });
-  if (r.error !== undefined || r.status !== 0) return null;
+async function trackedInHead(root: string, rel: string): Promise<boolean | null> {
+  // Асинхронная обёртка `gates/git.ts` — та же, что у остальных git-гейтов: свой таймаут
+  // (120с) и защита от разрастания вывода. `spawnSync` без таймаута здесь раньше блокировал
+  // event loop ВСЕГО сервера, если git вставал на `index.lock`.
+  const r = await git(['ls-tree', '--name-only', 'HEAD', '--', toPosix(rel)], root);
+  if (r.code !== 0) return null;
   return r.stdout.trim() !== '';
 }
 
@@ -238,27 +239,62 @@ function trackedInHead(root: string, rel: string): boolean | null {
  * `null` — файла нет (новый) либо путь ведёт наружу (тогда шаг отклонит политика, а
  * содержимое чужого файла в промпт внешнему провайдеру не уедет — та же планка, что у
  * prefetch в `prompt/build.ts`).
+ *
+ * Резолв и проверка границы — теми же хелперами, что у политики и гейта одобрений
+ * (`resolveUserPath` чинит «повторённый корень», `symlinkEscape` — побег через
+ * символическую ссылку): своя рукописная копия этой логики уже дважды расходилась с
+ * оригиналом по регистру Windows-путей и по этому самому классу пути.
  */
 function readInsideRoot(root: string, rel: string): string | null {
   if (rel === '' || isAbsolute(rel)) return null;
-  const abs = resolve(root, rel);
-  const back = relative(root, abs);
-  if (back.startsWith('..') || isAbsolute(back)) return null;
+  const abs = resolveUserPath(root, rel);
+  if (relativizeWithin(root, abs) === null) return null;
   if (!existsSync(abs)) return null;
+  if (symlinkEscape(root, rel, []) !== null) return null;
   try {
-    const realRoot = realpathSync(root);
-    const real = realpathSync(abs);
-    const realBack = relative(realRoot, real);
-    if (realBack.startsWith('..') || isAbsolute(realBack)) return null;
-    return readFileSync(real, 'utf8');
+    return readFileSync(realpathSync(abs), 'utf8');
   } catch {
     return null;
   }
 }
 
-/** Файл с CRLF получает правки в CRLF: модель отдаёт LF, а `Edit` сверяет побайтно. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Упомянут ли файл шага в тексте ошибки гейта. Сначала — полный относительный путь (обеими
+ * формами слэша). Если его нет — голый `basename`, НО с оговоркой: если перед найденным
+ * `basename` в тексте стоит СВОЙ каталог (не пустой и не наш), это чужой файл с тем же
+ * именем в другом месте (`server/src/tools/index.ts` и `server/src/exec/index.ts` — оба
+ * `index.ts`), а не наш — раньше голое совпадение имени принимало такую ошибку за свою.
+ * `basename` без всякого пути перед ним (многие гейты печатают ошибку без полного пути)
+ * по-прежнему считается своим — второго кандидата с тем же именем в этом случае в тексте
+ * просто нет, различать нечего.
+ */
+function mentionsFile(problem: string, file: string): boolean {
+  const posix = toPosix(file);
+  const win = posix.replace(/\//g, '\\');
+  if (problem.includes(posix) || problem.includes(win)) return true;
+
+  const base = basename(file);
+  const ownDir = posix.slice(0, posix.length - base.length);
+  const re = new RegExp(`([^\\s"'\`]*[/\\\\])?${escapeRegExp(base)}\\b`, 'g');
+  const matches = [...problem.matchAll(re)];
+  if (matches.length === 0) return false;
+  return matches.some((m) => m[1] === undefined || toPosix(m[1]) === ownDir);
+}
+
+/**
+ * Файл с CRLF получает правки в CRLF: модель отдаёт LF, а `Edit` сверяет побайтно.
+ * Нормализация СНАЧАЛА схлопывает уже стоящие `\r\n` в `\n` и только потом расставляет их
+ * заново — решение по одному булеву флагу «есть ли хоть один `\r` во всём ответе» отключало
+ * бы конвертацию для целого многострочного блока из-за одного случайного `\r`, оставшегося
+ * артефактом токенизации в одной строке.
+ */
 function matchEol(current: string, s: string): string {
-  return current.includes('\r\n') && !s.includes('\r') ? s.replace(/\n/g, '\r\n') : s;
+  if (!current.includes('\r\n')) return s;
+  return s.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
 }
 
 const SYSTEM = [
@@ -393,15 +429,19 @@ export class StepExecutor implements StageExecutor {
         // Планка «переписывание» — для файлов, где есть что переписывать: у файла в
         // несколько строк любая правка покрывает его целиком, и это не перезапись. Файл,
         // которого в HEAD нет (создан этим же chunk'ом), охраны не получает — см. trackedInHead.
+        const short = current.split('\n').length <= WHOLE_FILE_MIN_LINES;
+        const tracked = short ? null : await trackedInHead(req.cwd, step.file);
+        const guardActive = !short && tracked !== false;
+        // Порог считается по СУММЕ байт всех блоков одного ответа, а не по каждому в
+        // отдельности: три блока по ~30% файла каждый обходили бы поблочную проверку,
+        // хотя суммарно покрывают почти весь файл — тот самый обход, ради которого гард
+        // и заведён.
+        const totalSearchBytes = edits.reduce((sum, e) => sum + Buffer.byteLength(e.oldStr, 'utf8'), 0);
         const whole =
-          current.split('\n').length <= WHOLE_FILE_MIN_LINES || trackedInHead(req.cwd, step.file) === false
-            ? undefined
-            : edits.find(
-                (e) =>
-                  e.oldStr.trim() === current.trim() ||
-                  Buffer.byteLength(e.oldStr, 'utf8') >= WHOLE_FILE_SHARE * Buffer.byteLength(current, 'utf8'),
-              );
-        if (whole !== undefined) {
+          guardActive &&
+          (edits.some((e) => e.oldStr.trim() === current.trim()) ||
+            totalSearchBytes >= WHOLE_FILE_SHARE * Buffer.byteLength(current, 'utf8'));
+        if (whole) {
           return {
             ok: false,
             denied: false,
@@ -463,7 +503,7 @@ export class StepExecutor implements StageExecutor {
       return { ok: outcome.ok, denied: false, noChange: null, text: outcome.text };
     };
 
-    for (const [idx, step] of this.o.steps.entries()) {
+    for (const step of this.o.steps) {
       if (req.signal.aborted) return stop('этап отменён');
       const over = budgetHit();
       if (over !== null) {
@@ -474,7 +514,10 @@ export class StepExecutor implements StageExecutor {
       const before = readInsideRoot(req.cwd, step.file);
       const messages: ChatMessage[] = [
         { role: 'system', content: SYSTEM },
-        { role: 'user', content: this.stepMessage(step, idx + 1, total, planBlock, factsBlock, briefBlock, before) },
+        // Номер — `step.n` из плана, не позиция в отфильтрованном списке: сам план
+        // (приложенный ниже целиком) ссылается на шаги под их настоящими номерами, и
+        // расхождение двух нумераций в одном промпте путает модель.
+        { role: 'user', content: this.stepMessage(step, step.n, total, planBlock, factsBlock, briefBlock, before) },
       ];
 
       let calls = 0;
@@ -482,6 +525,8 @@ export class StepExecutor implements StageExecutor {
       let note = '';
       let problem: string | null = null;
       let lastAnswer: string | null = null;
+      /** Раунд уже применил правку к диску — «не начат» после этого было бы неверно. */
+      let stepApplied = false;
       /** Содержимое файла на момент ТЕКУЩЕГО раунда — существование считается заново после записи. */
       let current = before;
 
@@ -490,7 +535,10 @@ export class StepExecutor implements StageExecutor {
         // до 75 запросов и 75 сборок, а бюджет на локальном провайдере (`costUsd: null`)
         // не срабатывает вовсе.
         if (callsTotal >= req.maxTurns) {
-          outcomes.push({ step, status: '❌', note: `не начат: исчерпан лимит ходов этапа (${req.maxTurns})`, calls });
+          const limitNote = stepApplied
+            ? `правка применена, но проверка после неё не пройдена — исчерпан лимит ходов этапа (${req.maxTurns})`
+            : `не начат: исчерпан лимит ходов этапа (${req.maxTurns})`;
+          outcomes.push({ step, status: '❌', note: limitNote, calls });
           return stop(`исчерпан лимит ходов этапа (${req.maxTurns})`);
         }
         if (round > 0) {
@@ -512,7 +560,20 @@ export class StepExecutor implements StageExecutor {
               '',
               ...(current === null
                 ? []
-                : [`## Текущее содержимое ${step.file} (после твоей правки)`, '', '```', cap(current, this.o.maxResultBytes), '```', '']),
+                : [
+                    `## Текущее содержимое ${step.file} (после твоей правки)`,
+                    '',
+                    '```',
+                    cap(current, this.o.maxResultBytes),
+                    '```',
+                    ...(Buffer.byteLength(current, 'utf8') > this.o.maxResultBytes
+                      ? [
+                          'Файл длиннее показанного — текст выше обрезан. Если нужный фрагмент вне ' +
+                            'показанной части, ответь `БЕЗ ПРАВОК: нужный фрагмент вне показанной части файла`.',
+                        ]
+                      : []),
+                    '',
+                  ]),
               becameExisting
                 ? 'Файл теперь существует: верни исправление блоками SEARCH/REPLACE по содержимому выше, ' +
                   'а не файл целиком.'
@@ -537,6 +598,7 @@ export class StepExecutor implements StageExecutor {
         // достигает: третий раунд с тем же ответом стоил бы ещё один полный файл в контексте
         // и ту же проверку. Шаг закрывается сразу — как красный, с названной причиной.
         if (round > 0 && answer === lastAnswer) {
+          hooks.onFriction('repeat');
           status = '❌';
           note = `ремонт остановлен: ответ повторён дословно — ${note}`;
           break;
@@ -560,8 +622,22 @@ export class StepExecutor implements StageExecutor {
           note = applied.text.split('\n')[0] ?? applied.text;
           continue;
         }
+        stepApplied = true;
 
-        const check: StepCheck = this.o.check === null ? { status: 'ok' } : await this.o.check.run(step);
+        // Гейт исполняет ВСТРОЕННУЮ реализацию (`gates/run.ts: runOne`) без своего try/catch
+        // на этом пути — необработанное исключение здесь оборвало бы весь `StepExecutor.run()`
+        // и все уже готовые исходы шагов, вместо того чтобы пометить ❌ один этот шаг и
+        // продолжить, как поступает `LoopExecutor` с инструментом.
+        let check: StepCheck;
+        if (this.o.check === null) {
+          check = { status: 'ok' };
+        } else {
+          try {
+            check = await this.o.check.run(step);
+          } catch (e) {
+            check = { status: 'failed', problem: `гейт «${checkName ?? ''}» упал с исключением: ${(e as Error).message}` };
+          }
+        }
         if (check.status === 'ok') {
           status = '✅';
           note = applied.text.split('\n')[0] ?? 'применено';
@@ -576,7 +652,7 @@ export class StepExecutor implements StageExecutor {
         // не порядок зависимостей, и импорт из ещё не написанного файла краснеет законно.
         // Ремонт здесь подталкивал бы убрать верный импорт. Проверят следующие шаги и
         // прогон тестов после этапа.
-        if (!check.problem.includes(basename(step.file))) {
+        if (!mentionsFile(check.problem, step.file)) {
           status = '✅';
           note =
             `${applied.text.split('\n')[0] ?? 'применено'}; гейт «${checkName ?? ''}» красный вне этого файла: ` +
@@ -644,7 +720,19 @@ export class StepExecutor implements StageExecutor {
     if (factsBlock !== '') parts.push('', factsBlock);
     if (briefBlock !== '') parts.push('', briefBlock);
     if (content !== null) {
+      const truncated = Buffer.byteLength(content, 'utf8') > this.o.maxResultBytes;
       parts.push('', `## Текущее содержимое \`${step.file}\``, '', '```', cap(content, this.o.maxResultBytes), '```');
+      if (truncated) {
+        // Показанный фрагмент обрезан потолком контекста, а правка сверяется с ПОЛНЫМ
+        // файлом с диска — дословную цитату из невидимой части модель дать не может, и
+        // единственный честный ответ в этом случае назван явно, а не оставлен угадывать.
+        parts.push(
+          '',
+          `Файл длиннее показанного — текст выше обрезан. Если фрагмент, который нужно ` +
+            `найти для SEARCH, за пределами показанного, не гадай: ответь \`БЕЗ ПРАВОК: ` +
+            `нужный фрагмент вне показанной части файла\`.`,
+        );
+      }
     }
     parts.push('', content === null ? FORMAT_CREATE : FORMAT_EDIT);
     return parts.join('\n');
