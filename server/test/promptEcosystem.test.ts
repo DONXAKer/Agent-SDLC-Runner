@@ -46,6 +46,7 @@ const runner: RunnerConfig = {
     progressClosenessWarn: 0.9,
     chatTimeoutMs: 1000,
   localMaxToolResultBytes: 12_000,
+  localHistoryBudgetBytes: 40_000,
   },
 };
 

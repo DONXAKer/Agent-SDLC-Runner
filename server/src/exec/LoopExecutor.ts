@@ -35,6 +35,7 @@ import type {
   StageResult,
   SubagentDef,
 } from './StageExecutor.ts';
+import { trimHistory } from './history.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
 import { isToolName, specsFor } from './toolSpecs.ts';
 import { readArtifact } from '../artifacts/artifact.ts';
@@ -48,6 +49,12 @@ export interface LoopOptions {
   temperature: number | null;
   /** Параметры запроса из конфига модели (`ModelDef.params`). Не заданы — не шлём. */
   params?: Record<string, unknown> | null;
+  /**
+   * Потолок суммарного объёма результатов инструментов в истории хода (байты). Сверх него
+   * старые результаты заменяются заглушками — см. `history.ts`. Не задан — история не
+   * режется (поведение до появления окна; тесты цикла живут на нём).
+   */
+  historyBudgetBytes?: number;
   /** Валюта провайдера маршрута — для честной подписи трат в нотах. Умолчание USD. */
   currency?: string;
 }
@@ -184,7 +191,13 @@ export class LoopExecutor implements StageExecutor {
 
       const answer = await this.o.provider.chat({
         model: req.model,
-        messages,
+        // В запрос уходит ПРЕДСТАВЛЕНИЕ истории со скользящим окном по результатам
+        // инструментов; полная история остаётся у цикла — отпечатки вызовов и анти-цикл
+        // считаются по ней, а не по обрезанной копии.
+        messages:
+          this.o.historyBudgetBytes === undefined
+            ? messages
+            : trimHistory(messages, this.o.historyBudgetBytes),
         tools,
         signal: req.signal,
         temperature: this.o.temperature,
@@ -328,7 +341,10 @@ export class LoopExecutor implements StageExecutor {
         const fingerprint = callFingerprint(call);
         repeats = fingerprint === lastFingerprint ? repeats + 1 : 0;
         lastFingerprint = fingerprint;
-        if (repeats === 0) progressAtStreakStart = req.progressSignal?.() ?? 0;
+        // База серии снимается ПОСЛЕ исполнения её первого вызова (ниже): снятая до него,
+        // она засчитывала запись самого первого вызова как «прогресс за серию», и
+        // одинаковый `Write` исполнялся каждый третий раз до самого `maxTurns`.
+        const firstOfStreak = repeats === 0;
 
         if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
 
@@ -348,6 +364,17 @@ export class LoopExecutor implements StageExecutor {
             );
             repeats = 0;
             progressAtStreakStart = progressNow;
+            // Сам повтор не исполняется — модель получает замечание, как и на втором
+            // вызове серии. Раньше сброс `repeats` пускал его в `handleCall` как первый.
+            messages.push({
+              role: 'tool',
+              toolCallId: call.id,
+              name: call.name,
+              content:
+                'этот вызов уже был с теми же аргументами. Он не повторён; работа с начала серии ' +
+                'продвинулась, поэтому этап продолжается. Смени аргументы или заверши ход.',
+            });
+            continue;
           } else {
             const note =
               `цикл остановлен: «${call.name}» вызван ${repeats + 1} раза подряд с теми же ` +
@@ -384,6 +411,7 @@ export class LoopExecutor implements StageExecutor {
           name: call.name,
           content: result,
         });
+        if (firstOfStreak) progressAtStreakStart = req.progressSignal?.() ?? 0;
       }
 
       // Напоминание идёт ПОСЛЕ результатов инструментов хода: user-сообщение между

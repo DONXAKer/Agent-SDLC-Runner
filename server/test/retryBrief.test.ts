@@ -117,6 +117,46 @@ describe('выжимка причин для ретрая', () => {
     match(brief, /патч этой попытки совпал с предыдущим/);
   });
 
+  it('с деталями несёт текст пункта, слова рецензента и находки — с подписью, чьи они', () => {
+    const brief = buildRetryBrief(
+      input({ claims: [{ id: 'claim-2', status: '❌' }], confirmedReviewFindings: 1 }),
+      [],
+      {
+        claimTexts: new Map([['claim-2', '| claim-2 | сторона ровно 120 см — не негабарит | тест |']]),
+        whatToFix: new Map([['claim-2', 'сравнивать longestSideCm напрямую, без сложения']]),
+        findings: [
+          { text: 'лишняя арифметика в surchargeFor', evidence: 'src/oversize.ts:12', anchored: true },
+          { text: 'без места', evidence: '', anchored: false },
+        ],
+      },
+    );
+    ok(brief !== null);
+    match(brief, /claim-2 — опровергнут \(❌\): \| claim-2 \| сторона ровно 120 см/);
+    match(brief, /по словам рецензента, чинить: сравнивать longestSideCm/);
+    match(brief, /Находки ревью \(слова рецензента/);
+    match(brief, /лишняя арифметика в surchargeFor — src\/oversize\.ts:12/);
+    match(brief, /без места _\(место в патче не найдено\)_/);
+    // Находка с местом идёт раньше находки без него.
+    ok(brief.indexOf('лишняя арифметика') < brief.indexOf('без места'));
+  });
+
+  it('хвост вывода упавшего гейта уходит в бриф, а не одна последняя строка', () => {
+    const brief = buildRetryBrief(input(), [
+      gate({ outputTail: 'not ok 3 - сторона ровно 120\n  AssertionError: expected 0\n2 failing' }),
+    ]);
+    ok(brief !== null);
+    match(brief, /AssertionError: expected 0/);
+    match(brief, /2 failing/);
+  });
+
+  it('«н\/п» в графе «что чинить» не показывается', () => {
+    const brief = buildRetryBrief(input({ claims: [{ id: 'claim-1', status: '⚠' }] }), [], {
+      whatToFix: new Map([['claim-1', 'н/п']]),
+    });
+    ok(brief !== null);
+    strictEqual(/по словам рецензента/.test(brief), false);
+  });
+
   it('не даёт указаний, что чинить, — только факты', () => {
     const brief = buildRetryBrief(input(), [gate()]);
     ok(brief !== null);

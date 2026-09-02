@@ -58,6 +58,7 @@ const LIMIT_DEFAULTS = {
   progressClosenessWarn: 0.9,
   chatTimeoutMs: 600_000,
   localMaxToolResultBytes: 12_000,
+  localHistoryBudgetBytes: 40_000,
 };
 
 /**

@@ -229,6 +229,16 @@ function adapterBlock(i: BuildPromptInput): string {
           '- Этот самопросмотр НЕ заменяет независимого рецензента этапа 6 и в вердикт не ' +
             'входит: автор не рецензирует себя. Он нужен, чтобы не тратить дорогую попытку ' +
             'на то, что видно самому.',
+          // Детект отсутствия прогресса текст этапа поручает модели (сравнить патчи K−1 и
+          // K−2), но считает его рантайм, а патч K−2 во вход больше не подаётся — без этой
+          // строки модель шла читать его `Read`'ом и тратила ход и окно.
+          ...(i.ctx.attempt > 1
+            ? [
+                '- Детект отсутствия прогресса (сравнение патчей попыток) уже сделан рантаймом — ' +
+                  'его итог приходит в блоке «Что чинить в этой попытке». Патч попытки K−2 не ' +
+                  'прикладывается, и читать его не надо.',
+              ]
+            : []),
         ]
       : []),
     // Этап 2: правило карты кодовой базы. Оно проверяется рантаймом (страж завершения
@@ -354,6 +364,35 @@ function fence(path: string, text: string, maxBytes: number): string {
   return ['````markdown', `<!-- ${path} -->`, body, '````'].join('\n');
 }
 
+/**
+ * Карточка фактов от человека — блок промпта этапа 5. `null` — фактов нет.
+ *
+ * Экспортирована, потому что тот же блок нужен исполнителю по шагам (`StepExecutor`):
+ * у него свой запрос на шаг, и собирать карточку второй раз своим кодом значило бы
+ * завести два разных представления одних и тех же ответов человека.
+ */
+export function humanFactsBlock(clarificationReportPath: string): string | null {
+  const clar = readArtifact(clarificationReportPath);
+  const facts = clar.exists ? extractHumanFacts(clar.text) : [];
+  if (facts.length === 0) return null;
+  return [
+    '## Факты от человека — обязаны попасть в код',
+    '',
+    'Это ответы человека из clarification-report.md, дословно. Каждое число и каждая ' +
+      'цитата из ответа обязаны быть отражены в правке; потерянный ответ человека — ' +
+      'прямой путь к красному вердикту этапа 6.',
+    facts
+      .map(
+        (f) =>
+          `- **${f.question}** → ${f.answer}` +
+          (f.literals.length === 0
+            ? ''
+            : ` _(проверяемые литералы: ${f.literals.map((l) => l.shown).join(', ')})_`),
+      )
+      .join('\n'),
+  ].join('\n\n');
+}
+
 function userMessage(i: BuildPromptInput): string {
   const parts: string[] = [];
 
@@ -372,7 +411,15 @@ function userMessage(i: BuildPromptInput): string {
   for (const input of inputs) {
     const a = readArtifact(input.path);
     const rel = toPosix(relative(i.ctx.paths.projectRoot, input.path));
-    if (a.exists) present.push(fence(rel, a.text, maxBytes));
+    // Патч прошлой попытки на chunk флоу loop режется по локальному потолку, а не по
+    // общему: план и журнал обязаны доехать целиком («лучше промпт не влез, чем вердикт
+    // по трети правки» — это про этап 6), а прошлый патч — контекст, не предмет работы,
+    // и на окне 16k он вытеснял план. Что именно чинить, приходит выжимкой ретрая.
+    const cap =
+      i.flow === 'loop' && i.stage.id === 'chunk' && rel.endsWith('.patch')
+        ? LOOP_MAX_ARTIFACT_BYTES
+        : maxBytes;
+    if (a.exists) present.push(fence(rel, a.text, cap));
     else if (!input.optional) missing.push(rel);
   }
 
@@ -450,30 +497,20 @@ function userMessage(i: BuildPromptInput): string {
   // повторён коротко у самого конца промпта. Замер (серии r7–r8, `docs/model-runs.md`):
   // human-кейсы — единственный порог, где 8B проигрывает 14B по существу.
   if (i.stage.id === 'chunk') {
-    const clar = readArtifact(i.ctx.paths.clarificationReport);
-    const facts = clar.exists ? extractHumanFacts(clar.text) : [];
-    if (facts.length > 0) {
-      parts.push(
-        '## Факты от человека — обязаны попасть в код',
-        '',
-        'Это ответы человека из clarification-report.md, дословно. Каждое число и каждая ' +
-          'цитата из ответа обязаны быть отражены в правке; потерянный ответ человека — ' +
-          'прямой путь к красному вердикту этапа 6.',
-        facts
-          .map(
-            (f) =>
-              `- **${f.question}** → ${f.answer}` +
-              (f.literals.length === 0
-                ? ''
-                : ` _(проверяемые литералы: ${f.literals.map((l) => l.shown).join(', ')})_`),
-          )
-          .join('\n'),
-      );
-    }
+    const block = humanFactsBlock(i.ctx.paths.clarificationReport);
+    if (block !== null) parts.push(block);
   }
 
   if (i.extra !== undefined && i.extra.trim() !== '') {
-    parts.push('## Что чинить в этой попытке', '', i.extra.trim());
+    // Бриф ретрая ограничен константами своего рендера (12 строк хвоста, 8 находок), но
+    // потолка по байтам у него не было; на окне 16k локального контура он конкурирует за
+    // то же место, что и план. Режется тем же потолком, что и патч прошлой попытки.
+    const brief = i.flow === 'loop' ? capBytes(i.extra.trim(), 2 * LOOP_MAX_ARTIFACT_BYTES) : null;
+    parts.push(
+      '## Что чинить в этой попытке',
+      '',
+      brief === null ? i.extra.trim() : brief.capped ? `${brief.text}\n…[обрезано рантаймом: бриф длиннее потолка]` : brief.text,
+    );
   }
 
   return parts.join('\n\n');

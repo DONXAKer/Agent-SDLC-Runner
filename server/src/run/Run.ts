@@ -99,7 +99,10 @@ import { ensureSandboxFor } from '../sandbox/registry.ts';
 import { collectVerdictInput, manualClaimIds } from '../verdict/collect.ts';
 import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
-import { buildRetryBrief } from '../verdict/retryBrief.ts';
+import { buildRetryBrief, type RetryDetail } from '../verdict/retryBrief.ts';
+import { describeStep, planSteps } from '../artifacts/planSteps.ts';
+import { StepExecutor } from '../exec/StepExecutor.ts';
+import { humanFactsBlock } from '../prompt/build.ts';
 import { appendIteration, parseIterations } from './iterationsLog.ts';
 import { postmortemBlock } from './postmortem.ts';
 import { suggestEscalation } from './escalation.ts';
@@ -690,7 +693,7 @@ export class Run {
     this.carryForward =
       this.lastVerdictInput === null
         ? null
-        : buildRetryBrief(this.lastVerdictInput, this.lastGateResults);
+        : buildRetryBrief(this.lastVerdictInput, this.lastGateResults, this.retryDetail());
     // Средовой красный не должен съедать бюджет итераций — но и переиспользовать номер
     // попытки нельзя: на момент `blocked_env` этап 5 уже отработал, и по этому номеру лежат
     // НАСТОЯЩИЕ улики (патч, запись о тестах, отчёт приёмки). Первая версия не увеличивала
@@ -703,6 +706,40 @@ export class Run {
     this.resetAttemptState();
     this.notePeakAttempt();
     return this.attempt;
+  }
+
+  /**
+   * Тексты для выжимки ретрая — всё уже посчитано этапом 6, здесь только сбор:
+   * пункты приёмки дословно из задачи (во входах chunk'а `intent.md` нет), «что чинить»
+   * из записей рецензента, находки §2–§5 с местом. До этого бриф нёс id и числа.
+   */
+  /**
+   * Пункты приёмки задачи: id (нижний регистр) → строка листа дословно. Один разбор на
+   * бриф ретрая и на поклаймовый добор — правило «текст пункта = строка листа» живёт в
+   * одном месте.
+   */
+  private intentClaimLines(): Map<string, string> {
+    const out = new Map<string, string>();
+    const intent = readArtifact(this.paths.intent);
+    if (!intent.exists) return out;
+    for (const line of intent.text.split(/\r?\n/)) {
+      const id = claimIdOf(line);
+      if (id !== null && !out.has(id.toLowerCase())) out.set(id.toLowerCase(), line.trim());
+    }
+    return out;
+  }
+
+  private retryDetail(): RetryDetail {
+    const claimTexts = this.intentClaimLines();
+    const whatToFix = new Map<string, string>();
+    for (const [id, r] of this.claimRecords) {
+      if (r.whatToFix !== null && r.whatToFix.trim() !== '') whatToFix.set(id.toLowerCase(), r.whatToFix);
+    }
+    return {
+      claimTexts,
+      whatToFix,
+      findings: this.findingRecords.map((f) => ({ text: f.text, evidence: f.evidence, anchored: f.anchored })),
+    };
   }
 
   /** Следующий chunk витка: нумерация попыток начинается заново. */
@@ -1030,14 +1067,9 @@ export class Run {
    * дополняет работу модели, а не переделывает её.
    */
   private async topUpClaims(route: ResolvedRoute, system: string): Promise<void> {
-    const intent = readArtifact(this.paths.intent);
-    if (!intent.exists) return;
-
     const asks: ClaimAsk[] = [];
-    for (const line of intent.text.split(/\r?\n/)) {
-      const id = claimIdOf(line);
-      if (id === null || this.claimRecords.has(id.toLowerCase())) continue;
-      asks.push({ id: id.toLowerCase(), text: line.trim() });
+    for (const [id, text] of this.intentClaimLines()) {
+      if (!this.claimRecords.has(id)) asks.push({ id, text });
     }
     if (asks.length === 0) return;
 
@@ -1638,6 +1670,12 @@ export class Run {
 
     const canonical = this.paths.verificationReport(this.chunk, this.attempt, 0);
     const primary = readArtifact(canonical).text;
+    // Записи основного маршрута сохраняются и возвращаются после ансамбля: маршруты пишут
+    // в те же `claimRecords`/`findingRecords` через общие хуки, и бриф ретрая (`retryDetail`,
+    // читается после ансамбля) нёс бы «что чинить» последнего, самого слабого маршрута под
+    // подписью «по словам рецензента», а находки — дублями от каждого маршрута.
+    const primaryClaims = new Map(this.claimRecords);
+    const primaryFindings = [...this.findingRecords];
 
     for (const [i, other] of extraRoutes.entries()) {
       if (this.aborter?.signal.aborted === true) break;
@@ -1713,6 +1751,8 @@ export class Run {
     // Канонический путь возвращается основному маршруту: его читают скиллы `/sdlc-*`,
     // предусловия этапов и витки, начатые в терминале.
     writeArtifact(canonical, primary);
+    this.claimRecords = primaryClaims;
+    this.findingRecords = primaryFindings;
   }
 
   private executorFor(stage: StageId, forRoute?: ResolvedRoute): StageExecutor {
@@ -1735,6 +1775,73 @@ export class Run {
       });
     }
 
+    // Этап 5 по шагам плана (`ModelDef.stepFill`): цикл ведёт рантайм, модель отвечает на
+    // один шаг без tool-use. Только chunk — на других этапах шагов плана нет. Карта шагов
+    // показывается оператору ДО старта: это замена подтверждению места правки человеком
+    // (Phase 2 методологии), которого в режиме без `AskHuman` нет.
+    if (stage === 'chunk' && route.stepFill) {
+      const planText = readArtifact(this.paths.plan).text;
+      // Шаг с файлом вне `files_to_touch` не исполняется: политика отклонит каждую запись,
+      // и запрос к модели сгорел бы впустую. Явная форма шага берёт путь из карточки, и
+      // тем же списком, что у политики, он сверяется здесь, а не на первом отказе.
+      const allowed = new Set(extractFilesToTouch(planText));
+      const all = planSteps(planText);
+      const steps = all.filter((s) => allowed.has(s.file));
+      const outside = all.filter((s) => !allowed.has(s.file));
+      const warn = (message: string): void => this.emit({ type: 'warning', runId: this.id, stage, message });
+      warn(
+        steps.length === 0
+          ? 'этап 5 по шагам: в плане не нашлось ни одного шага с файлом из files_to_touch'
+          : `карта шагов этапа 5 (по одному, рантаймом; ${steps[0]!.explicit ? 'явная форма плана' : 'по files_to_touch'}): ` +
+              steps.map(describeStep).join('; '),
+      );
+      if (outside.length > 0) {
+        warn(`шаги с файлами вне files_to_touch пропущены — записи в них политика отклонит: ${outside.map(describeStep).join('; ')}`);
+      }
+      warn(
+        'режим по шагам: промпт этапа в модель не уходит, у каждого шага свой запрос — правка промпта в панели ' +
+          'на него не действует; бриф ретрая подаётся в карточку шага',
+      );
+      // Проверка после шага — гейт «Сборка» набора проекта, если он там ВКЛЮЧЁН. Нет
+      // строки — проверки нет, и отчёт исполнителя говорит это, а не молчит; ⏭ (среда,
+      // таймаут) — «не состоялась», а не зелёный.
+      const gates = this.gatesFile;
+      const buildRow = gates?.rows.find((r) => gateKey(r.name) === gateKey('Сборка') && r.enabled);
+      return new StepExecutor({
+        provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+        maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+        readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
+        bashTimeoutMs: limits.gateTimeoutMs,
+        params: route.params,
+        currency: route.providerDef.currency ?? 'USD',
+        steps,
+        planText,
+        humanFacts: humanFactsBlock(this.paths.clarificationReport) ?? '',
+        retryBrief: this.carryForward,
+        check:
+          buildRow === undefined
+            ? null
+            : {
+                name: buildRow.name,
+                run: async () => {
+                  const r = await this.runNamedGate(buildRow.name);
+                  if (r === null) return { status: 'skipped', note: 'строка гейта не найдена при прогоне' };
+                  if (r.status === '❌') {
+                    const tail = (r.outputTail ?? '').trim();
+                    return {
+                      status: 'failed',
+                      problem:
+                        `гейт «${r.name}» (${r.command ?? 'встроенная реализация'}, код ${r.exitCode ?? '—'}): ${r.lastLine}` +
+                        (tail === '' ? '' : `\n${tail}`),
+                    };
+                  }
+                  if (r.status === '⏭') return { status: 'skipped', note: r.lastLine };
+                  return { status: 'ok' };
+                },
+              },
+      });
+    }
+
     return new LoopExecutor({
       provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
       // Свой потолок у локального контура: общий рассчитан на большое окно, а здесь один
@@ -1748,6 +1855,7 @@ export class Run {
       temperature: null,
       params: route.params,
       currency: route.providerDef.currency ?? 'USD',
+      historyBudgetBytes: limits.localHistoryBudgetBytes,
     });
   }
 
@@ -1994,6 +2102,53 @@ export class Run {
   }
 
   /**
+   * Один гейт набора проекта по имени — тем же путём, что прогон всех гейтов
+   * (`runGateByName`: команда в обратных кавычках имеет приоритет). `null` — строки
+   * нет или она выключена. Нужен проверке после шага в режиме `stepFill` и улике тестов.
+   *
+   * Песочница греется здесь же: `runGateByName` этого не делает (только `runGates`), и
+   * первая «Сборка» после шага при старте с chunk шла на хосте — «нет tsc» читалось как
+   * ⏭ и зелёный шаг, а иная версия инструмента давала ложный красный.
+   */
+  private async runNamedGate(name: string): Promise<GateRunResult | null> {
+    const gates = this.gatesFile;
+    if (gates === null) return null;
+    try {
+      await ensureSandboxFor(this.project.projectRoot, this.project.name);
+    } catch (e) {
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: 'chunk',
+        message: `песочница для гейта «${name}» не поднялась: ${(e as Error).message}`,
+      });
+    }
+    const signal = this.aborter?.signal;
+    const ctx: GateContext = {
+      projectRoot: this.project.projectRoot,
+      planFiles: this.planFilesFor('chunk') ?? [],
+      baseline: this.readBaseline(),
+      timeoutMs: this.config.runner.limits.gateTimeoutMs,
+      ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
+      ...(signal === undefined ? {} : { signal }),
+    };
+    return runGateByName(
+      name,
+      {
+        gates,
+        projectRoot: this.project.projectRoot,
+        projectName: this.project.name,
+        planFiles: ctx.planFiles,
+        baseline: ctx.baseline,
+        timeoutMs: ctx.timeoutMs,
+        ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
+        ...(signal === undefined ? {} : { signal }),
+      },
+      ctx,
+    );
+  }
+
+  /**
    * Патч и запись о тестах этой попытки — из фактов, а не из слов исполнителя.
    *
    * Тесты гоняются ТОЙ ЖЕ строкой набора, что и на этапе 6, через `runGateByName`: два
@@ -2016,20 +2171,13 @@ export class Run {
     // Гейт «Тесты» берётся из НАБОРА проекта, а не из реестра встроенных: приоритет
     // команды в обратных кавычках — правило `runOne`, и улика обязана его соблюдать.
     const gates = this.gatesFile;
+    // Один путь запуска гейта по имени на улику и на проверку после шага: второй набор
+    // тех же полей контекста разошёлся бы с первым при следующем добавленном поле.
     const runTests: BuiltinGate | null =
       gates === null
         ? null
-        : async (c: GateContext) => {
-            const r = await runGateByName('Тесты', {
-              gates,
-              projectRoot: this.project.projectRoot,
-              projectName: this.project.name,
-              planFiles: c.planFiles,
-              baseline: c.baseline,
-              timeoutMs: c.timeoutMs,
-              ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
-              ...(c.signal === undefined ? {} : { signal: c.signal }),
-            }, c);
+        : async () => {
+            const r = await this.runNamedGate('Тесты');
             if (r === null) {
               return {
                 status: '⏭',
@@ -2677,6 +2825,15 @@ export class Run {
      * знает исход, но не сам вызов, `recordBashResult` гейта нужны оба. */
     const pendingBash = new Map<string, string>();
     /**
+     * Прогресс этапа 5 — ПРИНЯТЫЕ записи в дерево (Write/Edit, дошедшие до исполнения
+     * без ошибки). До этого счётчика `progressSignal` передавался только этапу 6, и на
+     * chunk третий одинаковый вызов подряд обрывал этап безусловно — даже когда между
+     * повторами модель успела записать половину кода. `pendingWrites` — requestId
+     * разрешённых записей: исход знает `onToolResult`, вид вызова — `onToolRequest`.
+     */
+    const pendingWrites = new Set<string>();
+    let acceptedWrites = 0;
+    /**
      * Имена, под которыми у этого этапа объявлен независимый рецензент, — и только они.
      *
      * Пересечение объявленного этапом списка с реестром рецензентов, а не поиск подстроки
@@ -2714,6 +2871,9 @@ export class Run {
           // отказ загрузки — и всё равно зажигала гейт минимальной пятёрки.
           if (decision.allowed && call.kind === 'subagent' && reviewerNames.has(call.agent)) {
             pendingReviewer.add(meta.requestId);
+          }
+          if (decision.allowed && (call.kind === 'write' || call.kind === 'edit')) {
+            pendingWrites.add(meta.requestId);
           }
           if (decision.allowed && call.kind === 'bash') {
             // `call.command` — то, что ПРЕДЛОЖИЛА модель, не обязательно то, что реально
@@ -2770,6 +2930,10 @@ export class Run {
         // прогона рецензента, и вот он, этот факт: вызов дошёл до результата без ошибки.
         if (meta.ok && pendingReviewer.has(meta.requestId)) this.markReviewerRan();
         pendingReviewer.delete(meta.requestId);
+        if (pendingWrites.has(meta.requestId)) {
+          if (meta.ok) acceptedWrites += 1;
+          pendingWrites.delete(meta.requestId);
+        }
 
         const bashCommand = pendingBash.get(meta.requestId);
         if (bashCommand !== undefined) {
@@ -2875,9 +3039,13 @@ export class Run {
           // Прогресс этапа 6 — принятые записи отчёта. Анти-цикл обрывает этап только
           // тогда, когда за серию повторов не прибавилось ничего: обрыв посреди
           // заполняемого отчёта терял работу, уже сделанную (и оплаченную) целиком.
+          // На этапе 5 прогресс — принятые записи в дерево: модель, повторившая вызов
+          // рядом с делом, не должна терять уже записанный код.
           ...(stage === 'verify'
             ? { progressSignal: () => this.claimRecords.size + this.findingRecords.length }
-            : {}),
+            : stage === 'chunk'
+              ? { progressSignal: () => acceptedWrites }
+              : {}),
           // Для режима заполнения по полям: где искать плейсхолдеры. Обычные исполнители
           // поле не читают.
           formArtifacts: produced,
@@ -2913,10 +3081,17 @@ export class Run {
           : stage === 'verify'
             ? this.paths.verificationReport(this.chunk, this.attempt)
             : null;
+      // В режиме по шагам (`stepFill`) журнал chunk'а исполнитель не пишет по построению:
+      // дозаполнение по полям идёт с отчётом о шагах во входе — иначе поля «что сделано»
+      // заполнялись бы по памяти, которой у режима нет. Но только если хоть один шаг дал
+      // правку: журнал этапа, в котором не записано ничего, не стоит двенадцати запросов —
+      // он всё равно красный по дереву.
+      const stepMode = stage === 'chunk' && route.stepFill;
+      const stepProduced = stepMode && /применено [1-9]/.test(result.note);
       if (
         formFinishPath !== null &&
         route.flow === 'loop' &&
-        route.formFill &&
+        (route.formFill || stepProduced) &&
         !this.aborter.signal.aborted
       ) {
         result = await this.finishFormArtifact(
@@ -2925,8 +3100,11 @@ export class Run {
           result,
           // Тот же промпт, что видел основной ход, — на этапе 6 он включает блок с
           // отчётом рецензента. Дозаполнение по полям без него добирало бы поля §2–§5
-          // «по памяти», не зная о находках, ради которых этап и существует.
-          stagePrompt,
+          // «по памяти», не зная о находках, ради которых этап и существует. В режиме по
+          // шагам сюда же подклеивается отчёт о шагах — второй блок, которого нет в
+          // промпте из `prompt_prepared`: как и блок рецензента, он факт рантайма, а не
+          // правка за спиной оператора.
+          stepProduced && result.finalText !== '' ? withExtra(stagePrompt, result.finalText) : stagePrompt,
           hooks,
           notDone,
           this.aborter.signal,
