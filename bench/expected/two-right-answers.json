@@ -1,0 +1,78 @@
+{
+  "// назначение": "Эталон задачи two-right-answers. Значения — не арифметика, а форма: новый объект или тот же, изменился ли исходный. Каждое выписано вручную из текста задачи и контракта hold.test.ts, не списано с вывода модели.",
+  "// категории": "regression — overlaps, isActive и иммутабельность makeHold: верны ДО правки и после (именно этот контракт решает выбор архитектуры); precision — правило из текста задачи плюс контракт проекта: moveHold возвращает новый объект, исходная бронь не тронута, id/expiresIso сохранены, новый слот на месте. Секрета у человека нет — human-кейсов нет. На пристинной moveHold не существует — precision красные.",
+  "// формат": "Один из входов: overlaps [a, b] → boolean; isActive {hold, at: {iso: bool}}; makeHold {id, slot, now, warehouse?} → карта; moveHold {hold, newSlot} → карта {newObject, sourceUntouched, id, expiresIso (сравнение моментов), slot (deepStrictEqual), activeAt: {iso: bool}, sourceActiveAt: {iso: bool}}.",
+  "task": "two-right-answers",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "overlaps существует до витка и верен: соседние слоты сетки, касающиеся концами, не пересекаются.",
+      "overlaps": [
+        { "startIso": "2026-03-20T05:00:00Z", "endIso": "2026-03-20T07:00:00Z" },
+        { "startIso": "2026-03-20T07:00:00Z", "endIso": "2026-03-20T09:00:00Z" }
+      ],
+      "expect": false
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "isActive вне границы верен до витка и после: за час до срока — действует, через час после — нет.",
+      "isActive": {
+        "hold": { "id": "r-2", "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" }, "expiresIso": "2026-03-10T21:00:00.000Z" },
+        "at": { "2026-03-10T20:00:00Z": true, "2026-03-10T22:00:00Z": false }
+      },
+      "expect": true
+    },
+    {
+      "id": "R3",
+      "category": "regression",
+      "claim": null,
+      "description": "Контракт, решающий задачу: makeHold не мутирует входной слот и хранит свой снимок (hold.slot !== slot, но равен ему по значению). Верен до витка и обязан остаться после.",
+      "makeHold": {
+        "id": "r-3",
+        "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" },
+        "now": "2026-03-10T10:00:00Z"
+      },
+      "expect": { "id": "r-3", "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" }, "argsUntouched": true, "slotIsCopy": true }
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-2",
+      "description": "moveHold возвращает НОВЫЙ объект (!== исходному), исходная бронь целиком не изменилась (глубокое сравнение со снимком до вызова) — архитектура «мутация» здесь красная.",
+      "moveHold": {
+        "hold": { "id": "pr-1", "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" }, "expiresIso": "2026-03-10T21:00:00.000Z" },
+        "newSlot": { "startIso": "2026-03-21T09:00:00Z", "endIso": "2026-03-21T11:00:00Z" }
+      },
+      "expect": { "newObject": true, "sourceUntouched": true }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Новый слот на месте (равен newSlot по значению), id и expiresIso — те же, что у исходной брони.",
+      "moveHold": {
+        "hold": { "id": "pr-2", "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" }, "expiresIso": "2026-03-10T21:00:00.000Z" },
+        "newSlot": { "startIso": "2026-03-21T09:00:00Z", "endIso": "2026-03-21T11:00:00Z" }
+      },
+      "expect": { "id": "pr-2", "expiresIso": "2026-03-10T21:00:00.000Z", "slot": { "startIso": "2026-03-21T09:00:00Z", "endIso": "2026-03-21T11:00:00Z" } }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Исходная бронь после переноса остаётся валидной: isActive для неё тот же, что до вызова (за час до срока — действует, через час после — нет); у перенесённой — такой же, срок не сброшен.",
+      "moveHold": {
+        "hold": { "id": "pr-3", "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" }, "expiresIso": "2026-03-10T21:00:00.000Z" },
+        "newSlot": { "startIso": "2026-03-21T09:00:00Z", "endIso": "2026-03-21T11:00:00Z" }
+      },
+      "expect": {
+        "sourceActiveAt": { "2026-03-10T20:00:00Z": true, "2026-03-10T22:00:00Z": false },
+        "activeAt": { "2026-03-10T20:00:00Z": true, "2026-03-10T22:00:00Z": false }
+      }
+    }
+  ]
+}

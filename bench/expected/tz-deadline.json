@@ -1,0 +1,93 @@
+{
+  "// назначение": "Эталон задачи tz-deadline. Значения посчитаны вручную: Europe/Moscow = UTC+3 круглый год (летнего времени нет с 2014), местная полночь = 21:00Z предыдущей даты. Пересчитано дважды; не списано с вывода кода.",
+  "// категории": "regression — overlaps и isActive вне границы, верны ДО правки и после; precision — форма правила из текста задачи, TZ-независимо: граница исключающая (hold с expiresIso литералом), срок считается от now, а не от слота (позже now, не дальше суток); human — конкретная московская полночь: пояса в репозитории нет, он известен только из ответа человека (human-tz-deadline.json → rules[0]).",
+  "// формат": "Один из входов: overlaps [a, b] → boolean; isActive {hold, at: {iso: bool}}; makeHold {id, slot, now, warehouse: индекс в WAREHOUSES цели} → карта {id, slot, expiresIso (сравнение моментов, не строк), expiresAfterNow, expiresWithinHours, activeAt: {iso: bool}, argsUntouched, slotIsCopy}; moveHold — см. two-right-answers.json.",
+  "task": "tz-deadline",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "overlaps существует до витка и верен: частично перекрывающиеся слоты пересекаются, касающиеся концами — нет.",
+      "overlaps": [
+        { "startIso": "2026-03-20T05:00:00Z", "endIso": "2026-03-20T07:00:00Z" },
+        { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" }
+      ],
+      "expect": true
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "isActive вне границы верен до витка и после: за час до срока — действует, через час после — нет.",
+      "isActive": {
+        "hold": { "id": "r-2", "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" }, "expiresIso": "2026-03-10T21:00:00.000Z" },
+        "at": { "2026-03-10T20:00:00Z": true, "2026-03-10T22:00:00Z": false }
+      },
+      "expect": true
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-4",
+      "description": "Граница исключающая (сказано в тексте задачи прямо, TZ-независимо): hold построен литералом, isActive ровно в expiresIso → false, за секунду до → true. На пристинной граница включающая — красный.",
+      "isActive": {
+        "hold": { "id": "pr-1", "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" }, "expiresIso": "2026-03-10T21:00:00.000Z" },
+        "at": { "2026-03-10T20:59:59Z": true, "2026-03-10T21:00:00Z": false }
+      },
+      "expect": true
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Срок считается от now, а не от слота (TZ-независимо): слот через 10 дней, expiresIso строго позже now и не дальше 25 часов от него — в любом поясе конец суток лежит в этом окне. На пристинной срок = начало слота (10 дней) — красный. Аргументы не мутируются.",
+      "makeHold": {
+        "id": "pr-2",
+        "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" },
+        "now": "2026-03-10T10:00:00Z",
+        "warehouse": 0
+      },
+      "expect": { "id": "pr-2", "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" }, "expiresAfterNow": true, "expiresWithinHours": 25, "argsUntouched": true }
+    },
+    {
+      "id": "H1",
+      "category": "human",
+      "claim": "claim-1",
+      "description": "now = 2026-03-10T10:00Z — 13:00 мск 10 марта; конец суток — полночь 11 марта мск = 2026-03-10T21:00:00Z (а не 00:00Z: пояс — только из ответа человека). За секунду до — действует, ровно в полночь — нет.",
+      "makeHold": {
+        "id": "h-1",
+        "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" },
+        "now": "2026-03-10T10:00:00Z",
+        "warehouse": 0
+      },
+      "expect": { "expiresIso": "2026-03-10T21:00:00.000Z", "activeAt": { "2026-03-10T20:59:59Z": true, "2026-03-10T21:00:00Z": false } }
+    },
+    {
+      "id": "H2",
+      "category": "human",
+      "claim": "claim-1",
+      "description": "now = 2026-03-10T20:30Z — 23:30 мск: та же ближайшая полночь 2026-03-10T21:00:00Z, бронь живёт полчаса. Ловит «now + 24 часа» (дало бы 03-11T20:30Z) и полночь по UTC (03-11T00:00Z).",
+      "makeHold": {
+        "id": "h-2",
+        "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" },
+        "now": "2026-03-10T20:30:00Z",
+        "warehouse": 0
+      },
+      "expect": { "expiresIso": "2026-03-10T21:00:00.000Z" }
+    },
+    {
+      "id": "H3",
+      "category": "human",
+      "claim": "claim-1",
+      "description": "now = 2026-03-10T21:30Z — уже 00:30 мск 11 марта: сутки по складу следующие, конец — полночь 12 марта мск = 2026-03-11T21:00:00Z. Ловит дату по UTC (дало бы 03-11T00:00Z).",
+      "makeHold": {
+        "id": "h-3",
+        "slot": { "startIso": "2026-03-20T06:00:00Z", "endIso": "2026-03-20T08:00:00Z" },
+        "now": "2026-03-10T21:30:00Z",
+        "warehouse": 0
+      },
+      "expect": { "expiresIso": "2026-03-11T21:00:00.000Z" }
+    }
+  ]
+}

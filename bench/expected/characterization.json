@@ -1,0 +1,88 @@
+{
+  "// назначение": "Эталон задачи characterization. Задача с нулевым изменением кода: модель пишет тесты на aggregate.ts, код обязан остаться тем же. Поведенческие значения посчитаны вручную из констант фикстуры (THRESHOLD_K = 1000_00, сортировка по убыванию totalK, при равенстве — по имени) — не списаны с вывода модели.",
+  "// категории": "regression — поведение aggregate, включая сомнительное (порог включающий, по убыванию, равные по имени): зелёные на пристинной ПО ДИЗАЙНУ, ловят модель, «починившую» код под README вместо фиксации текущего; precision — новый тестовый файл появился (Pr1), набор цели зелёный (Pr2), кейсов стало больше, чем в пристинной (Pr3). Human-кейсов нет: всё выводимо из кода.",
+  "// Pr2 на пристинной": "Зелёный: набор пристинной (2 теста report.test.ts) и так зелёный. Оставлен precision, а не regression: он сторожит «модель не сломала набор новыми тестами» — красный тест «как должно быть» вместо «как есть» проваливает именно его, и это сигнал задачи, а не фикстуры. Красными на пристинной остаются Pr1 и Pr3.",
+  "// формат": "call — вызов из index.ts цели, expect — массив (deepStrictEqual); newTestFile — { dir, exclude: [существующие в пристинной] } + expect.atLeast; suite — прогон набора цели дочерним процессом (lib/spawnTests.mjs), expect.allGreen / expect.testsAbove (счёт пристинной, записан руками).",
+  "task": "characterization",
+  "cases": [
+    {
+      "id": "R1",
+      "category": "regression",
+      "claim": null,
+      "description": "Группировка: три чека Иванова 600 + 400 + 500 ₽ → одна строка 1500 ₽.",
+      "call": { "fn": "aggregate", "args": [[
+        { "manager": "Иванов", "amountK": 60000 },
+        { "manager": "Иванов", "amountK": 40000 },
+        { "manager": "Иванов", "amountK": 50000 }
+      ]] },
+      "expect": [{ "manager": "Иванов", "totalK": 150000 }]
+    },
+    {
+      "id": "R2",
+      "category": "regression",
+      "claim": null,
+      "description": "Пустой вход — пустой свод, не исключение.",
+      "call": { "fn": "aggregate", "args": [[]] },
+      "expect": []
+    },
+    {
+      "id": "R3",
+      "category": "regression",
+      "claim": "claim-2",
+      "description": "Порог ВКЛЮЧАЮЩИЙ (сомнительное поведение, README говорит «строго больше»): ровно 1000 ₽ проходит, 999,99 ₽ — нет. Ловит модель, поменявшую >= на > «по README».",
+      "call": { "fn": "aggregate", "args": [[
+        { "manager": "Антонова", "amountK": 100000 },
+        { "manager": "Борисов", "amountK": 99999 }
+      ]] },
+      "expect": [{ "manager": "Антонова", "totalK": 100000 }]
+    },
+    {
+      "id": "R4",
+      "category": "regression",
+      "claim": "claim-2",
+      "description": "Порядок ПО УБЫВАНИЮ суммы (README говорит «по возрастанию»): 3000, 2000, 1000 ₽ при входе 1000, 3000, 2000.",
+      "call": { "fn": "aggregate", "args": [[
+        { "manager": "Антонова", "amountK": 100000 },
+        { "manager": "Борисов", "amountK": 300000 },
+        { "manager": "Волков", "amountK": 200000 }
+      ]] },
+      "expect": [{ "manager": "Борисов", "totalK": 300000 }, { "manager": "Волков", "totalK": 200000 }, { "manager": "Антонова", "totalK": 100000 }]
+    },
+    {
+      "id": "R5",
+      "category": "regression",
+      "claim": "claim-2",
+      "description": "Равные суммы — по имени менеджера (README говорит «порядок не определён»): Антонова, Борисов, Волков при входе Волков, Антонова, Борисов.",
+      "call": { "fn": "aggregate", "args": [[
+        { "manager": "Волков", "amountK": 150000 },
+        { "manager": "Антонова", "amountK": 150000 },
+        { "manager": "Борисов", "amountK": 150000 }
+      ]] },
+      "expect": [{ "manager": "Антонова", "totalK": 150000 }, { "manager": "Борисов", "totalK": 150000 }, { "manager": "Волков", "totalK": 150000 }]
+    },
+    {
+      "id": "Pr1",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "В test/ цели появился хотя бы один НОВЫЙ *.test.ts помимо report.test.ts (имя не угадывается — считается любой).",
+      "newTestFile": { "dir": "test", "exclude": ["report.test.ts"] },
+      "expect": { "atLeast": 1 }
+    },
+    {
+      "id": "Pr2",
+      "category": "precision",
+      "claim": "claim-4",
+      "description": "Весь набор тестов цели зелёный: новые тесты фиксируют то, что есть, а не «как должно быть». Зелёный на пристинной по дизайну — см. «// Pr2 на пристинной».",
+      "suite": {},
+      "expect": { "allGreen": true }
+    },
+    {
+      "id": "Pr3",
+      "category": "precision",
+      "claim": "claim-1",
+      "description": "Кейсов в наборе цели строго больше, чем в пристинной (2 — report.test.ts): новые тесты не только лежат файлом, но и исполняются.",
+      "suite": {},
+      "expect": { "testsAbove": 2 }
+    }
+  ]
+}
