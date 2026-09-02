@@ -25,6 +25,7 @@ import {
 } from '../src/exec/StepExecutor.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
+import { git } from '../src/gates/git.ts';
 
 const roots: string[] = [];
 after(() => {
@@ -211,7 +212,7 @@ describe('исполнение по шагам', () => {
     strictEqual(readFileSync(join(root, 'src/k.ts'), 'utf8'), 'export const K = 90;\n');
   });
 
-  it('трижды красная проверка по этому файлу — шаг ❌ и этап красный', async () => {
+  it('трижды красная проверка по этому файлу — шаг ❌, но этап без единой правки красный, а с правкой — нет', async () => {
     const root = setup();
     const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
     let checks = 0;
@@ -224,9 +225,32 @@ describe('исполнение по шагам', () => {
       checks++;
       return { status: 'failed', problem: `a.ts: гейт «Сборка» красный, попытка ${checks}` };
     }).run(request(root), hooks(seen));
+    // Единственный шаг красный и ни один не применён — этап красный.
     strictEqual(r.ok, false);
     strictEqual(checks, 3);
     ok(provider.asked[1]!.includes('попытка 1'));
+    ok(r.finalText.includes('❌'), r.finalText);
+  });
+
+  it('красный шаг рядом с применённым этап не роняет — красноту судит этап 6', async () => {
+    // Красный шаг — дерево с красным тестом; в обычном цикле такое дерево уходит рецензенту,
+    // и брифом на следующую попытку модель чинит то, что он назвал. Правило «красный шаг =
+    // провал этапа» останавливало виток без вердикта при дереве, зелёном по эталону.
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([
+      SR('  return a + b;', '  return a + b + 1;'),
+      'export const два = 2;\n',
+      'export const два = 3;\n',
+      'export const два = 4;\n',
+    ]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' }), step({ file: 'src/new.ts' })], async (s) =>
+      s.file === 'src/new.ts' ? { status: 'failed', problem: 'new.ts: гейт «Сборка» красный' } : { status: 'ok' },
+    ).run(request(root), hooks(seen));
+    strictEqual(r.ok, true);
+    ok(r.note.includes('применено 1'), r.note);
+    ok(r.note.includes('красных 1'), r.note);
+    ok(r.note.includes('на суд этапа 6'), r.note);
     ok(r.finalText.includes('❌'), r.finalText);
   });
 
@@ -275,6 +299,50 @@ describe('исполнение по шагам', () => {
     ok(r.ok, r.note);
     ok(provider.asked[1]!.includes('покрывает файл целиком'), provider.asked[1]);
     ok(readFileSync(join(root, 'src/a.ts'), 'utf8').includes('a - b'));
+  });
+
+  it('файл, которого нет в HEAD (создан этим chunk\'ом), переписывать целиком можно', async () => {
+    // Рецензент велел «переписать свой тест через priceFor», модель принесла файл целиком,
+    // гард отказал трижды — конфликт по построению: охрана нужна файлу, существовавшему ДО
+    // chunk'а, а не тому, что создан в попытке 1 (bench, stepfill-v2).
+    // Длиннее WHOLE_FILE_MIN_LINES — иначе охрана не действует и без git.
+    const longA = ['export function add(a: number, b: number) {', '  return a + b;', '}', 'export function sub(a: number, b: number) {', '  return a - b;', '}', 'export const one = 1;', ''].join('\n');
+    const root = setup(longA);
+    await git(['init', '--initial-branch=main'], root);
+    await git(['config', 'user.name', 'т'], root);
+    await git(['config', 'user.email', 't@example.invalid'], root);
+    await git(['add', '-A'], root);
+    await git(['commit', '-m', 'база'], root);
+    const fresh = ['export function t1() {', '  return 1;', '}', 'export function t2() {', '  return 2;', '}', 'export function t3() {', '  return 3;', '}', ''].join('\n');
+    writeFileSync(join(root, 'src/fresh.ts'), fresh);
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([SR(fresh.trimEnd(), 'export const переписан = true;')]);
+    const r = await exec(provider, [step({ file: 'src/fresh.ts' })]).run(request(root), hooks(seen));
+    ok(r.ok, r.finalText);
+    ok(readFileSync(join(root, 'src/fresh.ts'), 'utf8').includes('переписан'));
+
+    // Тот же приём на файле из HEAD по-прежнему отклоняется.
+    const kept = scripted([SR(longA.trimEnd(), 'export const x = 1;'), SR(longA.trimEnd(), 'export const x = 1;'), SR(longA.trimEnd(), 'export const x = 1;')]);
+    const r2 = await exec(kept, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
+    strictEqual(r2.ok, false);
+    ok(r2.finalText.includes('❌'), r2.finalText);
+    ok(!readFileSync(join(root, 'src/a.ts'), 'utf8').includes('export const x = 1;'));
+  });
+
+  it('дословно повторённый ответ в ремонтном раунде останавливает шаг сразу', async () => {
+    // Третий раунд с тем же текстом стоил бы ещё один полный файл в контексте и ту же
+    // проверку — модель замечание не слышит.
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const same = SR('  return a + b;', '  return a + b + 1;');
+    const provider = scripted([same, same, same]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({ status: 'failed', problem: 'a.ts: красная' })).run(
+      request(root),
+      hooks(seen),
+    );
+    strictEqual(r.ok, false);
+    strictEqual(provider.asked.length, 2, 'после второго одинакового ответа третьего запроса нет');
+    ok(r.finalText.includes('повторён дословно'), r.finalText);
   });
 
   it('файл с CRLF получает правку в CRLF', async () => {

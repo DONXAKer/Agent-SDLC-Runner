@@ -37,6 +37,29 @@ export interface RetryDetail {
   findings?: readonly { text: string; evidence: string; anchored: boolean }[];
 }
 
+/**
+ * Текст пункта приёмки из строки листа — сама формулировка, без служебных колонок.
+ *
+ * Строка таблицы `| claim-1 | текст | тег | процедура | статус |` уходила в бриф целиком,
+ * ~600 символов на пункт; семь таких строк в карточке шага режутся потолком 12 КБ раньше
+ * находок рецензента с адресом `файл:строка` — то есть самого ценного (bench, stepfill-v2).
+ * Берётся первая ячейка после id; строка списка — текст после id и разделителя.
+ */
+export function claimTextCell(line: string): string {
+  const t = line.trim();
+  if (t.startsWith('|')) {
+    const cells = t
+      .split('|')
+      .slice(1, -1)
+      .map((c) => c.trim());
+    const idx = cells.findIndex((c) => /^`?claim-[\w-]+`?(\s*\[[^\]]*\])?$/iu.test(c));
+    const text = idx >= 0 ? cells[idx + 1] : cells[1];
+    return text === undefined || text === '' ? t : text;
+  }
+  const m = /^(?:[-*]|\d+[.)])?\s*`?claim-[\w-]+`?\s*[—:–-]?\s*(.+)$/iu.exec(t);
+  return m === null || m[1] === undefined ? t : m[1].trim();
+}
+
 /** Пустая строка вывода — это «вывода не было», а не «причина неизвестна». */
 function lastLineOf(g: GateRunResult): string {
   return g.lastLine.trim() === '' ? 'вывод пуст' : g.lastLine.trim();

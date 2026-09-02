@@ -51,6 +51,7 @@
  * (`humanFactsBlock`), а не собираются второй раз.
  */
 
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve } from 'node:path';
@@ -213,6 +214,26 @@ export function renderStepReport(outcomes: readonly StepOutcome[], checkName: st
 }
 
 /**
+ * Есть ли файл в HEAD проекта: `true`/`false` — репозиторий ответил, `null` — репозитория
+ * нет или git недоступен (тогда охрана переписывания действует как для старого файла).
+ *
+ * Нужно гарду переписывания: он должен беречь файл, который существовал ДО chunk'а
+ * (r33 — перезапись 156 строк в 55), а не файл, который эта же модель создала в попытке 1.
+ * Без этого различия рецензент велит «переписать свой тест через priceFor», модель трижды
+ * приносит переписанный файл, гард трижды отказывает, шаг красный — конфликт по построению
+ * (bench, stepfill-v2).
+ */
+function trackedInHead(root: string, rel: string): boolean | null {
+  const r = spawnSync('git', ['ls-tree', '--name-only', 'HEAD', '--', rel.replace(/\\/g, '/')], {
+    cwd: root,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  if (r.error !== undefined || r.status !== 0) return null;
+  return r.stdout.trim() !== '';
+}
+
+/**
  * Содержимое файла шага — строго внутри корня проекта, по фактическому пути.
  * `null` — файла нет (новый) либо путь ведёт наружу (тогда шаг отклонит политика, а
  * содержимое чужого файла в промпт внешнему провайдеру не уедет — та же планка, что у
@@ -370,9 +391,10 @@ export class StepExecutor implements StageExecutor {
           };
         }
         // Планка «переписывание» — для файлов, где есть что переписывать: у файла в
-        // несколько строк любая правка покрывает его целиком, и это не перезапись.
+        // несколько строк любая правка покрывает его целиком, и это не перезапись. Файл,
+        // которого в HEAD нет (создан этим же chunk'ом), охраны не получает — см. trackedInHead.
         const whole =
-          current.split('\n').length <= WHOLE_FILE_MIN_LINES
+          current.split('\n').length <= WHOLE_FILE_MIN_LINES || trackedInHead(req.cwd, step.file) === false
             ? undefined
             : edits.find(
                 (e) =>
@@ -459,6 +481,7 @@ export class StepExecutor implements StageExecutor {
       let status: StepStatus = '❌';
       let note = '';
       let problem: string | null = null;
+      let lastAnswer: string | null = null;
       /** Содержимое файла на момент ТЕКУЩЕГО раунда — существование считается заново после записи. */
       let current = before;
 
@@ -509,6 +532,16 @@ export class StepExecutor implements StageExecutor {
         }
         calls++;
         messages.push({ role: 'assistant', content: answer, toolCalls: [] });
+
+        // Ремонтное замечание, на которое модель отвечает тем же текстом побайтно, её не
+        // достигает: третий раунд с тем же ответом стоил бы ещё один полный файл в контексте
+        // и ту же проверку. Шаг закрывается сразу — как красный, с названной причиной.
+        if (round > 0 && answer === lastAnswer) {
+          status = '❌';
+          note = `ремонт остановлен: ответ повторён дословно — ${note}`;
+          break;
+        }
+        lastAnswer = answer;
 
         const applied = await apply(step, current, answer);
 
@@ -564,11 +597,18 @@ export class StepExecutor implements StageExecutor {
     const done = outcomes.filter((o) => o.status === '✅').length;
     const skipped = outcomes.filter((o) => o.status === '⏭').length;
     const summary = `шагов ${outcomes.length}: применено ${done}, без правок ${skipped}, красных ${bad}`;
+    // Этап закрыт, если хоть один шаг дал правку — красный шаг его не роняет. Красный шаг
+    // (проверка после трёх ремонтов так и не позеленела) — это дерево с красным тестом, и
+    // судить его — работа этапа 6: рецензент назовёт причину брифом на следующую попытку. В
+    // обычном цикле модель с красным тестом этап тоже завершает. Правило «красный шаг =
+    // провал этапа» отняло у qwen3-coder-30b-a3b второе ревью при дереве 9/9 по эталону:
+    // единственный красный был неверным ожиданием в её же тесте, драйвер прочитал не-ok как
+    // «заблокировано» и остановил виток без вердикта (bench, stepfill-v2).
     return {
-      ok: bad === 0 && done > 0,
+      ok: done > 0,
       finalText: report,
       usage,
-      note: bad === 0 && done > 0 ? summary : done === 0 ? `${summary} — ни один шаг не дал правки` : summary,
+      note: done === 0 ? `${summary} — ни один шаг не дал правки` : bad === 0 ? summary : `${summary} — красные шаги на суд этапа 6`,
     };
   }
 

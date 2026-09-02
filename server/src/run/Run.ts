@@ -99,7 +99,7 @@ import { ensureSandboxFor } from '../sandbox/registry.ts';
 import { collectVerdictInput, manualClaimIds } from '../verdict/collect.ts';
 import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
-import { buildRetryBrief, type RetryDetail } from '../verdict/retryBrief.ts';
+import { buildRetryBrief, claimTextCell, type RetryDetail } from '../verdict/retryBrief.ts';
 import { describeStep, planSteps } from '../artifacts/planSteps.ts';
 import { StepExecutor } from '../exec/StepExecutor.ts';
 import { humanFactsBlock } from '../prompt/build.ts';
@@ -724,7 +724,7 @@ export class Run {
     if (!intent.exists) return out;
     for (const line of intent.text.split(/\r?\n/)) {
       const id = claimIdOf(line);
-      if (id !== null && !out.has(id.toLowerCase())) out.set(id.toLowerCase(), line.trim());
+      if (id !== null && !out.has(id.toLowerCase())) out.set(id.toLowerCase(), claimTextCell(line));
     }
     return out;
   }
@@ -3088,6 +3088,11 @@ export class Run {
       // он всё равно красный по дереву.
       const stepMode = stage === 'chunk' && route.stepFill;
       const stepProduced = stepMode && /применено [1-9]/.test(result.note);
+      // Отчёт о шагах — артефакт попытки: причина красного шага иначе остаётся только в
+      // консоли, и разбор прогона восстанавливает её по дереву (bench, stepfill-v2).
+      if (stepMode && result.finalText !== '') {
+        writeArtifact(this.paths.chunkSteps(this.chunk, this.attempt), `${result.finalText}\n`);
+      }
       if (
         formFinishPath !== null &&
         route.flow === 'loop' &&

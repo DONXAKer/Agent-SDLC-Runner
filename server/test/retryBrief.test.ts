@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 
 import type { GateRunResult, VerdictInput } from '@sdlc-runner/shared';
 
-import { buildRetryBrief } from '../src/verdict/retryBrief.ts';
+import { buildRetryBrief, claimTextCell } from '../src/verdict/retryBrief.ts';
 
 function input(over: Partial<VerdictInput> = {}): VerdictInput {
   return {
@@ -42,6 +42,21 @@ function gate(over: Partial<GateRunResult> = {}): GateRunResult {
     ...over,
   };
 }
+
+describe('текст пункта приёмки для брифа', () => {
+  it('из строки таблицы берётся формулировка, не вся строка с процедурой и статусом', () => {
+    // Семь строк по ~600 символов резались потолком карточки шага раньше находок рецензента.
+    strictEqual(
+      claimTextCell('| claim-2 [edge] | Ровно на границе — не негабарит | Новый тест: `order(...)` | ❌ |'),
+      'Ровно на границе — не негабарит',
+    );
+    strictEqual(claimTextCell('| `claim-1` | Текст пункта | — |'), 'Текст пункта');
+    strictEqual(claimTextCell('- claim-3 — надбавка 40% от base'), 'надбавка 40% от base');
+    strictEqual(claimTextCell('3. claim-4: сумма > 300 см'), 'сумма > 300 см');
+    // Не таблица и не список — строка как есть.
+    strictEqual(claimTextCell('claim-5 без разделителя текст'), 'без разделителя текст');
+  });
+});
 
 describe('выжимка причин для ретрая', () => {
   it('на зелёном входе не собирается вовсе', () => {
