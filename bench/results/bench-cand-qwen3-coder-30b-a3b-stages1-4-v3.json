@@ -1,0 +1,202 @@
+{
+  "run": {
+    "slug": "bench-cand-qwen3-coder-30b-a3b-stages1-4-v3",
+    "model": "ollama:qwen3-coder-30b-a3b",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-coder-30b-a3b",
+      "explore": "ollama:qwen3-coder-30b-a3b",
+      "ask": "ollama:qwen3-coder-30b-a3b",
+      "plan": "ollama:qwen3-coder-30b-a3b",
+      "chunk": "ollama:qwen3-coder-30b-a3b",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3-coder-30b-a3b"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-03T07:05:47.764Z",
+    "finishedAt": "2026-09-03T07:13:35.565Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-kdkaYw\\.sdlc\\bench-cand-qwen3-coder-30b-a3b-stages1-4-v3\\intent.md осталось незаполненных мест: 14 — артефакт не готов\nприёмочный лист короче минимума этапа 1: пунктов 6 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)",
+        "blockers": [
+          "в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-kdkaYw\\.sdlc\\bench-cand-qwen3-coder-30b-a3b-stages1-4-v3\\intent.md осталось незаполненных мест: 14 — артефакт не готов",
+          "приёмочный лист короче минимума этапа 1: пунктов 6 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 195156,
+          "outputTokens": 5137,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 467722
+        },
+        "durationMs": 467795
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 15,
+        "reminders": 2
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "loop:80a9cb01-a655-4a68-b4d8-3c0bec6a1a92",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-qwen3-coder-30b-a3b-stages1-4-v3/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:23a2a685-2878-4b16-8e46-0b9b423ae0f6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-cand-qwen3-coder-30b-a3b-stages1-4-v3/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:a5d16464-22d8-49b6-bd22-4819cb1ef4e9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-cand-qwen3-coder-30b-a3b-stages1-4-v3/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Согласен ли ты с тем, что приёмочный лист полностью описывает необходимые проверки? Проверка готовности этапа будет осуществляться по каждому пункту приёмки."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10717,
+        "userChars": 4127,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-d9d2b641-8755-4d1d-8e7e-7fe60c7bd481-1",
+        "questionId": "q1",
+        "text": "Согласен ли ты с тем, что приёмочный лист полностью описывает необходимые проверки? Проверка готовности этапа будет осуществляться по каждому пункту приёмки."
+      }
+    ]
+  },
+  "seed": null
+}
