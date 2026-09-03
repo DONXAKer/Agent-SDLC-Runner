@@ -73,6 +73,9 @@ import { executeTool, type ToolContext } from './tools/index.ts';
  */
 const FIELD_PARALLEL = 3;
 
+/** Шапка таблицы `files_to_touch` плана (`plan.template.md`) — узнаётся по колонкам. */
+const FILES_TO_TOUCH_HEADER = /\|\s*Путь\s*\|\s*Что делаем\s*\|/;
+
 export interface FormFillOptions {
   provider: ChatProvider;
   maxResultBytes: number;
@@ -458,6 +461,47 @@ export class FormFillExecutor implements StageExecutor {
       });
 
     /**
+     * Добор `files_to_touch`: пустой список после заполнения — не «оставить как есть»,
+     * а один повторный запрос. Находка 2026-09-03 (bench, `ministral-14b`,
+     * `security-bait`): пустая секция отключает `PlanScope` МОЛЧА (см. `planFiles.ts`),
+     * и без добора это ловится только на входе в chunk — целый цикл `plan` тратится
+     * впустую вместо одного лишнего запроса здесь же.
+     */
+    const askFilesToTouchTopUp = (
+      path: string,
+      text: string,
+      range: FormField & { kind: 'row' },
+    ): ReturnType<ChatProvider['chat']> =>
+      this.o.provider.chat({
+        model: req.model,
+        messages: [
+          { role: 'system', content: req.prompt.system },
+          {
+            role: 'user',
+            content: [
+              req.prompt.user,
+              '',
+              '## Добор files_to_touch',
+              '',
+              `Файл \`${relative(req.cwd, path)}\`, секция бланка:`,
+              '',
+              '```',
+              sectionAt(text, range.start),
+              '```',
+              '',
+              'Список путей пуст или не заполнен, а он обязателен: без него проверка ' +
+                '«запись только в план» отключится молча. Верни ТОЛЬКО строки таблицы того ' +
+                'же формата — хотя бы один путь, который реально будет затронут.',
+            ].join('\n'),
+          },
+        ],
+        tools: [],
+        signal: req.signal,
+        temperature: null,
+        params: this.o.params ?? null,
+      });
+
+    /**
      * Карточка поля вместо строки/секции бланка (`compact`): id, вид, допустимые
      * значения, минимум, альтернатива «пусто» — модель отвечает ЗНАЧЕНИЕМ по грамматике
      * `artifacts/sheet.ts`, а не куском разметки. Хинт режется явно: `field.hint` уже
@@ -738,6 +782,29 @@ export class FormFillExecutor implements StageExecutor {
             }
             let filled = cleanFieldAnswer(a.value.text);
             if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
+            if (
+              (filled === '' || filled.includes('‹')) &&
+              range.kind === 'row' &&
+              FILES_TO_TOUCH_HEADER.test(range.header) &&
+              callsSpent < req.maxTurns
+            ) {
+              callsSpent++;
+              try {
+                const more = await askFilesToTouchTopUp(path, text, range);
+                usage = addUsage(usage, more.usage);
+                hooks.onUsage(more.usage);
+                const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
+                if (extra !== '' && !extra.includes('‹')) {
+                  filled = extra;
+                  notes.push(`добор files_to_touch: список был пуст, добавлено ${extra.split('\n').length} строк`);
+                } else {
+                  notes.push('добор files_to_touch не удался: список снова пуст');
+                }
+              } catch (e) {
+                const why = e instanceof Error ? e.message : String(e);
+                notes.push(`добор files_to_touch не удался: ${why.slice(0, 160)}`);
+              }
+            }
             // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
             // как был, и его честно назовут страж и предусловие следующего этапа.
             if (filled === '' || filled.includes('‹')) continue;

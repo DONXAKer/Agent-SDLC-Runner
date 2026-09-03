@@ -227,6 +227,44 @@ describe('заполнение бланка по полям', () => {
     strictEqual(text.split('ещё случай').length - 1, 1, 'дословный повтор пункта должен быть отброшен');
   });
 
+  it('пустой files_to_touch добирается повторным запросом (2026-09-03: PlanScope отключился бы молча)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    const result = await exec(
+      fieldProvider({
+        // Добор ПЕРВЫМ в словаре: обычный запрос на строку-образец тоже содержит текст
+        // задачи — без явного порядка совпал бы он, а не добор.
+        'Добор files_to_touch': '| `src/a.ts` | добавить проверку |',
+        'ОБРАЗЕЦ': '', // первый запрос — пустой ответ, ровно та ситуация, что поймали живьём
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('src/a.ts') && text.includes('добавить проверку'), text);
+    ok(!text.includes('‹path/to/file›'), 'плейсхолдер не должен остаться после добора');
+  });
+
+  it('files_to_touch, добор тоже вернул пусто — поле остаётся плейсхолдером, этап красный', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    const result = await exec(fieldProvider({})).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, false, 'этап не должен зеленеть с незаполненным files_to_touch');
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('‹path/to/file›'), 'плейсхолдер остаётся, когда и добор пуст');
+  });
+
   it('без списка артефактов режим честно отказывается', async () => {
     const { root, artifact } = setup();
     const result = await exec(fieldProvider({})).run(

@@ -159,6 +159,27 @@ describe('разбор ответов шага', () => {
     strictEqual(noChangeReason('```\nБЕЗ ПРАВОК: требует решения человека: ставка\n```'), 'требует решения человека: ставка');
     strictEqual(noChangeReason(`${SR('x', 'y')}\nБЕЗ ПРАВОК: для второго символа`), null);
   });
+
+  // Реальные ответы `omnicoder-9b`/`agents-a1-4b` под stepFill, 2026-09-03
+  // (docs/model-runs.md) — маркер построен верно, но с хвостовым текстом на той же
+  // строке. Терпимость добавлена намеренно: см. комментарий у парсера.
+  it('маркер с хвостовым текстом на строке всё равно распознаётся (близкий промах формата)', () => {
+    const text = [
+      '```',
+      '<<<<<<< SEARCH SEARCH: src/oversize.ts',
+      '  return a + b;',
+      '======= SEARCH: src/oversize.ts',
+      '  return a + b + 1;',
+      '>>>>>>> REPLACE',
+      '```',
+    ].join('\n');
+    deepStrictEqual(parseSearchReplace(text), [{ oldStr: '  return a + b;', newStr: '  return a + b + 1;' }]);
+  });
+
+  it('но выдуманный формат без настоящих маркеров парсер не спасает', () => {
+    const text = 'SEARCH: `  return a + b;`\nREPLACE: `  return a + b + 1;`\n\nПояснение вокруг.';
+    deepStrictEqual(parseSearchReplace(text), []);
+  });
 });
 
 describe('исполнение по шагам', () => {
@@ -230,6 +251,38 @@ describe('исполнение по шагам', () => {
     strictEqual(checks, 3);
     ok(provider.asked[1]!.includes('попытка 1'));
     ok(r.finalText.includes('❌'), r.finalText);
+  });
+
+  it('пустой ответ при обрезке по длине токенов получает целевой совет, а не общее «нет блоков»', async () => {
+    // Живые прогоны 2026-09-03 (`omnicoder-9b`/`agents-a1-4b`, docs/model-runs.md):
+    // 9–13 тысяч токенов на выходе и пустой финальный текст — модель тратит весь бюджет
+    // на рассуждение, не успевая дойти до блоков замены. Сообщение обязано назвать
+    // ИМЕННО эту причину, а не «Ответь блоками замены по формату» (подразумевает
+    // незнание формата).
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const answers: { text: string; finishReason: 'max_tokens' | 'end_turn' }[] = [
+      { text: '', finishReason: 'max_tokens' },
+      { text: SR('  return a + b;', '  return a + b + 1;'), finishReason: 'end_turn' },
+    ];
+    const asked: string[] = [];
+    const provider: ChatProvider = {
+      name: 'stub-truncated',
+      async chat(req: ChatRequest) {
+        asked.push(req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '');
+        const a = answers.shift()!;
+        return {
+          text: a.text,
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 12000, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: a.finishReason,
+        };
+      },
+    };
+    const r = await exec(provider, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
+    ok(r.ok, r.note);
+    ok(asked[1]!.includes('обрезан лимитом длины'), asked[1]);
+    ok(!asked[1]!.includes('Ответь блоками замены по формату'), asked[1]);
   });
 
   it('красный шаг рядом с применённым этап не роняет — красноту судит этап 6', async () => {

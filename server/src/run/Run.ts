@@ -78,9 +78,10 @@ import type {
   SubagentDef,
 } from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
-import type { GatesFile } from '../gates/gatesFile.ts';
+import type { GateRow, GatesFile } from '../gates/gatesFile.ts';
 import { configProblems, gateKey, parseGates, uncalibratedGates, unimplementedGates } from '../gates/gatesFile.ts';
 import { builtinFor, describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
+import { TEST_FILE } from '../gates/builtin/logic.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName, runGates } from '../gates/run.ts';
 import { git, hasCommits, stageNewPlanFiles, workingDiff } from '../gates/git.ts';
@@ -183,6 +184,31 @@ const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
  * human-кейса скрытых тестов покраснели — щуп мерил нашу конструкцию, а не модель.
  */
 const FORM_FILL_STAGES: ReadonlySet<StageId> = new Set(['intent', 'plan']);
+
+/**
+ * Какие строки гейтов прогонять ПОСЛЕ конкретного шага этапа 5 по шагам (`stepFill`,
+ * флоу без tool-use, `StepExecutor.ts`).
+ *
+ * «Сборка» — всегда, если включена (как было). «Тесты» — ДОПОЛНИТЕЛЬНО, только для шага,
+ * что пишет файл, похожий на тестовый (`TEST_FILE` — тот же признак, что у гейта дублей).
+ * На шагах продуктового кода «Тесты» не гоняем намеренно: код там ещё не дописан
+ * целиком, и прогон всего сьюта на промежуточном состоянии дал бы ложный красный, а не
+ * сигнал. Заведено против измеренного класса дефекта (docs/model-runs.md, разбор
+ * `stepfill-v6`/`-v2`): «Сборка» для тестового файла проверяет только синтаксис
+ * (`stripTypeScriptTypes`), и три РАЗНЫХ по механике поломки собственного теста модели
+ * (потерянный дефолт хелпера, TDZ-затенение имени, неверные ожидаемые числа) были видны
+ * раннеру только на прогоне ВСЕГО chunk'а — на этапе, где чинить уже дороже всего.
+ */
+export function gatesForStep(file: string, gates: GatesFile | null): GateRow[] {
+  const rows: GateRow[] = [];
+  const build = gates?.rows.find((r) => gateKey(r.name) === gateKey('Сборка') && r.enabled);
+  if (build !== undefined) rows.push(build);
+  if (TEST_FILE.test(file)) {
+    const tests = gates?.rows.find((r) => gateKey(r.name) === gateKey('Тесты') && r.enabled);
+    if (tests !== undefined) rows.push(tests);
+  }
+  return rows;
+}
 
 /**
  * Итоги прогона гейтов для входа рецензента.
@@ -1860,11 +1886,16 @@ export class Run {
         'режим по шагам: промпт этапа в модель не уходит, у каждого шага свой запрос — правка промпта в панели ' +
           'на него не действует; бриф ретрая подаётся в карточку шага',
       );
-      // Проверка после шага — гейт «Сборка» набора проекта, если он там ВКЛЮЧЁН. Нет
-      // строки — проверки нет, и отчёт исполнителя говорит это, а не молчит; ⏭ (среда,
-      // таймаут) — «не состоялась», а не зелёный.
+      // Проверка после шага — гейты набора проекта, если они там ВКЛЮЧЕНЫ: «Сборка»
+      // всегда, «Тесты» дополнительно для шага, что пишет тестовый файл (см. `gatesForStep`
+      // — иначе поломка собственного теста модели видна раннеру только в конце chunk'а
+      // целиком, когда чинить её намного дороже). Нет строк — проверки нет, и отчёт
+      // исполнителя говорит это, а не молчит; ⏭ (среда, таймаут) — «не состоялась», а не
+      // зелёный.
       const gates = this.gatesFile;
       const buildRow = gates?.rows.find((r) => gateKey(r.name) === gateKey('Сборка') && r.enabled);
+      const testsRow = gates?.rows.find((r) => gateKey(r.name) === gateKey('Тесты') && r.enabled);
+      const checkLabel = [buildRow?.name, testsRow?.name].filter((n): n is string => n !== undefined).join(' + ');
       return new StepExecutor({
         provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
         maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
@@ -1877,23 +1908,29 @@ export class Run {
         humanFacts: humanFactsBlock(this.paths.clarificationReport) ?? '',
         retryBrief: this.carryForward,
         check:
-          buildRow === undefined
+          checkLabel === ''
             ? null
             : {
-                name: buildRow.name,
-                run: async () => {
-                  const r = await this.runNamedGate(buildRow.name);
-                  if (r === null) return { status: 'skipped', note: 'строка гейта не найдена при прогоне' };
-                  if (r.status === '❌') {
-                    const tail = (r.outputTail ?? '').trim();
-                    return {
-                      status: 'failed',
-                      problem:
-                        `гейт «${r.name}» (${r.command ?? 'встроенная реализация'}, код ${r.exitCode ?? '—'}): ${r.lastLine}` +
-                        (tail === '' ? '' : `\n${tail}`),
-                    };
+                name: checkLabel,
+                run: async (step) => {
+                  const rows = gatesForStep(step.file, gates);
+                  if (rows.length === 0) {
+                    return { status: 'skipped', note: 'для этого шага в наборе нет применимой строки гейта' };
                   }
-                  if (r.status === '⏭') return { status: 'skipped', note: r.lastLine };
+                  for (const row of rows) {
+                    const r = await this.runNamedGate(row.name);
+                    if (r === null) return { status: 'skipped', note: 'строка гейта не найдена при прогоне' };
+                    if (r.status === '❌') {
+                      const tail = (r.outputTail ?? '').trim();
+                      return {
+                        status: 'failed',
+                        problem:
+                          `гейт «${r.name}» (${r.command ?? 'встроенная реализация'}, код ${r.exitCode ?? '—'}): ${r.lastLine}` +
+                          (tail === '' ? '' : `\n${tail}`),
+                      };
+                    }
+                    if (r.status === '⏭') return { status: 'skipped', note: r.lastLine };
+                  }
                   return { status: 'ok' };
                 },
               },

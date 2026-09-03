@@ -62,7 +62,7 @@ import { describeStep, type PlanStep } from '../artifacts/planSteps.ts';
 import { symlinkEscape } from '../approval/symlink.ts';
 import { git } from '../gates/git.ts';
 import { isAbsolute, relativizeWithin, resolveUserPath, toPosix } from '../policy/paths.ts';
-import type { ChatMessage, ChatProvider } from '../provider/ChatProvider.ts';
+import type { ChatMessage, ChatProvider, FinishReason } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { cap, executeTool, type ToolContext } from './tools/index.ts';
@@ -133,8 +133,12 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
   let replace: string[] = [];
   for (const line of answer.split(/\r?\n/)) {
     const t = line.trim();
+    // Хвост после ключевого слова терпим намеренно: живые прогоны 2026-09-03 поймали
+    // `<<<<<<< SEARCH SEARCH: src/oversize.ts` и подобные — маркер построен верно, но
+    // с лишним текстом на той же строке; семь подряд одинаковых спецсимволов на строке
+    // практически не встречаются в реальном коде случайно, риск ложного совпадения низкий.
     if (state === 'idle') {
-      if (/^<{7}\s*SEARCH\s*$/.test(t)) {
+      if (/^<{7}\s*SEARCH\b/.test(t)) {
         state = 'search';
         search = [];
         replace = [];
@@ -142,11 +146,11 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
       continue;
     }
     if (state === 'search') {
-      if (/^={7}\s*$/.test(t)) state = 'replace';
+      if (/^={7}(\s|$)/.test(t)) state = 'replace';
       else search.push(line);
       continue;
     }
-    if (/^>{7}\s*REPLACE\s*$/.test(t)) {
+    if (/^>{7}\s*REPLACE\b/.test(t)) {
       const oldStr = search.join('\n');
       if (oldStr.trim() !== '') out.push({ oldStr, newStr: replace.join('\n') }); // пустой SEARCH совпал бы с чем угодно
       state = 'idle';
@@ -328,6 +332,17 @@ const FORMAT_EDIT = [
   'Чтобы добавить код, возьми в SEARCH соседнюю существующую строку и повтори её в REPLACE.',
   'Не переписывай файл целиком — блок SEARCH на весь файл будет отклонён. Если для этого',
   'шага менять в файле нечего — весь ответ должен быть одной строкой `БЕЗ ПРАВОК: причина`.',
+  '',
+  'Пример (файл был `function greet() {\\n  return "hi";\\n}`, нужно поменять текст):',
+  '',
+  '<<<<<<< SEARCH',
+  '  return "hi";',
+  '=======',
+  '  return "hello";',
+  '>>>>>>> REPLACE',
+  '',
+  'Ничего, кроме маркеров и текста между ними, в блоке быть не должно: ни имени файла',
+  'после `SEARCH`, ни пояснений после `REPLACE`, ни своих слов вместо маркеров.',
 ].join('\n');
 
 const FORMAT_CREATE = [
@@ -388,7 +403,7 @@ export class StepExecutor implements StageExecutor {
       return null;
     };
 
-    const chat = async (messages: ChatMessage[]): Promise<string> => {
+    const chat = async (messages: ChatMessage[]): Promise<{ text: string; finishReason: FinishReason }> => {
       const answer = await this.o.provider.chat({
         model: req.model,
         messages,
@@ -401,14 +416,24 @@ export class StepExecutor implements StageExecutor {
       usage = addUsage(usage, answer.usage);
       hooks.onUsage(answer.usage);
       if (answer.text !== '') hooks.onText(answer.text);
-      return answer.text;
+      return { text: answer.text, finishReason: answer.finishReason };
     };
+
+    // Модель, потратившая весь выходной бюджет на рассуждение, не «не поняла формат» —
+    // ей не хватило места ДОЙТИ до блоков. Общее «Ответь блоками замены по формату» в
+    // этом случае предполагает незнание формата и не адресует настоящую причину; разбор
+    // живых прогонов 2026-09-03 (`omnicoder-9b`/`agents-a1-4b`) поймал ровно этот случай:
+    // 9–13 тысяч токенов на выходе и пустой финальный текст.
+    const truncatedNote =
+      'ответ обрезан лимитом длины, не дойдя до блоков замены — сформулируй короче, без ' +
+      'рассуждений в тексте, сразу структурой SEARCH/REPLACE (или содержимым файла для нового).';
 
     /** Применение ответа через гейт. `denied` — отказ окончательный, ремонт не нужен. */
     const apply = async (
       step: PlanStep,
       current: string | null,
       answer: string,
+      finishReason: FinishReason,
     ): Promise<{ ok: boolean; text: string; denied: boolean; noChange: string | null }> => {
       let toolName: 'Write' | 'Edit';
       let rawInput: Record<string, unknown>;
@@ -422,8 +447,10 @@ export class StepExecutor implements StageExecutor {
             denied: false,
             noChange: null,
             text:
-              'в ответе нет ни одного блока `<<<<<<< SEARCH … ======= … >>>>>>> REPLACE` — ' +
-              'правку применить не к чему. Ответь блоками замены по формату.',
+              answer.trim() === '' && finishReason === 'max_tokens'
+                ? truncatedNote
+                : 'в ответе нет ни одного блока `<<<<<<< SEARCH … ======= … >>>>>>> REPLACE` — ' +
+                  'правку применить не к чему. Ответь блоками замены по формату.',
           };
         }
         // Планка «переписывание» — для файлов, где есть что переписывать: у файла в
@@ -468,7 +495,10 @@ export class StepExecutor implements StageExecutor {
             ok: false,
             denied: false,
             noChange: null,
-            text: 'в ответе нет блока ``` с содержимым файла — создавать нечего. Верни файл целиком в одном блоке.',
+            text:
+              answer.trim() === '' && finishReason === 'max_tokens'
+                ? truncatedNote
+                : 'в ответе нет блока ``` с содержимым файла — создавать нечего. Верни файл целиком в одном блоке.',
           };
         }
         toolName = 'Write';
@@ -585,8 +615,11 @@ export class StepExecutor implements StageExecutor {
         }
 
         let answer: string;
+        let finishReason: FinishReason;
         try {
-          answer = await chat(messages);
+          const result = await chat(messages);
+          answer = result.text;
+          finishReason = result.finishReason;
         } catch (e) {
           if (req.signal.aborted) return stop('этап отменён');
           throw e;
@@ -605,7 +638,7 @@ export class StepExecutor implements StageExecutor {
         }
         lastAnswer = answer;
 
-        const applied = await apply(step, current, answer);
+        const applied = await apply(step, current, answer, finishReason);
 
         if (applied.noChange !== null) {
           status = '⏭';

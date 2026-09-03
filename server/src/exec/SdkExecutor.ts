@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import type { Usage } from '@sdlc-runner/shared';
 import { describeCall, emptyUsage } from '@sdlc-runner/shared';
 
+import type { ToolName } from '@sdlc-runner/shared';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { TOOL_SPECS, isBuiltinToolName } from './toolSpecs.ts';
@@ -29,8 +30,18 @@ import { executeTool, type ToolContext } from './tools/index.ts';
  * (как у остальных здесь): у него нет встроенного аналога в SDK, значит запись на диск
  * обязана произойти в ЭТОМ обработчике, тем же `executeTool`, что и во флоу `loop` — иначе
  * появилось бы второе место, исполняющее `FillField` по-своему.
+ *
+ * `allowedTools` сужает СОСТАВ регистрируемых инструментов, а не только право их звать:
+ * `canUseTool` всё равно перепроверит вызов по факту, но замер (r34, docs/model-runs.md)
+ * поймал живой дефект без этого сужения — сервер регистрировал все шесть инструментов
+ * безусловно, рецензент этапа 6 (свои права — только `Read`/`Grep`/`Glob`/`Bash`, ни
+ * `RecordClaim`, ни `RecordFinding` среди них нет) ВИДЕЛ `record_claim` в своём списке
+ * инструментов и раз за разом пытался его звать (по разу на пункт приёмки — 8 отклонённых
+ * попыток на попытку прогона), каждый раз получая отказ политики. Модель, у которой
+ * инструмента нет в списке вовсе, не тратит на него ход.
  */
-function sdlcMcpServer(hooks: ExecHooks, toolCtx: ToolContext) {
+function sdlcMcpServer(hooks: ExecHooks, toolCtx: ToolContext, allowedTools: readonly ToolName[]) {
+  const has = (t: ToolName): boolean => allowedTools.includes(t);
   const askHuman = tool(
     'ask_human',
     TOOL_SPECS.AskHuman.description,
@@ -124,10 +135,19 @@ function sdlcMcpServer(hooks: ExecHooks, toolCtx: ToolContext) {
     },
   );
 
+  const registered = [
+    ...(has('AskHuman') ? [askHuman] : []),
+    ...(has('FinalizeArtifact') ? [finalize] : []),
+    ...(has('RequestScopeExtension') ? [requestScopeExtension] : []),
+    ...(has('RecordClaim') ? [recordClaim] : []),
+    ...(has('RecordFinding') ? [recordFinding] : []),
+    ...(has('FillField') ? [fillField] : []),
+  ];
+
   return createSdkMcpServer({
     name: 'sdlc',
     version: '0.1.0',
-    tools: [askHuman, finalize, requestScopeExtension, recordClaim, recordFinding, fillField],
+    tools: registered,
   });
 }
 
@@ -233,17 +253,21 @@ export class SdkExecutor implements StageExecutor {
         // Внешние серверы соседствуют с нашим in-process. Соединения к ним держит SDK, а
         // не наш хаб: два клиента к одному редактору спорили бы за одну PIE-сессию.
         mcpServers: {
-          sdlc: sdlcMcpServer(hooks, {
-            projectRoot: req.cwd,
-            // `FillField` не режет результат по этим потолкам (артефакты витка — markdown
-            // на десятки КБ, не то, ради чего заведён `maxResultBytes`); значения здесь —
-            // только чтобы `ToolContext` был валиден для общего `executeTool`.
-            maxResultBytes: 5_000_000,
-            readRangeRequiredAboveBytes: 5_000_000,
-            timeoutMs: 0,
-            signal: req.signal,
-            ...(req.stageArtifacts === undefined ? {} : { artifacts: req.stageArtifacts }),
-          }),
+          sdlc: sdlcMcpServer(
+            hooks,
+            {
+              projectRoot: req.cwd,
+              // `FillField` не режет результат по этим потолкам (артефакты витка — markdown
+              // на десятки КБ, не то, ради чего заведён `maxResultBytes`); значения здесь —
+              // только чтобы `ToolContext` был валиден для общего `executeTool`.
+              maxResultBytes: 5_000_000,
+              readRangeRequiredAboveBytes: 5_000_000,
+              timeoutMs: 0,
+              signal: req.signal,
+              ...(req.stageArtifacts === undefined ? {} : { artifacts: req.stageArtifacts }),
+            },
+            req.allowedTools,
+          ),
           ...(req.mcp?.sdkServers ?? {}),
         },
         // `settingSources: []` не перекрывает автоподключение личных claude.ai-коннекторов
