@@ -21,7 +21,6 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { isAbsolute, join } from 'node:path';
 
 import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
@@ -38,7 +37,7 @@ import type {
 import { trimHistory } from './history.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
 import { isToolName, specsFor } from './toolSpecs.ts';
-import { readArtifact } from '../artifacts/artifact.ts';
+import { finalizeRejection } from '../artifacts/finalizeCheck.ts';
 
 export interface LoopOptions {
   provider: ChatProvider;
@@ -660,30 +659,10 @@ export class LoopExecutor implements StageExecutor {
         // сделанной (наблюдалось трижды подряд на живом витке — журнал chunk'а уходил
         // «готовым» нетронутым). Замечание вместо результата — та же конструкция, что
         // у повторных вызовов: просьбам модель верит хуже, чем отказам инструмента.
-        const p = isAbsolute(call.artifact) ? call.artifact : join(toolCtx.projectRoot, call.artifact);
-        // Финализировать можно только артефакт ЭТАПА: путь приходит строкой от модели, и
-        // читать по нему произвольный файл до всякой политики нельзя — тот же принцип,
-        // что у превью («предпросмотр строится после разрешения»). Список этапных
-        // артефактов рантайм уже передал в `formArtifacts`.
-        const declared = req.formArtifacts ?? [];
-        if (declared.length > 0 && !declared.includes(p)) {
-          return (
-            `ошибка: «${call.artifact}» не является артефактом этого этапа — финализируй ` +
-            `один из: ${declared.map((d) => d).join(', ')}`
-          );
-        }
-        const a = readArtifact(p);
-        if (!a.exists) {
-          return `ошибка: артефакт ${call.artifact} не существует — сначала запиши его, потом финализируй`;
-        }
-        if (a.placeholders > 0) {
-          return (
-            `ошибка: в ${call.artifact} осталось незаполненных мест ‹…›: ${a.placeholders} — ` +
-            `финализировать нельзя. Прочитай артефакт, заполни каждый плейсхолдер по факту ` +
-            `и вызови FinalizeArtifact снова`
-          );
-        }
-        return `артефакт заявлен готовым: ${call.artifact}`;
+        // Сама проверка — общая для флоу `loop` и `sdk` (`finalizeCheck.ts`), чтобы
+        // отказ не разъезжался между ними и локализация незаполненных мест не дублировалась.
+        const rejection = finalizeRejection(call.artifact, toolCtx.projectRoot, req.formArtifacts ?? []);
+        return rejection ?? `артефакт заявлен готовым: ${call.artifact}`;
       }
 
       // Записи в отчёт этапа 6 принимает рантайм — он же и рисует из них таблицу. Здесь
