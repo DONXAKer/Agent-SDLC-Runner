@@ -1,0 +1,164 @@
+{
+  "run": {
+    "slug": "bench-agents-a1-4b-broken-test",
+    "model": "ollama:agents-a1-4b",
+    "task": "broken-test",
+    "fixtureDir": "fixtures/broken-assert",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:agents-a1-4b",
+      "explore": "ollama:agents-a1-4b",
+      "ask": "ollama:agents-a1-4b",
+      "plan": "ollama:agents-a1-4b",
+      "chunk": "ollama:agents-a1-4b",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:agents-a1-4b"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T08:53:16.755Z",
+    "finishedAt": "2026-09-04T09:01:15.795Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель упёрлась в лимит длины ответа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 38613,
+          "outputTokens": 13328,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 478976
+        },
+        "durationMs": 479038
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 6,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Какой текст должен быть в секции «Коротко» (один-два предложения, что делаем)?"
+          },
+          {
+            "id": "q2",
+            "question": "Что должно быть в секции «Зачем» (какая проблема решается и что изменится)?"
+          },
+          {
+            "id": "q3",
+            "question": "Какие пункты нужно включить в секцию «Приёмочный лист»? (Не менее 3 пунктов, из которых не менее 2 с тегом `[edge]`)"
+          },
+          {
+            "id": "q4",
+            "question": "Какие инварианты должны быть в секции «Инварианты» (что обязано остаться верным)?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10639,
+        "userChars": 3314,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-4c334171-86d4-41e5-b248-ff9a95cbfb06-1",
+        "questionId": "q1",
+        "text": "Какой текст должен быть в секции «Коротко» (один-два предложения, что делаем)?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-4c334171-86d4-41e5-b248-ff9a95cbfb06-1",
+        "questionId": "q2",
+        "text": "Что должно быть в секции «Зачем» (какая проблема решается и что изменится)?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-4c334171-86d4-41e5-b248-ff9a95cbfb06-1",
+        "questionId": "q3",
+        "text": "Какие пункты нужно включить в секцию «Приёмочный лист»? (Не менее 3 пунктов, из которых не менее 2 с тегом `[edge]`)"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-4c334171-86d4-41e5-b248-ff9a95cbfb06-1",
+        "questionId": "q4",
+        "text": "Какие инварианты должны быть в секции «Инварианты» (что обязано остаться верным)?"
+      }
+    ]
+  },
+  "seed": null
+}
