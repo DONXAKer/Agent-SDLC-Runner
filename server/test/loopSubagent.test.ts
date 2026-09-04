@@ -217,15 +217,17 @@ describe('параллельный запуск субагентов', () => {
 });
 
 describe('модель субагента во флоу loop', () => {
-  it('алиас Claude Code (`model: opus`) не уходит провайдеру — субагент идёт на модели этапа', async () => {
-    const withOpus: SubagentDef = { ...reviewer, model: 'opus' };
+  it('алиас Claude Code (`model: opus`) не уходит провайдеру — НЕ-рецензент идёт на модели этапа', async () => {
+    // sdlc-reviewer тут намеренно НЕ подходит: для рецензента тот же алиас теперь не
+    // фолбэк, а отказ — см. describe ниже. Здесь субагент без ранговых требований.
+    const withOpus: SubagentDef = { ...reviewer, name: 'sdlc-locator', model: 'opus' };
     const seenModels: string[] = [];
     let i = 0;
     const p = {
       async chat(req: { model: string }) {
         seenModels.push(req.model);
         const turns = [
-          { text: '', toolCalls: [callTask('sdlc-reviewer')] },
+          { text: '', toolCalls: [callTask('sdlc-locator')] },
           { text: 'отчёт' },
           { text: 'готово' },
         ];
@@ -286,5 +288,51 @@ describe('модель субагента во флоу loop', () => {
     });
     await exec.run(request({ subagents: [withReal] }), hooks(seen));
     ok(seenModels.includes('deepseek/deepseek-v4-pro'), 'настоящая модель определения не применилась');
+  });
+
+  it('sdlc-reviewer с алиасом Claude Code — отказ, не тихий фолбэк на модель этапа', async () => {
+    // Резервный путь: модель сама зовёт рецензента через Task (обычно `runReviewerDirectly`
+    // в Run.ts запускает его рантаймом на верном маршруте verify раньше). Здесь `def.model`
+    // — алиас ('opus'), и флоу loop не умеет его исполнить; молчаливая замена на модель
+    // этапа нарушила бы «рецензент строго сильнее исполнителя» — гейт «Ревью независимым
+    // агентом» зажёгся бы от вызова, который ревью не является.
+    const withOpus: SubagentDef = { ...reviewer, model: 'opus' };
+    const seenModels: string[] = [];
+    let i = 0;
+    const p = {
+      async chat(req: { model: string }) {
+        seenModels.push(req.model);
+        const turns = [
+          { text: '', toolCalls: [callTask('sdlc-reviewer')] },
+          { text: 'вызов рецензента отклонён — продолжаю без него' },
+        ];
+        const t = turns[Math.min(i++, turns.length - 1)];
+        return {
+          text: t?.text ?? '',
+          toolCalls: (t?.toolCalls ?? []).map((c) => ({
+            id: c.id, name: c.name, arguments: c.arguments, rawArguments: JSON.stringify(c.arguments),
+          })),
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const seen = emptySeen();
+    const exec = new LoopExecutor({
+      provider: p,
+      maxResultBytes: 1000,
+      readRangeRequiredAboveBytes: 1000,
+      bashTimeoutMs: 1000,
+      temperature: null,
+    });
+    await exec.run(request({ subagents: [withOpus] }), hooks(seen));
+    // Рецензент так и не запущен ни на какой модели — вложенный прогон до провайдера
+    // не дошёл: единственный `chat`-вызов с моделью этапа принадлежит самому вызывающему
+    // ходу (тому, что позвал Task), не субагенту.
+    ok(!seenModels.includes('opus'), 'алиас opus утёк провайдеру');
+    ok(
+      seen.results.some((r) => !r.ok && r.summary.includes('строго сильнее')),
+      'нет отказа с объяснением правила ранга',
+    );
   });
 });

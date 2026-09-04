@@ -34,6 +34,7 @@ import type {
   StageResult,
   SubagentDef,
 } from './StageExecutor.ts';
+import { REVIEWER_AGENTS } from './StageExecutor.ts';
 import { trimHistory } from './history.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
 import { isToolName, specsFor } from './toolSpecs.ts';
@@ -567,10 +568,28 @@ export class LoopExecutor implements StageExecutor {
    * Вложенность одноуровневая: субагенту субагенты не выдаются. Рекурсия означала бы
    * неограниченную глубину прав и бюджета.
    */
-  /** Модель вложенного прогона: своя у субагента, если это не алиас чужого флоу. */
+  /**
+   * Модель вложенного прогона: своя у субагента, если это не алиас чужого флоу.
+   *
+   * Для РЕЦЕНЗЕНТА (`REVIEWER_AGENTS`) алиас-фолбэк на модель этапа — не деградация, а
+   * нарушение самого смысла шага: методология требует рецензента строго сильнее
+   * исполнителя, и «пусть отревьюирует та же слабая модель, что писала код» не «ревью
+   * похуже», а не-ревью, которое гейт «Ревью независимым агентом» не отличит от
+   * настоящего (сам факт вызова субагента гейт уже зажигает). Это путь ТОЛЬКО для
+   * случая, когда прямой прогон рантаймом (`Run.runReviewerDirectly`) не состоялся и
+   * модель зовёт рецензента сама — на практике редкий, но должен падать явно, а не
+   * тихо подменять модель.
+   */
   private subagentModel(def: SubagentDef, req: ExecRequest, hooks: ExecHooks): string {
     if (def.model === null || def.model === undefined) return req.model;
     if (CLAUDE_MODEL_ALIASES.has(def.model)) {
+      if (REVIEWER_AGENTS.includes(def.name)) {
+        throw new SubagentUnavailable(
+          `рецензент «${def.name}» назвал модель «${def.model}» — алиас Claude Code, флоу ` +
+            'loop им не пользуется, а замена на модель этапа нарушила бы правило «рецензент ' +
+            'строго сильнее исполнителя». Ревью не запущено вместо того, чтобы пройти на не той модели.',
+        );
+      }
       hooks.onWarn(
         `модель «${def.model}» из определения субагента «${def.name}» — алиас Claude Code, ` +
           'флоу loop им не пользуется: субагент идёт на модели этапа',
