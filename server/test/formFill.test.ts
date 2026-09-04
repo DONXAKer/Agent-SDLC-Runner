@@ -227,6 +227,52 @@ describe('заполнение бланка по полям', () => {
     strictEqual(text.split('ещё случай').length - 1, 1, 'дословный повтор пункта должен быть отброшен');
   });
 
+  it('лист приёмки: первая попытка добора без [edge], вторая (настойчивая) закрывает дефицит', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(
+      artifact,
+      ['## Приёмочный лист', '', '| id | что проверяем |', '|---|---|', '| ‹claim-N› | ‹проверка› |', ''].join('\n'),
+    );
+    const result = await exec(
+      fieldProvider({
+        // Ключ ретрая специфичнее общего добора — должен идти первым в словаре, иначе
+        // второй вызов (тоже содержащий общий текст добора) совпал бы с первым ключом.
+        'Предыдущий ответ дефицит не закрыл': '| `claim-4 [edge]` | граница A |\n| `claim-5 [edge]` | граница B |',
+        'Добор приёмочного листа': '| `claim-3` | ещё случай без edge |',
+        'ОБРАЗЕЦ': '| `claim-1` | базовый случай |\n| `claim-2` | ещё один |',
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    ok(result.note.includes('попытка 1') && result.note.includes('попытка 2'), result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('claim-4 [edge]') && text.includes('claim-5 [edge]'), text);
+    ok(!result.note.includes('не закрыл минимум'), 'дефицит закрыт второй попыткой — жалобы быть не должно');
+  });
+
+  it('лист приёмки: обе попытки добора не несут [edge] — честная заметка о неудаче, не ложный успех', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(
+      artifact,
+      ['## Приёмочный лист', '', '| id | что проверяем |', '|---|---|', '| ‹claim-N› | ‹проверка› |', ''].join('\n'),
+    );
+    const result = await exec(
+      fieldProvider({
+        'Предыдущий ответ дефицит не закрыл': '| `claim-4` | ещё один без edge |',
+        'Добор приёмочного листа': '| `claim-3` | ещё случай без edge |',
+        'ОБРАЗЕЦ': '| `claim-1` | базовый случай |\n| `claim-2` | ещё один |',
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    ok(result.note.includes('не закрыл минимум за 2 попытки'), result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(!text.includes('[edge]'), 'в тексте не должно быть тега [edge] — ни одна попытка его не дала');
+  });
+
   it('пустой files_to_touch добирается повторным запросом (2026-09-03: PlanScope отключился бы молча)', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
     roots.push(root);
@@ -441,5 +487,48 @@ describe('режим compact: поля из схемы, ответ рисует 
     const text = readFileSync(artifact, 'utf8');
     ok(text.includes('claim-1') && text.includes('claim-2'), 'добор добавил вторую запись');
     strictEqual(claimCalls, 1, 'начальный ответ на лист запрошен один раз');
+  });
+
+  it('лист приёмки (compact): обе попытки добора не несут [edge] — честная заметка, не ложный успех', async () => {
+    const { root, artifact } = setupCompact();
+    let topUpCalls = 0;
+    const provider: ChatProvider = {
+      name: 'topup-fail',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        if (user.includes('Добор поля')) {
+          topUpCalls++;
+          return {
+            text: '- пункт: без edge вовсе\n  как проверить: stillNoEdge',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+          };
+        }
+        if (user.includes('приемочный лист')) {
+          return {
+            text: '- пункт: код 200\n  как проверить: returns200',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+          };
+        }
+        return {
+          text: 'x',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    const result = await execCompact(provider).run(request(root, artifact, { maxTurns: 20 }), hooks({ writes: [] }, true));
+    strictEqual(topUpCalls, 2, 'обе попытки добора должны быть исчерпаны — ни одна не закрыла [edge]');
+    // `note` при незакрытом finishGuard — это жалоба стража («артефакт не заполнен» из-за
+    // ДРУГИХ, не относящихся к листу, полей шаблона); честная заметка про [edge] живёт в
+    // `finalText` — это одна и та же сводка `notes.join('; ')` в обеих ветках исхода.
+    ok(result.finalText.includes('не закрыл минимум за 2 попытки'), result.finalText);
+    const text = readFileSync(artifact, 'utf8');
+    ok(!text.includes('[edge]'), 'в тексте не должно быть тега [edge] — ни одна попытка его не дала');
   });
 });
