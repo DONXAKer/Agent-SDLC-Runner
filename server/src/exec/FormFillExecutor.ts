@@ -76,6 +76,13 @@ const FIELD_PARALLEL = 3;
 /** Шапка таблицы `files_to_touch` плана (`plan.template.md`) — узнаётся по колонкам. */
 const FILES_TO_TOUCH_HEADER = /\|\s*Путь\s*\|\s*Что делаем\s*\|/;
 
+/**
+ * Сколько попыток даётся добору приёмочного листа (счёт с первой, не «ремонтов сверх»).
+ * Один выстрел без перепроверки один раз засчитал добор успешным, хотя добавленные
+ * строки не несли [edge] — см. комментарий у места вызова.
+ */
+const CLAIMS_TOPUP_ATTEMPTS = 2;
+
 export interface FormFillOptions {
   provider: ChatProvider;
   maxResultBytes: number;
@@ -423,6 +430,7 @@ export class FormFillExecutor implements StageExecutor {
       text: string,
       range: FormField & { kind: 'row' },
       already: string,
+      retry: boolean,
     ): ReturnType<ChatProvider['chat']> =>
       this.o.provider.chat({
         model: req.model,
@@ -447,10 +455,17 @@ export class FormFillExecutor implements StageExecutor {
               already,
               '```',
               '',
-              'Правил текста этапа этот список НЕ выполняет: пунктов и/или обязательных ' +
-                '`[edge]`-пометок меньше минимума. Верни ТОЛЬКО ДОПОЛНИТЕЛЬНЫЕ строки ' +
-                'таблицы того же формата — прежде всего граничные случаи с тегом `[edge]`, ' +
-                'id продолжают нумерацию, уже написанные пункты не повторяются.',
+              retry
+                ? 'Предыдущий ответ дефицит не закрыл: добавленные строки не несли обязательный ' +
+                  'тег `[edge]` в тексте строки (или их снова недостаточно) — просьба «прежде ' +
+                  'всего граничные случаи» не выполнена буквально. Верни ТОЛЬКО дополнительные ' +
+                  'строки таблицы, и КАЖДАЯ из них обязана быть граничным или негативным ' +
+                  'случаем с литеральным тегом `[edge]` где-то в строке — не общий пункт без ' +
+                  'тега. id продолжают нумерацию, уже написанные пункты не повторяются.'
+                : 'Правил текста этапа этот список НЕ выполняет: пунктов и/или обязательных ' +
+                  '`[edge]`-пометок меньше минимума. Верни ТОЛЬКО ДОПОЛНИТЕЛЬНЫЕ строки ' +
+                  'таблицы того же формата — прежде всего граничные случаи с тегом `[edge]`, ' +
+                  'id продолжают нумерацию, уже написанные пункты не повторяются.',
             ].join('\n'),
           },
         ],
@@ -555,7 +570,11 @@ export class FormFillExecutor implements StageExecutor {
     };
 
     /** Добор записи ниже минимума (`compact`) — та же идея, что `askClaimsTopUp`, через `applyFill('add')`. */
-    const askTopUpCompact = (field: SchemaField, already: string): ReturnType<ChatProvider['chat']> =>
+    const askTopUpCompact = (
+      field: SchemaField,
+      already: string,
+      retry: boolean,
+    ): ReturnType<ChatProvider['chat']> =>
       this.o.provider.chat({
         model: req.model,
         messages: [
@@ -569,9 +588,15 @@ export class FormFillExecutor implements StageExecutor {
               '',
               `Уже отвечено:\n\`\`\`\n${already}\n\`\`\``,
               '',
-              `Строк меньше минимума методологии (нужно не меньше ${field.min?.rows ?? 0}` +
-                (field.min?.edges === undefined || field.min.edges === 0 ? '' : `, из них с [edge] не меньше ${field.min.edges}`) +
-                '). Верни ТОЛЬКО дополнительные записи в том же формате — уже названные не повторяй.',
+              retry
+                ? `Предыдущий ответ дефицит не закрыл (нужно не меньше ${field.min?.rows ?? 0}` +
+                  (field.min?.edges === undefined || field.min.edges === 0 ? '' : `, из них с [edge] не меньше ${field.min.edges}`) +
+                  '). Верни ТОЛЬКО дополнительные записи, и если дефицит именно по `[edge]` — ' +
+                  'каждая новая запись обязана быть граничным или негативным случаем с ' +
+                  'литеральным тегом `[edge]`, не общей записью без тега.'
+                : `Строк меньше минимума методологии (нужно не меньше ${field.min?.rows ?? 0}` +
+                  (field.min?.edges === undefined || field.min.edges === 0 ? '' : `, из них с [edge] не меньше ${field.min.edges}`) +
+                  '). Верни ТОЛЬКО дополнительные записи в том же формате — уже названные не повторяй.',
             ].join('\n'),
           },
         ],
@@ -640,33 +665,52 @@ export class FormFillExecutor implements StageExecutor {
           // applyFill. Дубли верхнего уровня из повторного ответа модели отсекаются по
           // нормализованному содержимому строки, тем же приёмом, что у legacy-добора.
           if (field.kind === 'records' && field.min !== undefined && callsSpent < req.maxTurns) {
-            const peek = parseFieldValue(field, answerText);
-            if (!isSheetError(peek) && peek.kind === 'records') {
-              const edges = peek.rows.filter((r) => Object.values(r).some((v) => /\[edge\]/i.test(v))).length;
-              const short = peek.rows.length < field.min.rows || edges < (field.min.edges ?? 0);
-              if (short) {
-                callsSpent++;
-                try {
-                  const more = await askTopUpCompact(field, answerText);
-                  usage = addUsage(usage, more.usage);
-                  hooks.onUsage(more.usage);
-                  const seen = new Set(
-                    answerText
-                      .split('\n')
-                      .map((l) => l.trim().toLowerCase())
-                      .filter((l) => l !== ''),
-                  );
-                  const fresh = more.text
+            const min = field.min;
+            // Тот же класс бага, что у legacy-добора (askClaimsTopUp): один выстрел без
+            // перепроверки засчитывал добор успешным, даже если добавленные записи не
+            // несли [edge]. Сейчас неактивно (compactForms откачен у обеих моделей,
+            // config/models.json), но мина остаётся, пока режим не включат снова.
+            const shortfall = (v: string): { rows: number; edges: number } | null => {
+              const peek = parseFieldValue(field, v);
+              if (isSheetError(peek) || peek.kind !== 'records') return null;
+              const edges = peek.rows.filter((r) => Object.values(r).some((val) => /\[edge\]/i.test(val))).length;
+              return peek.rows.length < min.rows || edges < (min.edges ?? 0)
+                ? { rows: peek.rows.length, edges }
+                : null;
+            };
+            for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < req.maxTurns; attempt++) {
+              if (shortfall(answerText) === null) break;
+              callsSpent++;
+              try {
+                const more = await askTopUpCompact(field, answerText, attempt > 0);
+                usage = addUsage(usage, more.usage);
+                hooks.onUsage(more.usage);
+                const seen = new Set(
+                  answerText
                     .split('\n')
-                    .filter((l) => !seen.has(l.trim().toLowerCase()))
-                    .join('\n');
-                  if (fresh.trim() !== '') answerText = `${answerText}\n${fresh}`;
-                  notes.push(`добор поля ${field.id}: запрошен и добавлен`);
-                } catch (e) {
-                  const why = e instanceof Error ? e.message : String(e);
-                  notes.push(`добор поля ${field.id} не удался: ${why.slice(0, 160)}`);
-                }
+                    .map((l) => l.trim().toLowerCase())
+                    .filter((l) => l !== ''),
+                );
+                const fresh = more.text
+                  .split('\n')
+                  .filter((l) => !seen.has(l.trim().toLowerCase()))
+                  .join('\n');
+                if (fresh.trim() !== '') answerText = `${answerText}\n${fresh}`;
+                notes.push(`добор поля ${field.id} (попытка ${attempt + 1}): запрошен и добавлен`);
+              } catch (e) {
+                const why = e instanceof Error ? e.message : String(e);
+                notes.push(`добор поля ${field.id} не удался: ${why.slice(0, 160)}`);
+                break;
               }
+            }
+            const stillShort = shortfall(answerText);
+            if (stillShort !== null) {
+              notes.push(
+                `добор поля ${field.id} не закрыл минимум за ${CLAIMS_TOPUP_ATTEMPTS} попытки: ` +
+                  `строк ${stillShort.rows} (нужно ${min.rows})` +
+                  (min.edges ? `, [edge] ${stillShort.edges} (нужно ${min.edges})` : '') +
+                  ' — этап 3 отклонит',
+              );
             }
           }
 
@@ -811,11 +855,18 @@ export class FormFillExecutor implements StageExecutor {
             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому
             // контуру переизбыток пунктов не вредит (его мягкий минимум знает гейт).
             if (range.kind === 'row' && /claim-/.test(range.text) && callsSpent < req.maxTurns) {
-              const have = countClaims(filled);
-              if (have.rows < CLAIMS_MINIMUM.rows || have.edges < CLAIMS_MINIMUM.edges) {
+              // Один выстрел без перепроверки однажды считал добор успешным, даже если
+              // добавленные строки не несли [edge]: заметка «добавлено M» писалась
+              // независимо от факта, а предусловие explore честно находило тот же
+              // дефицит (r-серия свипа 2026-09-04, docs/model-runs.md). Теперь после
+              // каждой попытки — реальный пересчёт `countClaims`, вторая попытка (если
+              // нужна) называет дефицит прямо, а не повторяет ту же общую просьбу.
+              for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < req.maxTurns; attempt++) {
+                const have = countClaims(filled);
+                if (have.rows >= CLAIMS_MINIMUM.rows && have.edges >= CLAIMS_MINIMUM.edges) break;
                 callsSpent++;
                 try {
-                  const more = await askClaimsTopUp(path, text, range, filled);
+                  const more = await askClaimsTopUp(path, text, range, filled, attempt > 0);
                   usage = addUsage(usage, more.usage);
                   hooks.onUsage(more.usage);
                   const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
@@ -849,14 +900,25 @@ export class FormFillExecutor implements StageExecutor {
                     })
                     .join('\n');
                   if (fresh !== '') filled = `${filled}\n${fresh}`;
+                  const now = countClaims(filled);
                   notes.push(
-                    `добор листа приёмки: модель вернула ${extra.split('\n').length} строк, ` +
-                      `добавлено ${fresh === '' ? 0 : fresh.split('\n').length}`,
+                    `добор листа приёмки (попытка ${attempt + 1}): модель вернула ${extra.split('\n').length} ` +
+                      `строк, добавлено ${fresh === '' ? 0 : fresh.split('\n').length} — теперь ` +
+                      `пунктов ${now.rows}, [edge] ${now.edges}`,
                   );
                 } catch (e) {
                   const why = e instanceof Error ? e.message : String(e);
                   notes.push(`добор листа приёмки не удался: ${why.slice(0, 160)}`);
+                  break;
                 }
+              }
+              const stillShort = countClaims(filled);
+              if (stillShort.rows < CLAIMS_MINIMUM.rows || stillShort.edges < CLAIMS_MINIMUM.edges) {
+                notes.push(
+                  `добор листа приёмки не закрыл минимум за ${CLAIMS_TOPUP_ATTEMPTS} попытки: ` +
+                    `пунктов ${stillShort.rows} (нужно ${CLAIMS_MINIMUM.rows}), [edge] ${stillShort.edges} ` +
+                    `(нужно ${CLAIMS_MINIMUM.edges}) — этап 3 отклонит`,
+                );
               }
             }
             text = text.slice(0, range.start) + filled + text.slice(range.end);

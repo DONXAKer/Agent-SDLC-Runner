@@ -21,7 +21,6 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { isAbsolute, join } from 'node:path';
 
 import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
@@ -35,10 +34,11 @@ import type {
   StageResult,
   SubagentDef,
 } from './StageExecutor.ts';
+import { REVIEWER_AGENTS } from './StageExecutor.ts';
 import { trimHistory } from './history.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
 import { isToolName, specsFor } from './toolSpecs.ts';
-import { readArtifact } from '../artifacts/artifact.ts';
+import { finalizeRejection } from '../artifacts/finalizeCheck.ts';
 
 export interface LoopOptions {
   provider: ChatProvider;
@@ -169,6 +169,18 @@ export class LoopExecutor implements StageExecutor {
     let readNudges = 0;
     let bashStreak = 0;
     let bashNudges = 0;
+    /**
+     * Детектор застревания на `FinalizeArtifact`: путь артефакта → число незаполненных
+     * мест на КАЖДОМ отказе подряд по этому пути. Ловит то, что не ловит анти-цикл выше
+     * (`REPEAT_LIMIT`/`callFingerprint`): чередование `Edit(A)` → `FinalizeArtifact` →
+     * `Edit(B)` → `FinalizeArtifact` никогда не повторяет один и тот же отпечаток вызова,
+     * но число мест при этом может не убывать ходами подряд — модель правит, но не то,
+     * что нужно. Живое наблюдение (docs/model-runs.md, свип 2026-09-04): в этой ситуации
+     * `explore` либо сжигает `maxTurns`, либо пытается переписать файл целиком
+     * (`destructiveOverwrite` ловит попытку, но сам цикл это не останавливает).
+     */
+    const finalizeStreak = new Map<string, number[]>();
+    const FINALIZE_STALL_LIMIT = 3;
 
     /**
      * Исход этапа считается по диску, а не по поведению модели: анти-цикл, сработавший
@@ -418,6 +430,32 @@ export class LoopExecutor implements StageExecutor {
           content: result,
         });
         if (firstOfStreak) progressAtStreakStart = req.progressSignal?.() ?? 0;
+
+        // Отдельный, второй прогон `finalizeRejection` — чистое чтение файла (не сеть,
+        // не LLM), не дублирует решение о тексте отказа (то уже принял `handleCall`),
+        // только собирает число мест для детектора застревания выше.
+        if (normalized !== null && normalized.kind === 'finalize_artifact') {
+          const rejection = finalizeRejection(normalized.artifact, toolCtx.projectRoot, req.formArtifacts ?? []);
+          if (rejection?.placeholders === undefined) {
+            // Финализация удалась, либо отказ не про плейсхолдеры (не тот артефакт /
+            // не существует) — серия по этому пути больше не показательна.
+            finalizeStreak.delete(normalized.artifact);
+          } else {
+            const history = [...(finalizeStreak.get(normalized.artifact) ?? []), rejection.placeholders];
+            finalizeStreak.set(normalized.artifact, history);
+            const recent = history.slice(-FINALIZE_STALL_LIMIT);
+            const stalled =
+              recent.length >= FINALIZE_STALL_LIMIT && recent.every((n, i) => i === 0 || n >= recent[i - 1]!);
+            if (stalled) {
+              const note =
+                `этап зациклился на правке «${normalized.artifact}» без прогресса: число ` +
+                `незаполненных мест не убывает ${FINALIZE_STALL_LIMIT} отказов подряд ` +
+                `(${recent.join(' → ')}) — правки идут, но не закрывают нужные места`;
+              hooks.onWarn(note);
+              return { ok: false, finalText, usage, note };
+            }
+          }
+        }
       }
 
       // Напоминание идёт ПОСЛЕ результатов инструментов хода: user-сообщение между
@@ -568,10 +606,28 @@ export class LoopExecutor implements StageExecutor {
    * Вложенность одноуровневая: субагенту субагенты не выдаются. Рекурсия означала бы
    * неограниченную глубину прав и бюджета.
    */
-  /** Модель вложенного прогона: своя у субагента, если это не алиас чужого флоу. */
+  /**
+   * Модель вложенного прогона: своя у субагента, если это не алиас чужого флоу.
+   *
+   * Для РЕЦЕНЗЕНТА (`REVIEWER_AGENTS`) алиас-фолбэк на модель этапа — не деградация, а
+   * нарушение самого смысла шага: методология требует рецензента строго сильнее
+   * исполнителя, и «пусть отревьюирует та же слабая модель, что писала код» не «ревью
+   * похуже», а не-ревью, которое гейт «Ревью независимым агентом» не отличит от
+   * настоящего (сам факт вызова субагента гейт уже зажигает). Это путь ТОЛЬКО для
+   * случая, когда прямой прогон рантаймом (`Run.runReviewerDirectly`) не состоялся и
+   * модель зовёт рецензента сама — на практике редкий, но должен падать явно, а не
+   * тихо подменять модель.
+   */
   private subagentModel(def: SubagentDef, req: ExecRequest, hooks: ExecHooks): string {
     if (def.model === null || def.model === undefined) return req.model;
     if (CLAUDE_MODEL_ALIASES.has(def.model)) {
+      if (REVIEWER_AGENTS.includes(def.name)) {
+        throw new SubagentUnavailable(
+          `рецензент «${def.name}» назвал модель «${def.model}» — алиас Claude Code, флоу ` +
+            'loop им не пользуется, а замена на модель этапа нарушила бы правило «рецензент ' +
+            'строго сильнее исполнителя». Ревью не запущено вместо того, чтобы пройти на не той модели.',
+        );
+      }
       hooks.onWarn(
         `модель «${def.model}» из определения субагента «${def.name}» — алиас Claude Code, ` +
           'флоу loop им не пользуется: субагент идёт на модели этапа',
@@ -660,30 +716,10 @@ export class LoopExecutor implements StageExecutor {
         // сделанной (наблюдалось трижды подряд на живом витке — журнал chunk'а уходил
         // «готовым» нетронутым). Замечание вместо результата — та же конструкция, что
         // у повторных вызовов: просьбам модель верит хуже, чем отказам инструмента.
-        const p = isAbsolute(call.artifact) ? call.artifact : join(toolCtx.projectRoot, call.artifact);
-        // Финализировать можно только артефакт ЭТАПА: путь приходит строкой от модели, и
-        // читать по нему произвольный файл до всякой политики нельзя — тот же принцип,
-        // что у превью («предпросмотр строится после разрешения»). Список этапных
-        // артефактов рантайм уже передал в `formArtifacts`.
-        const declared = req.formArtifacts ?? [];
-        if (declared.length > 0 && !declared.includes(p)) {
-          return (
-            `ошибка: «${call.artifact}» не является артефактом этого этапа — финализируй ` +
-            `один из: ${declared.map((d) => d).join(', ')}`
-          );
-        }
-        const a = readArtifact(p);
-        if (!a.exists) {
-          return `ошибка: артефакт ${call.artifact} не существует — сначала запиши его, потом финализируй`;
-        }
-        if (a.placeholders > 0) {
-          return (
-            `ошибка: в ${call.artifact} осталось незаполненных мест ‹…›: ${a.placeholders} — ` +
-            `финализировать нельзя. Прочитай артефакт, заполни каждый плейсхолдер по факту ` +
-            `и вызови FinalizeArtifact снова`
-          );
-        }
-        return `артефакт заявлен готовым: ${call.artifact}`;
+        // Сама проверка — общая для флоу `loop` и `sdk` (`finalizeCheck.ts`), чтобы
+        // отказ не разъезжался между ними и локализация незаполненных мест не дублировалась.
+        const rejection = finalizeRejection(call.artifact, toolCtx.projectRoot, req.formArtifacts ?? []);
+        return rejection?.message ?? `артефакт заявлен готовым: ${call.artifact}`;
       }
 
       // Записи в отчёт этапа 6 принимает рантайм — он же и рисует из них таблицу. Здесь

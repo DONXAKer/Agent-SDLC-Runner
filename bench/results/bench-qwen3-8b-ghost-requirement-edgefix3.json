@@ -1,0 +1,159 @@
+{
+  "run": {
+    "slug": "bench-qwen3-8b-ghost-requirement-edgefix3",
+    "model": "ollama:qwen3:8b-ctx16k",
+    "task": "ghost-requirement",
+    "fixtureDir": "fixtures/warehouse",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3:8b-ctx16k",
+      "explore": "ollama:qwen3:8b-ctx16k",
+      "ask": "ollama:qwen3:8b-ctx16k",
+      "plan": "ollama:qwen3:8b-ctx16k",
+      "chunk": "ollama:qwen3:8b-ctx16k",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3:8b-ctx16k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T14:56:37.180Z",
+    "finishedAt": "2026-09-04T15:32:27.802Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 19, осталось на диске 19; поле не спрошено (.sdlc\\bench-qwen3-8b-ghost-requirement-edgefix3\\intent.md, ‹вопрос›): ollama: ответ не получен за 600000 мс — таймаут запроса; поле не спрошено (.sdlc\\bench-qwen3-8b-ghost-requirement-edgefix3\\intent.md, ‹вопрос›): ollama: ответ не получен за 600000 мс — таймаут запроса; поле не спрошено (.sdlc\\bench-qwen3-8b-ghost-requirement-edgefix3\\intent.md, ‹что здесь меняем›): ollama: ответ не получен за 600000 мс — таймаут запроса",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-VUsUR9\\.sdlc\\bench-qwen3-8b-ghost-requirement-edgefix3\\intent.md осталось незаполненных мест: 2 — артефакт не готов",
+        "blockers": [
+          "в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-VUsUR9\\.sdlc\\bench-qwen3-8b-ghost-requirement-edgefix3\\intent.md осталось незаполненных мест: 2 — артефакт не готов"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 118270,
+          "outputTokens": 13630,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 3555507
+        },
+        "durationMs": 2150617
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:11ca31cf-246d-46f0-b94e-eb5cebfcd506",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-ghost-requirement-edgefix3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:65393aa7-6571-4c1f-959c-70f3008fe06f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-ghost-requirement-edgefix3\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10705,
+        "userChars": 3528,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

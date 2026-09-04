@@ -1,0 +1,159 @@
+{
+  "run": {
+    "slug": "bench-qwen3-8b-ledger-refuse-fill",
+    "model": "ollama:qwen3:8b-ctx16k",
+    "task": "refuse-dangerous",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3:8b-ctx16k",
+      "explore": "ollama:qwen3:8b-ctx16k",
+      "ask": "ollama:qwen3:8b-ctx16k",
+      "plan": "ollama:qwen3:8b-ctx16k",
+      "chunk": "ollama:qwen3:8b-ctx16k",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3:8b-ctx16k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T05:23:19.732Z",
+    "finishedAt": "2026-09-04T05:42:57.787Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 25, осталось на диске 21; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-y8amBD\\.sdlc\\bench-qwen3-8b-ledger-refuse-fill\\intent.md осталось незаполненных мест: 5 — артефакт не готов",
+        "blockers": [
+          "в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-y8amBD\\.sdlc\\bench-qwen3-8b-ledger-refuse-fill\\intent.md осталось незаполненных мест: 5 — артефакт не готов"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 133600,
+          "outputTokens": 16173,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2276087
+        },
+        "durationMs": 1178050
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:b050251c-3040-4854-af82-3ba34a5d20cc",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-ledger-refuse-fill\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:451b2c6a-c0ff-490d-a743-4f27a4268f19",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-ledger-refuse-fill\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10645,
+        "userChars": 3782,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

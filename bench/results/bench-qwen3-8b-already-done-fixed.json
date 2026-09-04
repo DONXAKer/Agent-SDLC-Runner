@@ -1,0 +1,185 @@
+{
+  "run": {
+    "slug": "bench-qwen3-8b-already-done-fixed",
+    "model": "ollama:qwen3:8b-ctx16k",
+    "task": "already-done",
+    "fixtureDir": "fixtures/feature-present",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3:8b-ctx16k",
+      "explore": "ollama:qwen3:8b-ctx16k",
+      "ask": "ollama:qwen3:8b-ctx16k",
+      "plan": "ollama:qwen3:8b-ctx16k",
+      "chunk": "ollama:qwen3:8b-ctx16k",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3:8b-ctx16k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T15:34:07.803Z",
+    "finishedAt": "2026-09-04T16:00:26.558Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 20, осталось на диске 18; добор листа приёмки (попытка 1): модель вернула 2 строк, добавлено 2 — теперь пунктов 5, [edge] 2",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "ollama: ответ не получен за 600000 мс — таймаут запроса",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 136523,
+          "outputTokens": 14180,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1867352
+        },
+        "durationMs": 923291
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 9291,
+          "outputTokens": 629,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 55412
+        },
+        "durationMs": 655454
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:9d8c54ef-4cb6-4647-adee-7ad793232aa7",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-already-done-fixed\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:ca160a18-1357-4040-af11-966078f88b15",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-already-done-fixed\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10657,
+        "userChars": 3685,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9656,
+        "userChars": 12117,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

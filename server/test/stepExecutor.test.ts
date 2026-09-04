@@ -200,12 +200,25 @@ describe('исполнение по шагам', () => {
     ok(provider.asked[1]!.includes('<<<<<<< SEARCH'));
   });
 
-  it('бриф ретрая доезжает до карточки шага', async () => {
+  it('бриф ретрая доезжает до карточки шага, вместе с подсказкой про уже сделанное (r34)', async () => {
+    // Живой прогон 2026-09-03: на попытке с брифом ретрая модель ответила пустым
+    // REPLACE на строку, которая уже была верна с прошлой попытки, — стёрла то, что
+    // сама же добавила раньше. Подсказка должна появляться ИМЕННО когда есть бриф
+    // (иначе на первой попытке она вводит в заблуждение — прошлой попытки не было).
     const root = setup();
     const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
     const provider = scripted(['БЕЗ ПРАВОК: нечего']);
     await exec(provider, [step({})], null, '## Что не сошлось в прошлой попытке\n- claim-2 — опровергнут').run(request(root), hooks(seen));
     ok(provider.asked[0]!.includes('claim-2 — опровергнут'));
+    ok(provider.asked[0]!.includes('БЕЗ ПРАВОК: уже сделано'), provider.asked[0]);
+  });
+
+  it('без брифа ретрая (первая попытка) подсказки про «уже сделано» нет', async () => {
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([SR('  return a + b;', '  return a + b + 1;')]);
+    await exec(provider, [step({})]).run(request(root), hooks(seen));
+    ok(!provider.asked[0]!.includes('уже сделано'), provider.asked[0]);
   });
 
   it('промах SEARCH даёт ремонтный запрос с содержимым файла; второй ответ применяется', async () => {

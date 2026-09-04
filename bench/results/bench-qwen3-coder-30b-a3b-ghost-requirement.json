@@ -1,0 +1,361 @@
+{
+  "run": {
+    "slug": "bench-qwen3-coder-30b-a3b-ghost-requirement",
+    "model": "ollama:qwen3-coder-30b-a3b",
+    "task": "ghost-requirement",
+    "fixtureDir": "fixtures/warehouse",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-coder-30b-a3b",
+      "explore": "ollama:qwen3-coder-30b-a3b",
+      "ask": "ollama:qwen3-coder-30b-a3b",
+      "plan": "ollama:qwen3-coder-30b-a3b",
+      "chunk": "ollama:qwen3-coder-30b-a3b",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3-coder-30b-a3b"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T10:23:02.919Z",
+    "finishedAt": "2026-09-04T10:50:55.921Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 19, осталось на диске 19; добор листа приёмки: модель вернула 8 строк, добавлено 2",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "исчерпан лимит ходов этапа (25)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 135550,
+          "outputTokens": 3017,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 496316
+        },
+        "durationMs": 250845
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 358814,
+          "outputTokens": 9228,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1422038
+        },
+        "durationMs": 1422147
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 2,
+        "toolCalls": 25,
+        "reminders": 2
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:9bc775c6-f2a1-41d3-9a3a-796dc1681938",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-coder-30b-a3b-ghost-requirement\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:a3354ee6-6340-4174-a15e-241dd207246b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-coder-30b-a3b-ghost-requirement\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6c3b5c6b-33f1-44c8-980c-e0d19cee3a7b",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b1dd635e-8259-4cc9-a0d4-c3919f5e00bd",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-qwen3-coder-30b-a3b-ghost-requirement/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4abc4231-0f01-4511-9f40-596cfbb00411",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-qwen3-coder-30b-a3b-ghost-requirement/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e2ff3d69-9b2e-4d15-a326-b93594296803",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-qwen3-coder-30b-a3b-ghost-requirement/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:17b77780-6645-4fbb-a7f1-57d14ea88ed2",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-qwen3-coder-30b-a3b-ghost-requirement/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a5d66156-2de4-4544-bb9a-82c399cd13b1",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-qwen3-coder-30b-a3b-ghost-requirement/claims_agent2.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:fa9e1b30-9e01-473e-a0ed-c111bfa5af54",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-qwen3-coder-30b-a3b-ghost-requirement/exploration_final.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:dc153127-50e4-4b6f-a6d8-8b263c047ec6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-qwen3-coder-30b-a3b-ghost-requirement/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Приёмочный лист агента 2 отличается от авторского. Выполнить правку авторского приёмочного листа (из intent.md) с учётом нового поведения, где для категории standard учитывается вторая ступень? Уточняем: в случае изменения, будет ли правка на этапе 6 с ожидаемым итогом «закрытие вопросов», либо сразу вводится новое поведение?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.second-tier"
+      }
+    ],
+    "notMine": [
+      {
+        "requestId": "loop:9da4c37e-9158-42f0-8230-ed3751cc83d7",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10717,
+        "userChars": 3528,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9706,
+        "userChars": 12284,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-697dc33f-ad97-46e5-93d5-030c0bbbe456-1",
+        "questionId": "q1",
+        "text": "Приёмочный лист агента 2 отличается от авторского. Выполнить правку авторского приёмочного листа (из intent.md) с учётом нового поведения, где для категории standard учитывается вторая ступень? Уточняем: в случае изменения, будет ли правка на этапе 6 с ожидаемым итогом «закрытие вопросов», либо сразу вводится новое поведение?"
+      }
+    ]
+  },
+  "seed": null
+}

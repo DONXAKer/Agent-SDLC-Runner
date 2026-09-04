@@ -1,0 +1,418 @@
+{
+  "run": {
+    "slug": "bench-agents-a1-4b-already-done",
+    "model": "ollama:agents-a1-4b",
+    "task": "already-done",
+    "fixtureDir": "fixtures/feature-present",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:agents-a1-4b",
+      "explore": "ollama:agents-a1-4b",
+      "ask": "ollama:agents-a1-4b",
+      "plan": "ollama:agents-a1-4b",
+      "chunk": "ollama:agents-a1-4b",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:agents-a1-4b"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T07:34:37.434Z",
+    "finishedAt": "2026-09-04T07:41:41.141Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель упёрлась в лимит длины ответа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 119098,
+          "outputTokens": 10833,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 423641
+        },
+        "durationMs": 423706
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 11,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Заполни коротко: одно-два предложения, что делаем в этом витке."
+          },
+          {
+            "id": "q2",
+            "question": "Заполни зачем: какая проблема решается и что изменится для пользователя?"
+          },
+          {
+            "id": "q3",
+            "question": "Заполни что делаем: явный список того, что мы делаем."
+          },
+          {
+            "id": "q4",
+            "question": "Заполни чи не делаем: конкретные вещи, которые не трогать."
+          },
+          {
+            "id": "q5",
+            "question": "Заполни приёмочный лист: проверяемые утверждения и как их проверять."
+          },
+          {
+            "id": "q6",
+            "question": "Заполни инварианты: что обязано остаться верным до и после витка?"
+          },
+          {
+            "id": "q7",
+            "question": "Заполни когда остановиться и спросить: что в этом коде нельзя менять без вопроса?"
+          },
+          {
+            "id": "q8",
+            "question": "Заполни что придётся тронуть: пути от корня репозитория, которые будем менять."
+          },
+          {
+            "id": "q9",
+            "question": "Заполни открытые вопросы: блокирующие и неблокирующие вопросы."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Заполни кратким описанием, что делаем в этом витке."
+          },
+          {
+            "id": "q2",
+            "question": "Заполни, какая проблема решается и что изменится для пользователя."
+          },
+          {
+            "id": "q3",
+            "question": "Заполни, что именно мы делаем в этом витке."
+          },
+          {
+            "id": "q4",
+            "question": "Заполни, что именно не трогаем в этом витке."
+          },
+          {
+            "id": "q5",
+            "question": "Заполни приёмочный лист с конкретными проверкой."
+          },
+          {
+            "id": "q6",
+            "question": "Заполни инварианты, что обязано остаться верным."
+          },
+          {
+            "id": "q7",
+            "question": "Заполни, что в этом коде нельзя менять без вопроса."
+          },
+          {
+            "id": "q8",
+            "question": "Заполни список файлов, которые будем менять."
+          },
+          {
+            "id": "q9",
+            "question": "Заполни открытые вопросы, которые требуют уточнения."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Заполни поле Коротко: что делаем в этом витке (1-2 предложения)?"
+          },
+          {
+            "id": "q2",
+            "question": "Заполни поле Зачем: какая проблема решается и что изменится для пользователя?"
+          },
+          {
+            "id": "q3",
+            "question": "Заполни поле Что делаем: что именно мы делаем?"
+          },
+          {
+            "id": "q4",
+            "question": "Заполни поле Чего не делаем: что именно не трогаем?"
+          },
+          {
+            "id": "q5",
+            "question": "Заполни поле Приёмочный лист: проверяемые утверждения и как их проверять?"
+          },
+          {
+            "id": "q6",
+            "question": "Заполни поле Инварианты: что обязано остаться верным?"
+          },
+          {
+            "id": "q7",
+            "question": "Заполни поле Когда остановиться и спросить: что нельзя менять без вопроса?"
+          },
+          {
+            "id": "q8",
+            "question": "Заполни поле Что придётся тронуть: какие файлы будем менять?"
+          },
+          {
+            "id": "q9",
+            "question": "Заполни поле Открытые вопросы: какие вопросы требуют уточнения?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10645,
+        "userChars": 3685,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-1",
+        "questionId": "q1",
+        "text": "Заполни коротко: одно-два предложения, что делаем в этом витке."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-1",
+        "questionId": "q2",
+        "text": "Заполни зачем: какая проблема решается и что изменится для пользователя?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-1",
+        "questionId": "q3",
+        "text": "Заполни что делаем: явный список того, что мы делаем."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-1",
+        "questionId": "q4",
+        "text": "Заполни чи не делаем: конкретные вещи, которые не трогать."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-1",
+        "questionId": "q5",
+        "text": "Заполни приёмочный лист: проверяемые утверждения и как их проверять."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-1",
+        "questionId": "q6",
+        "text": "Заполни инварианты: что обязано остаться верным до и после витка?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-1",
+        "questionId": "q7",
+        "text": "Заполни когда остановиться и спросить: что в этом коде нельзя менять без вопроса?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-1",
+        "questionId": "q8",
+        "text": "Заполни что придётся тронуть: пути от корня репозитория, которые будем менять."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-1",
+        "questionId": "q9",
+        "text": "Заполни открытые вопросы: блокирующие и неблокирующие вопросы."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-2",
+        "questionId": "q1",
+        "text": "Заполни кратким описанием, что делаем в этом витке."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-2",
+        "questionId": "q2",
+        "text": "Заполни, какая проблема решается и что изменится для пользователя."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-2",
+        "questionId": "q3",
+        "text": "Заполни, что именно мы делаем в этом витке."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-2",
+        "questionId": "q4",
+        "text": "Заполни, что именно не трогаем в этом витке."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-2",
+        "questionId": "q5",
+        "text": "Заполни приёмочный лист с конкретными проверкой."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-2",
+        "questionId": "q6",
+        "text": "Заполни инварианты, что обязано остаться верным."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-2",
+        "questionId": "q7",
+        "text": "Заполни, что в этом коде нельзя менять без вопроса."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-2",
+        "questionId": "q8",
+        "text": "Заполни список файлов, которые будем менять."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-2",
+        "questionId": "q9",
+        "text": "Заполни открытые вопросы, которые требуют уточнения."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-3",
+        "questionId": "q1",
+        "text": "Заполни поле Коротко: что делаем в этом витке (1-2 предложения)?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-3",
+        "questionId": "q2",
+        "text": "Заполни поле Зачем: какая проблема решается и что изменится для пользователя?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-3",
+        "questionId": "q3",
+        "text": "Заполни поле Что делаем: что именно мы делаем?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-3",
+        "questionId": "q4",
+        "text": "Заполни поле Чего не делаем: что именно не трогаем?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-3",
+        "questionId": "q5",
+        "text": "Заполни поле Приёмочный лист: проверяемые утверждения и как их проверять?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-3",
+        "questionId": "q6",
+        "text": "Заполни поле Инварианты: что обязано остаться верным?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-3",
+        "questionId": "q7",
+        "text": "Заполни поле Когда остановиться и спросить: что нельзя менять без вопроса?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-3",
+        "questionId": "q8",
+        "text": "Заполни поле Что придётся тронуть: какие файлы будем менять?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-7f265210-10df-47a7-9fc6-8745d492347f-3",
+        "questionId": "q9",
+        "text": "Заполни поле Открытые вопросы: какие вопросы требуют уточнения?"
+      }
+    ]
+  },
+  "seed": null
+}

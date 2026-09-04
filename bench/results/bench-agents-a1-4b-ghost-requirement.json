@@ -1,0 +1,207 @@
+{
+  "run": {
+    "slug": "bench-agents-a1-4b-ghost-requirement",
+    "model": "ollama:agents-a1-4b",
+    "task": "ghost-requirement",
+    "fixtureDir": "fixtures/warehouse",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:agents-a1-4b",
+      "explore": "ollama:agents-a1-4b",
+      "ask": "ollama:agents-a1-4b",
+      "plan": "ollama:agents-a1-4b",
+      "chunk": "ollama:agents-a1-4b",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:agents-a1-4b"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T09:58:05.274Z",
+    "finishedAt": "2026-09-04T10:00:41.614Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель упёрлась в лимит длины ответа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 87472,
+          "outputTokens": 9489,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 156285
+        },
+        "durationMs": 156339
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 0,
+        "toolCalls": 7,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "loop:15183fc2-8baf-4d76-9beb-542b9547c45d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-agents-a1-4b-ghost-requirement/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:16232881-8ce7-41d1-95bb-8efb4f67da17",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-agents-a1-4b-ghost-requirement/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:1f23786d-6b64-44ae-9cba-c88c05500e67",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/bench-agents-a1-4b-ghost-requirement/intent.md"
+        ],
+        "destructive": "перезапись .sdlc/bench-agents-a1-4b-ghost-requirement/intent.md целиком: было 89 строк, станет 39 (−50). Автоодобрение на такой вызов не распространяется",
+        "outcome": "denied",
+        "why": "destructiveOverwrite → deny (перезапись .sdlc/bench-agents-a1-4b-ghost-requirement/intent.md целиком: было 89 строк, станет 39 (−50). Автоодобрение на такой вызов не распространяется)",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:b7ec0ffb-c556-49f2-a8a9-37ee3d123a12",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-agents-a1-4b-ghost-requirement/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Вы хотите перезаписать .sdlc/bench-agents-a1-4b-ghost-requirement/intent.md новым содержимым или восстановить старый файл?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10675,
+        "userChars": 3528,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-354e0fc8-9c38-41ee-b70f-7655909a7a99-1",
+        "questionId": "q1",
+        "text": "Вы хотите перезаписать .sdlc/bench-agents-a1-4b-ghost-requirement/intent.md новым содержимым или восстановить старый файл?"
+      }
+    ]
+  },
+  "seed": null
+}

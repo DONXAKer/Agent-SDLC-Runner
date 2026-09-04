@@ -77,6 +77,7 @@ import type {
   StageResult,
   SubagentDef,
 } from '../exec/StageExecutor.ts';
+import { REVIEWER_AGENTS } from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GateRow, GatesFile } from '../gates/gatesFile.ts';
 import { configProblems, gateKey, parseGates, uncalibratedGates, unimplementedGates } from '../gates/gatesFile.ts';
@@ -275,14 +276,6 @@ function withExtra(prompt: PreparedPrompt, block: string | undefined): PreparedP
   if (block === undefined || block === '' || prompt.user.includes(block)) return prompt;
   return { ...prompt, user: `${prompt.user}\n\n${block}` };
 }
-
-/**
- * Субагенты, вызов которых засчитывается как состоявшееся независимое ревью.
- *
- * Реестр, а не подстрока в имени: от этого списка зависит зелёный статус гейта из
- * минимальной пятёрки, и расширяться он должен осознанно.
- */
-const REVIEWER_AGENTS: readonly string[] = ['sdlc-reviewer'];
 
 /** Гейт минимума, который рантайм не исполняет скриптом. */
 const REVIEW_GATE = 'Ревью независимым агентом';

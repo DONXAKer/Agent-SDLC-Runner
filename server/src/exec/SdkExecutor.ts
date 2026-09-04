@@ -19,6 +19,7 @@ import type { Usage } from '@sdlc-runner/shared';
 import { describeCall, emptyUsage } from '@sdlc-runner/shared';
 
 import type { ToolName } from '@sdlc-runner/shared';
+import { finalizeRejection } from '../artifacts/finalizeCheck.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { TOOL_SPECS, isBuiltinToolName } from './toolSpecs.ts';
@@ -40,7 +41,12 @@ import { executeTool, type ToolContext } from './tools/index.ts';
  * попыток на попытку прогона), каждый раз получая отказ политики. Модель, у которой
  * инструмента нет в списке вовсе, не тратит на него ход.
  */
-function sdlcMcpServer(hooks: ExecHooks, toolCtx: ToolContext, allowedTools: readonly ToolName[]) {
+function sdlcMcpServer(
+  hooks: ExecHooks,
+  toolCtx: ToolContext,
+  allowedTools: readonly ToolName[],
+  formArtifacts: readonly string[],
+) {
   const has = (t: ToolName): boolean => allowedTools.includes(t);
   const askHuman = tool(
     'ask_human',
@@ -72,8 +78,15 @@ function sdlcMcpServer(hooks: ExecHooks, toolCtx: ToolContext, allowedTools: rea
     TOOL_SPECS.FinalizeArtifact.description,
     { artifact: z.string(), note: z.string().optional() },
     async (args) => {
-      // Политику вызов уже прошёл через `canUseTool` — см. комментарий в `ask_human`.
-      const text = `Артефакт принят рантаймом: ${args.artifact}`;
+      // Политику вызов уже прошёл через `canUseTool` — см. комментарий в `ask_human`, но
+      // ТУДА не входит проверка готовности артефакта: этот обработчик раньше принимал
+      // «готово» безусловно, в отличие от того же случая во флоу `loop`
+      // (`LoopExecutor.ts`, `case 'finalize_artifact'`) — разъезд с инвариантом «два
+      // флоу — одна форма вызова и одно решение политики» (для сильных моделей флоу sdk
+      // редко всплывал, но раз строится общая проверка — `finalizeCheck.ts` — она идёт
+      // в оба места).
+      const rejection = finalizeRejection(args.artifact, toolCtx.projectRoot, formArtifacts);
+      const text = rejection?.message ?? `Артефакт принят рантаймом: ${args.artifact}`;
       return { content: [{ type: 'text' as const, text }] };
     },
   );
@@ -267,6 +280,7 @@ export class SdkExecutor implements StageExecutor {
               ...(req.stageArtifacts === undefined ? {} : { artifacts: req.stageArtifacts }),
             },
             req.allowedTools,
+            req.formArtifacts ?? [],
           ),
           ...(req.mcp?.sdkServers ?? {}),
         },
