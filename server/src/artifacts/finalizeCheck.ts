@@ -45,10 +45,21 @@ export function describeMissingPlaceholders(text: string, templateName: string |
   return { count, located };
 }
 
+export interface FinalizeRejection {
+  message: string;
+  /**
+   * Незаполненных мест на момент ЭТОГО отказа — `undefined`, если отказ не про
+   * плейсхолдеры (не тот артефакт / не существует). Число, а не булев признак:
+   * вызывающий код (детектор застревания `explore`, `LoopExecutor.ts`) сравнивает его
+   * между отказами, чтобы отличить «правится, но медленно» от «стоит на месте».
+   */
+  placeholders?: number;
+}
+
 /**
  * Решает, можно ли финализировать артефакт, названный моделью строкой `artifactArg`.
- * `null` — можно (артефакт этапа, существует, плейсхолдеров нет); строка — готовый
- * текст отказа, который флоу возвращает модели как есть.
+ * `null` — можно (артефакт этапа, существует, плейсхолдеров нет); иначе — готовый текст
+ * отказа (флоу возвращает его модели как есть) и, если причина — плейсхолдеры, их число.
  *
  * Путь резолвится тем же приёмом, что у любой другой ссылки модели на файл этапа:
  * абсолютный — как есть, иначе — от корня проекта. `formArtifacts` — уже переданный
@@ -59,25 +70,28 @@ export function finalizeRejection(
   artifactArg: string,
   projectRoot: string,
   formArtifacts: readonly string[],
-): string | null {
+): FinalizeRejection | null {
   const p = isAbsolute(artifactArg) ? artifactArg : join(projectRoot, artifactArg);
   if (formArtifacts.length > 0 && !formArtifacts.includes(p)) {
-    return (
-      `ошибка: «${artifactArg}» не является артефактом этого этапа — финализируй ` +
-      `один из: ${formArtifacts.join(', ')}`
-    );
+    return {
+      message:
+        `ошибка: «${artifactArg}» не является артефактом этого этапа — финализируй ` +
+        `один из: ${formArtifacts.join(', ')}`,
+    };
   }
   const a = readArtifact(p);
   if (!a.exists) {
-    return `ошибка: артефакт ${artifactArg} не существует — сначала запиши его, потом финализируй`;
+    return { message: `ошибка: артефакт ${artifactArg} не существует — сначала запиши его, потом финализируй` };
   }
   if (a.placeholders > 0) {
     const { located } = describeMissingPlaceholders(a.text, templateNameFor(p));
-    return (
-      `ошибка: в ${artifactArg} осталось незаполненных мест ‹…›: ${a.placeholders} — ` +
-      `${located.join('; ')}. Замени именно их инструментом Edit (не переписывай файл ` +
-      `целиком) и вызови FinalizeArtifact снова`
-    );
+    return {
+      message:
+        `ошибка: в ${artifactArg} осталось незаполненных мест ‹…›: ${a.placeholders} — ` +
+        `${located.join('; ')}. Замени именно их инструментом Edit (не переписывай файл ` +
+        `целиком) и вызови FinalizeArtifact снова`,
+      placeholders: a.placeholders,
+    };
   }
   return null;
 }

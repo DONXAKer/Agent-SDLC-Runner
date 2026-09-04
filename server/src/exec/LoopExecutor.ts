@@ -169,6 +169,18 @@ export class LoopExecutor implements StageExecutor {
     let readNudges = 0;
     let bashStreak = 0;
     let bashNudges = 0;
+    /**
+     * Детектор застревания на `FinalizeArtifact`: путь артефакта → число незаполненных
+     * мест на КАЖДОМ отказе подряд по этому пути. Ловит то, что не ловит анти-цикл выше
+     * (`REPEAT_LIMIT`/`callFingerprint`): чередование `Edit(A)` → `FinalizeArtifact` →
+     * `Edit(B)` → `FinalizeArtifact` никогда не повторяет один и тот же отпечаток вызова,
+     * но число мест при этом может не убывать ходами подряд — модель правит, но не то,
+     * что нужно. Живое наблюдение (docs/model-runs.md, свип 2026-09-04): в этой ситуации
+     * `explore` либо сжигает `maxTurns`, либо пытается переписать файл целиком
+     * (`destructiveOverwrite` ловит попытку, но сам цикл это не останавливает).
+     */
+    const finalizeStreak = new Map<string, number[]>();
+    const FINALIZE_STALL_LIMIT = 3;
 
     /**
      * Исход этапа считается по диску, а не по поведению модели: анти-цикл, сработавший
@@ -418,6 +430,32 @@ export class LoopExecutor implements StageExecutor {
           content: result,
         });
         if (firstOfStreak) progressAtStreakStart = req.progressSignal?.() ?? 0;
+
+        // Отдельный, второй прогон `finalizeRejection` — чистое чтение файла (не сеть,
+        // не LLM), не дублирует решение о тексте отказа (то уже принял `handleCall`),
+        // только собирает число мест для детектора застревания выше.
+        if (normalized !== null && normalized.kind === 'finalize_artifact') {
+          const rejection = finalizeRejection(normalized.artifact, toolCtx.projectRoot, req.formArtifacts ?? []);
+          if (rejection?.placeholders === undefined) {
+            // Финализация удалась, либо отказ не про плейсхолдеры (не тот артефакт /
+            // не существует) — серия по этому пути больше не показательна.
+            finalizeStreak.delete(normalized.artifact);
+          } else {
+            const history = [...(finalizeStreak.get(normalized.artifact) ?? []), rejection.placeholders];
+            finalizeStreak.set(normalized.artifact, history);
+            const recent = history.slice(-FINALIZE_STALL_LIMIT);
+            const stalled =
+              recent.length >= FINALIZE_STALL_LIMIT && recent.every((n, i) => i === 0 || n >= recent[i - 1]!);
+            if (stalled) {
+              const note =
+                `этап зациклился на правке «${normalized.artifact}» без прогресса: число ` +
+                `незаполненных мест не убывает ${FINALIZE_STALL_LIMIT} отказов подряд ` +
+                `(${recent.join(' → ')}) — правки идут, но не закрывают нужные места`;
+              hooks.onWarn(note);
+              return { ok: false, finalText, usage, note };
+            }
+          }
+        }
       }
 
       // Напоминание идёт ПОСЛЕ результатов инструментов хода: user-сообщение между
@@ -681,7 +719,7 @@ export class LoopExecutor implements StageExecutor {
         // Сама проверка — общая для флоу `loop` и `sdk` (`finalizeCheck.ts`), чтобы
         // отказ не разъезжался между ними и локализация незаполненных мест не дублировалась.
         const rejection = finalizeRejection(call.artifact, toolCtx.projectRoot, req.formArtifacts ?? []);
-        return rejection ?? `артефакт заявлен готовым: ${call.artifact}`;
+        return rejection?.message ?? `артефакт заявлен готовым: ${call.artifact}`;
       }
 
       // Записи в отчёт этапа 6 принимает рантайм — он же и рисует из них таблицу. Здесь

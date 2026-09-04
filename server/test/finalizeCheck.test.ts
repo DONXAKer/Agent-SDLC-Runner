@@ -62,8 +62,8 @@ describe('finalizeRejection — общая проверка обоих флоу 
   it('артефакт не из списка этапа — отказ, null не возвращается', () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-finalize-'));
     const rejection = finalizeRejection('чужой.md', root, [join(root, 'intent.md')]);
-    strictEqual(typeof rejection, 'string');
-    strictEqual(rejection?.includes('не является артефактом этого этапа'), true);
+    strictEqual(rejection?.message.includes('не является артефактом этого этапа'), true);
+    strictEqual(rejection?.placeholders, undefined);
   });
 
   it('пустой список formArtifacts — проверка по владению не ведётся', () => {
@@ -75,15 +75,17 @@ describe('finalizeRejection — общая проверка обоих флоу 
   it('артефакт не существует — отказ «сначала запиши»', () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-finalize-'));
     const rejection = finalizeRejection('нет-такого.md', root, []);
-    strictEqual(rejection?.includes('не существует'), true);
+    strictEqual(rejection?.message.includes('не существует'), true);
+    strictEqual(rejection?.placeholders, undefined);
   });
 
-  it('плейсхолдеры остались — отказ называет число и локализацию', () => {
+  it('плейсхолдеры остались — отказ называет число и локализацию, число вынесено отдельно', () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-finalize-'));
     writeFileSync(join(root, 'intent.md'), '# Задача: ‹название витка›\n\n## Коротко\n\n‹что делаем›\n');
     const rejection = finalizeRejection('intent.md', root, []);
-    strictEqual(rejection?.includes('незаполненных мест'), true);
-    strictEqual(rejection?.includes('коротко'), true);
+    strictEqual(rejection?.message.includes('незаполненных мест'), true);
+    strictEqual(rejection?.message.includes('коротко'), true);
+    strictEqual(rejection?.placeholders, 2);
   });
 
   it('готовый артефакт — null (финализация разрешена)', () => {

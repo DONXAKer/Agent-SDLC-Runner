@@ -86,7 +86,7 @@ function sdlcMcpServer(
       // редко всплывал, но раз строится общая проверка — `finalizeCheck.ts` — она идёт
       // в оба места).
       const rejection = finalizeRejection(args.artifact, toolCtx.projectRoot, formArtifacts);
-      const text = rejection ?? `Артефакт принят рантаймом: ${args.artifact}`;
+      const text = rejection?.message ?? `Артефакт принят рантаймом: ${args.artifact}`;
       return { content: [{ type: 'text' as const, text }] };
     },
   );

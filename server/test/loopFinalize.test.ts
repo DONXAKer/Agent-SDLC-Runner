@@ -59,12 +59,12 @@ function hooks(seen: Seen): ExecHooks {
   } as unknown as ExecHooks;
 }
 
-function request(cwd: string): ExecRequest {
+function request(cwd: string, over: Partial<ExecRequest> = {}): ExecRequest {
   return {
     prompt: { presetNote: null, system: 'этап', user: 'работай', tools: [], editedByOperator: false },
     cwd,
     model: 'm',
-    allowedTools: ['Read', 'FinalizeArtifact'] as ToolName[],
+    allowedTools: ['Read', 'Edit', 'FinalizeArtifact'] as ToolName[],
     mcp: null,
     finishGuard: null,
     salvageFromText: null,
@@ -73,8 +73,15 @@ function request(cwd: string): ExecRequest {
     maxTurns: 4,
     maxBudgetUsd: null,
     signal: new AbortController().signal,
+    ...over,
   } as ExecRequest;
 }
+
+const editCall = (id: string, file: string, oldString: string, newString: string) => ({
+  id,
+  name: 'Edit',
+  arguments: { file_path: file, old_string: oldString, new_string: newString },
+});
 
 function exec(turns: Parameters<typeof provider>[0]): LoopExecutor {
   return new LoopExecutor({
@@ -139,6 +146,46 @@ describe('FinalizeArtifact отклоняет пустой шаблон', () => 
       hooks(seen),
     );
     ok(seen.results.some((r) => r.summary.includes('заявлен готовым')), 'готовый артефакт не принят');
+  });
+});
+
+describe('детектор застревания FinalizeArtifact (explore не убывает)', () => {
+  it('число мест не убывает 3 отказа подряд — этап останавливается до maxTurns', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-fin-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const result = await exec([
+      // Модель зовёт FinalizeArtifact трижды подряд, ничего в файле не меняя — ‹риск›
+      // остаётся, отпечаток вызова каждый раз одинаков (`REPEAT_LIMIT` его бы поймал и
+      // без этого детектора), но детектор застревания смотрит на СЧЁТ мест, а не на
+      // отпечаток — проверяем именно его срабатывание, не REPEAT_LIMIT.
+      { text: '', toolCalls: [finalizeCall('exploration-report.md')] },
+      { text: '', toolCalls: [{ id: 'f2', name: 'FinalizeArtifact', arguments: { artifact: 'exploration-report.md', note: 'ещё раз' } }] },
+      { text: '', toolCalls: [{ id: 'f3', name: 'FinalizeArtifact', arguments: { artifact: 'exploration-report.md', note: 'снова' } }] },
+      { text: 'сдаюсь' },
+    ]).run(request(root, { maxTurns: 10 }), hooks({ results: [] }));
+
+    strictEqual(result.ok, false);
+    ok(result.note.includes('зациклился на правке'), result.note);
+    ok(result.note.includes('1 → 1 → 1'), result.note);
+  });
+
+  it('число мест убывает между отказами — детектор застревания НЕ срабатывает', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-fin-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **A:** ‹a›\n- **B:** ‹b›\n- **C:** ‹c›\n- **D:** ‹d›\n');
+    const result = await exec([
+      // Каждый ход реально убирает одно место ПЕРЕД FinalizeArtifact — счёт убывает
+      // 3 → 2 → 1 (три ПОДРЯД отказа, полное окно детектора), но монотонно вниз, а не
+      // «не убывает» — срабатывать детектор не должен, хотя FinalizeArtifact вызван
+      // трижды подряд и всякий раз отклонён (артефакт ещё не пуст).
+      { text: '', toolCalls: [editCall('e1', artifact, '‹a›', 'значение A'), finalizeCall('exploration-report.md')] },
+      { text: '', toolCalls: [editCall('e2', artifact, '‹b›', 'значение B'), finalizeCall('exploration-report.md')] },
+      { text: '', toolCalls: [editCall('e3', artifact, '‹c›', 'значение C'), finalizeCall('exploration-report.md')] },
+      { text: 'ещё не готово, продолжаю' },
+    ]).run(request(root, { maxTurns: 10 }), hooks({ results: [] }));
+
+    ok(!result.note.includes('зациклился'), result.note);
   });
 });
 
