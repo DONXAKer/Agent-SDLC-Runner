@@ -68,7 +68,9 @@ import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { normalize } from '../exec/normalize.ts';
 import { isToolName } from '../exec/toolSpecs.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
+import { edgeExampleLines } from '../artifacts/edgeExample.ts';
 import { createProvider } from '../provider/registry.ts';
+import type { TraceLabel } from '../provider/rawLog.ts';
 import type {
   ExecHooks,
   FrictionKind,
@@ -109,6 +111,7 @@ import { StepExecutor } from '../exec/StepExecutor.ts';
 import { humanFactsBlock } from '../prompt/build.ts';
 import { appendIteration, parseIterations } from './iterationsLog.ts';
 import { postmortemBlock } from './postmortem.ts';
+import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
 import type { Escalation } from './escalation.ts';
 import { readReport } from '../verdict/collect.ts';
@@ -1122,7 +1125,7 @@ export class Run {
 
     const limits = this.config.runner.limits;
     const calls = await fillClaims({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace('verify', 'claimFill')),
       model: route.model,
       params: route.params,
       system,
@@ -1287,13 +1290,17 @@ export class Run {
     });
 
     const fill = await new FormFillExecutor({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill')),
       maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
       readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
       bashTimeoutMs: limits.gateTimeoutMs,
       params: route.params,
       currency: route.providerDef.currency ?? 'USD',
       compact: route.compactForms === 'fill' || route.compactForms === 'all',
+      // Образец граничного пункта — из примера эталона, читается в рантайме:
+      // замер 2026-09-04 показал ноль `[edge]` в 4 прогонах из 5, а просьба
+      // называла только формат (`artifacts/edgeExample.ts`).
+      edgeExample: edgeExampleLines(this.config.runner.methodologyDir),
       stage,
     }).run(
       {
@@ -1660,7 +1667,7 @@ export class Run {
   ): Promise<void> {
     const limits = this.config.runner.limits;
     const calls = await fillClaims({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace('verify', 'claimFill')),
       model: route.model,
       params: route.params,
       system: prompt.system,
@@ -1809,6 +1816,27 @@ export class Run {
     this.findingRecords = primaryFindings;
   }
 
+  /**
+   * Метка сырого дампа запросов к модели (`provider/rawLog.ts`) — корпус «вход → выход»
+   * для замеров и обучения. Собирается здесь, потому что только виток знает слаг и номер
+   * попытки; сам дамп выключен, пока не задан `SDLC_RAW_LOG_DIR`.
+   */
+  private trace(stage: StageId, mode: TraceLabel['mode']): TraceLabel {
+    return { slug: this.slug, stage, mode, attempt: this.attempt };
+  }
+
+  /**
+   * Исполняется ли этап заполнением по полям (`FormFillExecutor`) целиком.
+   *
+   * Одно место решения на двоих: по нему выбирается исполнитель И собирается промпт.
+   * Пока условие было только внутри `executorFor`, промпт про режим не знал и обещал
+   * модели инструменты, которых в поштучном запросе нет, — замер 2026-09-04 показал, чем
+   * это кончается (`BuildPromptInput.formFill`).
+   */
+  private usesFormFill(stage: StageId, route: ResolvedRoute): boolean {
+    return route.formFill && FORM_FILL_STAGES.has(stage);
+  }
+
   private executorFor(stage: StageId, forRoute?: ResolvedRoute): StageExecutor {
     const route = forRoute ?? this.profile.routes[stage];
     if (route.flow === 'sdk') {
@@ -1832,9 +1860,9 @@ export class Run {
     // Режим заполнения по полям — только там, где этап и есть заполнение бланка.
     // Explore сюда не входит: его отчёт пишется по результатам разведки субагентами,
     // а не выводится из входов; chunk/verify — тем более.
-    if (route.formFill && FORM_FILL_STAGES.has(stage)) {
+    if (this.usesFormFill(stage, route)) {
       return new FormFillExecutor({
-        provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+        provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill')),
         maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
         readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
         bashTimeoutMs: limits.gateTimeoutMs,
@@ -1842,6 +1870,10 @@ export class Run {
         currency: route.providerDef.currency ?? 'USD',
         // Схема формы вместо сплошного текста — см. `ModelDef.compactForms`.
         compact: route.compactForms === 'fill' || route.compactForms === 'all',
+        // Образец граничного пункта — из примера эталона, читается в рантайме:
+        // замер 2026-09-04 показал ноль `[edge]` в 4 прогонах из 5, а просьба
+        // называла только формат (`artifacts/edgeExample.ts`).
+        edgeExample: edgeExampleLines(this.config.runner.methodologyDir),
         stage,
       });
     }
@@ -1890,7 +1922,7 @@ export class Run {
       const testsRow = gates?.rows.find((r) => gateKey(r.name) === gateKey('Тесты') && r.enabled);
       const checkLabel = [buildRow?.name, testsRow?.name].filter((n): n is string => n !== undefined).join(' + ');
       return new StepExecutor({
-        provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+        provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'step')),
         maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
         readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
         bashTimeoutMs: limits.gateTimeoutMs,
@@ -1931,7 +1963,7 @@ export class Run {
     }
 
     return new LoopExecutor({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs),
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'loop')),
       // Свой потолок у локального контура: общий рассчитан на большое окно, а здесь один
       // `Read` по нему забирал почти весь контекст 16K — измерено на прогоне.
       maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
@@ -1987,6 +2019,9 @@ export class Run {
       flow: route.flow,
       slug: this.slug,
       compactForms: route.compactForms,
+      // Тем же условием, каким выбирается исполнитель: промпт обязан знать, что
+      // инструментов в запросах этого этапа не будет.
+      formFill: this.usesFormFill(stage, route),
       // Эффективный набор, а не `stage.tools`: урезание `leanTools` обязано быть видно
       // в промпте — панель показывает ровно тот список, с которым уйдёт запрос.
       // MCP-права здесь не нужны: у внешних инструментов своя строка в adapter-блоке.
@@ -3180,7 +3215,21 @@ export class Run {
           ? this.paths.chunkJournal(this.chunk)
           : stage === 'verify'
             ? this.paths.verificationReport(this.chunk, this.attempt)
-            : null;
+            : // Разведка — с 2026-09-04. Раньше её здесь не было потому, что этап сгорал
+              // не на оформлении: живой прогон показал, как модель тратила ход на
+              // ПРОДУКТОВЫЙ КОД (это закрыто политикой: до плана запись сужена до
+              // артефактов витка). После починки картина другая — 25 ходов уходят на сам
+              // отчёт, и этап падает с «исчерпан лимит ходов» при 17 незаполненных местах,
+              // то есть ровно в `closableFailure`, ради которого добор и заведён.
+              //
+              // Заменить исполнителя целиком (`FORM_FILL_STAGES`) здесь нельзя и не нужно:
+              // у `FormFillExecutor` нет ни `Read`, ни `Task`, а разведка без чтения кода —
+              // это отчёт о том, что придётся тронуть, написанный по воображению. Добор
+              // идёт ПОСЛЕ хода: инструменты у разведки остаются, рантайм снимает с неё
+              // только цену оформления бланка.
+              stage === 'explore'
+              ? this.paths.explorationReport
+              : null;
       // В режиме по шагам (`stepFill`) журнал chunk'а исполнитель не пишет по построению:
       // дозаполнение по полям идёт с отчётом о шагах во входе — иначе поля «что сделано»
       // заполнялись бы по памяти, которой у режима нет. Но только если хоть один шаг дал
@@ -3285,7 +3334,16 @@ export class Run {
       this.gate.cancelRun(this.id, `этап оборван: ${message}`);
       this.askGate.cancelRun(this.id);
       this.emit({ type: 'error', runId: this.id, stage, message });
-      return { ok: false, finalText: '', usage: emptyUsage(), note: message };
+      // Отказ среды называется признаком, а не только текстом: обычный цикл (LoopExecutor)
+      // поднимает ошибку провайдера сюда целиком, и без этого прогон, где апстрим не
+      // ответил, был бы неотличим от прогона, где модель не справилась.
+      return {
+        ok: false,
+        finalText: '',
+        usage: emptyUsage(),
+        note: message,
+        ...(e instanceof ProviderEnvError ? { envFailure: message } : {}),
+      };
     } finally {
       stat.durationMs += Date.now() - stageStartedAt;
       this.aborter = null;

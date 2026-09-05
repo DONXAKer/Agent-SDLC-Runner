@@ -1,0 +1,161 @@
+{
+  "run": {
+    "slug": "min14-v2-tz-deadline",
+    "model": "polza:ministral-14b",
+    "task": "tz-deadline",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T21:38:59.070Z",
+    "finishedAt": "2026-09-04T21:40:10.866Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 19, осталось на диске 19; поле не спрошено (.sdlc/min14-v2-tz-deadline/intent.md, строка таблицы): polza: HTTP 503 от https://api.polza.ai/api/v1 — {\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":\"Сервис временно недоступен. Попробуйте позже.\",\"metadata\":{\"r",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "envFailure": "polza: HTTP 503 от https://api.polza.ai/api/v1 — {\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":\"Сервис временно недоступен. Попробуйте позже.\",\"metadata\":{\"raw\":\"Провайдер вернул finish_reason: \\\"error\\\" для модели mistralai/ministral-14b-2512 — ответ может быть обрезан\"}},\"trace_id\":\"7548d4a8-474d-4383-87ec-b10715047e25\"}"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в /private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-gJdbuZ/.sdlc/min14-v2-tz-deadline/intent.md осталось незаполненных мест: 2 — артефакт не готов\nприёмочный лист короче минимума этапа 1: пунктов 1 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)",
+        "blockers": [
+          "в /private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-gJdbuZ/.sdlc/min14-v2-tz-deadline/intent.md осталось незаполненных мест: 2 — артефакт не готов",
+          "приёмочный лист короче минимума этапа 1: пунктов 1 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 129081,
+          "outputTokens": 5891,
+          "cacheReadTokens": 113408,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.79575653,
+          "durationMs": 125248
+        },
+        "durationMs": 71791
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:abcff8ff-07bd-4634-8056-f84ff04f9564",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v2-tz-deadline/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:d144bab5-6ed6-4d52-b497-7319ee43d515",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v2-tz-deadline/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10043,
+        "userChars": 5171,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

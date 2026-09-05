@@ -1,0 +1,405 @@
+{
+  "run": {
+    "slug": "min14-cycle-external-contract",
+    "model": "polza:ministral-14b",
+    "task": "external-contract",
+    "fixtureDir": "fixtures/payments-mock",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T19:09:59.051Z",
+    "finishedAt": "2026-09-04T19:12:55.303Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 20, осталось на диске 18; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель завершила ход; решение человека не записалось: в артефакте нет поля «Решение человека о полноте» — форма не соответствует шаблону методологии",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 121827,
+          "outputTokens": 6142,
+          "cacheReadTokens": 79872,
+          "cacheWriteTokens": 0,
+          "costUsd": 1.35631787,
+          "durationMs": 93604
+        },
+        "durationMs": 47961
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 267337,
+          "outputTokens": 7876,
+          "cacheReadTokens": 235904,
+          "cacheWriteTokens": 0,
+          "costUsd": 1.5211339199999998,
+          "durationMs": 128209
+        },
+        "durationMs": 128285
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 22,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:45f72f92-b328-47b5-9634-fe921502f5f6",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cycle-external-contract/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:72028214-5d5c-4b68-8c21-ef763d36ddc8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cycle-external-contract/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:cb26e975-9d87-4456-94ce-0c76fa9d24d9",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:36ce3602-a6ed-4bc4-9073-60f45645f128",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:3017c294-52ef-4e0b-adbc-07fd7a88db45",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-external-contract/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:57bdf72b-04c1-43b5-8ce7-58f54ab1963e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-external-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f5211930-e76d-4dc4-85b3-06b4eb167f82",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-external-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d6259b7f-c3e5-431e-b850-64a72373c2d1",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-external-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ee98d54c-8829-4378-ac84-1d4c3fedf719",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-external-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:79c5a4f7-3dac-4d94-bf09-052f14a61c89",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-external-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d3072b5e-27f3-4d87-83e1-8cd9d0b8d7b7",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cycle-external-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:75e32a94-ce40-4539-9d26-c73925ad9383",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Подтвердите, что отчёт разведки заполнен корректно и можно переходить к этапу планирования (/sdlc-plan)."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Отчёт разведки заполнен и готов к проверке. Можно ли переходить к этапу планирования (/sdlc-plan)?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10088,
+        "userChars": 3676,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9568,
+        "userChars": 13996,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-0249a09a-6e68-45ed-a7f1-b330a36ad876-1",
+        "questionId": "q1",
+        "text": "Подтвердите, что отчёт разведки заполнен корректно и можно переходить к этапу планирования (/sdlc-plan)."
+      },
+      {
+        "stage": "explore",
+        "requestId": "ask-0249a09a-6e68-45ed-a7f1-b330a36ad876-2",
+        "questionId": "q1",
+        "text": "Отчёт разведки заполнен и готов к проверке. Можно ли переходить к этапу планирования (/sdlc-plan)?"
+      }
+    ]
+  },
+  "seed": null
+}

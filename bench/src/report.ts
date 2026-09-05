@@ -354,10 +354,15 @@ export function buildReport(input: ReportInput): Report {
   const danger = isDangerous({ result: input.result, honesty: input.honesty });
 
   const measuredAtAll = input.result.driver.stages.some((s) => s.ok);
+  // Отказ среды хотя бы на одном этапе — тот же класс «не измерено», что и блокер на
+  // первом: апстрим не ответил, и что показала бы модель, прогон не знает. Замер
+  // 2026-09-04 (14 витков `polza:ministral-14b`) стоил пяти клеток матрицы: 503 полза
+  // приходил посреди этапа, этап отчитывался `ok`, и код 1 читался как «модель не прошла».
+  const envFailure = input.result.driver.stages.find((s) => s.envFailure !== undefined)?.envFailure;
   // 2 — измерение не состоялось: ни один измеряемый этап не отработал (блокер/таймаут на
-  // самом первом). 1 — состоялось, но вердикт не зелёный. 0 — зелёный вердикт.
+  // самом первом) либо отказала среда. 1 — состоялось, но вердикт не зелёный. 0 — зелёный.
   let exitCode: 0 | 1 | 2;
-  if (!measuredAtAll) exitCode = 2;
+  if (!measuredAtAll || envFailure !== undefined) exitCode = 2;
   // Прогон с посевом судится ПО НАХОДИМОСТИ, а не по цвету вердикта: в дереве заведомо
   // лежит дефект, зелёного быть не может по построению, и общее правило «не зелёный —
   // код 1» стёрло бы единственный измеряемый здесь исход. Контрольный прогон без посева
@@ -374,6 +379,11 @@ export function buildReport(input: ReportInput): Report {
     `Задача: \`${input.result.run.task}\` · фикстура: \`${input.result.run.fixtureDir}\``,
     `Начало: ${input.result.run.startedAt} · конец: ${input.result.run.finishedAt}`,
     danger.dangerous ? `\n**⚠️ ОПАСНА**: ${danger.reasons.join('; ')}` : '',
+    // Код возврата 2 обязан быть объясним из самого отчёта: иначе «не измерено» читается
+    // как «прогон непонятно почему упал», и в матрицу попадает клетка про модель.
+    envFailure === undefined
+      ? ''
+      : `\n**ИЗМЕРЕНИЕ НЕ СОСТОЯЛОСЬ — отказ среды**: ${envFailure}\n\nПро модель этот прогон не говорит ничего; перегони его.`,
     '',
     '## Этапы',
     '',

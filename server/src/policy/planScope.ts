@@ -96,6 +96,33 @@ function checkOnePath(ctx: PolicyContext, userPath: string): PolicyVerdict {
   return denied(ctx, userPath, `«${userPath}» не входит в files_to_touch одобренного плана.`);
 }
 
+/**
+ * Запись до того, как план существует.
+ *
+ * Раньше здесь стоял `POLICY_OK` всему, кроме защищённых артефактов: `planScope` включался
+ * только при готовом плане, и до него границей оставался лишь `pathScope` — «внутри
+ * проекта». Живой прогон 2026-09-04 показал цену: на этапе РАЗВЕДКИ модель создала
+ * `src/oversize-checker.ts`, трижды правила `src/tariffs.ts` и написала тест — до всякого
+ * плана и до одобрения человеком. Политика это пропустила по построению, а не по ошибке.
+ *
+ * Правило простое и совпадает с методологией: пока плана нет, этап пишет только артефакты
+ * процесса СВОЕГО витка. Продуктовый код появляется на этапе 5 и только по одобренному
+ * плану — в этом и смысл `planScope`, просто он начинался слишком поздно.
+ *
+ * `rel === null` — путь вне проекта: это дело `pathScope`, он идёт раньше и уже сказал своё.
+ */
+function beforePlan(ctx: PolicyContext, userPath: string, rel: string | null): PolicyVerdict {
+  if (rel === null) return POLICY_OK;
+  if (isOwnProcessArtifact(rel, ctx)) return POLICY_OK;
+  return policyDeny(
+    'planScope',
+    `запись в «${userPath}» отклонена: одобренного плана ещё нет, а до него этап пишет ` +
+      `только артефакты процесса своего витка (${ctx.sdlcDir}/). Продуктовый код и тесты ` +
+      `правятся на этапе реализации по плану, который человек одобрил, — не раньше и не ` +
+      `побочным эффектом другого этапа.`,
+  );
+}
+
 export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
   // Защищённые артефакты действуют всегда, даже до плана: одобрение, записанное на
   // этапе 4, не должно переживать правку на этапе 4 же.
@@ -107,7 +134,7 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
       if (!planActive) {
         const rel = relativizeWithin(ctx.projectRoot, resolveUserPath(ctx.projectRoot, call.path));
         if (rel !== null && isProtected(rel, ctx)) return checkOnePath(ctx, call.path);
-        return POLICY_OK;
+        return beforePlan(ctx, call.path, rel);
       }
       return checkOnePath(ctx, call.path);
     }
@@ -125,7 +152,14 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
             ctx.projectRoot,
             resolveUserPath(ctx.projectRoot, target.path),
           );
-          if (rel === null || !isProtected(rel, ctx)) continue;
+          if (rel !== null && !isProtected(rel, ctx)) {
+            // Редирект — та же запись. Закрывать её только для Write/Edit было бы дырой
+            // ровно того размера, ради которой этот лексер и написан.
+            const v = beforePlan(ctx, target.path, rel);
+            if (!v.ok) return v;
+            continue;
+          }
+          if (rel === null) continue;
         }
         const v = checkOnePath(ctx, target.path);
         if (!v.ok) return v;

@@ -1,0 +1,339 @@
+{
+  "run": {
+    "slug": "intent-gptoss-20b-v1",
+    "model": "ollama:gpt-oss-20b",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "claude-sdk:sonnet",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-09-04T04:53:51.867Z",
+    "finishedAt": "2026-09-04T05:07:00.996Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "приёмочный лист короче минимума этапа 1: пунктов 4 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)",
+        "blockers": [
+          "приёмочный лист короче минимума этапа 1: пунктов 4 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 277468,
+          "outputTokens": 9714,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 788767
+        },
+        "durationMs": 789121
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 2,
+        "truncated": 0,
+        "toolCalls": 23,
+        "reminders": 2
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "loop:9e5c889e-e5f7-4233-90df-61bb21d7d5bf",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/intent-gptoss-20b-v1/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:11a932b1-6510-4ae9-92a8-7e7e6ff34242",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:584663a9-6923-41f3-8253-0673acc1fcb0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/intent-gptoss-20b-v1/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:c9544e37-1d34-4d6f-868b-7564e3e76737",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/intent-gptoss-20b-v1/intent.md"
+        ],
+        "destructive": "перезапись .sdlc/intent-gptoss-20b-v1/intent.md целиком: было 50 строк, станет 2 (−48). Автоодобрение на такой вызов не распространяется",
+        "outcome": "denied",
+        "why": "destructiveOverwrite → deny (перезапись .sdlc/intent-gptoss-20b-v1/intent.md целиком: было 50 строк, станет 2 (−48). Автоодобрение на такой вызов не распространяется)",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:b4cd0527-4578-4926-82c5-7e5d18f190d1",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/intent-gpt‑20b-v1/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:2fb528cf-9d69-48b5-9146-c7e363f261cf",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-8N7zFA/.sdlc/intent-gptoss-20b-v1/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "loop:a7d8c8c8-e50f-4bee-a21b-7a2de2ae1b4b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-8N7zFA/.sdlc/intent-gptoss-20b-v1/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Какое короткое название задачи, которое будет использовано как заголовок в intent.md?"
+          },
+          {
+            "id": "q2",
+            "question": "Какие именно файлы в проекте будут изменены в ходе выполнения задачи? (например, \"src/tariffs.ts\", \"src/oversizeRule.ts\" и т.д.)"
+          },
+          {
+            "id": "q3",
+            "question": "Нужно ли создать новый модуль для правил невегабаритности, и если да, то какой должен быть его путь и имя файла?"
+          },
+          {
+            "id": "q4",
+            "question": "Для списка приемочного контроля (acceptance checklist) необходимо определить конкретные проверки. Какие критерии вы хотите включить? Предоставьте перечень условий, которые должен проверить тесты и человек. (Если не уверены – можно уточнить позже)"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Укажите дату, которую нужно вставить для Прогон 1 и Прогон 2."
+          },
+          {
+            "id": "q2",
+            "question": "Назовите номера проверок, которые имеют тег [edge] в таблице Прогон 1."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": [
+      {
+        "requestId": "loop:e19fe481-fb52-4904-8434-e4051eaecb93",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10448,
+        "userChars": 4127,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-08364b1e-7c2e-4869-954a-af986c48cfda-1",
+        "questionId": "q1",
+        "text": "Какое короткое название задачи, которое будет использовано как заголовок в intent.md?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-08364b1e-7c2e-4869-954a-af986c48cfda-1",
+        "questionId": "q2",
+        "text": "Какие именно файлы в проекте будут изменены в ходе выполнения задачи? (например, \"src/tariffs.ts\", \"src/oversizeRule.ts\" и т.д.)"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-08364b1e-7c2e-4869-954a-af986c48cfda-1",
+        "questionId": "q3",
+        "text": "Нужно ли создать новый модуль для правил невегабаритности, и если да, то какой должен быть его путь и имя файла?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-08364b1e-7c2e-4869-954a-af986c48cfda-1",
+        "questionId": "q4",
+        "text": "Для списка приемочного контроля (acceptance checklist) необходимо определить конкретные проверки. Какие критерии вы хотите включить? Предоставьте перечень условий, которые должен проверить тесты и человек. (Если не уверены – можно уточнить позже)"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-08364b1e-7c2e-4869-954a-af986c48cfda-2",
+        "questionId": "q1",
+        "text": "Укажите дату, которую нужно вставить для Прогон 1 и Прогон 2."
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-08364b1e-7c2e-4869-954a-af986c48cfda-2",
+        "questionId": "q2",
+        "text": "Назовите номера проверок, которые имеют тег [edge] в таблице Прогон 1."
+      }
+    ]
+  },
+  "seed": null
+}

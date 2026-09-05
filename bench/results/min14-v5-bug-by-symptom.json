@@ -1,0 +1,159 @@
+{
+  "run": {
+    "slug": "min14-v5-bug-by-symptom",
+    "model": "polza:ministral-14b",
+    "task": "bug-by-symptom",
+    "fixtureDir": "fixtures/billing-bug",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-05T00:39:30.597Z",
+    "finishedAt": "2026-09-05T00:40:21.059Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 19, осталось на диске 19; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в /private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-5L4sDe/.sdlc/min14-v5-bug-by-symptom/intent.md осталось незаполненных мест: 1 — артефакт не готов",
+        "blockers": [
+          "в /private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-5L4sDe/.sdlc/min14-v5-bug-by-symptom/intent.md осталось незаполненных мест: 1 — артефакт не готов"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 124350,
+          "outputTokens": 5327,
+          "cacheReadTokens": 116864,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.59248368,
+          "durationMs": 99364
+        },
+        "durationMs": 50456
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:f3646987-a9af-4aa2-80cd-2af2996fd6df",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v5-bug-by-symptom/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:82ad649d-d858-4dcc-89f3-25a7f0295c8f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v5-bug-by-symptom/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10058,
+        "userChars": 3872,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

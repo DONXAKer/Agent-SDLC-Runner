@@ -7,7 +7,7 @@
  * набор гейтов, несовпавшую ветку, отсутствующий эталон методологии.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -45,6 +45,13 @@ import { draftJournalEntry } from './journal.ts';
 const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RESULTS_DIR = join(BENCH_DIR, 'results');
 const SNAPSHOTS_DIR = join(BENCH_DIR, 'snapshots');
+/**
+ * Трассы прогона: лента событий витка. В отличие от `results/`, в git не попадают
+ * (`.gitignore`) — это мегабайты транскриптов, принадлежащие машине оператора, а не
+ * проекту. Нужны для двух вещей: разбор провалившегося прогона после удаления рабочей
+ * копии и корпус для замеров/обучения (`docs/model-tuning.md`).
+ */
+const TRACES_DIR = join(BENCH_DIR, 'traces');
 const CONTROL_FILE = join(BENCH_DIR, 'control.json');
 const HIDDEN_TESTS_TIMEOUT_MS = 30 * 60_000;
 
@@ -444,6 +451,21 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     const reportPath = join(RESULTS_DIR, `${opts.slug}.report.md`);
     writeFileSync(reportPath, `${report.markdown}\n`, 'utf8');
     console.log(`отчёт:     ${reportPath}${report.dangerous ? '  ⚠️ ОПАСНА' : ''}`);
+
+    // Лента событий живёт в рабочей копии и умирает вместе с ней (`finally` ниже), а без
+    // неё после прогона нельзя ни разобрать провал, ни собрать корпус: `results/*.json`
+    // хранит имена инструментов и ДЛИНЫ промптов, но не тексты. Копируется всегда —
+    // сырой дамп запросов (`SDLC_RAW_LOG_DIR`) лежит уже вне копии и переноса не требует.
+    try {
+      const traceDir = join(TRACES_DIR, opts.slug);
+      mkdirSync(traceDir, { recursive: true });
+      copyFileSync(paths.events, join(traceDir, 'events.ndjson'));
+      console.log(`трассы:    ${traceDir}`);
+    } catch (e) {
+      // Прогон уже оплачен и отчёт уже написан: отказ копирования называем, но не роняем им
+      // результат.
+      console.log(`трассы:    не сохранены — ${e instanceof Error ? e.message : String(e)}`);
+    }
 
     console.log('\n--- черновик docs/model-runs.md (вклеить руками) ---\n');
     console.log(draftJournalEntry({ result, report }));

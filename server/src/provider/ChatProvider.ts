@@ -67,3 +67,21 @@ export interface ChatProvider {
   readonly name: string;
   chat(req: ChatRequest): Promise<ChatTurn>;
 }
+
+/**
+ * Отказ СРЕДЫ, а не модели: апстрим ответил 5xx/429 после всех повторов, оборвал
+ * соединение или не ответил за таймаут.
+ *
+ * Отдельный тип нужен ровно для одного — чтобы такой сбой не красил модель. Замер
+ * 2026-09-04 (14 витков `polza:ministral-14b` по семействам фикстур) показал цену смешения:
+ * пять прогонов встали на 503 полза-апстрима, ошибка ушла в заметку «поле не спрошено»,
+ * этап отчитался `ok`, и bench вернул код 1 — «модель не прошла» — там, где по конвенции
+ * `bench/README.md` полагается 2, «измерение не состоялось». По строке сообщения это не
+ * разобрать: `HTTP 503` и «ответ не разобрался как JSON» приходят одним `Error`.
+ */
+export class ProviderEnvError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ProviderEnvError';
+  }
+}

@@ -26,7 +26,11 @@ function baseCtx(root: string, overrides: Partial<PolicyContext> = {}): PolicyCo
     projectRoot: root,
     stage: 'chunk',
     sdlcDir: '.sdlc/bench-x',
-    planFiles: null,
+    // План у этапа 5 есть ВСЕГДА: без `plan.md` рантайм туда не пускает, а с 2026-09-04
+    // `planScope` действует и до плана (запись сужена до артефактов витка). `null` здесь
+    // проверял бы состояние, которого в живом прогоне не бывает, и гейт одобрения — то,
+    // ради чего эти кейсы и написаны, — до автоответчика бы не доехал.
+    planFiles: ['src/tariffs.ts', 'src/discounts.ts', 'src/oversize.ts'],
     protectedArtifacts: [],
     readOnlyRoots: [],
     allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'AskHuman'],

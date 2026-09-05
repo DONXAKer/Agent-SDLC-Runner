@@ -1,0 +1,577 @@
+{
+  "run": {
+    "slug": "min14-v5-broken-test",
+    "model": "polza:ministral-14b",
+    "task": "broken-test",
+    "fixtureDir": "fixtures/broken-assert",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-05T00:31:50.674Z",
+    "finishedAt": "2026-09-05T00:35:25.912Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 20, осталось на диске 18; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап зациклился на правке «.sdlc/min14-v5-broken-test/exploration-report.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (26 → 26 → 26) — правки идут, но не закрывают нужные места",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 119177,
+          "outputTokens": 4346,
+          "cacheReadTokens": 110976,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.5718115100000001,
+          "durationMs": 53830
+        },
+        "durationMs": 28037
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 400528,
+          "outputTokens": 15947,
+          "cacheReadTokens": 361344,
+          "cacheWriteTokens": 0,
+          "costUsd": 2.2071259500000004,
+          "durationMs": 198317
+        },
+        "durationMs": 187193
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 6,
+        "toolCalls": 30,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:008bcb80-947e-4265-971b-0ecf15ea2a91",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:a1fabbfe-bb5f-424f-8b17-67b5bfd70d24",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b143d625-a538-4e70-ba0f-56e799ec7866",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:22e656b4-ea66-4d85-953f-a05d09a8a0ef",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c86c39e5-047a-4454-b354-2bca65c0fb69",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9a97043d-458b-4ca8-b93e-0441f07fc873",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f66e6901-b8a3-4991-a79a-61ea0ec15b7c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5484eed3-c5d7-4f44-997f-40e5a3bab3ac",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f905c2a4-0de7-44f1-b684-16348cc3c4f6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a4b69876-e5d6-4479-9b7b-8605a2bd589c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:922d3669-78a7-464c-b7fc-0e419c84bad4",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e6b799fc-6664-40e4-b0e6-cfcd0e1eddcd",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5997ffee-ff0e-4e65-b414-560ce5fb7ea2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9045714b-a6b4-4948-8a87-e1af5c74c5b8",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f9b6acb6-3c80-4cab-b1d4-e7cadcd318b7",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:999c725b-28b7-4e76-93b8-b5ba1994a0a0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e625dd47-fd8a-4ec9-8d99-beb16fe5d67b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:af665d51-c462-450e-a2fb-93e8d50c1c51",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7c6e7b9a-13bf-47ed-842a-86105dcfc3a9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b57919d0-1c37-41ab-ac45-4953055a76e8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:66fbaf31-e987-46df-8118-8005c34cdbf8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:342f5c1f-a1a1-4e09-a445-6aef8cf79fe7",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:a9ee1028-b833-42c8-9280-d1fa6ea47a7f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v5-broken-test/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Верно ли, что в приёмочном листе задачи `min14-v5-broken-test` есть не менее трёх пунктов, из которых не менее двух помечены тегом `[edge]`, и все они содержат заполненную колонку «Как проверить»? Если да, то можно продолжить разведку. Если нет, уточните, что требует исправления."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10043,
+        "userChars": 3314,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9523,
+        "userChars": 12700,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-8dc70b23-4f47-454a-9eaa-ffc096a8cd6a-1",
+        "questionId": "q1",
+        "text": "Верно ли, что в приёмочном листе задачи `min14-v5-broken-test` есть не менее трёх пунктов, из которых не менее двух помечены тегом `[edge]`, и все они содержат заполненную колонку «Как проверить»? Если да, то можно продолжить разведку. Если нет, уточните, что требует исправления."
+      }
+    ]
+  },
+  "seed": null
+}

@@ -1,0 +1,515 @@
+{
+  "run": {
+    "slug": "min14-v2-idempotent-retry",
+    "model": "polza:ministral-14b",
+    "task": "idempotent-retry",
+    "fixtureDir": "fixtures/notify",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T21:40:11.541Z",
+    "finishedAt": "2026-09-04T21:43:25.099Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 19, осталось на диске 19; добор листа приёмки (попытка 1): модель вернула 6 строк, добавлено 6 — теперь пунктов 12, [edge] 6",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "исчерпан лимит ходов этапа (25)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 126232,
+          "outputTokens": 6939,
+          "cacheReadTokens": 105344,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.9277167299999998,
+          "durationMs": 118541
+        },
+        "durationMs": 65849
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 542333,
+          "outputTokens": 7900,
+          "cacheReadTokens": 479616,
+          "cacheWriteTokens": 0,
+          "costUsd": 2.8676574400000003,
+          "durationMs": 132264
+        },
+        "durationMs": 127705
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 2,
+        "toolCalls": 28,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:907b895d-fc2a-4357-a9e7-7c69910e4ecd",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:4a5efecc-de00-4aa6-985a-e50e6fb82020",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:375237b2-adb7-4e35-98a9-16925db0fb9b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0e54751b-fd3f-43a9-9b95-067cecb967a9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:66a517db-89c9-42ee-ace0-293c557897de",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d69b09f9-2bdc-4ffb-ae52-05a01f274321",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5399bc29-a56e-47b2-b560-e4f2997125bb",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c5fe129c-a541-4ea0-9aa7-cda6ac5d7f8e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": "перезапись .sdlc/min14-v2-idempotent-retry/exploration-report.md стирает поле решения человека: «Решение человека о полноте». Это поле заполняет человек, а не модель: верни его в текст (правь фрагмент через Edit, а не переписывай файл целиком)",
+        "outcome": "denied",
+        "why": "destructiveOverwrite → deny (перезапись .sdlc/min14-v2-idempotent-retry/exploration-report.md стирает поле решения человека: «Решение человека о полноте». Это поле заполняет человек, а не модель: верни его в текст (правь фрагмент через Edit, а не переписывай файл целиком))",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1dd47cd8-3d18-46ba-80f7-e38ec6e5f2d6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:3f370e54-d10a-4901-89ee-93ae6fdf0cc1",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:12292c9d-f790-4904-8863-1d0242e9d35c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7411644a-4cf0-4422-9727-e2553fdfb360",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:fbc142d3-ddc5-4e0c-84bf-a10f22c4fe4e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:dea9e339-45f5-45fa-893a-aa1e625f493b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:44c84035-46a1-47f5-9eeb-1fed3f976769",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9470cff0-2300-4d8d-9336-6c0cab9a97ae",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c614385b-918f-4ed7-b3dd-233387a91a3f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a382ddbd-8066-406f-9f3a-f9387551733e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:3dd2fc87-2117-4c61-86b9-84df50d08a7a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v2-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "В файле `intent.md` приёмочный лист выглядит заполненным, но в `readiness.md` указано, что задача не готова из-за отсутствия примеров для проверки и неполных процедур. Требуется ли доработать приёмочный лист перед продолжением разведки?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10068,
+        "userChars": 4091,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9548,
+        "userChars": 12594,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-e89f857b-7c40-4931-a9a7-54bd490f43d2-1",
+        "questionId": "q1",
+        "text": "В файле `intent.md` приёмочный лист выглядит заполненным, но в `readiness.md` указано, что задача не готова из-за отсутствия примеров для проверки и неполных процедур. Требуется ли доработать приёмочный лист перед продолжением разведки?"
+      }
+    ]
+  },
+  "seed": null
+}

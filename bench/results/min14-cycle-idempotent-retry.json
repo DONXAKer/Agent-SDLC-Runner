@@ -1,0 +1,201 @@
+{
+  "run": {
+    "slug": "min14-cycle-idempotent-retry",
+    "model": "polza:ministral-14b",
+    "task": "idempotent-retry",
+    "fixtureDir": "fixtures/notify",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T19:03:36.675Z",
+    "finishedAt": "2026-09-04T19:05:01.954Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 20, осталось на диске 18; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "polza: HTTP 503 от https://api.polza.ai/api/v1 — {\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":\"Сервис временно недоступен. Попробуйте позже.\",\"metadata\":{\"raw\":\"Провайдер вернул finish_reason: \\\"error\\\" для модели mistralai/ministral-14b-2512 — ответ может быть обрезан\"}},\"trace_id\":\"55743b7d-a93d-4fd6-b1b5-f553a6acee30\"}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 125231,
+          "outputTokens": 6058,
+          "cacheReadTokens": 117632,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.61475196,
+          "durationMs": 77420
+        },
+        "durationMs": 42407
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 50461,
+          "outputTokens": 2142,
+          "cacheReadTokens": 37888,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.4474885,
+          "durationMs": 21102
+        },
+        "durationMs": 42866
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 11,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:2599310c-08bd-4708-a181-a513fc4bbe45",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cycle-idempotent-retry/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:46021e83-7503-4021-9c7a-f3264629bf62",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cycle-idempotent-retry/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:191a1e1b-c79a-493f-9753-744f49dd751f",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10083,
+        "userChars": 4091,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9563,
+        "userChars": 14033,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

@@ -30,6 +30,8 @@ import type {
   ChatTurn,
   FinishReason,
 } from './ChatProvider.ts';
+import { ProviderEnvError } from './ChatProvider.ts';
+import { dumpExchange, type TraceLabel } from './rawLog.ts';
 
 interface OpenAiChoice {
   message?: {
@@ -59,6 +61,20 @@ export interface OpenAiCompatOptions {
   baseUrl: string;
   apiKey: string | null;
   timeoutMs: number;
+  /**
+   * Метка для сырого дампа (`rawLog.ts`). Задаётся на экземпляр, потому что экземпляр и
+   * создаётся под конкретный этап и режим. Не задана — дампа нет независимо от окружения:
+   * запрос без метки в корпусе бесполезен, разложить его по мишеням нечем.
+   */
+  trace?: TraceLabel;
+  /**
+   * Пауза между повторами транзиентного отказа. Умолчание — `CHAT_RETRY_DELAY_MS`.
+   *
+   * Ручка заведена ради тестов классификации «среда против модели»: они обязаны дойти до
+   * ИСЧЕРПАНИЯ повторов (иначе проверяют не тот путь), а на боевой паузе это тридцать
+   * секунд на набор, который весь укладывается в полторы.
+   */
+  retryDelayMs?: number;
 }
 
 function parseArguments(raw: unknown): { args: Record<string, unknown> | null; text: string } {
@@ -217,10 +233,12 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
 export class OpenAiCompatProvider implements ChatProvider {
   readonly name: string;
   private readonly o: OpenAiCompatOptions;
+  private readonly retryDelayMs: number;
 
   constructor(o: OpenAiCompatOptions) {
     this.name = o.name;
     this.o = o;
+    this.retryDelayMs = o.retryDelayMs ?? CHAT_RETRY_DELAY_MS;
   }
 
   async chat(req: ChatRequest): Promise<ChatTurn> {
@@ -296,13 +314,19 @@ export class OpenAiCompatProvider implements ChatProvider {
         // Таймаут попытки — своим именем: reject несёт общий destroy-текст «запрос
         // отменён», и зависший сервер выглядел бы отменой оператора (ревью-3, класс К16).
         if (timeout.aborted) {
-          throw new Error(`${this.name}: ответ не получен за ${this.o.timeoutMs} мс — таймаут запроса`, {
+          throw new ProviderEnvError(`${this.name}: ответ не получен за ${this.o.timeoutMs} мс — таймаут запроса`, {
             cause: e,
           });
         }
         const code = (e as NodeJS.ErrnoException).code;
-        if (code === undefined || !TRANSIENT_NET_CODES.has(code) || attempt > CHAT_RETRIES) throw e;
-        await abortableDelay(CHAT_RETRY_DELAY_MS * attempt, req.signal);
+        // Запрос не дошёл до модели ни разу — мерить нечего ни при транзиентном коде,
+        // исчерпавшем повторы, ни при постоянном (ENOTFOUND: адрес провайдера неверен).
+        if (code === undefined || !TRANSIENT_NET_CODES.has(code) || attempt > CHAT_RETRIES) {
+          throw new ProviderEnvError(`${this.name}: сетевой сбой ${code ?? 'без кода'} — ${(e as Error).message}`, {
+            cause: e,
+          });
+        }
+        await abortableDelay(this.retryDelayMs * attempt, req.signal);
         if (req.signal.aborted) {
           throw new Error(`${this.name}: запрос отменён во время паузы повтора (после сетевого сбоя ${code})`);
         }
@@ -310,14 +334,31 @@ export class OpenAiCompatProvider implements ChatProvider {
       }
       const transient = status === 429 || status >= 500;
       if (!transient || attempt > CHAT_RETRIES) break;
-      await abortableDelay(CHAT_RETRY_DELAY_MS * attempt, req.signal);
+      await abortableDelay(this.retryDelayMs * attempt, req.signal);
       if (req.signal.aborted) {
         throw new Error(`${this.name}: запрос отменён во время паузы повтора (последний ответ: HTTP ${status})`);
       }
     }
 
+    // Дамп до проверки статуса: неудачный ответ для корпуса ценнее молчания — по нему
+    // видно, чем именно кончился ход (обрыв по длине, отказ сервера на схемах инструментов).
+    if (this.o.trace !== undefined) {
+      dumpExchange(this.o.trace, {
+        provider: this.name,
+        model: req.model,
+        request: body,
+        response: text,
+        status,
+        durationMs: Date.now() - started,
+      });
+    }
+
     if (status < 200 || status >= 300) {
-      throw new Error(`${this.name}: HTTP ${status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`);
+      const message = `${this.name}: HTTP ${status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`;
+      // 429/5xx дожили сюда, только исчерпав повторы выше — это отказ апстрима, и красить
+      // им модель нельзя. Прочие 4xx — про сам запрос (схема инструментов, ключ), и они
+      // остаются обычной ошибкой: чинится она правкой, а не повтором прогона.
+      throw status === 429 || status >= 500 ? new ProviderEnvError(message) : new Error(message);
     }
 
     let data: OpenAiResponse;

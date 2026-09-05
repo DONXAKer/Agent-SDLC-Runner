@@ -26,6 +26,11 @@ export interface DriverStageRecord {
   blockers: string[];
   timedOut: boolean;
   skipped: boolean;
+  /**
+   * Этап пострадал от отказа среды (апстрим не ответил / 5xx / 429 после повторов).
+   * Такой прогон моделью не измерен — по нему считается код возврата 2, см. `report.ts`.
+   */
+  envFailure?: string;
 }
 
 export type DriverStopReason =
@@ -206,6 +211,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       blockers: [],
       timedOut,
       skipped,
+      ...(result.envFailure === undefined ? {} : { envFailure: result.envFailure }),
     });
 
     if (timedOut) {

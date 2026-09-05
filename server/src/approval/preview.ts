@@ -12,6 +12,7 @@
 import { readFileSync, statSync } from 'node:fs';
 
 import { applyFill } from '../artifacts/applyFill.ts';
+import { findLooseRange } from '../exec/editMatch.ts';
 import { resolveUserPath } from '../policy/paths.ts';
 import { templateNameFor } from '../run/seed.ts';
 import type { ArtifactKey, DiffPreview, NormalizedCall } from '@sdlc-runner/shared';
@@ -36,7 +37,19 @@ export function applyEdits(
 
     const first = text.indexOf(e.oldStr);
     if (first < 0) {
-      throw new EditApplyError(`фрагмент не найден в файле: «${snippet(e.oldStr)}»`);
+      // Тот же запасной путь, что у инструмента (`exec/editMatch.ts`). Обе стороны обязаны
+      // применять правку ОДИНАКОВО: разойдись они — предпросмотр показывал бы оператору
+      // ошибку там, где запись пройдёт, и одобрять он стал бы не то, что случится.
+      const loose = e.replaceAll ? 'none' : findLooseRange(text, e.oldStr);
+      if (typeof loose === 'object') {
+        text = text.slice(0, loose.start) + e.newStr + text.slice(loose.end);
+        continue;
+      }
+      throw new EditApplyError(
+        loose === 'ambiguous'
+          ? `фрагмент с точностью до переносов строк подходит больше одного места: «${snippet(e.oldStr)}»`
+          : `фрагмент не найден в файле: «${snippet(e.oldStr)}»`,
+      );
     }
 
     if (e.replaceAll) {

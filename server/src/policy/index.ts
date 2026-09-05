@@ -55,9 +55,19 @@ const KIND_TO_TOOL: Record<CallKind, ToolName | null> = {
  */
 function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
   if (call.kind === 'unknown') {
+    // Две разные причины, и путать их дорого. Живой прогон 2026-09-04: модель позвала
+    // объявленный на этапе `Task`, промахнувшись аргументами (`{"task": …}` вместо
+    // `subagent_type`/`prompt`), получила «инструмент не объявлен» — и, поверив, что
+    // субагента нет, пошла делать его работу сама: написала на РАЗВЕДКЕ продуктовый код.
+    // Про права здесь речи нет, и говорить о них нельзя.
+    const declared = (ctx.allowedTools as readonly string[]).includes(call.toolName);
     return policyDeny(
       'stageTools',
-      `инструмент «${call.toolName}» не объявлен на этапе ${ctx.stage} и не опознан рантаймом.`,
+      declared
+        ? `вызов «${call.toolName}» не разобран: инструмент на этапе ${ctx.stage} объявлен и ` +
+          `доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в ` +
+          `правах — сверь вызов со схемой инструмента и повтори.`
+        : `инструмент «${call.toolName}» не объявлен на этапе ${ctx.stage} и не опознан рантаймом.`,
     );
   }
   if (call.kind === 'mcp') return checkMcp(call, ctx);

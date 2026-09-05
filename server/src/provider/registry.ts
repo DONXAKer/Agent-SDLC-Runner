@@ -9,6 +9,7 @@
 import type { ProviderDef } from '../config/schema.ts';
 import type { ChatProvider } from './ChatProvider.ts';
 import { OpenAiCompatProvider } from './OpenAiCompatProvider.ts';
+import type { TraceLabel } from './rawLog.ts';
 
 /**
  * Провайдеры, за которые платят по токенам. Список нужен ровно для одного: потребовать
@@ -56,10 +57,17 @@ export function baseUrlFor(provider: string): string | null {
   return envFor(provider, 'BASE_URL');
 }
 
+/**
+ * `trace` — метка сырого дампа запросов (`rawLog.ts`). Ставится здесь, а не в
+ * `ChatRequest`: экземпляр провайдера и так создаётся под конкретный этап и режим, и
+ * метка на запрос повторяла бы одно и то же в пяти местах вызова `provider.chat`. Не
+ * передана — дампа для этого маршрута нет, что бы ни стояло в окружении.
+ */
 export function createProvider(
   name: string,
   def: ProviderDef,
   timeoutMs: number,
+  trace?: TraceLabel,
 ): ChatProvider {
   if (def.kind === 'openai-compat') {
     const baseUrl = baseUrlFor(name) ?? def.baseUrl;
@@ -83,6 +91,7 @@ export function createProvider(
       baseUrl,
       apiKey,
       timeoutMs,
+      ...(trace === undefined ? {} : { trace }),
     });
   }
 
