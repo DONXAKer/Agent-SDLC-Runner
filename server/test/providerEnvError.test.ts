@@ -77,6 +77,33 @@ describe('OpenAiCompatProvider: среда против модели', () => {
     }
   });
 
+  it('402 «нет денег» — отказ среды: модель не отвечала ни разу', async () => {
+    // Пойман живьём 2026-09-05: на платном агрегаторе кончился баланс посреди серии, и
+    // восемь витков из четырнадцати выглядели провалом измеряемой настройки.
+    const s = await stub(402, JSON.stringify({ error: { code: 'INSUFFICIENT_BALANCE' } }));
+    try {
+      await rejects(
+        () => chatWith(s.url),
+        (e: Error) => {
+          ok(e instanceof ProviderEnvError, `ожидался ProviderEnvError, пришёл ${e.name}`);
+          return true;
+        },
+      );
+      strictEqual(s.hits(), 1, 'нет денег повтором не чинится — повторять незачем');
+    } finally {
+      s.server.close();
+    }
+  });
+
+  it('401 «нет ключа» — тоже среда: это состояние счёта, а не запроса', async () => {
+    const s = await stub(401, '{}');
+    try {
+      await rejects(() => chatWith(s.url), (e: Error) => e instanceof ProviderEnvError);
+    } finally {
+      s.server.close();
+    }
+  });
+
   it('400 — обычная ошибка: это про запрос, повтором не чинится', async () => {
     const s = await stub(400, JSON.stringify({ error: { message: 'схема инструмента не принята' } }));
     try {

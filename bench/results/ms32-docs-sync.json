@@ -1,0 +1,109 @@
+{
+  "run": {
+    "slug": "ms32-docs-sync",
+    "model": "polza:mistral-small-3.2-24b",
+    "task": "docs-sync",
+    "fixtureDir": "fixtures/legacy-docs",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:mistral-small-3.2-24b",
+      "explore": "polza:mistral-small-3.2-24b",
+      "ask": "polza:mistral-small-3.2-24b",
+      "plan": "polza:mistral-small-3.2-24b",
+      "chunk": "polza:mistral-small-3.2-24b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:mistral-small-3.2-24b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-05T09:01:07.705Z",
+    "finishedAt": "2026-09-05T09:01:18.568Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "polza: HTTP 400 от https://api.polza.ai/api/v1 — {\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"All providers have been ignored. To change your default ignored providers, visit: https://openrouter.ai/settings/privacy\"},\"trace_id\":\"fe553cab-577d-4af8-986c-891e496a52a5\"}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 6036,
+          "outputTokens": 100,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.06931503,
+          "durationMs": 7876
+        },
+        "durationMs": 10862
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10469,
+        "userChars": 3887,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

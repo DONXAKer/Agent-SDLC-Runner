@@ -443,6 +443,10 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       verdictReasons: result.finalVerdict?.reasons ?? null,
       hiddenTests: hidden,
       operatorLog: operatorLog,
+      // Оба поля — про то, ЧЬЁ поведение судит щуп: `verify` идёт контрольным маршрутом, а
+      // красные скрытые тесты при незелёном вердикте — дефект кода, не ложь отчёта.
+      measured: built.measured,
+      verdictPassed: result.finalVerdict?.passed ?? null,
     });
 
     // Щуп посева считается по уже готовым фактам прогона: красный гейт рантайма и

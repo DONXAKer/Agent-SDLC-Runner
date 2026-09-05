@@ -164,6 +164,50 @@ describe('выжимка причин для ретрая', () => {
     match(brief, /2 failing/);
   });
 
+  it('внутренние кадры стека не съедают окно хвоста: видны ОБА провала', () => {
+    // Замер 2026-09-05 (`bench`, `perf-keep-behavior`): у `node --test` два упавших теста
+    // дают 21 строку, 8 из них — кадры `node:internal/...`. В окно 12 строк попадал только
+    // ВТОРОЙ провал, и повторная попытка чинила половину проблемы. Три попытки подряд
+    // модель не починила регрессию, видя ровно это.
+    const out = [
+      '✖ failing tests:',
+      'test at test/stock.test.ts:43:1',
+      '✖ нет позиции на складе (0.1ms)',
+      "  TypeError: Cannot read properties of undefined (reading 'qty')",
+      '      at TestContext.<anonymous> (file:///ws/test/stock.test.ts:43:78)',
+      '      at Test.runInAsyncScope (node:async_hooks:226:14)',
+      '      at Test.run (node:internal/test_runner/test:1201:25)',
+      '      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3)',
+      'test at test/stock.test.ts:47:1',
+      '✖ сумма по складам (0.2ms)',
+      "  TypeError: Cannot read properties of undefined (reading 'qty')",
+      '      at TestContext.<anonymous> (file:///ws/test/stock.test.ts:47:12)',
+      '      at Test.runInAsyncScope (node:async_hooks:226:14)',
+      '      at Test.run (node:internal/test_runner/test:1201:25)',
+    ].join('\n');
+    const brief = buildRetryBrief(input(), [gate({ outputTail: out })]);
+    ok(brief !== null);
+    match(brief, /test\/stock\.test\.ts:43/);
+    match(brief, /test\/stock\.test\.ts:47/);
+    // Место падения в коде проекта — остаётся: по нему и чинят.
+    match(brief, /file:\/\/\/ws\/test\/stock\.test\.ts:47:12/);
+    strictEqual(/node:internal/.test(brief), false, 'внутренние кадры выброшены');
+    strictEqual(/node:async_hooks/.test(brief), false);
+  });
+
+  it('кадр из node_modules тоже выброшен, а строка про сам файл — нет', () => {
+    const out = [
+      'FAIL src/report.ts',
+      '      at Module._compile (/ws/node_modules/ts-node/src/index.ts:1)',
+      '  Ожидалось 0, получено NaN',
+    ].join('\n');
+    const brief = buildRetryBrief(input(), [gate({ outputTail: out })]);
+    ok(brief !== null);
+    match(brief, /Ожидалось 0, получено NaN/);
+    match(brief, /FAIL src\/report\.ts/);
+    strictEqual(/node_modules/.test(brief), false);
+  });
+
   it('«н\/п» в графе «что чинить» не показывается', () => {
     const brief = buildRetryBrief(input({ claims: [{ id: 'claim-1', status: '⚠' }] }), [], {
       whatToFix: new Map([['claim-1', 'н/п']]),

@@ -1,0 +1,719 @@
+{
+  "run": {
+    "slug": "min14-v6-tz-deadline",
+    "model": "polza:ministral-14b",
+    "task": "tz-deadline",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-05T14:44:38.626Z",
+    "finishedAt": "2026-09-05T14:46:44.368Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 20, осталось на диске 18; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап зациклился на правке «/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (2 → 2 → 2) — правки идут, но не закрывают нужные места",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 134741,
+          "outputTokens": 6722,
+          "cacheReadTokens": 97536,
+          "cacheWriteTokens": 0,
+          "costUsd": 1.2894724399999997,
+          "durationMs": 103508
+        },
+        "durationMs": 58216
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 210597,
+          "outputTokens": 6760,
+          "cacheReadTokens": 150912,
+          "cacheWriteTokens": 0,
+          "costUsd": 1.9585973599999997,
+          "durationMs": 68311
+        },
+        "durationMs": 67518
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 33,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:c9c5d489-ab06-4cb4-b4db-b19bfa8d5b49",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v6-tz-deadline/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:425f6db0-a95a-4a80-8f55-6f05408a878a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v6-tz-deadline/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:3397e990-4303-408d-88cf-4c24b1b15b3d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7db19607-908a-4665-b408-122e29f0a935",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0664c46d-35ed-44ca-8348-493ac763d5bd",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:97ec6735-3a97-4632-b9e3-2708aa24507e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d2f9992e-65a8-41d9-9ba2-9b717ec62fae",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a652d520-5b42-48a0-8a22-ffb87400d392",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:8a9993a4-61ba-4020-bbcd-f94abb6cb2e2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:27a5c538-2fcf-4544-9bc6-b2f8b84f4e43",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5b9abbda-0f96-4ca1-9cea-d47656dd7ba7",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:cff4ea48-3ee9-4347-84f4-1f32bf1af021",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ba5fe9eb-b3ba-477c-92eb-9a4344846120",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9e1086a7-d92c-40f0-ab92-d5f911e6783d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:be220fa3-7f52-43bc-aa02-33aa93ab29f7",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:18ed3333-da42-4f1f-8ebe-80d808bd8795",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d9a2e65e-7790-4003-9089-096a7a3f0a9d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6b93d090-5954-426f-b334-9a132c49c6ff",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ec1954ac-bbc1-454d-a9ab-113c1a6e70c4",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1d4f1db5-246b-4ce5-91fb-692f4aed9261",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:306dee0a-8b12-4067-b844-36415a570145",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:795674a5-e953-4f98-b17e-d020815bcb36",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:455ba069-d2af-4448-928a-e022a7ffe2d2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6bfc3c9f-1fae-4592-bca1-a72fa30e52fa",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ead26bf7-84fe-475b-823c-908ca89d4be7",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:bb34723e-d72d-40bb-9d54-f1035611f068",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:45e9e1e5-3ae7-44ab-992b-1b7b376a1ba2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7c8f7656-a3b9-44e2-99d1-5b9f22f7896e",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:144daf4d-6167-4ebd-a242-c2c69339255e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:168bda5f-226e-4b82-8689-16fc48e919bc",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-EHBcil/.sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:89ee72da-be6f-458c-b235-f81fcbceab0b",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:ea08e6ab-43a2-4979-baba-7bfbdebabd9e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v6-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10043,
+        "userChars": 5171,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9523,
+        "userChars": 13891,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

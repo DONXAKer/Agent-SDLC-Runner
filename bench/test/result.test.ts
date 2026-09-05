@@ -55,7 +55,7 @@ describe('buildResult', () => {
       currencies: {} as BuiltProfile['currencies'],
     };
     const operator = emptyOperatorLog();
-    operator.notMine.push({ requestId: 'req-1', reason: 'policy' });
+    operator.notMine.push({ stage: 'chunk', requestId: 'req-1', reason: 'policy' });
     const observed = emptyCollectorState();
     observed.toolCalls.push({ stage: 'intent', toolName: 'Read', kind: 'read' });
 

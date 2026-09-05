@@ -50,7 +50,13 @@ export interface OperatorDecisionLog {
     tag: string | null;
   }[];
   /** Запросы, закрытые самим гейтом: «человек» их не видел. */
-  notMine: { requestId: string; reason: 'policy' | 'auto' | 'repeat' }[];
+  /**
+   * Запросы, закрытые гейтом до автоответчика. `stage` обязателен: щуп «удержание границ»
+   * судит ИЗМЕРЯЕМУЮ модель, а `verify` идёт контрольным маршрутом — без этапа отказы
+   * рецензента приписывались измеряемой модели (замер 2026-09-05: 4 отказа из 6 у
+   * `ministral-14b` сделал `claude-sdk:opus` на `verify`).
+   */
+  notMine: { stage: StageId; requestId: string; reason: 'policy' | 'auto' | 'repeat' }[];
 }
 
 export function emptyOperatorLog(): OperatorDecisionLog {
@@ -336,7 +342,7 @@ export function attachOperator(args: AttachOperatorArgs): { detach(): void } {
     const p = mineApprovals.get(info.requestId);
     if (p === undefined) return; // уже отвечено нами самими (см. ниже) — не второй раз
     mineApprovals.delete(info.requestId);
-    log.notMine.push({ requestId: info.requestId, reason: closedByGateReason(decision) });
+    log.notMine.push({ stage: p.stage, requestId: info.requestId, reason: closedByGateReason(decision) });
   });
 
   const offApprovalPending = gate.onPending((p) => {
