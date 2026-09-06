@@ -103,6 +103,17 @@ describe('prefetch файлов плана на этапе 5 (флоу loop)', (
     strictEqual(u.includes('secret'), false);
   });
 
+  it('каталог в files_to_touch пропускается, а не роняет сборку промпта', () => {
+    // Живой прогон 2026-09-06 (`vat-rounding` на qwen3:8b): модель положила в план
+    // каталог, readFileSync бросил EISDIR необработанным, и виток умер на этапе 5, не
+    // оставив даже файла результата. Каталог проходит все проверки пути: относительный,
+    // внутри корня, realpath чистый.
+    mkdirSync(join(root, 'каталог-в-плане'), { recursive: true });
+    const u = userOf('chunk', 'loop', ['каталог-в-плане', 'tariffs.ts']);
+    ok(u.includes('export const base = 100;'));
+    strictEqual(u.includes('каталог-в-плане'), false);
+  });
+
   it('симлинк внутри корня, указывающий наружу, не читается (ревью-2, BLOCKER)', { skip: symlinkSkip ?? false }, () => {
     const outside = join(tmpdir(), `sdlc-prefetch-outside-${process.pid}.txt`);
     writeFileSync(outside, 'SECRET-CONTENT\n');

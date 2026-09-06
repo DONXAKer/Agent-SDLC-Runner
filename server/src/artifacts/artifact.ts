@@ -15,7 +15,7 @@
  * «отклонён» как согласие дороже, чем лишний раз попросить человека дописать дату.
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 /**
@@ -98,7 +98,15 @@ export interface ArtifactState {
 }
 
 export function readArtifact(path: string): ArtifactState {
-  if (!existsSync(path)) return { path, exists: false, text: '', placeholders: 0 };
+  // Проверка «файл ли это», а не «есть ли путь»: артефакт обязан быть файлом, и разница
+  // стоила целого прогона. `files_to_touch` пишет модель, и туда попадает КАТАЛОГ
+  // («src/» вместо файла) — все проверки пути в prefetch (`prompt/build.ts`) он проходит:
+  // относительный, внутри корня, realpath чистый, — а `readFileSync` на каталоге бросает
+  // EISDIR. Исключение никто не ловил, и падал весь виток, не оставляя даже файла
+  // результата (свип 2026-09-06, `vat-rounding` на qwen3:8b: этапы 1–4 пройдены, chunk
+  // умер на сборке промпта). Гейт стоит здесь, а не у одного вызывающего: каталог не
+  // является артефактом ни для кого из них.
+  if (!artifactExists(path)) return { path, exists: false, text: '', placeholders: 0 };
   const text = readFileSync(path, 'utf8');
   return { path, exists: true, text, placeholders: countPlaceholders(text) };
 }
