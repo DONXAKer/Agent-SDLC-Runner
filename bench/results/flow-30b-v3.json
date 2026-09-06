@@ -1,0 +1,307 @@
+{
+  "run": {
+    "slug": "flow-30b-v3",
+    "model": "ollama:qwen3-coder-30b-a3b",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-coder-30b-a3b",
+      "explore": "ollama:qwen3-coder-30b-a3b",
+      "ask": "ollama:qwen3-coder-30b-a3b",
+      "plan": "ollama:qwen3-coder-30b-a3b",
+      "chunk": "ollama:qwen3-coder-30b-a3b",
+      "verify": "claude-sdk:sonnet",
+      "handoff": "ollama:qwen3-coder-30b-a3b"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T13:26:40.944Z",
+    "finishedAt": "2026-09-04T14:10:16.252Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 21, осталось на диске 16; добор листа приёмки: модель вернула 4 строк, добавлено 4",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "запрос к модели отменён",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 135070,
+          "outputTokens": 2946,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 368830
+        },
+        "durationMs": 215233
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 283575,
+          "outputTokens": 4856,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2224513
+        },
+        "durationMs": 2400043
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 2,
+        "toolCalls": 24,
+        "reminders": 2
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:8faf26ae-c3cd-457e-9ef2-ada00f242f97",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\flow-30b-v3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:90057597-5c09-4907-b050-27505ca52a8c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\flow-30b-v3\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a9c17068-acb0-4c63-8b08-8430f764f433",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:3564ed36-9806-4206-874c-d0289992e2e3",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9e5b0d78-4fa0-45b4-ac3a-82096f96ee26",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/flow-30b-v3/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ddb38e92-428b-4550-b0fb-67c541367e7b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/flow-30b-v3/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:23b24bab-baf4-4272-8e3b-273ed32535f9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/flow-30b-v3/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:70f4c65c-f451-4eee-b9c4-2fd47b05e953",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/flow-30b-v3/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:91830381-8f56-46d9-af86-38c3a287c575",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/flow-30b-v3/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 9941,
+        "userChars": 4127,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9009,
+        "userChars": 12948,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

@@ -19,6 +19,7 @@ import { dirname, join, relative, resolve as resolvePath } from 'node:path';
 import type { ArtifactKey, NormalizedCall } from '@sdlc-runner/shared';
 
 import { applyFill } from '../../artifacts/applyFill.ts';
+import { findLooseRange } from '../editMatch.ts';
 import { resolveUserPath, toPosix } from '../../policy/paths.ts';
 import { runShell } from '../../gates/shell.ts';
 import { templateNameFor } from '../../run/seed.ts';
@@ -277,6 +278,24 @@ function editTool(call: NormalizedCall & { kind: 'edit' }, ctx: ToolContext): To
   for (const [i, e] of call.edits.entries()) {
     const count = text.split(e.oldStr).length - 1;
     if (count === 0) {
+      // Дословно не нашлось — пробуем то же место с точностью до переносов строк
+      // (`editMatch.ts`): модель склеивает жёсткий перенос шаблона пробелом и промахивается
+      // по одной и той же строке раз за разом. Замена идёт по НАЙДЕННЫМ границам файла,
+      // а не по строке модели, — на диск ложится ровно её `new_string`.
+      const loose = e.replaceAll ? 'none' : findLooseRange(text, e.oldStr);
+      if (typeof loose === 'object') {
+        text = text.slice(0, loose.start) + e.newStr + text.slice(loose.end);
+        applied.push(`${i + 1}: 1 вхожд. (совпало с точностью до переносов строк)`);
+        continue;
+      }
+      if (loose === 'ambiguous') {
+        return {
+          ok: false,
+          text:
+            `правка ${i + 1}: дословно фрагмент не найден, а с точностью до переносов строк ` +
+            `подходит больше одного места. Возьми больше контекста. Ни одна правка не применена.`,
+        };
+      }
       // Текущее содержимое — прямо в ответе, а не отсылкой «прочитай заново»: живые прогоны
       // (`docs/model-runs.md`, серия r33) показали серии из 4–26 подряд промахов той же
       // модели по тому же файлу — она не звала повторный Read и гадала по памяти. Здесь

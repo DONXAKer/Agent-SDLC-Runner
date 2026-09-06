@@ -12,13 +12,13 @@
  * файловую систему значило бы проверить собственную арифметику вместо поведения.
  */
 
-import { ok, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
-import { destructiveOverwrite } from '../src/approval/destructive.ts';
+import { destructiveNote, destructiveOverwrite } from '../src/approval/destructive.ts';
 import { parseCommand } from '../src/gates/gatesFile.ts';
 import type { NormalizedCall } from '@sdlc-runner/shared';
 
@@ -73,6 +73,38 @@ describe('разрушающая перезапись', () => {
     const r = root();
     writeFileSync(join(r, 'big.ts'), lines(100));
     strictEqual(destructiveOverwrite(write('big.ts', lines(300)), r), null);
+  });
+
+  it('перезапись, стирающая поле решения человека, ловится при ЛЮБОМ объёме', () => {
+    // Класс, измеренный 2026-09-04 на пяти задачах из четырнадцати: модель перезаписывает
+    // отчёт разведки целиком, текст выходит НЕ короче, порог доли молчит — и вместе с
+    // записью исчезает поле, которое заполняет человек.
+    const r = root();
+    const before = `${lines(20)}\n**Решение человека о полноте:** лист полон — Иван · 2026-08-16\n`;
+    writeFileSync(join(r, 'exploration-report.md'), before);
+    const d = destructiveOverwrite(write('exploration-report.md', lines(60)), r);
+    ok(d !== null, 'потеря поля решения обязана быть замечена');
+    deepStrictEqual(d.decisionsLost, ['Решение человека о полноте']);
+    ok(d.linesAfter > d.linesBefore, 'файл при этом ВЫРОС — доля строк такую потерю не видит');
+    const note = destructiveNote(d);
+    ok(note.includes('Решение человека о полноте'), 'поле названо');
+    ok(note.includes('Edit'), 'сказано, чем чинить, — иначе модель повторит тот же Write');
+  });
+
+  it('перезапись, сохранившая поле решения, разрушением не считается', () => {
+    const r = root();
+    const field = '**Решение человека о полноте:** лист полон — Иван · 2026-08-16\n';
+    writeFileSync(join(r, 'exploration-report.md'), `${lines(20)}\n${field}`);
+    strictEqual(destructiveOverwrite(write('exploration-report.md', `${lines(60)}\n${field}`), r), null);
+  });
+
+  it('файл без полей решений считается по-старому, только по доле строк', () => {
+    // Новая проверка не должна подменять прежнюю: у обычного файла кода полей решений нет,
+    // и его судьбу по-прежнему решает порог потери.
+    const r = root();
+    writeFileSync(join(r, 'src.ts'), lines(200));
+    strictEqual(destructiveOverwrite(write('src.ts', lines(196)), r), null);
+    ok(destructiveOverwrite(write('src.ts', lines(11)), r) !== null);
   });
 
   it('Edit под правило не подпадает — он не может потерять файл целиком', () => {

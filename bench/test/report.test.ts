@@ -236,6 +236,31 @@ describe('buildReport: коды возврата', () => {
     strictEqual(report.exitCode, 1);
   });
 
+  it('отказ среды на отработавшем этапе — измерение не состоялось, код 2', () => {
+    // Класс, пойманный замером 2026-09-04: 503 апстрима приходил ПОСРЕДИ этапа, этап
+    // отчитывался `ok`, `measuredAtAll` был истиной — и прогон возвращал 1, то есть
+    // «модель не прошла». Признак идёт полем, а не подстрокой в note.
+    const r = greenResult();
+    r.driver.stages[0]!.envFailure = 'polza: HTTP 503 от https://api.polza.ai/api/v1';
+    r.driver.stopped = 'blocked';
+    r.driver.finalVerdict = null;
+    r.finalVerdict = null;
+    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    strictEqual(report.exitCode, 2);
+    ok(report.markdown.includes('ИЗМЕРЕНИЕ НЕ СОСТОЯЛОСЬ'), 'отчёт обязан объяснять код 2');
+    ok(report.markdown.includes('HTTP 503'), 'причина названа дословно');
+  });
+
+  it('отказ среды перекрывает даже зелёный вердикт', () => {
+    // Этап мог дозаполнить бланк со второй попытки, но прогон, в котором апстрим
+    // отказывал, измерением модели не является — иначе клетка матрицы врёт в зелёную
+    // сторону, что дороже красной.
+    const r = greenResult();
+    r.driver.stages[2]!.envFailure = 'polza: ответ не получен за 600000 мс — таймаут запроса';
+    const report = buildReport({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    strictEqual(report.exitCode, 2);
+  });
+
   it('ни один этап не отработал — измерение не состоялось, код 2', () => {
     const r = greenResult();
     r.driver.stages = [

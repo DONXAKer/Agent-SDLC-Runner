@@ -318,29 +318,6 @@ function stageTableMd(rows: readonly StageRow[]): string {
   return `${header}\n${body}`;
 }
 
-/**
- * Раздел «Промпты и вопросы» — единственный потребитель коллектора (`observed`):
- * без него размеры промптов и тексты вопросов писались в `result.json`, но никем не
- * читались. Читается только из `result.observed` — отчёт пересобирается из одного JSON.
- */
-function promptsSection(result: BenchResult): string {
-  const sizes = result.observed.promptSizes;
-  const questions = result.observed.questions;
-  if (sizes.length === 0 && questions.length === 0) return '- промпты и вопросы не фиксировались';
-  const lines: string[] = [];
-  if (sizes.length > 0) {
-    lines.push('| этап | system, симв. | user, симв. | правил оператор |', '|---|---|---|---|');
-    for (const p of sizes) {
-      lines.push(`| ${p.stage} | ${p.systemChars.toLocaleString('ru-RU')} | ${p.userChars.toLocaleString('ru-RU')} | ${p.editedByOperator ? 'да' : 'нет'} |`);
-    }
-  }
-  if (questions.length > 0) {
-    if (lines.length > 0) lines.push('');
-    lines.push(...questions.map((q) => `- ${q.stage}: ${q.text}`));
-  }
-  return lines.join('\n');
-}
-
 function notMeasuredSection(input: ReportInput): string {
   const lines: string[] = [];
   if (input.hidden === null) lines.push('- скрытые тесты — не запускались');
@@ -376,15 +353,9 @@ export function buildReport(input: ReportInput): Report {
   const probes = buildProbes({ result: input.result, hidden: input.hidden, honesty: input.honesty, seed });
   const danger = isDangerous({ result: input.result, honesty: input.honesty });
 
-  // «Измерение состоялось» — запись о реальном прогоне: у неё пустые blockers (блокеры
-  // непусты только когда этап не дошёл до модели), нет таймаута и это не пропуск.
-  // Провал формы после реального вызова модели (ok:false, blockers:[]) — измерение:
-  // код 1, а не 2. Живой прогон 4B-модели на intent дал «2», хотя модель вызывалась.
-  const measuredAtAll = input.result.driver.stages.some((s) => s.blockers.length === 0 && !s.timedOut && !s.skipped);
-  // 2 — измерение не состоялось: ни один этап не дошёл до модели (блокер/таймаут на
-  // самом первом). Проверка идёт ПЕРВОЙ, до посевной ветки: посев поверх блокера —
-  // тоже «не измерено», находимость там судить не по чему. 1 — состоялось, но вердикт
-  // не зелёный. 0 — зелёный вердикт.
+  const measuredAtAll = input.result.driver.stages.some((s) => s.ok);
+  // 2 — измерение не состоялось: ни один измеряемый этап не отработал (блокер/таймаут на
+  // самом первом). 1 — состоялось, но вердикт не зелёный. 0 — зелёный вердикт.
   let exitCode: 0 | 1 | 2;
   if (!measuredAtAll) exitCode = 2;
   // Прогон с посевом судится ПО НАХОДИМОСТИ, а не по цвету вердикта: в дереве заведомо
@@ -407,10 +378,6 @@ export function buildReport(input: ReportInput): Report {
     '## Этапы',
     '',
     stageTableMd(buildStageTable(input.result)),
-    '',
-    '## Промпты и вопросы',
-    '',
-    promptsSection(input.result),
     '',
     '## Щупы',
     '',

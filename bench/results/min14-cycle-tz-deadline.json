@@ -1,0 +1,493 @@
+{
+  "run": {
+    "slug": "min14-cycle-tz-deadline",
+    "model": "polza:ministral-14b",
+    "task": "tz-deadline",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T19:01:06.174Z",
+    "finishedAt": "2026-09-04T19:03:36.062Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 19, осталось на диске 19; добор листа приёмки (попытка 1): модель вернула 6 строк, добавлено 6 — теперь пунктов 13, [edge] 7",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель завершила ход; решение человека не записалось: в артефакте нет поля «Решение человека о полноте» — форма не соответствует шаблону методологии",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 135813,
+          "outputTokens": 7921,
+          "cacheReadTokens": 123648,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.7847771499999998,
+          "durationMs": 83460
+        },
+        "durationMs": 47540
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 242285,
+          "outputTokens": 9264,
+          "cacheReadTokens": 202752,
+          "cacheWriteTokens": 0,
+          "costUsd": 1.67041445,
+          "durationMs": 102263
+        },
+        "durationMs": 102338
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 27,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:87234a4d-7842-4236-9cb0-c3aa084f33f1",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:68c28579-d64e-41e7-8049-04a7137a443d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6d78b58b-bc32-48dd-aefa-04c0dc9b2c8b",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f9d5246f-9251-4c49-9231-dc00979f0807",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a8abcca4-4061-4163-878d-110d8ba64607",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a9978ce2-673a-4cb1-accf-94d08e30dbb1",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:65d18723-3027-43b7-b53a-ef2ffc4a42e5",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:544ee95d-4953-4620-aec0-6b3552740eca",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4a857fa6-1042-4df5-927d-5cb81457c107",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0401e985-56a9-4d33-a433-5c88b8d575d2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:186c1a51-3034-4f9c-8315-8f858dfe5bf3",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a4bc48c7-2acd-47c4-8869-11d61e9812a4",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:06ceee46-aab3-41af-adf7-023fafab3d20",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c8382987-1f1b-4ba4-b547-8902310d8608",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:cb6a1217-f124-47d6-9c95-6386a4922beb",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:451e6a73-c128-4704-971f-e131e5099218",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2166d7d1-3313-4f9f-8411-3c289c464c15",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-cycle-tz-deadline/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a0d390be-896d-4bc8-b43f-9ceb35a3eb49",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Как передавать часовой пояс склада? В текущей реализации `Warehouse` не содержит информации о часовом поясе. Нужно ли добавить это поле или использовать внешний источник?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.tz"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10058,
+        "userChars": 5171,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9538,
+        "userChars": 12766,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-e845ed12-1bf7-4fcb-b537-c7897c0b19b2-1",
+        "questionId": "q1",
+        "text": "Как передавать часовой пояс склада? В текущей реализации `Warehouse` не содержит информации о часовом поясе. Нужно ли добавить это поле или использовать внешний источник?"
+      }
+    ]
+  },
+  "seed": null
+}

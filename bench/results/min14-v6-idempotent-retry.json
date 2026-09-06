@@ -1,0 +1,218 @@
+{
+  "run": {
+    "slug": "min14-v6-idempotent-retry",
+    "model": "polza:ministral-14b",
+    "task": "idempotent-retry",
+    "fixtureDir": "fixtures/notify",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-05T14:46:45.010Z",
+    "finishedAt": "2026-09-05T14:48:05.708Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 20, осталось на диске 18; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "polza: HTTP 503 от https://api.polza.ai/api/v1 — {\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":\"Сервис временно недоступен. Попробуйте позже.\",\"metadata\":{\"raw\":\"Провайдер вернул finish_reason: \\\"error\\\" для модели mistralai/ministral-14b-2512 — ответ может быть обрезан\"}},\"trace_id\":\"ed9f557f-a8a3-4ed9-8cb3-07684abb19e5\"}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "envFailure": "polza: HTTP 503 от https://api.polza.ai/api/v1 — {\"error\":{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":\"Сервис временно недоступен. Попробуйте позже.\",\"metadata\":{\"raw\":\"Провайдер вернул finish_reason: \\\"error\\\" для модели mistralai/ministral-14b-2512 — ответ может быть обрезан\"}},\"trace_id\":\"ed9f557f-a8a3-4ed9-8cb3-07684abb19e5\"}"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 125395,
+          "outputTokens": 5691,
+          "cacheReadTokens": 116992,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.6195836199999999,
+          "durationMs": 66499
+        },
+        "durationMs": 31158
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 36557,
+          "outputTokens": 3198,
+          "cacheReadTokens": 25856,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.39597987,
+          "durationMs": 27982
+        },
+        "durationMs": 49534
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 4,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:cf162a50-1eaa-4c78-a4f1-e63310352ad9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v6-idempotent-retry/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:42dd5275-e2ca-4b64-890b-1798ea5a0d8e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v6-idempotent-retry/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5eda7d5d-a263-40b6-97f5-3e19df4b0eb3",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:8063bb90-1357-4deb-9d1d-90bdec8592d5",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10068,
+        "userChars": 4091,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9548,
+        "userChars": 12853,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

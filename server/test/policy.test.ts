@@ -234,9 +234,37 @@ describe('PlanScope', () => {
     ok(evaluate(write('src/Bar.java'), ctx(plan)).ok);
   });
 
-  it('пустой allowlist отключает проверку', () => {
-    ok(evaluate(write('anything.md'), ctx(null)).ok);
-    ok(evaluate(write('anything.md'), ctx([])).ok);
+  /**
+   * Здесь раньше стояло «пустой allowlist отключает проверку»: до плана `planScope`
+   * пропускал внутри проекта всё. Живой прогон 2026-09-04 показал цену — на этапе
+   * РАЗВЕДКИ модель создала `src/oversize-checker.ts`, трижды правила `src/tariffs.ts` и
+   * написала тест, до всякого плана и одобрения (`docs/model-runs.md`). Правило заменено
+   * на «до плана этап пишет только артефакты процесса своего витка».
+   */
+  it('до плана запись сужена до артефактов своего витка, а не разрешена всему', () => {
+    for (const files of [null, []] as (string[] | null)[]) {
+      const v = evaluate(write('anything.md'), ctx(files));
+      ok(!v.ok, `ожидался отказ при planFiles=${JSON.stringify(files)}`);
+      strictEqual(v.policy, 'planScope');
+      ok(v.reason.includes('плана ещё нет'), v.reason);
+    }
+    // Продуктовый код — тот же отказ: он появляется на этапе реализации, не на разведке.
+    ok(!evaluate(write('src/tariffs.ts'), ctx(null)).ok);
+  });
+
+  it('до плана свой артефакт витка пишется по-прежнему — иначе этап не заполнит бланк', () => {
+    ok(evaluate(write('.sdlc/demo/exploration-report.md'), ctx(null)).ok);
+    ok(evaluate(write('.sdlc/demo/readiness.md'), ctx(null)).ok);
+    // `.sdlc/gates.md` здесь в `protectedArtifacts` — его закрывает проверка выше, и это
+    // не про сужение до плана: решение человека защищено на любом этапе.
+    ok(!evaluate(write('.sdlc/gates.md'), ctx(null)).ok);
+  });
+
+  it('до плана редирект оболочки закрыт так же, как Write — иначе это дыра в обход', () => {
+    const v = evaluate(bash('echo "код" > src/tariffs.ts'), ctx(null));
+    ok(!v.ok);
+    strictEqual(v.policy, 'planScope');
+    ok(evaluate(bash('echo "отчёт" > .sdlc/demo/exploration-report.md'), ctx(null)).ok);
   });
 
   it('артефакты своего витка из сверки исключены', () => {
@@ -337,6 +365,31 @@ describe('права на шаг', () => {
     const v = evaluate({ kind: 'unknown', toolName: 'NotebookEdit', raw: {} }, ctx(null));
     ok(!v.ok);
     strictEqual(v.policy, 'stageTools');
+    ok(v.reason.includes('не объявлен'), v.reason);
+  });
+
+  /**
+   * Живой прогон 2026-09-04: модель позвала объявленный на этапе `Task`, промахнувшись
+   * аргументами (`{"task": …}` вместо `subagent_type`/`prompt`), получила «инструмент не
+   * объявлен» — и, поверив, что субагента нет, пошла делать его работу сама: написала на
+   * РАЗВЕДКЕ продуктовый код. Отказ обязан различать «прав нет» и «вызов не разобран».
+   */
+  it('объявленный инструмент с битыми аргументами: отказ про аргументы, не про права', () => {
+    const v = evaluate({ kind: 'unknown', toolName: 'Task', raw: { task: 'сходи разведай' } }, ctx(null));
+    ok(!v.ok);
+    strictEqual(v.policy, 'stageTools');
+    ok(v.reason.includes('не разобран'), v.reason);
+    ok(v.reason.includes('Дело не в правах'), v.reason);
+    ok(!v.reason.includes('не объявлен'), 'старый текст врал: инструмент как раз объявлен');
+  });
+
+  it('тот же вызов там, где инструмент НЕ объявлен, по-прежнему говорит про права', () => {
+    const v = evaluate(
+      { kind: 'unknown', toolName: 'Task', raw: { task: 'сходи разведай' } },
+      ctx(null, { allowedTools: ['Read'] }),
+    );
+    ok(!v.ok);
+    ok(v.reason.includes('не объявлен'), v.reason);
   });
 
   it('субагент разрешён там, где этап его объявил', () => {

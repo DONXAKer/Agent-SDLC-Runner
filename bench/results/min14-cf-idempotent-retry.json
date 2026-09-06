@@ -1,0 +1,543 @@
+{
+  "run": {
+    "slug": "min14-cf-idempotent-retry",
+    "model": "polza:ministral-14b",
+    "task": "idempotent-retry",
+    "fixtureDir": "fixtures/notify",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-05T06:46:21.699Z",
+    "finishedAt": "2026-09-05T06:47:52.195Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 25, осталось на диске 16; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "исчерпан лимит ходов этапа (25)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 123029,
+          "outputTokens": 4850,
+          "cacheReadTokens": 116224,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.56293131,
+          "durationMs": 55870
+        },
+        "durationMs": 33224
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 399748,
+          "outputTokens": 4000,
+          "cacheReadTokens": 379008,
+          "cacheWriteTokens": 0,
+          "costUsd": 1.5148800399999998,
+          "durationMs": 57170
+        },
+        "durationMs": 57268
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 25,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:08aac558-5fbd-432c-bd8c-ed8d7c116dae",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cf-idempotent-retry/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:cca6e413-962d-428f-a811-d387a74cbbe9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cf-idempotent-retry/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ada0eaf4-bef8-4f45-a293-03756c6d5714",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7a6ccedc-14eb-4c68-aad4-467235e103d8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ef07b27d-2ff6-445f-b731-cf47c9676f53",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:94fd00bd-e472-4435-a2a3-248477e2c138",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d67b75bf-1e98-4f85-b2da-02d33a99498c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0a65a559-fb7e-4826-9351-02454fdd8200",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:94511fb0-afc1-4e4f-8ab6-66c81c5890cf",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0e638a1d-7b95-4400-ad00-8b54808e4c5e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:79b23a3b-68c7-4175-85f8-5979c926e8bc",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e27bd623-f1ab-4762-8525-d6146ddb584c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c3c04c16-8e50-4039-9180-7a4c191a2da8",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:370f8b97-e9dd-4f1a-9e5e-ad7fcd365ca6",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6f84350b-0bd0-4330-bd1b-b9526ac4aeff",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c8b8386b-62a6-4873-8432-ac142282ae49",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c5c0c422-76f0-46ef-9e9d-f1e8c2874a69",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f71c98d5-53c8-4964-b05c-f72eefe2ae99",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2c0b14a6-80f1-4d2e-bc80-ae5f764c7eb0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:88cdd1a0-8230-4d05-b157-d9c7bb2cc5c2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "/private/var/folders/sk/k4f53x5j0tl758s05k75mf100000gn/T/sdlc-bench-8g7BWF/.sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:186fda3e-daf7-49f1-856a-0e0169e29728",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:b09c5eee-bc9e-4dc8-8c06-1f9a75056301",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-cf-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10068,
+        "userChars": 4091,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9515,
+        "userChars": 16665,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

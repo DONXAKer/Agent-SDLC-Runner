@@ -92,7 +92,11 @@ writeFileSync(paths.intent, INTENT_TEXT, 'utf8');
 writeFileSync(paths.readiness, '# Готовность\nготова\n', 'utf8');
 writeFileSync(paths.plan, PLAN_TEXT, 'utf8');
 
-function build(stage: 'intent' | 'plan' | 'chunk' | 'verify', compactForms?: BuildPromptInput['compactForms']) {
+function build(
+  stage: 'intent' | 'plan' | 'chunk' | 'verify',
+  compactForms?: BuildPromptInput['compactForms'],
+  formFill?: boolean,
+) {
   return buildPrompt({
     runner,
     stage: stageById(stage),
@@ -100,6 +104,7 @@ function build(stage: 'intent' | 'plan' | 'chunk' | 'verify', compactForms?: Bui
     flow: 'loop',
     slug: 'demo',
     ...(compactForms === undefined ? {} : { compactForms }),
+    ...(formFill === undefined ? {} : { formFill }),
     now: new Date('2026-09-02T00:00:00Z'),
   });
 }
@@ -178,5 +183,39 @@ describe('compactForms "fill": few-shot показывает FillField, не Edi
     const p = build('plan', 'all');
     ok(usesFillFieldExample(p.system), 'few-shot: FillField на незаполненном поле plan.md');
     ok(p.user.includes('сжатая проекция'), 'вход intent.md — проекцией');
+  });
+});
+
+/**
+ * Замер 2026-09-04 (`qwen3-coder-30b-a3b`, 5 прогонов на плечо): при `compactForms: "fill"`
+ * этап intent исполняет `FormFillExecutor` — он спрашивает по одному полю и НЕ даёт модели
+ * инструментов (`tools: []`), — а промпт при этом обещал `FillField` и показывал образец
+ * вызова. Модель повторяла образец вместо значения поля: 15 ответов из 125 приходили как
+ * `{"tool":"FillField",…}` текстом, и на поле приёмочного листа бланк оставался образцом —
+ * 3 прогона из 5 вставали на этапе 2 с «`[edge]` 0». Промпт обязан знать про режим.
+ */
+describe('formFill: промпт не обещает инструментов, которых в запросе нет', () => {
+  it('few-shot с вызовом инструмента не попадает в промпт этапа-бланка', () => {
+    const p = build('intent', 'fill', true);
+    ok(!usesFillFieldExample(p.system), 'образец вызова — ровно то, что модель повторяет вместо значения');
+    ok(!p.system.includes('"tool":"Edit"') && !p.system.includes('"tool": "Edit"'));
+  });
+
+  it('вместо списка инструментов сказано, что их нет и работа идёт по одному полю', () => {
+    const p = build('intent', 'fill', true);
+    ok(p.system.includes('Инструментов на этом этапе у тебя НЕТ'));
+    ok(!p.system.includes('Доступные инструменты на этом этапе'), 'два взаимоисключающих обещания разом');
+  });
+
+  it('без formFill поведение прежнее — few-shot и список инструментов на месте', () => {
+    const p = build('intent', 'fill', false);
+    ok(usesFillFieldExample(p.system), 'цикл LoopExecutor с FillField few-shot терять нельзя');
+    ok(p.system.includes('Доступные инструменты на этом этапе'));
+  });
+
+  it('formFill без compactForms тоже снимает few-shot: инструментов нет в обоих режимах', () => {
+    const p = build('intent', undefined, true);
+    ok(!p.system.includes('"tool":"Edit"') && !p.system.includes('"tool": "Edit"'));
+    ok(p.system.includes('Инструментов на этом этапе у тебя НЕТ'));
   });
 });

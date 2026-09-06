@@ -1,8 +1,10 @@
-import { ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+
+import { loadConfig } from '../src/config/load.ts';
 
 import {
   DECISION,
@@ -41,6 +43,30 @@ describe('плейсхолдеры', () => {
     strictEqual(r.length, 2);
     strictEqual(r[0]!.text, '‹раз›');
     strictEqual(r[1]!.start, 10);
+  });
+
+  it('вложенный плейсхолдер в подсказке берётся вместе с внешним, а не обрывает его', () => {
+    // Строка из шаблона отчёта разведки эталона: подсказка внутри плейсхолдера сама
+    // ссылается на плейсхолдер. Обрыв на первом `›` оставлял в тексте хвост, и строка
+    // числилась незаполненной ЧТО БЫ в неё ни записали — два витка встали на этом
+    // (замер 2026-09-04, `polza:ministral-14b`).
+    const line = '- **Гейт:** ‹✅/❌ — греп `‹…›` по артефактам этапов 1–2 и обязательные\n  секции› / ⏭';
+    const r = placeholderRanges(line);
+    strictEqual(r.length, 1, 'плейсхолдер здесь один, а не полтора');
+    ok(r[0]!.text.endsWith('секции›'), `взят не до конца: ${r[0]!.text}`);
+    // Хвоста не остаётся: замена найденного вычищает угловые скобки полностью.
+    const rest = line.slice(0, r[0]!.start) + line.slice(r[0]!.end);
+    ok(!/[‹›]/.test(rest), `в остатке остались скобки: ${rest}`);
+  });
+
+  it('заполненная строка с вложенной подсказкой считается заполненной', () => {
+    strictEqual(countPlaceholders('- **Гейт:** ✅ — плейсхолдеров не осталось / ⏭'), 0);
+  });
+
+  it('два соседних плейсхолдера не склеиваются в один', () => {
+    // Обратная сторона вложенности: жадный разбор объединил бы «‹раз› … ‹два›» в одно
+    // место, и счётчик занижал бы остаток вдвое.
+    strictEqual(countPlaceholders('a ‹раз› b ‹два›'), 2);
   });
 
   it('повторный вызов не зависит от предыдущего — regex не stateful', () => {
@@ -433,5 +459,37 @@ describe('имя ветки из поля «Ветка витка»', () => {
 
   it('markdown-бэктики вокруг имени отбрасываются', () => {
     strictEqual(branchNameFromField('`sdlc/oversize`'), 'sdlc/oversize');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Прогон по реальным шаблонам эталона
+// ---------------------------------------------------------------------------
+
+const cfg = loadConfig();
+const templatesDir = join(cfg.runner.methodologyDir, 'templates');
+
+function нетЭталона(dir: string): string | false {
+  return existsSync(dir) ? false : `нет эталона методологии на этой машине: ${dir}`;
+}
+
+describe('плейсхолдеры: реальные шаблоны эталона', { skip: нетЭталона(templatesDir) }, () => {
+  it('в каждом шаблоне разбор вычерпывает угловые скобки без остатка', () => {
+    // Проверка на настоящих формах, а не на придуманной строке: вложенный плейсхолдер
+    // нашёлся именно так — живым прогоном, а не чтением регулярки. Остаток скобок после
+    // вырезания найденных мест и есть тот хвост, из-за которого строка не заполнялась
+    // никогда.
+    for (const name of readdirSync(templatesDir).filter((f) => f.endsWith('.template.md'))) {
+      const text = readFileSync(join(templatesDir, name), 'utf8');
+      let rest = text;
+      for (const r of [...placeholderRanges(text)].reverse()) rest = rest.slice(0, r.start) + rest.slice(r.end);
+      // Скобки внутри кода и цитат — законный текст формы («помечены `‹…›`»), их
+      // placeholderRanges не берёт намеренно; считаем только вне кода.
+      const stray = rest
+        .split('\n')
+        .filter((l) => /[‹›]/.test(l) && !l.trimStart().startsWith('>') && !l.includes('`'))
+        .map((l) => l.trim());
+      deepStrictEqual(stray, [], `${name}: остались необработанные скобки`);
+    }
   });
 });

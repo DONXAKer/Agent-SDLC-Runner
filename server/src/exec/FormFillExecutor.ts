@@ -62,6 +62,7 @@ import { isSheetError, parseFieldValue } from '../artifacts/sheet.ts';
 import { templateNameFor } from '../run/seed.ts';
 import { isSeparatorRow, splitRow } from '../md/table.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
+import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
@@ -102,6 +103,12 @@ export interface FormFillOptions {
   compact?: boolean;
   /** Этап, на котором исполняется бланк — только для `compact`: отсекает `stageOnly`. */
   stage?: StageId;
+  /**
+   * Строки-образец граничного пункта приёмки из примера методологии
+   * (`artifacts/edgeExample.ts`). Считает вызывающий — путь к эталону знает он, а не
+   * исполнитель; пусто — эталона нет, и спрашивается как раньше.
+   */
+  edgeExample?: readonly string[];
 }
 
 /**
@@ -282,6 +289,14 @@ export class FormFillExecutor implements StageExecutor {
     let fieldsFilled = 0;
     let callsSpent = 0;
     const notes: string[] = [];
+    // Отказ среды копится ОТДЕЛЬНО от notes: заметка объясняет человеку, что случилось,
+    // а это поле решает, считать ли прогон измерением вообще (см. StageResult.envFailure).
+    // Раньше 503 апстрима попадал только в notes, этап отчитывался `ok`, и bench красил
+    // им модель — замер 2026-09-04, пять витков из четырнадцати.
+    let envFailure: string | null = null;
+    const noteEnvFailure = (e: unknown): void => {
+      if (envFailure === null && e instanceof ProviderEnvError) envFailure = e.message;
+    };
     /**
      * Артефакты, запись которых ОТКЛОНИЛ гейт (политика или оператор): отказ окончательный,
      * второй проход их не трогает — иначе рантайм слал бы повторный Write после явного
@@ -466,6 +481,9 @@ export class FormFillExecutor implements StageExecutor {
                   '`[edge]`-пометок меньше минимума. Верни ТОЛЬКО ДОПОЛНИТЕЛЬНЫЕ строки ' +
                   'таблицы того же формата — прежде всего граничные случаи с тегом `[edge]`, ' +
                   'id продолжают нумерацию, уже написанные пункты не повторяются.',
+              // Замер 2026-09-04: просьба называла только ФОРМАТ, и лист приходил с нулём
+              // граничных пунктов в 4 прогонах из 5. Образец содержания — из эталона.
+              ...(this.o.edgeExample ?? []),
             ].join('\n'),
           },
         ],
@@ -554,6 +572,9 @@ export class FormFillExecutor implements StageExecutor {
                 'на каждую колонку, если значений больше двух. Id/номер не указывай — его ' +
                 'проставит рантайм.'
               : 'Верни ТОЛЬКО значение поля — без метки, без ‹›, без пояснений вокруг.',
+        // Образец граничного пункта — только там, где схема их и требует: на прочих полях
+        // он был бы шумом в окне.
+        ...(field.min?.edges !== undefined && field.min.edges > 0 ? (this.o.edgeExample ?? []) : []),
       ].join('\n');
 
       return this.o.provider.chat({
@@ -597,6 +618,7 @@ export class FormFillExecutor implements StageExecutor {
                 : `Строк меньше минимума методологии (нужно не меньше ${field.min?.rows ?? 0}` +
                   (field.min?.edges === undefined || field.min.edges === 0 ? '' : `, из них с [edge] не меньше ${field.min.edges}`) +
                   '). Верни ТОЛЬКО дополнительные записи в том же формате — уже названные не повторяй.',
+              ...(field.min?.edges !== undefined && field.min.edges > 0 ? (this.o.edgeExample ?? []) : []),
             ].join('\n'),
           },
         ],
@@ -654,6 +676,7 @@ export class FormFillExecutor implements StageExecutor {
           const a = answers[idx]!;
           if (a.status !== 'fulfilled') {
             const why = (a.reason as Error | undefined)?.message ?? String(a.reason);
+            noteEnvFailure(a.reason);
             notes.push(`поле не спрошено (${relative(req.cwd, path)}, ${field.id}): ${why.slice(0, 160)}`);
             continue;
           }
@@ -699,6 +722,7 @@ export class FormFillExecutor implements StageExecutor {
                 notes.push(`добор поля ${field.id} (попытка ${attempt + 1}): запрошен и добавлен`);
               } catch (e) {
                 const why = e instanceof Error ? e.message : String(e);
+                noteEnvFailure(e);
                 notes.push(`добор поля ${field.id} не удался: ${why.slice(0, 160)}`);
                 break;
               }
@@ -818,6 +842,7 @@ export class FormFillExecutor implements StageExecutor {
             const a = answers[idx]!;
             if (a.status !== 'fulfilled') {
               const why = (a.reason as Error | undefined)?.message ?? String(a.reason);
+              noteEnvFailure(a.reason);
               notes.push(
                 `поле не спрошено (${relative(req.cwd, path)}, ` +
                   `${range.kind === 'row' ? 'строка таблицы' : range.text}): ${why.slice(0, 160)}`,
@@ -846,6 +871,7 @@ export class FormFillExecutor implements StageExecutor {
                 }
               } catch (e) {
                 const why = e instanceof Error ? e.message : String(e);
+                noteEnvFailure(e);
                 notes.push(`добор files_to_touch не удался: ${why.slice(0, 160)}`);
               }
             }
@@ -974,9 +1000,12 @@ export class FormFillExecutor implements StageExecutor {
     // Последнее слово — за диском, как и в обычном цикле: страж смотрит артефакты, а не
     // наш счётчик полей.
     const complaint = req.finishGuard === null ? null : req.finishGuard();
+    // `envFailure` переживает и зелёный исход: этап мог дозаполнить бланк со второй
+    // попытки, но прогон, в котором апстрим отказывал, измерением модели не является.
+    const env = envFailure === null ? {} : { envFailure };
     if (complaint !== null) {
-      return { ok: false, finalText: summary, usage, note: complaint };
+      return { ok: false, finalText: summary, usage, note: complaint, ...env };
     }
-    return { ok: true, finalText: summary, usage, note: summary };
+    return { ok: true, finalText: summary, usage, note: summary, ...env };
   }
 }

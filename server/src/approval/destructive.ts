@@ -17,6 +17,7 @@
 import { readFileSync, statSync } from 'node:fs';
 
 import { applyFill } from '../artifacts/applyFill.ts';
+import { decisionLabelsIn } from '../artifacts/artifact.ts';
 import { deriveSchema, findField } from '../artifacts/formSchema.ts';
 import { resolveUserPath } from '../policy/paths.ts';
 import { templateNameFor } from '../run/seed.ts';
@@ -53,6 +54,11 @@ export interface DestructiveOverwrite {
   linesLost: number;
   /** Поле артефакта, если разрушение — по `FillField`, а не по `Write` файла целиком. */
   field?: string;
+  /**
+   * Поля РЕШЕНИЙ ЧЕЛОВЕКА, исчезающие из артефакта. Считаются отдельно от строк: их
+   * потеря разрушительна при любом объёме записи.
+   */
+  decisionsLost?: string[];
 }
 
 function lineCount(text: string): number {
@@ -151,6 +157,25 @@ export function destructiveOverwrite(
 
   const linesBefore = lineCount(before);
   const linesAfter = lineCount(call.content);
+
+  // Потеря поля решения ЧЕЛОВЕКА — разрушение независимо от объёма: доля строк её не
+  // видит, а цена измерена. Замер 2026-09-04 (14 витков `polza:ministral-14b` по
+  // семействам фикстур): модель правит отчёт разведки серией `Edit`, а в конце
+  // перезаписывает файл целиком — текст выходит НЕ короче, порог доли молчит, и вместе с
+  // ним исчезает «Решение человека о полноте». Этап отчитывался `ok`, виток умирал через
+  // этап на предусловии `explore`, и модель узнавала о своей ошибке сообщением, по
+  // которому её уже не связать с собственным `Write`. Пять задач из четырнадцати.
+  //
+  // Поле решения не «большая часть содержимого» — оно вообще не содержимое модели:
+  // заполняет его человек, и стирать его молча нельзя ни при каком размере правки.
+  // Обе стороны считаются по одному разу: `decisionLabelsIn` сканирует текст построчно, и
+  // вызов внутри filter означал бы полный проход по новому содержимому на каждую метку.
+  const after = new Set<string>(decisionLabelsIn(call.content));
+  const decisionsLost = decisionLabelsIn(before).filter((label) => !after.has(label));
+  if (decisionsLost.length > 0) {
+    return { path: call.path, linesBefore, linesAfter, linesLost: linesBefore - linesAfter, decisionsLost };
+  }
+
   if (linesBefore < MIN_LINES) return null;
 
   const linesLost = linesBefore - linesAfter;
@@ -162,6 +187,13 @@ export function destructiveOverwrite(
 
 /** Строка для оператора и для журнала событий. Числа, а не оценка: «−1233 строки». */
 export function destructiveNote(d: DestructiveOverwrite): string {
+  if (d.decisionsLost !== undefined && d.decisionsLost.length > 0) {
+    const fields = d.decisionsLost.map((f) => `«${f}»`).join(', ');
+    return (
+      `перезапись ${d.path} стирает поле решения человека: ${fields}. Это поле заполняет ` +
+      `человек, а не модель: верни его в текст (правь фрагмент через Edit, а не переписывай файл целиком)`
+    );
+  }
   if (d.linesBefore < 0) {
     return `перезапись очень большого файла ${d.path} целиком — прежнее содержимое будет потеряно`;
   }

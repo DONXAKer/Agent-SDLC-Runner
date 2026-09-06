@@ -1,0 +1,873 @@
+{
+  "run": {
+    "slug": "min14-v5-idempotent-retry",
+    "model": "polza:ministral-14b",
+    "task": "idempotent-retry",
+    "fixtureDir": "fixtures/notify",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "polza:ministral-14b",
+      "explore": "polza:ministral-14b",
+      "ask": "polza:ministral-14b",
+      "plan": "polza:ministral-14b",
+      "chunk": "polza:ministral-14b",
+      "verify": "claude-sdk:opus",
+      "handoff": "polza:ministral-14b"
+    },
+    "currencies": {
+      "intent": "RUB",
+      "explore": "RUB",
+      "ask": "RUB",
+      "plan": "RUB",
+      "chunk": "RUB",
+      "verify": "USD",
+      "handoff": "RUB"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-04T23:36:11.235Z",
+    "finishedAt": "2026-09-04T23:39:04.528Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 20, осталось на диске 18; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап зациклился на правке «.sdlc/min14-v5-idempotent-retry/exploration-report.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (5 → 5 → 5) — правки идут, но не закрывают нужные места",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 125469,
+          "outputTokens": 6101,
+          "cacheReadTokens": 116992,
+          "cacheWriteTokens": 0,
+          "costUsd": 0.6354772899999999,
+          "durationMs": 125218
+        },
+        "durationMs": 59180
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 258339,
+          "outputTokens": 8132,
+          "cacheReadTokens": 221568,
+          "cacheWriteTokens": 0,
+          "costUsd": 1.6217473699999998,
+          "durationMs": 116649
+        },
+        "durationMs": 114104
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 47,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:16cabbd6-8e47-4cc0-a983-e5d04df2a8cf",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:6d116b5d-65aa-4f77-b2cf-5f9cb5616791",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5d409127-9e0d-4458-a80c-50b33c4921f6",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:bf1d114b-c233-40a8-a01a-56989f7627b8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:201ab8fe-3e6d-43f0-a426-8cc977bd1f92",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:bc5f88ec-4740-441a-adac-2651d8db4ba2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9ec8e1e5-91a6-456a-b8d8-b73f99eac035",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:07d31c09-2de9-431f-8daa-6860d03d2a9f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4241ad5f-3ac6-4bbc-9bb6-8797a905cf96",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:fbaab7b9-88e5-4d56-b180-4bf0666baf4b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:db452ae7-0c0c-431c-a76e-6ad31d06825c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4244f51e-cda3-483f-a7f0-a2bd028e4995",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4b86c3c6-b5d8-49fa-80cf-740a91d69d0c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:69099806-d03c-4105-831a-9f4d1b3b0516",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b22ab182-329b-4078-b054-d0d275579358",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:398dc964-7f8d-4a50-9126-480a64eb8942",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1b964f32-7a7e-4032-8075-09c27164284b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1c3941c7-e5e0-4b19-9cad-0f81cfd98f3c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:82a89845-901c-4d34-934b-7dba4162acea",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c8992372-f66e-457b-8830-d87e03ed6394",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ab10172c-2a28-4b75-adc8-dcba46d38bda",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0d8679fc-6c50-4f1b-a20b-6750571a4d73",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ed7a3d61-b65c-4f97-8eaf-ccbb320840ee",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6b33786d-d07b-4354-88a7-a7d0ff4c98b2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e4a680f9-d32c-43d6-aafc-ddfaf5f1a329",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:cba5a8df-d087-4847-acd0-5928dd5b7a3d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:cbb54274-a5d6-4479-9966-df2ca71111f0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:197eaecf-e33b-4b6e-94b1-26110f7019b9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:35105619-4a96-4857-8c91-22a3efd66d2d",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9aa0ed0a-8961-46ab-b036-2d6041d017e5",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0d90879c-d34f-44ee-9b27-fbbf1befa61e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f377ec4c-f779-41be-a2e6-955b8a088bba",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b28d79e2-c813-4e37-921d-4edbcce3cdc0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:474288d7-ad0a-43b6-9f67-b7ed38a32f73",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b83067bb-aa02-4554-bc1f-77e1190e0f16",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:3249d66a-aaae-4056-9165-441e0083b2dc",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a2d9cb77-1edb-464c-a132-ad29488ef8a1",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:8ebf95e6-62da-42f8-aa47-ce8fd9189b0c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e9bac796-0c7c-48d1-b7f8-970bfa4c0339",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:cc2b689f-da92-4c56-8a26-11a4b0e37c52",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:513b5171-9736-4186-acf1-b5c5721ca066",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/min14-v5-idempotent-retry/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10068,
+        "userChars": 4091,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9548,
+        "userChars": 12961,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}
