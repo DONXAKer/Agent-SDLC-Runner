@@ -1,0 +1,305 @@
+{
+  "run": {
+    "slug": "bench-qwen3-8b-oversize-0905",
+    "model": "ollama:qwen3:8b-ctx16k",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3:8b-ctx16k",
+      "explore": "ollama:qwen3:8b-ctx16k",
+      "ask": "ollama:qwen3:8b-ctx16k",
+      "plan": "ollama:qwen3:8b-ctx16k",
+      "chunk": "ollama:qwen3:8b-ctx16k",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3:8b-ctx16k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-05T16:17:48.152Z",
+    "finishedAt": "2026-09-05T17:06:49.778Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 19, осталось на диске 19; добор листа приёмки (попытка 1): модель вернула 2 строк, добавлено 2 — теперь пунктов 5, [edge] 0; добор листа приёмки (попытка 2): модель вернула 5 строк, добавлено 5 — теперь пунктов 10, [edge] 5",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "запрос к модели отменён",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 141278,
+          "outputTokens": 15708,
+          "cacheReadTokens": 130462,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2497902
+        },
+        "durationMs": 1441608
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 134828,
+          "outputTokens": 11366,
+          "cacheReadTokens": 70133,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1393137
+        },
+        "durationMs": 1500006
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 15,
+        "reminders": 1
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:347bb64a-e5f4-4ac9-91ea-3130ce9c4bc8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-oversize-0905\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 11
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:38f19936-5271-422d-bed0-d3de6c65a633",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-oversize-0905\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b67bb678-86c4-4d6a-a63d-402ed4dcfc7d",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:aed8afc7-5028-49d5-987b-b32d6ba5a4f6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-qwen3-8b-oversize-0905/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:26ddd4fc-1dac-4440-9bc4-6857ea93247b",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2c47fdd7-0378-4cd5-9712-cdf140d01765",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-qwen3-8b-oversize-0905/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:957a3f03-d26f-4d14-bea8-e82b2c327d6a",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-qwen3-8b-oversize-0905/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:3814cd36-22be-462a-bee8-5157ee274a02",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-qwen3-8b-oversize-0905/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e1009723-6b07-4cf3-b4f8-3b3ce92df1ae",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10627,
+        "userChars": 4127,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9631,
+        "userChars": 12831,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}

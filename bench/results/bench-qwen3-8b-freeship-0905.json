@@ -1,0 +1,219 @@
+{
+  "run": {
+    "slug": "bench-qwen3-8b-freeship-0905",
+    "model": "ollama:qwen3:8b-ctx16k",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3:8b-ctx16k",
+      "explore": "ollama:qwen3:8b-ctx16k",
+      "ask": "ollama:qwen3:8b-ctx16k",
+      "plan": "ollama:qwen3:8b-ctx16k",
+      "chunk": "ollama:qwen3:8b-ctx16k",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:qwen3:8b-ctx16k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-06T09:00:25.397Z",
+    "finishedAt": "2026-09-06T09:20:41.666Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 21, осталось на диске 17; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "ход оборван: причина завершения «other», вызовов инструментов нет",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 145466,
+          "outputTokens": 16030,
+          "cacheReadTokens": 135343,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2095389
+        },
+        "durationMs": 1053590
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 19260,
+          "outputTokens": 1293,
+          "cacheReadTokens": 9476,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 162645
+        },
+        "durationMs": 162672
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:f6a8c5ad-d245-4774-9931-00487df87050",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-freeship-0905\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:f8eec6c2-e528-44a0-bd4d-584049a5af6c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\bench-qwen3-8b-freeship-0905\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:51c90104-8e1f-4718-a8c8-f7164626dcdc",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:63b34570-90a6-46b8-af3a-8155ce4e6911",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/bench-qwen3-8b-freeship-0905/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10627,
+        "userChars": 4714,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9631,
+        "userChars": 12842,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null
+}
