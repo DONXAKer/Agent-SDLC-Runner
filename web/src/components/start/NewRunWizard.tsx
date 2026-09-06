@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import type { ConfigInfo, ProjectInfo, StageId } from '@sdlc-runner/shared';
 
+import { api } from '../../lib/api.ts';
 import { evaluateReviewerRule } from '../../lib/reviewerRule.ts';
 import {
   WIZARD_STEPS,
@@ -65,10 +66,47 @@ export function NewRunWizard({
   const [browsing, setBrowsing] = useState(false);
   const [pendingPath, setPendingPath] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+  const [probe, setProbe] = useState<{ running: boolean; lines: { model: string; cases: { name: string; ok: boolean; env: boolean; detail: string }[] | null; error: string | null }[] }>({ running: false, lines: [] });
 
   const base =
     project?.profiles.find((p) => p.name === profile)?.stages ?? ({} as Record<StageId, string[]>);
   const rule = evaluateReviewerRule({ models: config.models, stages: stageOverrides, base });
+
+  /**
+   * Модели эффективного профиля (правка поверх базы) без повторов — их и прогоняет проба.
+   * Значение профиля — список маршрутов (ансамбль): первый — основной, остальные —
+   * дополнительные рецензенты, и пробовать их тоже надо.
+   */
+  const effectiveModels = [
+    ...new Set(
+      (Object.keys(base) as StageId[])
+        .flatMap((s) => (stageOverrides[s] !== undefined ? [stageOverrides[s]!] : (base[s] ?? [])))
+        .filter((m) => m !== ''),
+    ),
+  ];
+
+  const runProbe = async (): Promise<void> => {
+    setProbe({ running: true, lines: effectiveModels.map((m) => ({ model: m, cases: null, error: null })) });
+    for (const m of effectiveModels) {
+      try {
+        const r = await api.probe(m);
+        setProbe((prev) => ({
+          ...prev,
+          lines: prev.lines.map((l) =>
+            l.model === m ? { model: m, cases: r.report.cases, error: null } : l,
+          ),
+        }));
+      } catch (e) {
+        setProbe((prev) => ({
+          ...prev,
+          lines: prev.lines.map((l) =>
+            l.model === m ? { model: m, cases: null, error: (e as Error).message } : l,
+          ),
+        }));
+      }
+    }
+    setProbe((prev) => ({ ...prev, running: false }));
+  };
 
   const state = { projectChosen: project !== null, ruleBroken: rule.broken, slug };
   const blocker = stepBlocker(step, state);
@@ -237,6 +275,62 @@ export function NewRunWizard({
               stages={stageOverrides}
               onChange={onStageOverridesChange}
             />
+          ) : null}
+
+          {/* Проба — скрининг перед дорогим витком, а не замер: красный кейс — довод
+              не ставить модель на этап, зелёный зелёный этап не обещает (bench, ROADMAP). */}
+          {effectiveModels.length > 0 ? (
+            <div className="rounded border border-neutral-800 p-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void runProbe()}
+                  disabled={probe.running}
+                  className="rounded border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800 disabled:text-neutral-500"
+                >
+                  {probe.running ? 'Проба идёт…' : 'Проверить модели пробой'}
+                </button>
+                <span className="text-xs text-neutral-500">
+                  три микро-кейса tool-calling за секунды — доходит ли модель до вызова инструмента
+                </span>
+              </div>
+              {probe.lines.length > 0 ? (
+                <div className="mt-2 space-y-1 text-xs">
+                  {probe.lines.map((l) => (
+                    <div key={l.model}>
+                      <span className="font-mono">{l.model}</span>
+                      {l.error !== null ? (
+                        <span className="ml-2 text-amber-300">проба не состоялась: {l.error}</span>
+                      ) : l.cases === null ? (
+                        <span className="ml-2 text-neutral-500">проверяется…</span>
+                      ) : (
+                        <span className="ml-2">
+                          {l.cases.every((c) => c.ok) ? (
+                            <span className="text-emerald-400">✅ {l.cases.length}/{l.cases.length}</span>
+                          ) : (
+                            <span className="text-red-300">
+                              ❌{' '}
+                              {l.cases
+                                .filter((c) => !c.ok)
+                                .map((c) => (c.env ? `${c.name} (среда)` : c.name))
+                                .join(', ')}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {l.cases !== null && l.cases.some((c) => !c.ok) ? (
+                        <div className="ml-2 mt-0.5 whitespace-pre-wrap text-neutral-500">
+                          {l.cases
+                            .filter((c) => !c.ok)
+                            .map((c) => `— ${c.name}: ${c.detail}`)
+                            .join('\n')}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           <p className="text-xs text-neutral-500">

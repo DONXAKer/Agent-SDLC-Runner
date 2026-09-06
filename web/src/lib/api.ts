@@ -28,8 +28,41 @@ const post = (url: string, body?: unknown): Promise<Response> =>
     body: JSON.stringify(body ?? {}),
   });
 
+/**
+ * Ответ `POST /api/probe` — преполётная проба tool-calling. Тип продублирован
+ * структурно: серверная `ProbeReport` живёт в `server/src/probe.ts`, и shared-тип
+ * ради одной ручки не заводится.
+ */
+export interface ProbeCaseResultView {
+  name: string;
+  ok: boolean;
+  /** Кейс упал средой (транспорт/сервер) — это «не измерено», не приговор модели. */
+  env: boolean;
+  detail: string;
+  durationMs: number;
+}
+
+export interface ProbeResponse {
+  report: {
+    model: string;
+    cases: ProbeCaseResultView[];
+    passed: boolean;
+    envBlocked: boolean;
+  };
+  /** Текстовый отчёт для консоли — тот же, что печатает bench `--probe`. */
+  text: string;
+}
+
 export const api = {
   config: (): Promise<ConfigInfo> => fetch('/api/config').then(json<ConfigInfo>),
+
+  /**
+   * Преполётная проба tool-calling модели — скрининг перед стартом витка. Три микро-кейса
+   * за секунды вместо десятков минут этапа: доходит ли модель до вызова инструмента вообще.
+   * Красная проба — предупреждение, не блок.
+   */
+  probe: (model: string): Promise<ProbeResponse> =>
+    post('/api/probe', { model }).then(json<ProbeResponse>),
 
   browse: (path?: string): Promise<BrowseResult> =>
     fetch(`/api/browse${path !== undefined ? `?path=${encodeURIComponent(path)}` : ''}`).then(

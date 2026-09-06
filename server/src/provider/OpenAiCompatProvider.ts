@@ -259,6 +259,14 @@ export class OpenAiCompatProvider implements ChatProvider {
           }),
       ...(req.temperature === null ? {} : { temperature: req.temperature }),
       stream: false,
+      /**
+       * Дефолтный потолок длины ответа. Без него ollama-теги с маленьким дефолтным
+       * `num_predict` обрезают ответ на середине — у слабых моделей это целый класс
+       * отказа «лимит длины ответа» (живой замер: gemma4-12b за 15 вызовов заполнила
+       * 1 поле из 9, agents-a1-4b/omnicoder-9b — тот же симптом). `ModelDef.params`
+       * перекрывает дефолт ниже (`applyParams`).
+       */
+      max_tokens: 8192,
     };
 
     applyParams(body, req.params ?? null);

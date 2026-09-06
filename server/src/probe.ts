@@ -5,7 +5,8 @@
  * инструмент, всё равно ставились на этап 5 и сжигали до 67 минут и 140k токенов на
  * заведомо пустой прогон. Проба отвечает на один вопрос быстро: доходит ли модель
  * до корректного вызова инструмента вообще. Не прошла — на этап 5 её не ставят, и
- * дорогой замер не запускается.
+ * дорогой замер не запускается. Используется бенчмарком (`--probe`) и основным
+ * флоу (ручка `POST /api/probe` — скрининг модели перед стартом витка).
  *
  * Это скрининг, а не измерение, и предсказательная сила пробы сама ещё не замерена:
  * гипотеза в том, что пороги «позвать инструмент» и «перейти от чтения к записи» ниже
@@ -16,8 +17,8 @@
  * каждый вызов — проба без них мерила бы не ту модель, которую потом запускают.
  */
 
-import { specsFor } from '../../server/src/exec/toolSpecs.ts';
-import type { ChatMessage, ChatProvider, ChatToolCall } from '../../server/src/provider/ChatProvider.ts';
+import { specsFor } from './exec/toolSpecs.ts';
+import type { ChatMessage, ChatProvider, ChatToolCall } from './provider/ChatProvider.ts';
 
 export interface ProbeCaseResult {
   name: string;

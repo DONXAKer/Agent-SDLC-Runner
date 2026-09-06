@@ -10,7 +10,7 @@ import { ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { ChatProvider, ChatRequest } from '../../server/src/provider/ChatProvider.ts';
-import { formatProbe, probeModel } from '../src/probe.ts';
+import { formatProbe, probeModel } from '../../server/src/probe.ts';
 
 type Reply = { text: string; toolCalls?: { name: string; arguments: Record<string, unknown> }[] };
 

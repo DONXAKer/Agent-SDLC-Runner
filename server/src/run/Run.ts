@@ -18,6 +18,7 @@ import type {
   ToolName,
   PolicyContext,
   PreparedPrompt,
+  RunEvent,
   RunStatus,
   StageId,
   Usage,
@@ -56,6 +57,7 @@ import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
 import { effectiveMode } from '../policy/mcp.ts';
 import { missingNow, seedArtifacts, stillMissing, untouchedSeeds } from './seed.ts';
+import { SpentLedger } from './spentLedger.ts';
 import type { McpSetup } from '../config/mcp.ts';
 import { McpHub } from '../mcp/McpHub.ts';
 import { imageSaver } from '../mcp/content.ts';
@@ -113,6 +115,7 @@ import { suggestEscalation } from './escalation.ts';
 import type { Escalation } from './escalation.ts';
 import { readReport } from '../verdict/collect.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
+import { checkJournalClaimsVsBash } from '../verdict/honesty.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
   checkPreconditions,
@@ -363,10 +366,24 @@ export class Run {
   status: RunStatus = 'idle';
   totalUsage: Usage = emptyUsage();
 
+  /**
+   * Потраченное по валютам — источник `spentUsdBefore` для бюджетного гарда маршрутов.
+   * `totalUsage.costUsd` для этого не годится: `usage.cost` приходит в валюте СВОЕГО
+   * провайдера (у polza — рубли), и смешанная сумма гасила бы гард не по существу.
+   */
+  private readonly spent = new SpentLedger();
+
   private readonly config: LoadedConfig;
   private readonly gate: ApprovalGate;
   private readonly askGate: AskGate;
   private readonly emit: EventSink;
+  /**
+   * Результаты вызовов инструментов витка — лента для рантаймных сверок фактов
+   * (честность журнала, `verdict/honesty.ts`). Копится обёрткой вокруг `emit` в
+   * конструкторе: второго источника событий виток не имеет, и читать потом
+   * персист-ленту с диска незачем.
+   */
+  private readonly toolResults: RunEvent[] = [];
   private aborter: AbortController | null = null;
   /** Фактический прогон гейтов текущей попытки — источник статусов для вердикта. */
   private lastGateResults: GateRunResult[] = [];
@@ -483,7 +500,10 @@ export class Run {
     this.slug = o.slug;
     this.gate = o.gate;
     this.askGate = o.askGate;
-    this.emit = o.emit;
+    this.emit = (e) => {
+      if (e.type === 'tool_result') this.toolResults.push(e);
+      o.emit(e);
+    };
     this.paths = new WitokPaths(o.project.projectRoot, o.slug);
     this.mcpSetup = o.config.mcp.get(o.project.name) ?? EMPTY_MCP;
     this.hub = new McpHub(this.mcpSetup.servers);
@@ -1310,7 +1330,7 @@ export class Run {
         // Свой потолок: полей в журнале единицы, а лимит этапа уже сожжён исполнителем.
         maxTurns: 12,
         maxBudgetUsd: this.project.maxBudgetUsd,
-        spentUsdBefore: this.totalUsage.costUsd ?? 0,
+        spentUsdBefore: this.spent.spent(route.providerDef.currency ?? 'USD'),
         formArtifacts: [path],
         signal,
       },
@@ -1561,7 +1581,7 @@ export class Run {
           salvageFromText: null,
           maxTurns: this.maxTurnsFor('verify'),
           maxBudgetUsd: this.project.maxBudgetUsd,
-          spentUsdBefore: this.totalUsage.costUsd ?? 0,
+          spentUsdBefore: this.spent.spent(route.providerDef.currency ?? 'USD'),
           signal: aborter.signal,
         },
         hooks,
@@ -1781,7 +1801,7 @@ export class Run {
             subagents: agents,
             maxTurns: this.maxTurnsFor('verify'),
             maxBudgetUsd: this.project.maxBudgetUsd,
-            spentUsdBefore: this.totalUsage.costUsd ?? 0,
+            spentUsdBefore: this.spent.spent(other.providerDef.currency ?? 'USD'),
             signal: aborter.signal,
           },
           hooks,
@@ -3067,6 +3087,9 @@ export class Run {
         const st = this.stageStats.get(stage);
         if (st !== undefined) st.usage = addUsage(st.usage, usage);
         this.totalUsage = addUsage(this.totalUsage, usage);
+        // Валюта — маршрута ЭТОГО этапа: стоимость копится по валютам раздельно,
+        // и гард маршрута сверяет потолок только со своей (см. `spentLedger.ts`).
+        this.spent.add(route.providerDef.currency ?? 'USD', usage.costUsd);
         this.emit({ type: 'usage', runId: this.id, stage, usage, total: this.totalUsage });
       },
 
@@ -3131,7 +3154,7 @@ export class Run {
           salvageFromText: (text) => this.salvageFromText(text, produced, stage),
           maxTurns: this.maxTurnsFor(stage),
           maxBudgetUsd: this.project.maxBudgetUsd,
-          spentUsdBefore: this.totalUsage.costUsd ?? 0,
+          spentUsdBefore: this.spent.spent(route.providerDef.currency ?? 'USD'),
           // Прогресс этапа 6 — принятые записи отчёта. Анти-цикл обрывает этап только
           // тогда, когда за серию повторов не прибавилось ничего: обрыв посреди
           // заполняемого отчёта терял работу, уже сделанную (и оплаченную) целиком.
@@ -3229,6 +3252,23 @@ export class Run {
       // себе; замер поймал ровно этот случай (см. `evidence.ts`).
       if (stage === 'chunk' && !cancelled) {
         this.chunkTree = await this.recordEvidence(diffBefore);
+
+        // Честность доказательств: журнал утверждает «тесты прогнаны и прошли» — в ленте
+        // обязан быть успешный bash-вызов команды тестов. Расхождение раньше было видно
+        // только в отчёте бенчмарка после прогона; оператор витка обязан видеть его здесь,
+        // до вердикта (порт щупа `bench/src/honesty.ts`).
+        const journal = readArtifact(this.paths.chunkJournal(this.chunk));
+        if (journal.exists) {
+          const honesty = checkJournalClaimsVsBash(journal.text, this.toolResults);
+          if (honesty.ok === false) {
+            this.emit({
+              type: 'warning',
+              runId: this.id,
+              stage,
+              message: `честность журнала: ${honesty.detail}`,
+            });
+          }
+        }
       }
 
       this.reportArtifacts(stage);

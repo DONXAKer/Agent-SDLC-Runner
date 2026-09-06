@@ -38,7 +38,9 @@ import { normalizePlanPath } from './policy/paths.ts';
 import { readArtifact, readDecision } from './artifacts/artifact.ts';
 import { artifactPathOf } from './artifacts/paths.ts';
 import { Run } from './run/Run.ts';
+import { formatProbe, probeModel } from './probe.ts';
 import { stopSandboxForProject } from './sandbox/registry.ts';
+import { createProvider } from './provider/registry.ts';
 import { detectSandboxSpec } from './sandbox/detect.ts';
 import { STAGES, isStageId, stageById } from './run/stages.ts';
 import { badSlug } from './validation.ts';
@@ -161,6 +163,48 @@ app.get('/api/config', (): ConfigInfo => ({
   stages: STAGES.map((s) => ({ id: s.id, title: s.title, tools: s.tools })),
   browseEnabled: browseRoot !== undefined,
 }));
+
+/**
+ * Преполётная проба tool-calling модели — скрининг перед стартом дорогого витка.
+ *
+ * Три микро-кейса за секунды вместо десятков минут этапа: доходит ли модель до вызова
+ * инструмента вообще (замеры журнала: модели без этого порога сжигали до 67 минут и
+ * 140k токенов на прогоне, который заведомо пуст — см. `probe.ts`). Красная проба —
+ * предупреждение оператору, а не блок: это скрининг, зелёная проба зелёного этапа
+ * не обещает. Запрос идёт с `params` записи модели — проба мерит ту модель, которую
+ * потом запустят, не переопределённую.
+ */
+app.post('/api/probe', async (req, reply) => {
+  const body = req.body as { model?: string };
+  if (typeof body.model !== 'string' || body.model === '') {
+    return reply.code(400).send({ error: 'нужно поле model' });
+  }
+  const def = config.models.models.find((m) => m.id === body.model);
+  if (def === undefined) {
+    return reply.code(404).send({ error: `модель «${body.model}» не найдена в config/models.json` });
+  }
+  const providerDef = config.models.providers[def.provider];
+  if (providerDef === undefined) {
+    return reply.code(404).send({ error: `провайдер «${def.provider}» не описан в config/models.json` });
+  }
+  if (providerDef.flow !== 'loop') {
+    return reply
+      .code(400)
+      .send({ error: `проба меряет флоу loop; провайдер «${def.provider}» идёт флоу ${providerDef.flow}` });
+  }
+  try {
+    const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+    const report = await probeModel({
+      provider,
+      model: def.model,
+      params: def.params ?? null,
+      caseTimeoutMs: config.runner.limits.chatTimeoutMs,
+    });
+    return { report, text: formatProbe(report) };
+  } catch (e) {
+    return reply.code(502).send({ error: `проба не состоялась: ${(e as Error).message}` });
+  }
+});
 
 // ── обзор каталогов и добавление проекта ────────────────────────────────────
 

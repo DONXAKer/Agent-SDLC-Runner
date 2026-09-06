@@ -36,7 +36,7 @@ import type { TaskPaths } from './tasks.ts';
 import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
 import type { SeedProbe } from './seeds.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
-import { formatProbe, probeModel } from './probe.ts';
+import { formatProbe, probeModel } from '../../server/src/probe.ts';
 import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
