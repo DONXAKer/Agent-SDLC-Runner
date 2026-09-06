@@ -2,9 +2,11 @@
  * Файл результата (часть шага 3 ROADMAP.md).
  *
  * Собирает воедино то, что посчитал рантайм (`run.metrics`, `run.lastVerdict`), то, что
- * прошло через драйвер (`DriverResult`), то, что решил автоответчик (`OperatorDecisionLog`)
- * и то, чего нет в числах рантайма (`CollectorState`). Само по себе ничего не считает —
+ * прошло через драйвер (`DriverResult`), то, что решил автоответчик (`OperatorDecisionLog`),
+ * то, что догнали после прогона (скрытые тесты, честность — `hidden`/`honesty`) и то, чего
+ * нет в числах рантайма (`CollectorState`). Само по себе ничего не считает —
  * второе место подсчёта здесь так же нежелательно, как и в `operator.ts`/`collector.ts`.
+ * Инвариант файла: из одного `result.json` обязан пересобираться весь отчёт (`buildReport`).
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -15,6 +17,8 @@ import type { RunMetrics, Verdict } from '@sdlc-runner/shared';
 import type { DriverResult } from './driver.ts';
 import type { OperatorDecisionLog } from './operator.ts';
 import type { CollectorState } from './collector.ts';
+import type { HiddenTestsSummary } from './hiddenTests.ts';
+import type { HonestyCheck } from './honesty.ts';
 import type { BenchOptions } from './options.ts';
 import type { BuiltProfile } from './profile.ts';
 import type { SeedProbe } from './seeds.ts';
@@ -47,6 +51,15 @@ export interface BenchResult {
    * внутри «паспорта прогона»: это измерение, а не настройка.
    */
   seed: SeedProbe | null;
+  /**
+   * Сводка скрытых тестов, `null` — до них не дошло (снимок, обрыв до chunk'а). Без этого
+   * поля `result.json` не хватало бы, чтобы пересобрать отчёт: щупы точности/вопросов и
+   * сигнал честности `hiddenTests` читали живые объекты, и структурные результаты
+   * существовали только в прозе `report.md`.
+   */
+  hidden: HiddenTestsSummary | null;
+  /** Вердикты честности — те же, из которых собран раздел щупов отчёта. */
+  honesty: HonestyCheck[];
 }
 
 export function buildResult(args: {
@@ -59,6 +72,8 @@ export function buildResult(args: {
   operator: OperatorDecisionLog;
   observed: CollectorState;
   seed?: SeedProbe | null;
+  hidden?: HiddenTestsSummary | null;
+  honesty?: HonestyCheck[];
 }): BenchResult {
   const { opts, built } = args;
   return {
@@ -81,6 +96,8 @@ export function buildResult(args: {
     operator: args.operator,
     observed: args.observed,
     seed: args.seed ?? null,
+    hidden: args.hidden ?? null,
+    honesty: args.honesty ?? [],
   };
 }
 

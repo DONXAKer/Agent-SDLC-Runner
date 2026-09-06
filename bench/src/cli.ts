@@ -390,27 +390,11 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       console.log(`посев:     ${seedProbe.note}`);
     }
 
-    const result = buildResult({
-      opts,
-      built,
-      startedAt,
-      finishedAt,
-      driver: driverResult,
-      metrics: run.metrics,
-      operator: operatorLog,
-      observed: collector.state,
-      ...(seedProbe === null ? {} : { seed: seedProbe }),
-    });
-
-    const resultPath = join(RESULTS_DIR, `${opts.slug}.json`);
-    writeResult(resultPath, result);
-    console.log(`\nостановка: ${driverResult.stopped}`);
-    console.log(`вердикт:   ${driverResult.finalVerdict === null ? '—' : JSON.stringify(driverResult.finalVerdict)}`);
-    console.log(`результат: ${resultPath}`);
-
-    // Отчёт (шаг 7 ROADMAP.md): скрытые тесты и честность считаются здесь, пока рабочая
-    // копия ещё жива (finally ниже её удалит, если не --keep-workspace) — вне liveRun им
-    // взять дерево неоткуда.
+    // Скрытые тесты и честность считаются здесь, пока рабочая копия ещё жива (finally
+    // ниже её удалит, если не --keep-workspace) — вне liveRun им взять дерево неоткуда.
+    // Порядок важен: сводки уходят в buildResult, чтобы result.json хватало для полного
+    // пересбора отчёта. runHiddenTests исключений не бросает (таймаут и крах спавна
+    // возвращаются errorText внутри сводки), поэтому запись результата не подвержена.
     const paths = new WitokPaths(wsRoot, opts.slug);
     // `run.chunk`, не жёсткая единица: driver мог дойти до retry и уйти на chunk 2+.
     const journalPath = paths.chunkJournal(run.chunk);
@@ -433,10 +417,30 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     const honesty = checkHonesty({
       journalText,
       events,
-      verdictReasons: result.finalVerdict?.reasons ?? null,
+      verdictReasons: driverResult.finalVerdict?.reasons ?? null,
       hiddenTests: hidden,
       operatorLog: operatorLog,
     });
+
+    const result = buildResult({
+      opts,
+      built,
+      startedAt,
+      finishedAt,
+      driver: driverResult,
+      metrics: run.metrics,
+      operator: operatorLog,
+      observed: collector.state,
+      ...(seedProbe === null ? {} : { seed: seedProbe }),
+      hidden,
+      honesty,
+    });
+
+    const resultPath = join(RESULTS_DIR, `${opts.slug}.json`);
+    writeResult(resultPath, result);
+    console.log(`\nостановка: ${driverResult.stopped}`);
+    console.log(`вердикт:   ${driverResult.finalVerdict === null ? '—' : JSON.stringify(driverResult.finalVerdict)}`);
+    console.log(`результат: ${resultPath}`);
 
     // Щуп посева считается по уже готовым фактам прогона: красный гейт рантайма и
     // упоминание МЕСТА дефекта в отчёте приёмки. Второго суждения здесь нет.

@@ -248,6 +248,51 @@ describe('buildReport: коды возврата', () => {
     strictEqual(report.exitCode, 2);
   });
 
+  // Живой прогон qwen3.5:4b на intent: модель вызвана, артефакт не заполнен. Старый
+  // критерий «some(s => s.ok)» называл это «не измерено» (2), хотя измерение состоялось
+  // и модель не прошла — по контракту это 1. Блокеры непусты только когда этап не дошёл
+  // до модели, поэтому провал формы с пустыми blockers — измерение.
+  it('провал формы после реального вызова модели (пустые blockers) — код 1, не 2', () => {
+    const r = greenResult();
+    r.driver.stages = [
+      { stage: 'intent', chunk: 1, attempt: 1, ok: false, note: 'артефакт не заполнен: intent.md', blockers: [], timedOut: false, skipped: false },
+    ];
+    r.driver.stopped = 'blocked';
+    r.driver.finalVerdict = null;
+    r.finalVerdict = null;
+    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    strictEqual(report.exitCode, 1);
+  });
+
+  it('таймаут этапа — среда, не модель: код 2 даже без блокеров', () => {
+    const r = greenResult();
+    r.driver.stages = [
+      { stage: 'intent', chunk: 1, attempt: 1, ok: false, note: 'снято по таймауту', blockers: [], timedOut: true, skipped: false },
+    ];
+    r.driver.stopped = 'stage-timeout';
+    r.driver.finalVerdict = null;
+    r.finalVerdict = null;
+    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    strictEqual(report.exitCode, 2);
+  });
+
+  it('посев поверх блокера (модель не вызывалась) — код 2, находимость не судится', () => {
+    const r = greenResult();
+    r.driver.stages = [
+      { stage: 'verify', chunk: 1, attempt: 1, ok: false, note: 'блокер', blockers: ['нет журнала'], timedOut: false, skipped: false },
+    ];
+    r.driver.stopped = 'blocked';
+    r.driver.finalVerdict = null;
+    r.finalVerdict = null;
+    const report = buildReport({
+      result: r,
+      hidden: null,
+      honesty: [],
+      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: false, where: [], note: 'судить не по чему' },
+    });
+    strictEqual(report.exitCode, 2);
+  });
+
   it('прогон с посевом судится по находимости, а не по цвету вердикта', () => {
     // В дереве заведомо лежит дефект: зелёного вердикта быть не может по построению, и
     // общее правило «не зелёный — код 1» стёрло бы единственный измеряемый здесь исход.
@@ -297,6 +342,27 @@ describe('buildReport: коды возврата', () => {
     ok(report.markdown.includes('## Решения человека'));
     ok(report.markdown.includes('## Этапы'));
     ok(report.markdown.includes('## Щупы'));
+  });
+
+  it('раздел «Промпты и вопросы» показывает размеры из observed и тексты вопросов', () => {
+    const r = greenResult();
+    r.observed.promptSizes.push(
+      { stage: 'intent', systemChars: 12000, userChars: 3400, editedByOperator: false },
+      { stage: 'explore', systemChars: 15000, userChars: 8000, editedByOperator: true },
+    );
+    r.observed.questions.push({ stage: 'explore', requestId: 'q1', questionId: 'n1', text: 'Какая ставка за негабарит?' });
+    const report = buildReport({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    ok(report.markdown.includes('## Промпты и вопросы'));
+    // Числа форматируются как в таблице этапов (fmtTokens) — с неразрывным пробелом.
+    ok(report.markdown.includes(`| intent | ${(12000).toLocaleString('ru-RU')} | ${(3400).toLocaleString('ru-RU')} | нет |`));
+    ok(report.markdown.includes(`| explore | ${(15000).toLocaleString('ru-RU')} | ${(8000).toLocaleString('ru-RU')} | да |`));
+    ok(report.markdown.includes('- explore: Какая ставка за негабарит?'));
+  });
+
+  it('пустой observed — раздел честно говорит «не фиксировались», а не исчезает', () => {
+    const report = buildReport({ result: greenResult(), hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    ok(report.markdown.includes('## Промпты и вопросы'));
+    ok(report.markdown.includes('- промпты и вопросы не фиксировались'));
   });
 
   it('метка «опасна» видна в тексте отчёта', () => {
