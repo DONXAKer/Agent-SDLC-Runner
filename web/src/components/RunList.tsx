@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { RunSummary } from '@sdlc-runner/shared';
 
-import { fmtCost } from '../lib/format.ts';
+import { fmtCost, fmtDuration } from '../lib/format.ts';
 import { statusLabel, statusTone } from '../lib/runStatus.ts';
 
 /**
@@ -16,6 +16,10 @@ import { statusLabel, statusTone } from '../lib/runStatus.ts';
  * каждого этапа. Слово «завершён» здесь недопустимо — рядом стоит необратимое «Убрать»,
  * и виток, прошедший всего лишь `intent`, читался бы как законченный.
  */
+
+/** Период самообновления списка. Секунды, а не миллисекунды: `GET /api/runs` дёшев, но
+ *  не бесплатен, и витков может быть несколько. */
+const AUTO_REFRESH_MS = 5_000;
 
 export function RunList({
   runs,
@@ -34,10 +38,22 @@ export function RunList({
   // состоявшегося ревью, а восстановить их можно только заново прогнав этап.
   const [confirmForget, setConfirmForget] = useState<string | null>(null);
 
+  // Списку больше не нужна только ручная кнопка «обновить»: он тянет состояние сам.
+  // На скрытой вкладке тики пропускаются — фоновый опрос ушедшего оператора ни к чему.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (!document.hidden) onRefresh();
+    }, AUTO_REFRESH_MS);
+    return () => clearInterval(t);
+  }, [onRefresh]);
+
+  // Ждущие человека — первыми: виток, крутящийся сам, и виток, стоящий на решении,
+  // выглядели одинаково, хотя второй — единственный, где человек нужен прямо сейчас.
+  // Сортировка стабильная: внутри одного waiting порядок сервера сохраняется.
+  const sorted = [...runs].sort((a, b) => b.waiting - a.waiting);
+
   return (
     <div>
-      {/* Список — снимок на момент запроса: статус здесь стареет молча, поэтому
-          обновление доступно руками, а не только уходом со страницы и обратно. */}
       <span className="mb-1 flex items-center justify-between text-xs uppercase tracking-wide text-neutral-500">
         <span>Открытые витки</span>
         <button
@@ -50,7 +66,7 @@ export function RunList({
       </span>
 
       <div className="space-y-2">
-        {runs.map((r) => (
+        {sorted.map((r) => (
           <div
             key={r.runId}
             className="flex items-center gap-3 rounded border border-neutral-800 p-3 text-sm"
@@ -62,13 +78,26 @@ export function RunList({
             >
               <div className="truncate font-medium">
                 {r.project} · <span className="font-mono">{r.slug}</span>
+                {r.waiting > 0 ? (
+                  // Счёт — серверный, тот же, что очередь решений внутри витка: бейдж
+                  // обязан совпадать с тем, что оператор увидит, открыв прогон.
+                  <span
+                    className="ml-2 rounded bg-amber-900/60 px-1.5 py-0.5 text-xs text-amber-200"
+                    title="одобрения, вопросы и красный вердикт, ждущие решения"
+                  >
+                    ждёт: {r.waiting}
+                  </span>
+                ) : null}
               </div>
               <div className="mt-0.5 text-xs text-neutral-500">
                 {/* `stage` — этап, выполняющийся ПРЯМО СЕЙЧАС, а между этапами он пуст.
                     Поэтому подпись говорит про занятость, а не про прогресс витка: «этап не
                     начат» на пустом `stage` соврало бы про виток, дошедший до verify. */}
-                {r.stage === null ? 'сейчас ничего не выполняется' : `выполняется ${r.stage}`} ·
-                chunk {r.chunk} · попытка {r.attempt} · профиль {r.profile} · {fmtCost(r.usage, r.currency)}
+                {r.stage === null
+                  ? 'сейчас ничего не выполняется'
+                  : `выполняется ${r.stage} · ${fmtDuration(Date.now() - (r.stageStartedAt ?? Date.now()))}`}{' '}
+                · chunk {r.chunk} · попытка {r.attempt} из {r.attemptBudget} · профиль{' '}
+                {r.profile} · {fmtCost(r.usage, r.currency)}
               </div>
             </button>
 
@@ -116,8 +145,8 @@ export function RunList({
       <p className="mt-2 text-xs text-neutral-500">
         Это витки, живущие в памяти сервера, а не история на диске: после перезапуска
         сервера список пуст, хотя <code className="font-mono">.sdlc/&lt;slug&gt;/</code>{' '}
-        целевого проекта никуда не делся. Статус относится к последнему этапу, а не к витку
-        целиком.
+        целевого проекта никуда не делся. Список обновляется сам раз в несколько секунд,
+        пока вкладка видна; статус относится к последнему этапу, а не к витку целиком.
       </p>
     </div>
   );

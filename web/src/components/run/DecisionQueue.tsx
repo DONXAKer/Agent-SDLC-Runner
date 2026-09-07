@@ -21,7 +21,6 @@ export function DecisionQueue({
   decision,
   decisionNote,
   clockOffsetMs,
-  suspended,
   onNoteChange,
   onDecide,
   onAnswer,
@@ -38,12 +37,6 @@ export function DecisionQueue({
    * «ждёт 20 мин» на свежем запросе.
    */
   clockOffsetMs: number;
-  /**
-   * Очередь закрыта поверхностью (Drawer): карточек не видно, и шорткаты обязаны молчать —
-   * «молчание одобрением не считается» держится на видимости карточек, а решение вслепую
-   * его ломает с обратной стороны.
-   */
-  suspended: boolean;
   onNoteChange: (v: string) => void;
   onDecide: (granted: boolean) => void;
   onAnswer: (requestId: string, answers: Record<string, string[]>) => void;
@@ -78,7 +71,7 @@ export function DecisionQueue({
   const target = top !== null && top.policy.ok && !editingIds.has(top.requestId) ? top : null;
 
   useEffect(() => {
-    if (target === null || suspended) return;
+    if (target === null) return;
     const onKey = (e: KeyboardEvent): void => {
       // `e.repeat` обязателен: удержание клавиши после резолва первой карточки продолжало
       // бы слать keydown и одобрило бы следующую, ещё не прочитанную. Shift исключается
@@ -107,7 +100,7 @@ export function DecisionQueue({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [target, suspended, onResolve]);
+  }, [target, onResolve]);
 
   if (count === 0) return null;
 
@@ -125,7 +118,7 @@ export function DecisionQueue({
         {oldest !== null ? (
           <span className="text-amber-400/80">старейшее ждёт {fmtWaitedFor(oldest, serverNow)}</span>
         ) : null}
-        {target !== null && !suspended ? (
+        {target !== null ? (
           <span className="ml-auto hidden text-neutral-500 sm:inline">
             A — одобрить верхнее · R — отклонить
           </span>

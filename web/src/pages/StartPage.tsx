@@ -72,7 +72,7 @@ export function StartPage({
   const stageTitles = Object.fromEntries(config.stages.map((s) => [s.id, s.title]));
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
+    <div className="mx-auto max-w-4xl p-8">
       <h1 className="mb-1 text-xl font-medium">Agent-SDLC Runner</h1>
       <p className="mb-6 text-sm text-neutral-400">
         Один виток: цель → разведка → вопросы → план → chunk → верификация → передача.
@@ -115,6 +115,7 @@ export function StartPage({
             stageOverrides={stageOverrides}
             requirement={requirement}
             slug={slug}
+            history={history}
             onProjectChange={onProjectChange}
             onProfileChange={onProfileChange}
             onStageOverridesChange={onStageOverridesChange}

@@ -1,6 +1,6 @@
 import type { RunDetail } from '@sdlc-runner/shared';
 
-import { CostBar } from '../CostBar.tsx';
+import { tailPath } from '../../lib/paths.ts';
 import { statusLabel, statusTone } from '../../lib/runStatus.ts';
 
 /** Шапка страницы витка: идентичность, статус, стоимость, уведомления, отмена. */
@@ -28,11 +28,18 @@ export function RunHeader({
       <button type="button" onClick={onExit} className="text-sm text-neutral-400 hover:text-neutral-200">
         ←
       </button>
-      <div>
-        <div className="text-sm font-medium">
-          {detail.project} · <span className="font-mono">{detail.slug}</span>
+      <div className="min-w-0">
+        {/* Крошки: проект · slug одним моноширинным блоком — это идентичность витка,
+            а не предложение. Полный корень не помещается в строку: хвост в тексте,
+            целиком — в title. */}
+        <div className="truncate text-sm font-medium">
+          <span className="font-mono">
+            {detail.project} · {detail.slug}
+          </span>
         </div>
-        <div className="text-xs text-neutral-500">{detail.projectRoot}</div>
+        <div className="truncate font-mono text-xs text-neutral-500" title={detail.projectRoot}>
+          {tailPath(detail.projectRoot)}
+        </div>
       </div>
 
       {/* Статус последнего этапа виден и здесь: пока он был только в списке витков,
@@ -57,10 +64,6 @@ export function RunHeader({
       </span>
 
       <div className="ml-auto flex items-center gap-4">
-        {/* Бюджет берётся из конфига проекта, а не из константы: до этого полоса
-            сравнивала расход с чужим числом и краснела не тогда, когда надо. */}
-        <CostBar usage={detail.usage} budgetUsd={detail.maxBudgetUsd} currency={detail.currency} />
-
         {/* При `denied` кнопки нет, и её отсутствие читалось как «уведомления включены»:
             оператор полагался на них и пропускал ожидание. Говорим прямо. */}
         {!alerts.supported || alerts.permission === 'denied' ? (

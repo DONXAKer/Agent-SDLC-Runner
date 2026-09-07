@@ -1,5 +1,8 @@
+import { useState } from 'react';
+
 import type { FlowId, RunDetail, StageId } from '@sdlc-runner/shared';
 
+import { relativizePaths } from '../lib/paths.ts';
 import { computeStageStates } from '../lib/stageProgress.ts';
 import type { StageState } from '../lib/stageProgress.ts';
 
@@ -46,6 +49,22 @@ export function StageRail({
 }): JSX.Element {
   // «Пройден» выводится из блокеров чистой функцией — сервер этого состояния не отдаёт.
   const states = computeStageStates(run.stages, run.stage);
+  /**
+   * Раскрытые списки блокеров. По умолчанию развёрнут только выбранный этап: именно его
+   * причины оператор чинит следующими, а стена предусловий из семи этапов сразу — та
+   * простыня, ради которой блокировки и прячутся за счётчик. Клик по счётчику добавляет
+   * id в набор (или убирает) — раскрытость считается как `has ≠ выбран ли этап`, поэтому
+   * повторный клик по активному этапу его сворачивает.
+   */
+  const [open, setOpen] = useState<ReadonlySet<StageId>>(new Set());
+  const toggle = (id: StageId): void => {
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   return (
     <nav className="flex w-64 shrink-0 flex-col gap-1 border-r border-neutral-800 p-3">
@@ -96,17 +115,43 @@ export function StageRail({
               </div>
             ) : null}
 
-            {/* Причины показываются ВСЕ: «первая и (+2)» заставляла оператора чинить их по
-                одной, перезапуская сборку промпта после каждой, — а предусловия считаются
-                чтением файлов, и вторая причина видна ровно так же дёшево, как первая.
+            {/* Причины показываются ВСЕ — но за кликом: «первая и (+2)» заставляла оператора
+                чинить их по одной, перезапуская сборку промпта после каждой, — а предусловия
+                считаются чтением файлов, и вторая причина видна ровно так же дёшево, как
+                первая. Счётчик держит рельс читаемым, список — раскрывается по месту.
                 У done-этапов блокеры не показываются: это предусловия ПЕРЕЗАПУСКА, а не
                 текущие проблемы — артефакты этапа уже на месте, раз следующий разблокирован. */}
             {state === 'blocked' ? (
-              <ul className="mt-1 space-y-0.5 break-words pl-7 text-[11px] leading-4 text-neutral-500">
-                {s.blockers.map((b, i) => (
-                  <li key={i}>— {b}</li>
-                ))}
-              </ul>
+              <div className="mt-1 pl-7">
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggle(s.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.stopPropagation();
+                    toggle(s.id);
+                  }}
+                  title={open.has(s.id) !== active ? 'свернуть причины' : 'показать все причины'}
+                  className="cursor-pointer text-[11px] text-neutral-500 underline decoration-dotted underline-offset-2 hover:text-neutral-300"
+                >
+                  {s.blockers.length}{' '}
+                  {s.blockers.length === 1 ? 'предусловие' : 'предусловий'}
+                  {open.has(s.id) !== active ? ' ▾' : ' ▴'}
+                </span>
+                {open.has(s.id) !== active ? (
+                  <ul className="mt-0.5 space-y-0.5 break-words text-[11px] leading-4 text-neutral-500">
+                    {s.blockers.map((b, i) => (
+                      // Абсолютные пути в причинах заменяются относительными: 90% строки
+                      // занимал дисковый префикс, а читается всегда хвост от корня.
+                      <li key={i}>— {relativizePaths(run.projectRoot, b)}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
             ) : null}
 
             {/* У handoff'а два входа с разными предусловиями: штатная приёмка и объявленный

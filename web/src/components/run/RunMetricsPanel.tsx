@@ -1,5 +1,6 @@
 import type { RedCauseKind, RunDetail } from '@sdlc-runner/shared';
 
+import { CostBar } from '../CostBar.tsx';
 import { fmtCost, fmtDuration } from '../../lib/format.ts';
 import { redCountTone } from '../../lib/tones.ts';
 
@@ -15,13 +16,42 @@ const RED_CAUSE_LABEL: Record<RedCauseKind, string> = {
  * Вкладка «Метрики»: числа витка из `detail.metrics` — расход и время по этапам, разбивка
  * красных вердиктов по причинам, попытки по каждому chunk'у. Источник тот же, что видит
  * рантайм при решении об эскалации модели — здесь не пересчитывается ничего заново.
+ *
+ * Токены и стоимость живут здесь, а не в шапке: это наблюдательные числа, и держать их
+ * в одной строке с кнопкой отмены значило бы спорить за внимание с действием.
  */
 export function RunMetricsPanel({ detail }: { detail: RunDetail }): JSX.Element {
   const { metrics } = detail;
   const stageTitle = new Map(detail.stages.map((s) => [s.id, s.title]));
 
+  // Бюджет берётся из конфига проекта, а не из константы: до этого полоса сравнивала
+  // расход с чужим числом и краснела не тогда, когда надо.
+  const cost = (
+    <CostBar usage={detail.usage} budgetUsd={detail.maxBudgetUsd} currency={detail.currency} />
+  );
+
+  // Три пустые секции подряд («этапы не запускались», «вердиктов не было», «попыток не
+  // было») читались как простыня о том, что ничего нет: виток, который только завели,
+  // получает одну строку вместо трёх.
+  if (
+    metrics.stages.length === 0 &&
+    metrics.verdicts.total === 0 &&
+    metrics.attemptsByChunk.length === 0
+  ) {
+    return (
+      <div className="space-y-6">
+        {cost}
+        <div className="text-xs text-neutral-500">
+          Данных пока нет: этапы не запускались, вердиктов и попыток не было.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {cost}
+
       <section>
         <h3 className="mb-2 text-xs uppercase tracking-wide text-neutral-500">Расход по этапам</h3>
         {metrics.stages.length === 0 ? (

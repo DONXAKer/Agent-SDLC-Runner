@@ -66,3 +66,43 @@ export function prevStep(step: WizardStep): WizardStep {
 export function wizardOpenByDefault(runsCount: number, historyCount: number): boolean {
   return runsCount === 0 && historyCount === 0;
 }
+
+/**
+ * Транслитерация кириллицы для slug'а. Однобуквенные соответствия где можно: слог
+ * «х» после согласной читается естественно и без мягкого знака. `ё` схлопывается в
+ * `e` — в slug'е различие не работает, а двойное написание ломало бы поиск.
+ */
+const CYRILLIC: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i',
+  й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
+  у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '',
+  э: 'e', ю: 'yu', я: 'ya',
+};
+
+/**
+ * Slug из текста задачи: транслит → kebab-case из [a-z0-9]. Пустая строка — в тексте
+ * не оказалось ни буквы, ни цифры (например, одна пунктуация); вызывающий обязан
+ * оставить поле как есть, а не подставлять пустой slug.
+ */
+export function slugFromText(text: string): string {
+  let out = '';
+  for (const ch of text.toLowerCase()) {
+    out += CYRILLIC[ch] ?? ch;
+  }
+  return out
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+/**
+ * Свободный вариант slug'а: `base` сам, а при занятости — `base-2`, `base-3` и так
+ * далее. Считается по истории проекта, поэтому коллизия с прошлым витком ловится
+ * до похода на сервер, а не отказом `createRun`.
+ */
+export function uniqueSlug(base: string, taken: ReadonlySet<string>): string {
+  if (base === '' || !taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}-${n}`)) n += 1;
+  return `${base}-${n}`;
+}

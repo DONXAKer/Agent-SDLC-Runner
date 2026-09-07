@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import type { AutoApproveRules, PreparedPrompt, StageId } from '@sdlc-runner/shared';
 
 import { PromptPane } from '../PromptPane.tsx';
@@ -33,6 +35,10 @@ export function PromptColumn({
   onBuild: () => void;
   onRun: (edited: { system: string; user: string }) => void;
 }): JSX.Element {
+  // Свёрнут по умолчанию: четыре чекбокса в строке с главной кнопкой этапа спорили с ней
+  // за внимание, хотя трогают их на каждом этапе единицы операторов.
+  const [autoOpen, setAutoOpen] = useState(false);
+
   return (
     <section className="min-w-0">
       <div className="mb-2 flex items-center gap-2">
@@ -45,29 +51,47 @@ export function PromptColumn({
         </button>
         {/* Правила вместо одного тумблера: «одобрять всё» включало и `Bash`, и
             запись вне плана — то есть ровно то, ради чего гейт существует. */}
-        <span className="ml-auto flex items-center gap-3 text-xs text-neutral-400">
-          <span className="text-neutral-500">одобрять без вопроса:</span>
-          {(
-            [
-              ['planWrites', 'правки в files_to_touch'],
-              ['bash', 'команды оболочки'],
-              // Отдельно от «остального»: изменяющих MCP-вызовов на этапе 5 десятки, но
-              // включать ради них `rest` значит заодно разрешить запись вне плана.
-              ['mcpWrites', 'изменяющие MCP-вызовы'],
-              ['rest', 'остальное'],
-            ] as const
-          ).map(([key, label]) => (
-            <label key={key} className="flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={autoRules[key]}
-                onChange={(e) => onAutoRulesChange({ ...autoRules, [key]: e.target.checked })}
-              />
-              {label}
-            </label>
-          ))}
-        </span>
+        <button
+          type="button"
+          onClick={() => setAutoOpen(!autoOpen)}
+          title="Одобрять выбранные классы вызовов без вопроса до конца этапа"
+          className="ml-auto text-xs text-neutral-500 hover:text-neutral-300"
+        >
+          {autoOpen ? '− ' : '+ '}безопасный автопилот
+        </button>
       </div>
+
+      {autoOpen ? (
+        <div className="mb-3 rounded border border-neutral-800 p-2">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-400">
+            {(
+              [
+                ['planWrites', 'правки в files_to_touch'],
+                ['bash', 'команды оболочки'],
+                // Отдельно от «остального»: изменяющих MCP-вызовов на этапе 5 десятки, но
+                // включать ради них `rest` значит заодно разрешить запись вне плана.
+                ['mcpWrites', 'изменяющие MCP-вызовы'],
+                ['rest', 'остальное'],
+              ] as const
+            ).map(([key, label]) => (
+              <label key={key} className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={autoRules[key]}
+                  onChange={(e) => onAutoRulesChange({ ...autoRules, [key]: e.target.checked })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          {/* Обещание совпадает с сервером: правила снимает `clearAutoApprove` в `finally`
+              запуска, и «на весь виток» здесь означало бы врать. */}
+          <p className="mt-1.5 text-[11px] text-neutral-500">
+            Одобренные классы вызовов не доходят до очереди решений — сбрасывается по концу
+            этапа.
+          </p>
+        </div>
+      ) : null}
 
       {stage === 'intent' ? (
         <textarea

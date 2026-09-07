@@ -12,7 +12,9 @@ import {
   canProceed,
   nextStep,
   prevStep,
+  slugFromText,
   stepBlocker,
+  uniqueSlug,
   wizardOpenByDefault,
 } from '../src/lib/startWizard.ts';
 import type { WizardState } from '../src/lib/startWizard.ts';
@@ -58,5 +60,39 @@ describe('мастер открыт по умолчанию', () => {
   it('есть открытый виток или история — сначала выбор, а не форма', () => {
     strictEqual(wizardOpenByDefault(1, 0), false);
     strictEqual(wizardOpenByDefault(0, 3), false);
+  });
+});
+
+describe('slug из текста задачи', () => {
+  it('транслитерирует кириллицу и склеивает в kebab-case', () => {
+    strictEqual(
+      slugFromText('Платёж в статусе pending не переходит в failed'),
+      'platezh-v-statuse-pending-ne-perehodit-v-failed',
+    );
+  });
+
+  it('латиница и цифры проходят как есть, прочее — разделители', () => {
+    strictEqual(slugFromText('pay 412: retry!'), 'pay-412-retry');
+  });
+
+  it('мягкие знаки исчезают, «ч» и «ш» — двухбуквенные', () => {
+    strictEqual(slugFromText('объём webhook-а'), 'obem-webhook-a');
+  });
+
+  it('текст без букв и цифр даёт пустой slug, а не мусор', () => {
+    strictEqual(slugFromText('!!!'), '');
+    strictEqual(slugFromText('   '), '');
+  });
+});
+
+describe('свободный slug при занятости', () => {
+  it('занятый base получает суффикс, свободный остаётся как есть', () => {
+    strictEqual(uniqueSlug('pay-412', new Set(['pay-412'])), 'pay-412-2');
+    strictEqual(uniqueSlug('pay-412', new Set(['pay-412', 'pay-412-2'])), 'pay-412-3');
+    strictEqual(uniqueSlug('pay-413', new Set(['pay-412'])), 'pay-413');
+  });
+
+  it('пустая база не растёт суффиксами', () => {
+    strictEqual(uniqueSlug('', new Set()), '');
   });
 });

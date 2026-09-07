@@ -4,10 +4,8 @@ import { EventStream } from '../components/EventStream.tsx';
 import { RunDiffView } from '../components/RunDiffView.tsx';
 import { StageRail } from '../components/StageRail.tsx';
 import { AdvanceBar } from '../components/run/AdvanceBar.tsx';
-import { ContextColumn, ContextPanels, DrawerButtons } from '../components/run/ContextColumn.tsx';
-import type { DrawerKind } from '../components/run/ContextColumn.tsx';
+import { ContextPanels } from '../components/run/ContextPanels.tsx';
 import { DecisionQueue } from '../components/run/DecisionQueue.tsx';
-import { Drawer } from '../components/run/Drawer.tsx';
 import { FocusSection } from '../components/run/FocusSection.tsx';
 import { LiveProgress } from '../components/run/LiveProgress.tsx';
 import { PromptColumn } from '../components/run/PromptColumn.tsx';
@@ -16,6 +14,7 @@ import { RunMetricsPanel } from '../components/run/RunMetricsPanel.tsx';
 import { RunSummaryStrip } from '../components/run/RunSummaryStrip.tsx';
 import { VerdictCard } from '../components/run/VerdictCard.tsx';
 import { api } from '../lib/api.ts';
+import type { ObsTab } from '../lib/hashRoute.ts';
 import type {
   AutoApproveRules,
   Decision,
@@ -29,16 +28,25 @@ import { groupEvents } from '../lib/eventGroups.ts';
 import { computeNowFocus } from '../lib/nowFocus.ts';
 import { decisionQueueCount, mergePending } from '../lib/pending.ts';
 import { suggestedStage } from '../lib/stageProgress.ts';
-import { BTN_SECONDARY, PANEL_TONE } from '../lib/tones.ts';
+import { PANEL_TONE } from '../lib/tones.ts';
 import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
 
 export function RunPage({
   runId,
+  view,
+  tab,
+  onViewChange,
   initialRequirement = '',
   onExit,
 }: {
   runId: string;
+  /** Режим страницы: «Сейчас» — управление витком, «Наблюдение» — лента/дифф/метрики/контекст. */
+  view: 'now' | 'obs';
+  /** Активная вкладка наблюдения. При view 'now' не читается. */
+  tab: ObsTab;
+  /** Смена режима/вкладки: уходит в адрес, чтобы режим переживал F5 и давался ссылкой. */
+  onViewChange: (view: 'now' | 'obs', tab?: ObsTab) => void;
   /**
    * Задача витка, набранная на стартовом экране. Только начальное значение: дальше текст
    * живёт здесь и правится на этапе intent — виток, открытый из списка, ничего не
@@ -57,16 +65,14 @@ export function RunPage({
   const [error, setError] = useState<string | null>(null);
   /** Отмена прогона спрашивается вторым кликом: бюджет уже потрачен, отменить отмену нельзя. */
   const [confirmCancel, setConfirmCancel] = useState(false);
-  /** Открытая поверх экрана полная поверхность: лента, дифф витка, метрики или контекст. */
-  const [drawer, setDrawer] = useState<DrawerKind | null>(null);
-  // Этап с диффом — одно вычисление на обе точки кнопок (колонка и узкая панель): пока
-  // условие было записано дважды, правка одного места разводила широкий и узкий экраны.
+  // Этап с диффом — одно вычисление на кнопку вкладки и на её гвард: пока условие было
+  // записано дважды, правка одного места разводила широкий и узкий экраны.
   const diffStage = stage === 'verify' || stage === 'chunk';
-  // Панель диффа привязана к этапу так же, как её кнопка: смена этапа закрывает её,
+  // Вкладка диффа привязана к этапу так же, как её кнопка: смена этапа уводит с неё,
   // иначе она жила бы открытой там, где эта поверхность не предлагается.
   useEffect(() => {
-    if (drawer === 'diff' && !diffStage) setDrawer(null);
-  }, [drawer, diffStage]);
+    if (view === 'obs' && tab === 'diff' && !diffStage) onViewChange('obs', 'events');
+  }, [view, tab, diffStage, onViewChange]);
   /**
    * Правила автоодобрения. Живут до конца этапа: сервер снимает их в `finally` запуска, и
    * обещать здесь большее (например «на весь виток») значило бы обещать не своё.
@@ -432,25 +438,14 @@ export function RunPage({
   const stageTitle = (id: StageId): string =>
     detail.stages.find((s) => s.id === id)?.title ?? id;
 
-  // Панель закрывает очередь целиком и съедает её видимость — второй сигнал ждущих
-  // решений лежит поверх неё. Спред-объект вместо `banner={undefined}` — требование
-  // exactOptionalPropertyTypes.
+  // Единый сигнал о ждущих решениях: чип «Ждут решений: N» в строке вкладок. Двух баннеров
+  // (в центре и на панели) больше нет — режимы разведены по адресам, и конкурировать им не с чем.
   const nowCount = decisionQueueCount(asks, approvals, decision) + (verdictNeedsAction ? 1 : 0);
-  const drawerBanner =
-    nowCount === 0
-      ? {}
-      : {
-          banner: (
-            <button
-              type="button"
-              onClick={() => setDrawer(null)}
-              className="flex w-full items-center gap-2 border-b border-amber-900/60 bg-amber-950/30 px-4 py-2 text-left text-xs text-amber-300 hover:bg-amber-950/50"
-            >
-              <span className="rounded bg-amber-900/60 px-1.5 py-0.5 text-amber-200">{nowCount}</span>
-              Ждут решения — закрыть панель
-            </button>
-          ),
-        };
+
+  const tabBtn = (active: boolean): string =>
+    `rounded px-3 py-1.5 text-xs transition ${
+      active ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-500 hover:text-neutral-200'
+    }`;
 
   return (
     <div className="flex h-full flex-col">
@@ -466,157 +461,189 @@ export function RunPage({
       />
       <RunSummaryStrip detail={detail} />
 
+      {/* Режимы страницы — в адресе (`#/run/<id>` и `#/run/<id>/obs/<вкладка>`): режим
+          переживает F5 и даётся ссылкой. Управление и наблюдение — разные экраны, а не
+          панели, борющиеся за место одного окна. */}
+      <nav className="flex items-center gap-1 border-b border-neutral-800 px-4 py-1.5">
+        <button
+          type="button"
+          onClick={() => onViewChange('now')}
+          className={tabBtn(view === 'now')}
+        >
+          Сейчас
+        </button>
+        <button
+          type="button"
+          onClick={() => onViewChange('obs', 'events')}
+          className={tabBtn(view === 'obs' && tab === 'events')}
+        >
+          Лента · {stageEventItems.length}
+          {hasWarning ? <span className="ml-1 text-amber-400">⚠</span> : null}
+        </button>
+        {diffStage ? (
+          <button
+            type="button"
+            onClick={() => onViewChange('obs', 'diff')}
+            className={tabBtn(view === 'obs' && tab === 'diff')}
+          >
+            Diff витка
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => onViewChange('obs', 'metrics')}
+          className={tabBtn(view === 'obs' && tab === 'metrics')}
+        >
+          Метрики
+        </button>
+        <button
+          type="button"
+          onClick={() => onViewChange('obs', 'context')}
+          className={tabBtn(view === 'obs' && tab === 'context')}
+        >
+          Контекст
+        </button>
+
+        {view === 'obs' && nowCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => onViewChange('now')}
+            className="ml-auto flex items-center gap-1.5 rounded bg-amber-950/40 px-2 py-1 text-xs text-amber-300 hover:bg-amber-950/60"
+          >
+            <span className="rounded bg-amber-900/60 px-1.5 text-amber-200">{nowCount}</span>
+            Ждут решений — к «Сейчас»
+          </button>
+        ) : null}
+      </nav>
+
       <div className="flex min-h-0 flex-1">
         <StageRail run={detail} selected={stage} onSelect={setStage} />
 
-        <main className="min-w-0 flex-1 overflow-auto p-4">
-          {error !== null ? (
-            <div className={`mb-3 rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
-              {error}
-            </div>
-          ) : null}
-
-          {/* Узкий экран: правая колонка контекста скрыта, её содержимое и полные
-              поверхности открываются отсюда — панель «Контекст» держит гейты и MCP
-              достижимыми на любой ширине. */}
-          <div className="mb-3 flex gap-2 lg:hidden">
-            <DrawerButtons
-              eventRows={stageEventItems.length}
-              hasWarning={hasWarning}
-              diffStage={diffStage}
-              onOpen={setDrawer}
-            />
-            <button
-              type="button"
-              onClick={() => setDrawer('context')}
-              className={`${BTN_SECONDARY} flex-1 px-2 py-1.5 text-xs`}
-            >
-              Контекст
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {/* Текст предупреждений — на экране, а не за кликом: см. комментарий у
-                `warnings` выше. Показываются последние, самые свежие. */}
-            {hasWarning ? (
-              <div className={`rounded border p-3 text-xs text-amber-200 ${PANEL_TONE.warn}`}>
-                {warnings.slice(-3).map((w, i) => (
-                  <div key={i}>⚠ {w.message}</div>
-                ))}
+        {view === 'now' ? (
+          <main className="min-w-0 flex-1 overflow-auto p-4">
+            {error !== null ? (
+              <div className={`mb-3 rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
+                {error}
               </div>
             ) : null}
 
-            {/* Очередь решений не заворачивается в FocusSection никогда: «молчание
-                одобрением не считается» держится на видимости карточек. Пустая очередь
-                рендерит null сама. */}
-            <DecisionQueue
-              asks={asks}
-              approvals={approvals}
-              decision={decision}
-              decisionNote={decisionNote}
-              clockOffsetMs={clockOffsetMs.current}
-              suspended={drawer !== null}
-              onNoteChange={setDecisionNote}
-              onDecide={(granted) => void decide(granted)}
-              onAnswer={answer}
-              onResolve={resolveApproval}
-            />
+            <div className="space-y-4">
+              {/* Текст предупреждений — на экране, а не за кликом: см. комментарий у
+                  `warnings` выше. Показываются последние, самые свежие. */}
+              {hasWarning ? (
+                <div className={`rounded border p-3 text-xs text-amber-200 ${PANEL_TONE.warn}`}>
+                  {warnings.slice(-3).map((w, i) => (
+                    <div key={i}>⚠ {w.message}</div>
+                  ))}
+                </div>
+              ) : null}
 
-            {/* Вердикт в центре и не сворачивается: красный — потому что виток стоит и
-                причина обязана быть рядом с кнопками продвижения (по verdictNeedsAction
-                напрямую, а не по focus.kind: порядок веток машины фокуса не должен молча
-                прятать карточку); на verify — потому что это главный вход решения
-                оператора, и прятать его — прятать смысл этапа 6. */}
-            {detail.verdict !== null && (verdictNeedsAction || stage === 'verify') ? (
-              <VerdictCard
-                verdict={detail.verdict}
-                escalation={detail.escalation}
-                redCause={detail.redCause}
+              {/* Очередь решений не заворачивается в FocusSection никогда: «молчание
+                  одобрением не считается» держится на видимости карточек. Пустая очередь
+                  рендерит null сама. */}
+              <DecisionQueue
+                asks={asks}
+                approvals={approvals}
+                decision={decision}
+                decisionNote={decisionNote}
+                clockOffsetMs={clockOffsetMs.current}
+                onNoteChange={setDecisionNote}
+                onDecide={(granted) => void decide(granted)}
+                onAnswer={answer}
+                onResolve={resolveApproval}
               />
-            ) : null}
 
-            {detail.stage !== null ? (
+              {/* Вердикт в центре и не сворачивается: красный — потому что виток стоит и
+                  причина обязана быть рядом с кнопками продвижения (по verdictNeedsAction
+                  напрямую, а не по focus.kind: порядок веток машины фокуса не должен молча
+                  прятать карточку); на verify — потому что это главный вход решения
+                  оператора, и прятать его — прятать смысл этапа 6. */}
+              {detail.verdict !== null && (verdictNeedsAction || stage === 'verify') ? (
+                <VerdictCard
+                  verdict={detail.verdict}
+                  escalation={detail.escalation}
+                  redCause={detail.redCause}
+                />
+              ) : null}
+
+              {detail.stage !== null ? (
+                <FocusSection
+                  title={`Выполняется: ${stageTitle(detail.stage)}`}
+                  focused={focus.kind === 'running'}
+                  summary={<span className="text-amber-400">этап идёт</span>}
+                >
+                  <LiveProgress
+                    events={runningEvents}
+                    currency={detail?.currency}
+                    onOpenFull={() => onViewChange('obs', 'events')}
+                  />
+                </FocusSection>
+              ) : null}
+
               <FocusSection
-                title={`Выполняется: ${stageTitle(detail.stage)}`}
-                focused={focus.kind === 'running'}
-                summary={<span className="text-amber-400">этап идёт</span>}
+                title={`Запрос к модели — ${stageTitle(stage)}`}
+                focused={focus.kind === 'prepare' || focus.kind === 'finished'}
+                summary={
+                  blockers.length > 0
+                    ? `этап заблокирован (${blockers.length})`
+                    : prompt === null
+                      ? 'промпт не собран'
+                      : 'промпт собран'
+                }
               >
-                <LiveProgress events={runningEvents} currency={detail?.currency} onOpenFull={() => setDrawer('events')} />
+                <PromptColumn
+                  stage={stage}
+                  prompt={prompt}
+                  blockers={blockers}
+                  uiBusy={uiBusy}
+                  busyReason={busyReason}
+                  autoRules={autoRules}
+                  onAutoRulesChange={setAutoRules}
+                  requirement={requirement}
+                  onRequirementChange={setRequirement}
+                  onBuild={() => void build()}
+                  onRun={(p) => void run(p)}
+                />
               </FocusSection>
+
+              <AdvanceBar
+                attempt={detail.attempt}
+                attemptBudget={detail.attemptBudget}
+                uiBusy={uiBusy}
+                abortBlockers={abortBlockers}
+                prominent={focus.kind === 'verdict-red'}
+                onAdvance={(to) => void advance(to)}
+                onAbort={() => void abortWitok()}
+              />
+            </div>
+          </main>
+        ) : (
+          <main className="min-w-0 flex-1 overflow-auto p-4">
+            {error !== null ? (
+              <div className={`mb-3 rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
+                {error}
+              </div>
             ) : null}
 
-            <FocusSection
-              title={`Запрос к модели — ${stageTitle(stage)}`}
-              focused={focus.kind === 'prepare' || focus.kind === 'finished'}
-              summary={
-                blockers.length > 0
-                  ? `этап заблокирован (${blockers.length})`
-                  : prompt === null
-                    ? 'промпт не собран'
-                    : 'промпт собран'
-              }
-            >
-              <PromptColumn
-                stage={stage}
-                prompt={prompt}
-                blockers={blockers}
-                uiBusy={uiBusy}
-                busyReason={busyReason}
-                autoRules={autoRules}
-                onAutoRulesChange={setAutoRules}
-                requirement={requirement}
-                onRequirementChange={setRequirement}
-                onBuild={() => void build()}
-                onRun={(p) => void run(p)}
+            {tab === 'events' ? (
+              <EventStream
+                events={stageEvents}
+                precomputed={stageEventItems}
+                currency={detail?.currency}
               />
-            </FocusSection>
-
-            <AdvanceBar
-              attempt={detail.attempt}
-              attemptBudget={detail.attemptBudget}
-              uiBusy={uiBusy}
-              abortBlockers={abortBlockers}
-              prominent={focus.kind === 'verdict-red'}
-              onAdvance={(to) => void advance(to)}
-              onAbort={() => void abortWitok()}
-            />
-          </div>
-        </main>
-
-        <ContextColumn
-          detail={detail}
-          stage={stage}
-          diffStage={diffStage}
-          eventRows={stageEventItems.length}
-          hasWarning={hasWarning}
-          onOpenDrawer={setDrawer}
-        />
+            ) : null}
+            {/* Патч попытки доступен с обоих diff-этапов: чинят по нему на chunk, судят на
+                verify — история нужна на обоих. */}
+            {tab === 'diff' ? <RunDiffView runId={runId} compact={false} /> : null}
+            {tab === 'metrics' ? <RunMetricsPanel detail={detail} /> : null}
+            {tab === 'context' ? (
+              <div className="space-y-3">
+                <ContextPanels detail={detail} stage={stage} diffStage={diffStage} />
+              </div>
+            ) : null}
+          </main>
+        )}
       </div>
-
-      {drawer === 'events' ? (
-        <Drawer title="Лента событий" onClose={() => setDrawer(null)} {...drawerBanner}>
-          <EventStream events={stageEvents} precomputed={stageEventItems} currency={detail?.currency} />
-        </Drawer>
-      ) : null}
-      {/* Патч попытки доступен с обоих diff-этапов: чинят по нему на chunk, судят на
-          verify — история нужна на обоих. */}
-      {drawer === 'diff' ? (
-        <Drawer title="Diff витка" onClose={() => setDrawer(null)} {...drawerBanner}>
-          <RunDiffView runId={runId} compact={false} />
-        </Drawer>
-      ) : null}
-      {drawer === 'metrics' ? (
-        <Drawer title="Метрики витка" onClose={() => setDrawer(null)} {...drawerBanner}>
-          <RunMetricsPanel detail={detail} />
-        </Drawer>
-      ) : null}
-      {drawer === 'context' ? (
-        <Drawer title="Контекст этапа" onClose={() => setDrawer(null)} {...drawerBanner}>
-          <div className="space-y-3">
-            <ContextPanels detail={detail} stage={stage} diffStage={diffStage} />
-          </div>
-        </Drawer>
-      ) : null}
     </div>
   );
 }

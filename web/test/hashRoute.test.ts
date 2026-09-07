@@ -12,7 +12,9 @@ import type { Route } from '../src/lib/hashRoute.ts';
 describe('разбор и сборка адреса', () => {
   const cases: Route[] = [
     { kind: 'start' },
-    { kind: 'run', runId: 'r-17c3f' },
+    { kind: 'run', runId: 'r-17c3f', view: 'now' },
+    { kind: 'run', runId: 'r-17c3f', view: 'obs', tab: 'events' },
+    { kind: 'run', runId: 'r-17c3f', view: 'obs', tab: 'diff' },
     { kind: 'archive', project: 'myproj', slug: 'pay-412' },
   ];
 
@@ -28,8 +30,33 @@ describe('разбор и сборка адреса', () => {
   });
 
   it('hash разбирается и без ведущей решётки, и с лишними слэшами', () => {
-    deepStrictEqual(parseHash('/run/abc'), { kind: 'run', runId: 'abc' });
-    deepStrictEqual(parseHash('#//run/abc'), { kind: 'run', runId: 'abc' });
+    deepStrictEqual(parseHash('/run/abc'), { kind: 'run', runId: 'abc', view: 'now' });
+    deepStrictEqual(parseHash('#//run/abc'), { kind: 'run', runId: 'abc', view: 'now' });
+  });
+
+  it('«Сейчас» — маршрут витка по умолчанию, старые ссылки на виток не ломаются', () => {
+    deepStrictEqual(parseHash('#/run/abc'), { kind: 'run', runId: 'abc', view: 'now' });
+  });
+
+  it('вкладка наблюдения в адресе; неизвестная вкладка мягко падает на ленту', () => {
+    deepStrictEqual(parseHash('#/run/abc/obs/diff'), {
+      kind: 'run',
+      runId: 'abc',
+      view: 'obs',
+      tab: 'diff',
+    });
+    deepStrictEqual(parseHash('#/run/abc/obs/чушь'), {
+      kind: 'run',
+      runId: 'abc',
+      view: 'obs',
+      tab: 'events',
+    });
+    deepStrictEqual(parseHash('#/run/abc/obs'), {
+      kind: 'run',
+      runId: 'abc',
+      view: 'obs',
+      tab: 'events',
+    });
   });
 });
 
