@@ -58,6 +58,8 @@ const browseRoot = process.env['SDLC_BROWSE_ROOT'];
 interface LiveRun {
   run: Run;
   currentStage: StageId | null;
+  /** Момент старта `currentStage`, epoch ms. `null` вместе с `currentStage: null`. */
+  stageStartedAt: number | null;
 }
 
 const runs = new Map<string, LiveRun>();
@@ -94,14 +96,25 @@ const gate = new ApprovalGate({
       destructive: p.destructive,
       createdAt: p.createdAt,
     }),
-  onResolved: (info, decision) =>
+  onResolved: (info, decision) => {
     emit({
       type: 'tool_resolved',
       runId: info.runId,
       stage: info.stage,
       requestId: info.requestId,
       decision,
-    }),
+    });
+    // Трение о человека копит сам виток: решения политики и автоодобрения (by 'policy'/
+    // 'auto') человека не ждали и в метрики не идут. Отказ оператора идёт в ожидание, но
+    // не в одобрения.
+    if (decision.by !== 'operator') return;
+    runs.get(info.runId)?.run.recordHuman(
+      info.stage,
+      'approval',
+      decision.allowed ? 1 : 0,
+      Date.now() - info.createdAt,
+    );
+  },
 });
 
 const askGate = new AskGate({
@@ -120,7 +133,7 @@ const askGate = new AskGate({
       destructive: null,
       createdAt: p.createdAt,
     }),
-  onAnswered: (info, answers) =>
+  onAnswered: (info, answers) => {
     emit({
       type: 'tool_result',
       runId: info.runId,
@@ -129,7 +142,17 @@ const askGate = new AskGate({
       ok: true,
       summary: `ответы получены: ${Object.keys(answers).length}`,
       durationMs: 0,
-    }),
+    });
+    // Отменённый вопрос — не ответ человека: считать его вопросом значило бы рисовать
+    // диалог там, где прогон просто оборвали.
+    if (info.cancelled) return;
+    runs.get(info.runId)?.run.recordHuman(
+      info.stage,
+      'question',
+      info.questions,
+      Date.now() - info.createdAt,
+    );
+  },
 });
 
 const app = Fastify({ logger: { level: 'warn' } });
@@ -341,7 +364,7 @@ app.post('/api/runs', async (req, reply) => {
       emit,
     });
 
-    runs.set(run.id, { run, currentStage: null });
+    runs.set(run.id, { run, currentStage: null, stageStartedAt: null });
     emit({
       type: 'run_started',
       runId: run.id,
@@ -358,7 +381,7 @@ app.post('/api/runs', async (req, reply) => {
 });
 
 app.get('/api/runs', (): RunSummary[] =>
-  [...runs.values()].map(({ run, currentStage }) => ({
+  [...runs.values()].map(({ run, currentStage, stageStartedAt }) => ({
     runId: run.id,
     slug: run.slug,
     project: run.project.name,
@@ -368,7 +391,16 @@ app.get('/api/runs', (): RunSummary[] =>
     stage: currentStage,
     chunk: run.chunk,
     attempt: run.attempt,
+    attemptBudget: run.attemptBudget,
     usage: run.totalUsage,
+    // Счёт ждущих решений — тот же, что очередь в RunPage: одобрения + вопросы +
+    // красный вердикт. Клиент этот счёт не собирает по ленте: число обязано совпадать
+    // с тем, что покажет открытый виток.
+    waiting:
+      gate.list().filter((p) => p.runId === run.id).length +
+      askGate.list().filter((p) => p.runId === run.id).length +
+      (run.lastVerdict !== null && !run.lastVerdict.passed ? 1 : 0),
+    stageStartedAt: currentStage === null ? null : stageStartedAt,
   })),
 );
 
@@ -443,6 +475,13 @@ app.get('/api/runs/:id', async (req, reply) => {
     attemptBudget: run.attemptBudget,
     maxBudgetUsd: run.project.maxBudgetUsd,
     usage: run.totalUsage,
+    // Дублируем счёт из GET /api/runs тем же выражением: RunDetail extends RunSummary,
+    // и карточка списка обязана показывать то же число, что очередь на странице витка.
+    waiting:
+      gate.list().filter((p) => p.runId === id).length +
+      askGate.list().filter((p) => p.runId === id).length +
+      (run.lastVerdict !== null && !run.lastVerdict.passed ? 1 : 0),
+    stageStartedAt: currentStage === null ? null : live.stageStartedAt,
     stages: STAGES.map((s) => {
       const out = s.produces(run.ctx);
       return {
@@ -598,6 +637,7 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
   const base = live.run.preparePrompt(stage, body);
 
   live.currentStage = stage;
+  live.stageStartedAt = Date.now();
 
   // Этап живёт дольше HTTP-запроса: клиент следит за ним по WebSocket. Без catch любая
   // ошибка вне try внутри runStage становилась unhandled rejection и роняла процесс
@@ -629,6 +669,7 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
     })
     .finally(() => {
       live.currentStage = null;
+      live.stageStartedAt = null;
       // Автоодобрение действует на один этап: оставленное включённым, оно молча
       // распространялось бы на все последующие попытки.
       gate.clearAutoApprove(id, stage);

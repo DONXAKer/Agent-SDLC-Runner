@@ -25,6 +25,17 @@ export interface VerifyReportFacts {
   attempt: number;
   slug: string;
   attemptBudget: number;
+  /**
+   * Статус гейтов РАННИХ этапов, которые рантайм посчитал сам (сегодня — «Разбор
+   * последствий» этапа 4). Имя гейта → статус и адрес артефакта, где он виден.
+   *
+   * Переносится рантаймом по той же причине, по которой он заполняет таблицу гейтов
+   * этапа 6: статус, который программа знает своими глазами, не отдаётся модели на
+   * пересказ. Пока строку писала модель, включённый гейт, отработавший зелёным на этапе 4,
+   * терялся в отчёте — и `enabledGatesMissingFromReport` ронял вердикт за чужую забывчивость
+   * (ревью).
+   */
+  earlyGates?: readonly { name: string; stage: string; status: string; seenIn: string }[];
 }
 
 /** Однострочная ячейка таблицы: переносы и вертикальные черты в ней жить не могут. */
@@ -109,6 +120,45 @@ export function autofillVerificationReport(
         ...rest.map((r) => `| ${escapeCell(r.name)} | ${r.status} | ${resultCell(r)} |`),
       );
       filled += rest.length > 0 ? rest.length : 1;
+    }
+  }
+
+  // Шаг 1б: таблица «Гейты ранних этапов» — строки, чей статус рантайм посчитал сам.
+  // Строка-образец разворачивается в фактические; уже стоящая строка того же гейта
+  // переписывается фактом (модель могла вписать своё мнение до автозаполнения).
+  const early = f.earlyGates ?? [];
+  if (early.length > 0) {
+    const head = lines.findIndex((l) => /^###\s+Гейты ранних этапов\s*$/.test(l.trim()));
+    if (head >= 0) {
+      let i = head + 1;
+      while (i < lines.length && !lines[i]!.trimStart().startsWith('|')) {
+        if (/^#{2,3}\s/.test(lines[i]!)) break;
+        i++;
+      }
+      let end = i;
+      while (end < lines.length && lines[end]!.trimStart().startsWith('|')) end++;
+      if (end > i) {
+        const rendered = early.map(
+          (g) => `| ${escapeCell(g.name)} | ${g.stage} | ${g.status} | ${escapeCell(g.seenIn)} |`,
+        );
+        const keep: string[] = [];
+        for (let j = i; j < end; j++) {
+          const line = lines[j]!;
+          const name = firstCell(line);
+          const isSample = line.includes('‹гейт›');
+          const known = name !== null && early.some((g) => gateKey(g.name) === gateKey(name));
+          if (!isSample && !known) keep.push(line);
+        }
+        const before = lines.slice(i, end).join('\n');
+        const after = [...keep, ...rendered].join('\n');
+        if (before !== after) {
+          lines.splice(i, end - i, ...keep, ...rendered);
+          // Идемпотентность: повторный вызов на уже заполненном отчёте не должен
+          // объявлять работу заново — на это опирается ансамбль, стартующий с прежнего
+          // бланка.
+          filled += rendered.length;
+        }
+      }
     }
   }
 

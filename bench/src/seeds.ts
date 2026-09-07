@@ -86,7 +86,7 @@ export const SEEDS: readonly SeedDef[] = [
     id: 'swallow-tariff-error',
     klass: 'проглоченная ошибка',
     file: 'src/tariffs.ts',
-    // Якоря шести посевов ниже лежат в src/tariffs.ts и test/tariffs.test.ts общей фикстуры
+    // Якоря восьми посевов ниже лежат в src/tariffs.ts и test/tariffs.test.ts общей фикстуры
     // `fixture` (задачи oversize и freeship).
     fixtureDir: 'fixture',
     what:
@@ -180,6 +180,79 @@ export const SEEDS: readonly SeedDef[] = [
     expected: 'gate',
     gates: ['Тесты'],
     mentions: [/reserve/i, /впритык/i, /границ[а-яё]* (включающ|остатк)/i, /entry\.qty/],
+  },
+  {
+    id: 'axis-config-blind',
+    klass: 'ось: настройки — значение из окружения без умолчания',
+    file: 'src/tariffs.ts',
+    fixtureDir: 'fixture',
+    what:
+      '`basePrice` начинает читать зональную надбавку из переменной окружения ' +
+      '`TARIFF_ZONE_EXTRA`: умолчания в коде нет, значение не проверяется, и при ' +
+      '`TARIFF_ZONE_EXTRA=abc` цена становится NaN. Тесты фикстуры переменную не задают — ' +
+      'при пустом окружении надбавка равна нулю, и прогон остаётся зелёным',
+    // Якорь ВНЕ `priceFor`: её задача фикстуры обязывает исполнителя переписать («total
+    // учитывает надбавку»), и посев туда либо не находил бы якоря на снимке «после chunk»,
+    // либо оказывался бы затёрт правкой модели — измерялась бы не находимость, а везение
+    // (ревью). Все прежние посевы якорятся так же — в `basePrice`, таблице, `weightStep`.
+    find: [
+      '  if (price === undefined) {',
+      '    throw new Error(`тариф не заполнен: зона ${zone}, вес ${weightG} г`);',
+      '  }',
+      '  return price;',
+    ].join('\n'),
+    replace: [
+      '  if (price === undefined) {',
+      '    throw new Error(`тариф не заполнен: зона ${zone}, вес ${weightG} г`);',
+      '  }',
+      "  const zoneExtra = Number(process.env['TARIFF_ZONE_EXTRA'] ?? 0);",
+      '  return price + zoneExtra;',
+    ].join('\n'),
+    expected: 'review',
+    // Автоматика молчит по построению: при незаданной переменной цена не меняется, и ни
+    // один тест фикстуры не отличает новый расчёт от старого. Поймать это может только
+    // чтение diff'а — четвёртым углом «сверка осей» либо построчным сканом.
+    gates: [],
+    // Все паттерны привязаны к МЕСТУ (имя переменной, символ, конструкция), а не к оценке:
+    // прежние `/умолчани/i` и `/переменн\w* окружени/i` давали ложное «поймано» на штатной
+    // фразе задачи «ставка 40% по умолчанию» и не матчились по-кириллице вовсе (ревью).
+    mentions: [
+      /TARIFF_ZONE_EXTRA/,
+      /zoneExtra/,
+      /process[.]env/i,
+      /переменн[а-яё]* окружени[а-яё]*/i,
+      /basePrice/,
+    ],
+  },
+  {
+    id: 'axis-secret-in-log',
+    klass: 'ось: безопасность — данные заказа в логе',
+    file: 'src/tariffs.ts',
+    fixtureDir: 'fixture',
+    what:
+      '`basePrice` печатает в стандартный вывод зону и вес каждого расчёта. Поведение ' +
+      'внешнее и новое: в логи уходят данные заказа, которых там раньше не было. Ни один ' +
+      'тест фикстуры стандартный вывод не проверяет',
+    find: [
+      'export function basePrice(zone: Zone, weightG: number): Kopeck {',
+      '  const row = TARIFF_TABLE[zone];',
+    ].join('\n'),
+    replace: [
+      'export function basePrice(zone: Zone, weightG: number): Kopeck {',
+      '  console.log(`[tariffs] zone=${zone} weight=${weightG}`);',
+      '  const row = TARIFF_TABLE[zone];',
+    ].join('\n'),
+    expected: 'review',
+    // Линта у фикстуры нет, вывод в консоль тестами не читается — автоматике зацепиться
+    // не за что. Это и есть предмет замера: ось «Безопасность», объявленная незатронутой.
+    gates: [],
+    mentions: [
+      /console[.]log/i,
+      /[[]tariffs[]]/,
+      /стандартн[а-яё]* вывод[а-яё]*/i,
+      /данн[а-яё]+ заказа/i,
+      /basePrice/,
+    ],
   },
 ];
 

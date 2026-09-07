@@ -21,6 +21,9 @@ const metrics = (over: Partial<RunMetrics> = {}): RunMetrics => ({
   redByCause: [{ kind: 'gate', count: 1 }],
   attemptsByChunk: [{ chunk: 1, attempts: 2 }],
   friction: [],
+  gates: [],
+  human: [],
+  artifactGaps: [],
   ...over,
 });
 

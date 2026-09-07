@@ -26,7 +26,7 @@ import type { HiddenTestsSummary } from '../src/hiddenTests.ts';
 import type { HonestyCheck } from '../src/honesty.ts';
 
 function emptyMetrics(): RunMetrics {
-  return { stages: [], verdicts: { total: 0, red: 0 }, redByCause: [], attemptsByChunk: [], friction: [] };
+  return { stages: [], verdicts: { total: 0, red: 0 }, redByCause: [], attemptsByChunk: [], friction: [], gates: [], human: [], artifactGaps: [] };
 }
 
 describe('buildResult', () => {

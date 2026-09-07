@@ -22,7 +22,7 @@ import {
 import { CLAIMS_MINIMUM, countClaims } from '../artifacts/claims.ts';
 import type { ArtifactKey, WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_DIR } from '../artifacts/paths.ts';
-import { h2SectionRanges, parseTables } from '../md/table.ts';
+import { columnIndex, h2SectionRanges, parseTables } from '../md/table.ts';
 import type { StageId, ToolName } from '@sdlc-runner/shared';
 
 export interface StageContext {
@@ -138,7 +138,7 @@ function granted(
 }
 
 /** Есть ли в тексте незакрытый пункт вида «- [ ] вопрос» в любом написании. */
-function hasOpenQuestions(text: string): boolean {
+export function hasOpenQuestions(text: string): boolean {
   return /^\s*[-*+]\s*\[\s*\]/m.test(text);
 }
 
@@ -279,6 +279,33 @@ export function explorationPathProblem(c: StageContext): string | null {
         return (
           `карта кодовой базы в отчёте разведки называет несуществующие пути: ${missing.join(', ')} — ` +
           `отчёт сочинён, а не прочитан из кода. Разведку нужно переделать по реальным файлам`
+        );
+      }
+
+      // «Опоры осей» — та же фактичность, но адрес стоит во ВТОРОЙ колонке («Механизм
+      // проекта»), а не в первой, поэтому общий проход выше его не видит. Цена сочинённого
+      // адреса здесь выше, чем в карте: по нему этап 4 объявляет ось закрытой механизмом,
+      // которого нет, и решение человека подменяется ссылкой в пустоту.
+      const invented: string[] = [];
+      for (const range of h2SectionRanges(report.text, /опоры осей/i)) {
+        for (const table of parseTables(report.text.slice(range.start, range.end))) {
+          const col = columnIndex(table.header, 'механизм');
+          for (const row of [table.header, ...table.rows]) {
+            const cell = (row[col >= 0 ? col : 1] ?? '').replace(/`/g, '').trim();
+            if (cell === '' || cell.includes('‹')) continue;
+            if (declaredAsNew(row)) continue;
+            const rel = (cell.split(/\s/)[0] ?? '').replace(/:[^/]*$/, '');
+            // «нет механизма» и прочая проза путём не являются — тот же фильтр, что в карте.
+            if (rel === '' || !/[/.]/.test(rel)) continue;
+            if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) invented.push(rel);
+          }
+        }
+      }
+      if (invented.length > 0) {
+        return (
+          `«Опоры осей» в отчёте разведки называют несуществующие адреса: ${invented.join(', ')} — ` +
+          `механизм, которого нет, закрыть ось не может. Либо назови настоящий адрес, либо ` +
+          `напиши «нет механизма»: это законный ответ и такое же знание`
         );
       }
       return null;

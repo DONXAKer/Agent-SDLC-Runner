@@ -37,6 +37,9 @@ function result(stagesOk: boolean) {
     redByCause: [],
     attemptsByChunk: [],
     friction: [],
+    gates: [],
+    human: [],
+    artifactGaps: [],
   };
   return buildResult({
     opts: {

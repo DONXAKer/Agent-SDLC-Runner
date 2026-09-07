@@ -83,9 +83,13 @@ export interface GateEvents {
   /**
    * Прогон и этап передаются явно, а не выводятся из requestId: идентификатор вызова
    * приходит от исполнителя и о нашем прогоне ничего не знает.
+   *
+   * `createdAt` — когда запрос встал в очередь: по нему колбэк считает, сколько этап ждал
+   * человека. Решения без ожидия (отказ политики, автоодобрение) тоже приходят сюда — с
+   * тем же моментом, так что их ожидание нулевое по построению.
    */
   onResolved: (
-    info: { runId: string; stage: StageId; requestId: string },
+    info: { runId: string; stage: StageId; requestId: string; createdAt: number },
     decision: Decision,
   ) => void;
 }
@@ -226,9 +230,10 @@ export class ApprovalGate {
     call: NormalizedCall;
     ctx: PolicyContext;
   }): Promise<Decision> {
-    const info = { runId: args.runId, stage: args.stage, requestId: args.requestId };
+    const info = { runId: args.runId, stage: args.stage, requestId: args.requestId, createdAt: 0 };
     const writeTargets = writeTargetsOf(args.call, args.ctx);
     const base = { ...args, writeTargets, createdAt: Date.now() };
+    info.createdAt = base.createdAt;
 
     // Одна и та же bash-команда упала уже `MAX_REPEAT_BASH_FAILURES` раз подряд — отказ
     // ЗДЕСЬ, до политики и до оператора: не находка политики (команда сама по себе
@@ -336,7 +341,10 @@ export class ApprovalGate {
     const effective = this.revalidate(w, decision);
 
     this.waiting.delete(k);
-    this.events.onResolved({ runId: w.runId, stage: w.stage, requestId }, effective);
+    this.events.onResolved(
+      { runId: w.runId, stage: w.stage, requestId, createdAt: w.createdAt },
+      effective,
+    );
     w.resolve(effective);
     return true;
   }
@@ -369,7 +377,10 @@ export class ApprovalGate {
       if (w.runId !== runId) continue;
       this.waiting.delete(k);
       const decision: Decision = { allowed: false, reason, by: 'operator' };
-      this.events.onResolved({ runId: w.runId, stage: w.stage, requestId: w.requestId }, decision);
+      this.events.onResolved(
+        { runId: w.runId, stage: w.stage, requestId: w.requestId, createdAt: w.createdAt },
+        decision,
+      );
       w.resolve(decision);
     }
     for (const k of [...this.autoRules.keys()]) {

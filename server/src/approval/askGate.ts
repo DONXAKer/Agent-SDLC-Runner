@@ -23,9 +23,23 @@ interface Waiting extends PendingQuestions {
 
 export interface AskGateEvents {
   onPending: (p: PendingQuestions) => void;
-  /** Прогон и этап передаются явно — по тем же причинам, что и в гейте одобрений. */
+  /**
+   * Прогон и этап передаются явно — по тем же причинам, что и в гейте одобрений.
+   *
+   * `createdAt` — когда вопрос задан (время ожидания человека считает колбэк),
+   * `questions` — сколько вопросов было в запросе (ответы могут прийти выборкой без
+   * однозначного счёта), `cancelled` — вопрос снят отменой прогона, а не отвечен: такой
+   * запрос в метрики трения о человека не идёт.
+   */
   onAnswered: (
-    info: { runId: string; stage: StageId; requestId: string },
+    info: {
+      runId: string;
+      stage: StageId;
+      requestId: string;
+      createdAt: number;
+      questions: number;
+      cancelled: boolean;
+    },
     answers: Record<string, string[]>,
   ) => void;
 }
@@ -75,7 +89,17 @@ export class AskGate {
       note !== undefined && note.trim() !== ''
         ? { ...answers, 'примечание оператора': [note.trim()] }
         : answers;
-    this.events.onAnswered({ runId: w.runId, stage: w.stage, requestId }, merged);
+    this.events.onAnswered(
+      {
+        runId: w.runId,
+        stage: w.stage,
+        requestId,
+        createdAt: w.createdAt,
+        questions: w.questions.length,
+        cancelled: false,
+      },
+      merged,
+    );
     w.resolve(merged);
     return true;
   }
@@ -87,7 +111,17 @@ export class AskGate {
       // Пустой ответ — это «пропущено», а не «согласен». Скиллы методологии трактуют
       // отсутствие ответа именно так и записывают «(пропущено)» в отчёт.
       const answers: Record<string, string[]> = {};
-      this.events.onAnswered({ runId: w.runId, stage: w.stage, requestId: id }, answers);
+      this.events.onAnswered(
+        {
+          runId: w.runId,
+          stage: w.stage,
+          requestId: id,
+          createdAt: w.createdAt,
+          questions: w.questions.length,
+          cancelled: true,
+        },
+        answers,
+      );
       w.resolve(answers);
     }
   }

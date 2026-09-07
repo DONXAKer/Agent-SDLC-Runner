@@ -252,6 +252,32 @@ export function placeholderRanges(text: string): { start: number; end: number; t
  * Метки полей — дословно из форм методологии. Сверка идёт по ним, поэтому менять их
  * можно только вместе с шаблонами в эталоне.
  */
+/**
+ * Названы ли в задаче инварианты — адресат исхода «инвариант» в разборе последствий.
+ *
+ * Секция задачи законно пуста: форма разрешает «н/п — проектных инвариантов нет». Разница
+ * между «инвариант записан» и «слово „инвариант“ написано в клетке плана» и есть предмет
+ * проверки: без неё исходом становится любая проза с этим корнем (ревью).
+ */
+export function hasNamedInvariants(intentText: string): boolean {
+  let inSection = false;
+  for (const raw of intentText.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (/^#{1,6}\s/.test(line)) {
+      inSection = /^##\s*Инвариант/i.test(line);
+      continue;
+    }
+    if (!inSection || !/^[-*+]\s/.test(line)) continue;
+    const t = line.replace(/^[-*+]\s*/, '').trim();
+    if (t === '' || hasPlaceholder(t)) continue;
+    // «н/п — проектных инвариантов нет» инвариантом не является, но «н/п» внутри
+    // содержательной строки её не отменяет: проверяется НАЧАЛО.
+    if (/^н\s*\/\s*п/i.test(t)) continue;
+    return true;
+  }
+  return false;
+}
+
 export const DECISION = {
   /** plan.md — этап 4, одобрение плана. */
   approval: 'Одобрение',

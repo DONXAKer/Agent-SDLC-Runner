@@ -64,6 +64,23 @@ function statusOf(paths: WitokPaths, isLive: boolean): HistoryStatus {
 }
 
 /**
+ * Первая содержательная строка intent.md — текст задачи для «начать похожий виток».
+ * Заголовки и пустые строки пропускаются: шаблон intent начинается с них, и без фильтра
+ * выдача показывала бы заголовок формы, а не задачу. Длину режем: строка — подсказка
+ * для выбора, а не полный текст.
+ */
+function requirementExcerpt(paths: WitokPaths): string | undefined {
+  const intent = readArtifact(paths.intent);
+  if (!intent.exists) return undefined;
+  const line = intent.text
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l !== '' && !l.startsWith('#'));
+  if (line === undefined) return undefined;
+  return line.length > 120 ? `${line.slice(0, 120)}…` : line;
+}
+
+/**
  * `liveSlugs` — слаги витков этого же проекта, которые сервер сейчас держит в памяти;
  * без этого различить «виток идёт прямо сейчас» и «брошен без записи давно» по одним
  * файлам на диске нечем — оба состояния выглядят одинаково.
@@ -92,11 +109,14 @@ export function scanHistory(projectRoot: string, liveSlugs: ReadonlySet<string>)
     if (files.length === 0) continue;
 
     const paths = new WitokPaths(projectRoot, slug);
+    const requirement = requirementExcerpt(paths);
     out.push({
       slug,
       status: statusOf(paths, liveSlugs.has(slug)),
       lastStage: lastStageReached(paths, files),
       updatedAt: latestMtimeIso(witokDir, files),
+      // exactOptionalPropertyTypes: `requirement: undefined` в объект не подставляется.
+      ...(requirement === undefined ? {} : { requirement }),
     });
   }
 

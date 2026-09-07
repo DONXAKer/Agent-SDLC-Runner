@@ -346,6 +346,12 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     gate: approvalBus.gate,
     askGate: askBus.gate,
     emit: collector.emit,
+    // В бюджет идут только измеряемые этапы. Контрольный маршрут (haiku/sonnet/opus)
+    // тратит на порядок больше локальной модели под измерением, и с общим счётом
+    // умолчание `--budget 5` закрывало виток на чужие деньги: у локального провайдера
+    // `costUsd === null`, то есть измеряемая модель не тратила НИЧЕГО, а прогон вставал
+    // на «бюджет прогона исчерпан: $8.1476 из $5.0000» — это потратил opus на verify.
+    budgetStages: new Set(built.measured),
   });
   runId = run.id;
 
@@ -430,7 +436,10 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       // Оба поля — про то, ЧЬЁ поведение судит щуп: `verify` идёт контрольным маршрутом, а
       // красные скрытые тесты при незелёном вердикте — дефект кода, не ложь отчёта.
       measured: built.measured,
-      verdictPassed: result.finalVerdict?.passed ?? null,
+      // Именно `driverResult`, а не `result`: тот объявлен ниже (`const`), и обращение сюда
+      // роняло КАЖДЫЙ живой прогон в TDZ — после отработавшего витка и скрытых тестов, но
+      // до `writeResult`, то есть измерение выбрасывалось целиком.
+      verdictPassed: driverResult.finalVerdict?.passed ?? null,
     });
 
     const result = buildResult({

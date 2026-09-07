@@ -32,7 +32,7 @@ import type {
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 
 import {
   branchNameFromField,
@@ -40,6 +40,7 @@ import {
   DECISION,
   DecisionFormError,
   artifactExists,
+  hasNamedInvariants,
   readArtifact,
   readDecision,
   readField,
@@ -57,7 +58,7 @@ import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
 import { effectiveMode } from '../policy/mcp.ts';
 import { missingNow, seedArtifacts, stillMissing, untouchedSeeds } from './seed.ts';
-import { SpentLedger } from './spentLedger.ts';
+import { countsTowardBudget, SpentLedger } from './spentLedger.ts';
 import type { McpSetup } from '../config/mcp.ts';
 import { McpHub } from '../mcp/McpHub.ts';
 import { imageSaver } from '../mcp/content.ts';
@@ -109,10 +110,12 @@ import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief, claimTextCell, type RetryDetail } from '../verdict/retryBrief.ts';
 import { describeStep, planSteps } from '../artifacts/planSteps.ts';
+import { planAxisProblems } from '../artifacts/planAxes.ts';
 import { StepExecutor } from '../exec/StepExecutor.ts';
 import { humanFactsBlock } from '../prompt/build.ts';
 import { appendIteration, parseIterations } from './iterationsLog.ts';
 import { postmortemBlock } from './postmortem.ts';
+import { metricsBlock } from './metricsReport.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
 import type { Escalation } from './escalation.ts';
@@ -123,6 +126,7 @@ import { buildPrompt } from '../prompt/build.ts';
 import {
   checkPreconditions,
   explorationPathProblem,
+  hasOpenQuestions,
   relOf,
   stageById,
   type PreconditionReport,
@@ -138,6 +142,18 @@ export interface RunOptions {
   gate: ApprovalGate;
   askGate: AskGate;
   emit: EventSink;
+  /**
+   * Этапы, расход которых копится в бюджетный гард. `undefined` — все (прод: бюджет
+   * стережёт деньги проекта целиком, и чей именно этап их тратит, неважно).
+   *
+   * Нужно стенду. Там измеряется ОДИН этап, остальные идут контрольным маршрутом на
+   * сильной модели, и её стоимость закрывала прогон бесплатной локальной модели:
+   * измеряемая при `costUsd === null` не тратит ничего, а виток вставал на «бюджет
+   * прогона исчерпан: $8.1476 из $5.0000» — потолок выбирал чужой рецензент на opus.
+   * Это тот же принцип, что уже введён для щупов: судить измеряемую модель, а не всё,
+   * что случилось в витке.
+   */
+  budgetStages?: ReadonlySet<StageId>;
 }
 
 export interface RunStageOptions {
@@ -443,6 +459,30 @@ export class Run {
     }
   >();
 
+  /**
+   * Гейт-агрегаты витка. Сворачиваются по одному на каждый результат прогона — история
+   * витка здесь не реплицируется: те же прогоны детально видны в ленте событий.
+   */
+  private readonly gateAgg = new Map<
+    string,
+    { gate: string; runs: number; red: number; skippedWhileEnabled: number; durationMs: number }
+  >();
+
+  /**
+   * Трение о человека по этапам. Копится через `recordHuman` из колбэков гейтов
+   * одобрений/вопросов — глобального стейна у этого счётчика нет: виток владеет своими
+   * числами, как владеет остальными метриками.
+   */
+  private readonly humanAgg = new Map<StageId, { questions: number; approvals: number; waitMs: number }>();
+
+  /**
+   * Последний известный счётчик незакрытых `‹…›` по артефакту (ключ — имя файла в каталоге
+   * витка). Копится перехватом событий `artifact_written`: тот, кто пишет файл, уже знает
+   * его счётчик, и грепить диск второй раз незачем. Запись со счётчиком 0 (решение
+   * человека, журнал итераций) затирает строку — «дозаполнен».
+   */
+  private readonly artifactGapsByFile = new Map<string, number>();
+
   /** Внешние MCP-серверы витка: набор задан конфигом проекта, соединения — ленивые. */
   private readonly mcpSetup: McpSetup;
   private readonly hub: McpHub;
@@ -495,6 +535,8 @@ export class Run {
   private reviewerRan = false;
   /** Разобранный набор гейтов: файл проекта, читать его на каждое обращение незачем. */
   private gatesCache: { mtimeMs: number; parsed: GatesFile } | null = null;
+  /** Чей расход копится в бюджет (`RunOptions.budgetStages`). `null` — все этапы. */
+  private readonly budgetStages: ReadonlySet<StageId> | null;
 
   constructor(o: RunOptions) {
     this.config = o.config;
@@ -503,11 +545,16 @@ export class Run {
     this.slug = o.slug;
     this.gate = o.gate;
     this.askGate = o.askGate;
+    this.budgetStages = o.budgetStages ?? null;
     this.emit = (e) => {
       if (e.type === 'tool_result') this.toolResults.push(e);
+      // `artifact_written` несёт уже посчитанный грепом `‹` счётчик плейсхолдеров —
+      // пересчитывать файл вторым способом значит дать двум местам разойтись.
+      if (e.type === 'artifact_written') this.noteArtifactGap(e.path, e.placeholders);
       o.emit(e);
     };
     this.paths = new WitokPaths(o.project.projectRoot, o.slug);
+    this.restoreMetrics();
     this.mcpSetup = o.config.mcp.get(o.project.name) ?? EMPTY_MCP;
     this.hub = new McpHub(this.mcpSetup.servers);
     this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
@@ -561,7 +608,153 @@ export class Run {
       // не сделавший НИ ОДНОГО вызова инструмента, по прежнему условию не попадал в
       // метрики вовсе — то есть самый тяжёлый исход выглядел как отсутствие трения.
       friction: [...this.friction.entries()].map(([stage, v]) => ({ stage, ...v })),
+      gates: [...this.gateAgg.values()],
+      human: [...this.humanAgg.entries()].map(([stage, v]) => ({ stage, ...v })),
+      // Только живые долги: счётчик, дозаполненный до нуля, из отчёта исчезает.
+      artifactGaps: [...this.artifactGapsByFile.entries()]
+        .filter(([, placeholders]) => placeholders > 0)
+        .map(([artifact, placeholders]) => ({ artifact, placeholders })),
     };
+  }
+
+  /**
+   * Учитывает один результат прогона гейта в агрегатах витка.
+   *
+   * Фактическое правило включённости: `GateRunResult` флага включённости не несёт, но сюда
+   * результат попадает только из `runVerifyGates`, который прогоняет лишь
+   * `gatesRunnableAtVerify` (включённые строки «этап 6») и внешние статусы включённых
+   * гейтов — то есть ⏭ по построению означает «пропущен ВКЛЮЧЁННЫЙ гейт». Проверка по
+   * набору ниже — подтверждение того же факта, а не второе определение: если строка в
+   * наборе между прогоном и учётом исчезла (файл правили посреди этапа 6), ⏭ честнее не
+   * зачислять, чем гадать.
+   */
+  recordGateResult(g: GateRunResult): void {
+    const agg =
+      this.gateAgg.get(g.name) ??
+      ({ gate: g.name, runs: 0, red: 0, skippedWhileEnabled: 0, durationMs: 0 });
+    agg.runs += 1;
+    agg.durationMs += g.durationMs;
+    if (g.status === '❌') agg.red += 1;
+    const row = this.gatesFile?.rows.find((r) => gateKey(r.name) === gateKey(g.name));
+    if (g.status === '⏭' && row?.enabled === true) agg.skippedWhileEnabled += 1;
+    this.gateAgg.set(g.name, agg);
+  }
+
+  /**
+   * Учитывает время и объём взаимодействия этапа с человеком. Зовётся из колбэков
+   * `ApprovalGate`/`AskGate` при решении оператора; автоодобрения и отказы политики сюда
+   * не доходят — они человека не ждали.
+   *
+   * @param n сколько вопросов (`kind: 'question'`) или одобрений (`kind: 'approval'`)
+   *  принесло это решение.
+   */
+  recordHuman(stage: StageId, kind: 'question' | 'approval', n: number, waitMs: number): void {
+    const agg = this.humanAgg.get(stage) ?? { questions: 0, approvals: 0, waitMs: 0 };
+    if (kind === 'question') agg.questions += n;
+    else agg.approvals += n;
+    agg.waitMs += waitMs;
+    this.humanAgg.set(stage, agg);
+  }
+
+  /** Последний известный счётчик незакрытых `‹…›` артефакта. Ноль затирает строку. */
+  noteArtifactGap(path: string, placeholders: number): void {
+    this.artifactGapsByFile.set(basename(path), placeholders);
+  }
+
+  /**
+   * Восстанавливает накопители метрик из `metrics.json` — тем же механизмом, каким
+   * chunk/attempt восстанавливаются из журналов: виток переживает пересоздание `Run`.
+   *
+   * Разбор снисходительный: файл пишет сам рантайм, но битый или устаревший снапшот не
+   * должен ломать старт витка — в худшем случае метрики начнут копиться заново. Полей,
+   * которых в старом снапшоте нет (они появились позже), просто не будет.
+   */
+  private restoreMetrics(): void {
+    const a = readArtifact(this.paths.metrics);
+    if (!a.exists) return;
+    let m: Partial<RunMetrics>;
+    try {
+      m = JSON.parse(a.text) as Partial<RunMetrics>;
+    } catch {
+      return;
+    }
+    if (m === null || typeof m !== 'object') return;
+    const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+    for (const s of list<RunMetrics['stages'][number]>(m.stages)) {
+      if (typeof s?.stage !== 'string') continue;
+      this.stageStats.set(s.stage, {
+        runs: num(s.runs),
+        usage: { ...emptyUsage(), ...(typeof s.usage === 'object' && s.usage !== null ? s.usage : {}) },
+        durationMs: num(s.durationMs),
+      });
+    }
+    this.verdictCount = num(m.verdicts?.total);
+    this.redCount = num(m.verdicts?.red);
+    this.redByCause.clear();
+    for (const c of list<RunMetrics['redByCause'][number]>(m.redByCause)) {
+      if (typeof c?.kind !== 'string') continue;
+      this.redByCause.set(c.kind as RedCauseKind, num(c.count));
+    }
+    this.attemptsByChunk.clear();
+    for (const c of list<RunMetrics['attemptsByChunk'][number]>(m.attemptsByChunk)) {
+      if (typeof c?.chunk !== 'number') continue;
+      this.attemptsByChunk.set(c.chunk, num(c.attempts));
+    }
+    this.friction.clear();
+    for (const f of list<RunMetrics['friction'][number]>(m.friction)) {
+      if (typeof f?.stage !== 'string') continue;
+      this.friction.set(f.stage, { ...EMPTY_FRICTION(), ...f });
+    }
+    this.gateAgg.clear();
+    for (const g of list<RunMetrics['gates'][number]>(m.gates)) {
+      if (typeof g?.gate !== 'string') continue;
+      this.gateAgg.set(g.gate, {
+        gate: g.gate,
+        runs: num(g.runs),
+        red: num(g.red),
+        skippedWhileEnabled: num(g.skippedWhileEnabled),
+        durationMs: num(g.durationMs),
+      });
+    }
+    this.humanAgg.clear();
+    for (const h of list<RunMetrics['human'][number]>(m.human)) {
+      if (typeof h?.stage !== 'string') continue;
+      this.humanAgg.set(h.stage, {
+        questions: num(h.questions),
+        approvals: num(h.approvals),
+        waitMs: num(h.waitMs),
+      });
+    }
+    this.artifactGapsByFile.clear();
+    for (const g of list<RunMetrics['artifactGaps'][number]>(m.artifactGaps)) {
+      if (typeof g?.artifact !== 'string') continue;
+      this.artifactGapsByFile.set(g.artifact, num(g.placeholders));
+    }
+  }
+
+  /**
+   * Пишет персистентный снапшот метрик после каждого этапа: `metrics.json` (полный снапшот,
+   * источник для восстановления при пересоздании витка) и `metrics.md` (рендер из того же
+   * снапшота). Служебные файлы рантайма, не артефакты методологии: событие
+   * `artifact_written` для них не эмитится, под формы не подпадают.
+   *
+   * Ошибка записи не роняет этап: метрики — наблюдаемость, а не условие корректности.
+   */
+  private writeMetricsSnapshot(): void {
+    try {
+      writeArtifact(this.paths.metrics, JSON.stringify(this.metrics, null, 2));
+      const block = metricsBlock(this.metrics);
+      if (block !== null) writeArtifact(this.paths.metricsReport, `${block}\n`);
+    } catch (e) {
+      this.emit({
+        type: 'warning',
+        runId: this.id,
+        stage: null,
+        message: `метрики витка не записаны: ${(e as Error).message}`,
+      });
+    }
   }
 
   /**
@@ -870,6 +1063,76 @@ export class Run {
     const parsed = parseGates(a.text);
     this.gatesCache = { mtimeMs, parsed };
     return parsed;
+  }
+
+  /**
+   * Проблемы разбора последствий (гейт «Разбор последствий», этап 4).
+   *
+   * Гейт выключен — проверять нечего: строка набора и есть решение проекта о том, ведётся
+   * ли разбор. Пустой массив у включённого гейта означает «разбор доведён», а не «оси не
+   * затронуты»: второе записывается исходом «н/п» с причиной, и это тоже решение.
+   */
+  private axisProblems(): string[] {
+    const gates = this.gatesFile;
+    if (gates === null) return [];
+    // Этап строки уважается наравне с включённостью: гейт, перенесённый проектом на другой
+    // этап, отчитывается там, и требовать секцию на четвёртом значило бы держать проверку,
+    // о которой набор не просил.
+    const row = gates.rows.find(
+      (r) => gateKey(r.name) === gateKey('Разбор последствий') && r.enabled,
+    );
+    if (row === undefined || row.reportsAt !== 'этап 4') return [];
+    const plan = readArtifact(this.paths.plan);
+    if (!plan.exists) return [];
+    // Адресат исхода проверяется по РЕАЛЬНЫМ артефактам витка, иначе «claim-99» и
+    // «гейт „Такого нет“» закрывают разбор за один ход (ревью).
+    const intent = readArtifact(this.paths.intent);
+    // Пункты берём готовым `intentClaimLines()` — тем же разбором, которым живут выжимка
+    // ретрая и добор клеймов: вторая копия «пробегись по строкам задачи» разошлась бы с
+    // первой при первой же правке формы листа.
+    const claimIds = [...this.intentClaimLines().keys()];
+    return planAxisProblems(plan.text, {
+      ...(intent.exists
+        ? {
+            claimIds,
+            hasOpenQuestion: hasOpenQuestions(intent.text),
+            hasInvariants: hasNamedInvariants(intent.text),
+          }
+        : {}),
+      enabledGates: gates.rows.filter((r) => r.enabled).map((r) => r.name),
+    });
+  }
+
+  /**
+   * Строки гейтов РАННИХ этапов, статус которых рантайм знает своими глазами.
+   *
+   * Сегодня такой один — «Разбор последствий» (этап 4): его исход это результат
+   * `axisProblems()`, посчитанный по плану той же программой. Всё остальное из ранних
+   * этапов по-прежнему переносит модель: у рантайма нет своего измерения для «Готовности
+   * задачи» или «Заполненности артефактов», и выдумывать его здесь значило бы ровно то,
+   * против чего заведено автозаполнение.
+   */
+  private earlyGateRows(): { name: string; stage: string; status: string; seenIn: string }[] {
+    const gates = this.gatesFile;
+    if (gates === null) return [];
+    const row = gates.rows.find(
+      (r) => gateKey(r.name) === gateKey('Разбор последствий') && r.enabled,
+    );
+    if (row === undefined || row.reportsAt !== 'этап 4') return [];
+    const problems = this.axisProblems();
+    return [
+      {
+        name: row.name,
+        stage: '4',
+        // `⏭` — «включён, но разбор не доведён»: он роняет вердикт по общему правилу, и
+        // это верно. Долга у включённой строки не бывает, поэтому причина названа прямо.
+        status: problems.length === 0 ? '✅' : '⏭',
+        seenIn:
+          problems.length === 0
+            ? 'plan.md, секция «Последствия шагов»'
+            : `plan.md — разбор не доведён: ${problems[0] ?? ''}`,
+      },
+    ];
   }
 
   /** Бюджет попыток из набора гейтов, умолчание методологии — 3. */
@@ -1229,6 +1492,7 @@ export class Run {
       attempt: this.attempt,
       slug: this.slug,
       attemptBudget: this.attemptBudget,
+      earlyGates: this.earlyGateRows(),
     });
     // Заполненный рантаймом бланк запоминается для ансамбля: дополнительные маршруты
     // стартуют с него, а не с пустого файла — иначе класс расхождений «отчёт/факт» r9,
@@ -2164,6 +2428,7 @@ export class Run {
       onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage: 'verify', message }),
       onResult: (gate) => {
         this.lastGateResults.push(gate);
+        this.recordGateResult(gate);
         this.emit({ type: 'gate_result', runId: this.id, stage: 'verify', gate });
       },
     });
@@ -3124,7 +3389,13 @@ export class Run {
         this.totalUsage = addUsage(this.totalUsage, usage);
         // Валюта — маршрута ЭТОГО этапа: стоимость копится по валютам раздельно,
         // и гард маршрута сверяет потолок только со своей (см. `spentLedger.ts`).
-        this.spent.add(route.providerDef.currency ?? 'USD', usage.costUsd);
+        //
+        // В бюджет идёт не всякий расход: `budgetStages` (стенд) сужает учёт до
+        // измеряемых этапов. В `totalUsage` и в события расход попадает ВСЕГДА — счёт
+        // прогона обязан быть полным, сужается только то, по чему гард рубит виток.
+        if (countsTowardBudget(this.budgetStages, stage)) {
+          this.spent.add(route.providerDef.currency ?? 'USD', usage.costUsd);
+        }
         this.emit({ type: 'usage', runId: this.id, stage, usage, total: this.totalUsage });
       },
 
@@ -3180,6 +3451,22 @@ export class Run {
                   `${problem}. Поправь карту: несуществующий путь либо убери, либо помечай ` +
                   `словом «новый» — файл, который предстоит создать, картой кодовой базы не является.`
                 );
+              }
+            }
+            // Разбор последствий — тем же приёмом и по той же причине, что карта разведки:
+            // находка нужна модели в её собственном ходу. Предусловием этапа 5 она пришла бы
+            // после ухода планировщика, а дописывать исход за него стало бы некому — кроме
+            // самого исполнителя, которому решение человека не принадлежит.
+            if (stage === 'plan') {
+              const problems = this.axisProblems();
+              if (problems.length > 0) {
+                return [
+                  'секция «Последствия шагов» плана не доведена:',
+                  ...problems.map((p) => `- ${p}`),
+                  'Исход — из закрытого словаря: claim-N, инвариант, гейт «имя», риск с подписью ' +
+                    'человека, следующий виток либо «н/п — почему». Совет свободным текстом исходом ' +
+                    'не является: у него нет исполнителя.',
+                ].join('\n');
               }
             }
             return null;
@@ -3387,6 +3674,9 @@ export class Run {
     } finally {
       stat.durationMs += Date.now() - stageStartedAt;
       this.aborter = null;
+      // Снапшот после КАЖДОГО этапа: виток переживает пересоздание `Run`, и метрики
+      // обязаны переживать его вместе с ним.
+      this.writeMetricsSnapshot();
     }
   }
 

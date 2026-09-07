@@ -5,7 +5,7 @@
  * секции (пункты приёмки, ревью, вердикт) и решения человека не трогаются.
  */
 
-import { match, doesNotMatch, strictEqual } from 'node:assert/strict';
+import { doesNotMatch, match, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { GateRunResult } from '@sdlc-runner/shared';
@@ -103,6 +103,20 @@ describe('autofillVerificationReport', () => {
     match(text, /\| Тесты \| нет кода, только доки \| ‹имя› \|/);
     // Первая таблица при этом заполняется как обычно.
     match(text, /\| Тесты \| ✅ \| .*ок.* \|/);
+  });
+
+  it('строку гейта этапа 4 пишет рантайм, а не модель', () => {
+    // Ревью: статус, который программа посчитала сама (`axisProblems`), переносила модель —
+    // и включённый гейт, отработавший зелёным, терялся в отчёте, роняя вердикт.
+    const early = [
+      { name: 'Разбор последствий', stage: '4', status: '✅', seenIn: 'plan.md, секция «Последствия шагов»' },
+    ];
+    const { text, filled } = autofillVerificationReport(TEMPLATE, [], { ...FACTS, earlyGates: early });
+    match(text, /\| Разбор последствий \| 4 \| ✅ \| plan\.md/);
+    ok(filled > 0);
+    // Повторный вызов ничего не переписывает: строка уже фактическая.
+    const again = autofillVerificationReport(text, [], { ...FACTS, earlyGates: early });
+    strictEqual(again.filled, 0);
   });
 
   it('идемпотентно: повторный вызов ничего не находит', () => {

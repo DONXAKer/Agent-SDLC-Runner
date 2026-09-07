@@ -452,9 +452,25 @@ export class SdkExecutor implements StageExecutor {
     // с равной вероятностью печатает содержимое артефакта текстом на любом маршруте, и
     // исход этапа не должен зависеть от того, кто крутит цикл. Пока спасение жило только
     // во флоу `loop`, один и тот же ответ давал там зелёный этап, а здесь — красный.
-    if (ok && req.finishGuard !== null && req.finishGuard() !== null && req.salvageFromText !== null) {
+    let complaint = ok && req.finishGuard !== null ? req.finishGuard() : null;
+    if (complaint !== null && req.salvageFromText !== null) {
       const saved = await req.salvageFromText(finalText);
       if (saved !== null) hooks.onWarn(saved);
+      // Спасение могло закрыть ровно то, на что жаловался страж: пересчитываем, иначе
+      // этап краснел бы по уже исправленной причине.
+      complaint = req.finishGuard === null ? null : req.finishGuard();
+    }
+
+    // Замечание стража ДОХОДИТ до исхода этапа, а не работает булевым триггером спасения.
+    // Пока текст отбрасывался, на этом флоу «ход завершён» означало «работа сделана»:
+    // модель претензии не видела, этап не краснел, и проверки, написанные для обоих флоу
+    // (карта разведки, разбор последствий), на `sdk` не действовали вовсе — при том что
+    // цена их вычисления платилась. Дать модели ещё один ход здесь нельзя: цикл крутит
+    // харнесс, и вмешаться в середину невозможно, — поэтому исход честно красный с
+    // причиной, а не тихо зелёный.
+    if (complaint !== null) {
+      hooks.onWarn(complaint);
+      return { ok: false, finalText, usage: latestUsage, note: complaint };
     }
 
     return { ok, finalText, usage: latestUsage, note };
