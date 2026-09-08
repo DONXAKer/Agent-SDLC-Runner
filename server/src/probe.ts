@@ -19,6 +19,7 @@
 
 import { specsFor } from './exec/toolSpecs.ts';
 import type { ChatMessage, ChatProvider, ChatToolCall } from './provider/ChatProvider.ts';
+import type { ModelDef, ProviderDef } from './config/schema.ts';
 
 export interface ProbeCaseResult {
   name: string;
@@ -199,6 +200,47 @@ const CASES: { name: string; run: (c: CaseCtx) => Promise<CaseOutcome> }[] = [
  * остальные тем же приговором. Ошибка транспорта (сервер лёг, модель не скачана)
  * помечается `env` и отдаётся отдельным исходом «не измерено», а не провалом модели.
  */
+/**
+ * Потолок стенных часов на ОДИН кейс пробы, когда вызывающий своего не назвал.
+ *
+ * Проба — скрининг «доходит ли модель до вызова инструмента», и её обещание — секунды.
+ * Пока ручка сервера подставляла сюда `chatTimeoutMs` (умолчание 10 минут, на машинах
+ * с локальными моделями — 20), три кейса подряд держали HTTP-запрос до часа, то есть
+ * скрининг стоил дороже самого замера (ревью). Стенд по-прежнему называет свой потолок
+ * (`--stage-timeout`): там кейс идёт на заведомо медленной модели и это осознанно.
+ */
+export const PROBE_CASE_TIMEOUT_MS = 120_000;
+
+/** Цель пробы: описание модели и её провайдера. */
+export interface ProbeTarget {
+  def: ModelDef;
+  providerDef: ProviderDef;
+}
+
+/**
+ * Разрешение цели пробы по конфигу — ОДНА функция на сервер и на стенд.
+ *
+ * Обвязка была скопирована вместе с текстами ошибок, и копии успели разойтись потолком
+ * кейса: одна и та же модель получала разный вердикт пробы в UI и на стенде (ревью).
+ * Возвращает либо цель, либо человеческую причину отказа — решение о коде ответа
+ * (404/400 у HTTP, код возврата у CLI) остаётся за вызывающим.
+ */
+export function resolveProbeTarget(
+  models: { models: readonly ModelDef[]; providers: Record<string, ProviderDef> },
+  modelId: string,
+): ProbeTarget | { error: string } {
+  const def = models.models.find((m) => m.id === modelId);
+  if (def === undefined) return { error: `модель «${modelId}» не найдена в config/models.json` };
+  const providerDef = models.providers[def.provider];
+  if (providerDef === undefined) {
+    return { error: `провайдер «${def.provider}» не описан в config/models.json` };
+  }
+  if (providerDef.flow !== 'loop') {
+    return { error: `проба меряет флоу loop; провайдер «${def.provider}» идёт флоу ${providerDef.flow}` };
+  }
+  return { def, providerDef };
+}
+
 export async function probeModel(args: {
   provider: ChatProvider;
   model: string;

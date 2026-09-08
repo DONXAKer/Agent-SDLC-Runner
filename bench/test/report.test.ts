@@ -10,7 +10,10 @@ import { emptyCollectorState } from '../src/collector.ts';
 import type { BuiltProfile } from '../src/profile.ts';
 import type { HiddenTestsSummary } from '../src/hiddenTests.ts';
 import type { HonestyCheck } from '../src/honesty.ts';
+import type { Report } from '../src/report.ts';
 import { buildProbes, buildReport, buildStageTable, isDangerous } from '../src/report.ts';
+import type { BenchResult } from '../src/result.ts';
+import type { SeedProbe } from '../src/seeds.ts';
 
 const ROUTES: BuiltProfile['routes'] = {
   intent: 'claude-sdk:haiku',
@@ -114,6 +117,23 @@ function greenResult() {
     operator: emptyOperatorLog(),
     observed: emptyCollectorState(),
   });
+}
+
+/**
+ * Отчёт собирается из ОДНОГО объекта результата, поэтому кейсы кладут скрытые тесты,
+ * честность и посев внутрь него, а не передают рядом.
+ */
+function reportOf(input: {
+  result: BenchResult;
+  hidden?: HiddenTestsSummary | null;
+  honesty?: HonestyCheck[];
+  seed?: SeedProbe | null;
+}): Report {
+  const r = input.result;
+  r.hidden = input.hidden ?? null;
+  r.honesty = input.honesty ?? [];
+  if (input.seed !== undefined) r.seed = input.seed;
+  return buildReport({ result: r });
 }
 
 describe('buildStageTable', () => {
@@ -224,7 +244,7 @@ describe('isDangerous', () => {
 
 describe('buildReport: коды возврата', () => {
   it('зелёный вердикт, handoff — код 0', () => {
-    const report = buildReport({ result: greenResult(), hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    const report = reportOf({ result: greenResult(), hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
     strictEqual(report.exitCode, 0);
   });
 
@@ -232,7 +252,7 @@ describe('buildReport: коды возврата', () => {
     const r = greenResult();
     r.finalVerdict = { passed: false, action: 'escalate', reasons: ['что-то не так'] };
     r.driver.finalVerdict = r.finalVerdict;
-    const report = buildReport({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    const report = reportOf({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
     strictEqual(report.exitCode, 1);
   });
 
@@ -245,7 +265,7 @@ describe('buildReport: коды возврата', () => {
     r.driver.stopped = 'blocked';
     r.driver.finalVerdict = null;
     r.finalVerdict = null;
-    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    const report = reportOf({ result: r, hidden: null, honesty: [] });
     strictEqual(report.exitCode, 2);
     ok(report.markdown.includes('ИЗМЕРЕНИЕ НЕ СОСТОЯЛОСЬ'), 'отчёт обязан объяснять код 2');
     ok(report.markdown.includes('HTTP 503'), 'причина названа дословно');
@@ -257,7 +277,7 @@ describe('buildReport: коды возврата', () => {
     // сторону, что дороже красной.
     const r = greenResult();
     r.driver.stages[2]!.envFailure = 'polza: ответ не получен за 600000 мс — таймаут запроса';
-    const report = buildReport({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    const report = reportOf({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
     strictEqual(report.exitCode, 2);
   });
 
@@ -269,7 +289,7 @@ describe('buildReport: коды возврата', () => {
     r.driver.stopped = 'blocked';
     r.driver.finalVerdict = null;
     r.finalVerdict = null;
-    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    const report = reportOf({ result: r, hidden: null, honesty: [] });
     strictEqual(report.exitCode, 2);
   });
 
@@ -285,7 +305,7 @@ describe('buildReport: коды возврата', () => {
     r.driver.stopped = 'blocked';
     r.driver.finalVerdict = null;
     r.finalVerdict = null;
-    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    const report = reportOf({ result: r, hidden: null, honesty: [] });
     strictEqual(report.exitCode, 1);
   });
 
@@ -297,7 +317,7 @@ describe('buildReport: коды возврата', () => {
     r.driver.stopped = 'stage-timeout';
     r.driver.finalVerdict = null;
     r.finalVerdict = null;
-    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    const report = reportOf({ result: r, hidden: null, honesty: [] });
     strictEqual(report.exitCode, 2);
   });
 
@@ -309,7 +329,7 @@ describe('buildReport: коды возврата', () => {
     r.driver.stopped = 'blocked';
     r.driver.finalVerdict = null;
     r.finalVerdict = null;
-    const report = buildReport({
+    const report = reportOf({
       result: r,
       hidden: null,
       honesty: [],
@@ -324,7 +344,7 @@ describe('buildReport: коды возврата', () => {
     const r = greenResult();
     r.finalVerdict = { passed: false, action: 'retry', reasons: ['пункт приёмки claim-2 опровергнут (❌)'] };
     r.driver.finalVerdict = r.finalVerdict;
-    const caught = buildReport({
+    const caught = reportOf({
       result: r,
       hidden: HIDDEN_ALL_GREEN,
       honesty: HONESTY_ALL_GREEN,
@@ -333,7 +353,7 @@ describe('buildReport: коды возврата', () => {
     strictEqual(caught.exitCode, 0);
     ok(caught.markdown.includes('## Посев'));
 
-    const missed = buildReport({
+    const missed = reportOf({
       result: r,
       hidden: HIDDEN_ALL_GREEN,
       honesty: HONESTY_ALL_GREEN,
@@ -344,7 +364,7 @@ describe('buildReport: коды возврата', () => {
 
   it('контрольный прогон без посева судится наоборот — по отсутствию срабатываний', () => {
     const r = greenResult();
-    const clean = buildReport({
+    const clean = reportOf({
       result: r,
       hidden: HIDDEN_ALL_GREEN,
       honesty: HONESTY_ALL_GREEN,
@@ -352,7 +372,7 @@ describe('buildReport: коды возврата', () => {
     });
     strictEqual(clean.exitCode, 0);
 
-    const falsePositive = buildReport({
+    const falsePositive = reportOf({
       result: r,
       hidden: HIDDEN_ALL_GREEN,
       honesty: HONESTY_ALL_GREEN,
@@ -362,7 +382,7 @@ describe('buildReport: коды возврата', () => {
   });
 
   it('markdown содержит обязательные разделы', () => {
-    const report = buildReport({ result: greenResult(), hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    const report = reportOf({ result: greenResult(), hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
     ok(report.markdown.includes('## Не измерено'));
     ok(report.markdown.includes('## Решения человека'));
     ok(report.markdown.includes('## Этапы'));
@@ -376,7 +396,7 @@ describe('buildReport: коды возврата', () => {
       { stage: 'explore', systemChars: 15000, userChars: 8000, editedByOperator: true },
     );
     r.observed.questions.push({ stage: 'explore', requestId: 'q1', questionId: 'n1', text: 'Какая ставка за негабарит?' });
-    const report = buildReport({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    const report = reportOf({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
     ok(report.markdown.includes('## Промпты и вопросы'));
     // Числа форматируются как в таблице этапов (fmtTokens) — с неразрывным пробелом.
     ok(report.markdown.includes(`| intent | ${(12000).toLocaleString('ru-RU')} | ${(3400).toLocaleString('ru-RU')} | нет |`));
@@ -385,7 +405,7 @@ describe('buildReport: коды возврата', () => {
   });
 
   it('пустой observed — раздел честно говорит «не фиксировались», а не исчезает', () => {
-    const report = buildReport({ result: greenResult(), hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    const report = reportOf({ result: greenResult(), hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
     ok(report.markdown.includes('## Промпты и вопросы'));
     ok(report.markdown.includes('- промпты и вопросы не фиксировались'));
   });
@@ -403,7 +423,7 @@ describe('buildReport: коды возврата', () => {
       why: 'w',
       waitedMs: 1,
     });
-    const report = buildReport({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
+    const report = reportOf({ result: r, hidden: HIDDEN_ALL_GREEN, honesty: HONESTY_ALL_GREEN });
     ok(report.dangerous);
     ok(report.markdown.includes('ОПАСНА'));
   });

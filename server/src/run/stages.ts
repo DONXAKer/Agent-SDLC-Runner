@@ -11,14 +11,7 @@
  *   журнал исполнителя: журнал это и есть рассказ о том, как шла работа.
  */
 
-import {
-  DECISION,
-  artifactExists,
-  pathExistsAny,
-  countPlaceholdersExceptSections,
-  readArtifact,
-  readDecision,
-} from '../artifacts/artifact.ts';
+import { DECISION, artifactExists, countPlaceholdersExceptSections, pathExistsAny, pathIsDirectory, readArtifact, readDecision } from '../artifacts/artifact.ts';
 import { CLAIMS_MINIMUM, countClaims } from '../artifacts/claims.ts';
 import type { ArtifactKey, WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_DIR } from '../artifacts/paths.ts';
@@ -86,7 +79,11 @@ function filled(describe: string, file: (c: StageContext) => string): Preconditi
     describe,
     check: (c) => {
       const a = readArtifact(file(c));
-      if (!a.exists) return `нет файла ${a.path}`;
+      if (!a.exists) {
+        return pathIsDirectory(a.path)
+          ? `по пути ${a.path} лежит каталог, а не файл артефакта`
+          : `нет файла ${a.path}`;
+      }
       if (a.placeholders > 0) {
         return `в ${a.path} осталось незаполненных мест: ${a.placeholders} — артефакт не готов`;
       }
@@ -223,6 +220,42 @@ export function declaredAsNew(row: readonly string[]): boolean {
  * ПОСЛЕ закрытия этапа 2 — модель уже ушла, и виток умирал на входе в этап 3, хотя чинить
  * там было нечем и некому (живой прогон r32).
  */
+/**
+ * Слова, которые выглядят путями и путями не являются: «н/п» проходит любой фильтр со
+ * слэшем, «т.е.» — любой фильтр с точкой.
+ */
+const PROSE_LOOKING_LIKE_PATH = new Set(['н/п', 'н/д', 'т.е.', 'т.д.', 'т.п.', 'и/или', 'и/или.']);
+
+/**
+ * Адрес файловой системы, названный в ячейке отчёта, — или `null`, если ячейка прозаическая.
+ *
+ * Одна функция на ОБА прохода (карта кодовой базы и «Опоры осей»). Раньше фильтр был
+ * выписан дважды, копии уже разошлись (исключение узнанной шапки жило только в одной), и
+ * оба несли один и тот же дефект: первый токен прозы принимался за путь. Живой отчёт со
+ * строкой «н/п — своего механизма нет» объявлялся называющим несуществующий адрес, и
+ * страж этапа 2 краснил ЧЕСТНЫЙ отчёт советом написать то, что там уже написано (ревью).
+ *
+ * Хвостовая пунктуация снимается: в перечислении «src/a.ts, src/b.ts» первым токеном
+ * шла «src/a.ts,» — с запятой, которой на диске нет.
+ */
+function pathCandidate(raw: string): string | null {
+  const rel = (raw.split(/\s/)[0] ?? '')
+    .replace(/[),;»"'`]+$/u, '')
+    .replace(/[.,]+$/u, '')
+    .replace(/:[^/]*$/, '');
+  if (rel === '' || rel.includes('‹')) return null;
+  if (PROSE_LOOKING_LIKE_PATH.has(rel.toLowerCase())) return null;
+  const hasExt = /\.[A-Za-z0-9]{1,8}$/.test(rel);
+  const hasSep = /[/\\]/.test(rel);
+  // Ячейка без разделителя пути и без расширения — словесное описание, не путь:
+  // живой прогон ta-13 ложно падал на таких.
+  if (!hasExt && !hasSep) return null;
+  // Кириллица без расширения — проза со слэшем («н/п», «и/или»), а не адрес. Файл с
+  // кириллическим именем узнаётся по расширению и сюда не попадает.
+  if (!hasExt && /[а-яё]/i.test(rel)) return null;
+  return rel;
+}
+
 export function explorationPathProblem(c: StageContext): string | null {
   {
     {
@@ -264,11 +297,8 @@ export function explorationPathProblem(c: StageContext): string | null {
             // начало слова: подстрока ловила «осНОВной» и «обНОВление».
             if (declaredAsNew(row)) continue;
             // Адреса кода в отчётах — в форме `путь:метод`; существование проверяем только у пути.
-            const rel = (first.split(/\s/)[0] ?? '').replace(/:[^/]*$/, '');
-            if (rel === '' || rel.includes('‹')) continue;
-            // Ячейка без разделителя пути и без расширения — словесное описание, не путь:
-            // живой прогон ta-13 ложно падал на таких.
-            if (!/[/.]/.test(rel)) continue;
+            const rel = pathCandidate(first);
+            if (rel === null) continue;
             // Каталог — законный житель карты («server/src/exec/ — исполнители этапов»),
             // а `artifactExists` требует файла: честный отчёт объявлялся бы сочинённым.
             if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
@@ -294,9 +324,10 @@ export function explorationPathProblem(c: StageContext): string | null {
             const cell = (row[col >= 0 ? col : 1] ?? '').replace(/`/g, '').trim();
             if (cell === '' || cell.includes('‹')) continue;
             if (declaredAsNew(row)) continue;
-            const rel = (cell.split(/\s/)[0] ?? '').replace(/:[^/]*$/, '');
-            // «нет механизма» и прочая проза путём не являются — тот же фильтр, что в карте.
-            if (rel === '' || !/[/.]/.test(rel)) continue;
+            // «нет механизма» и прочая проза путём не являются — тем же фильтром, что в
+            // карте, и ИМЕННО тем же: две копии этого правила уже успели разойтись.
+            const rel = pathCandidate(cell);
+            if (rel === null) continue;
             if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) invented.push(rel);
           }
         }

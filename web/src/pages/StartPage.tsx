@@ -36,6 +36,7 @@ export function StartPage({
   onOpenHistory,
   onForget,
   onRefreshRuns,
+  onAutoRefreshRuns,
   onRefreshHistory,
   onAddProject,
   onStart,
@@ -58,6 +59,8 @@ export function StartPage({
   onOpenHistory: (slug: string) => void;
   onForget: (runId: string) => void;
   onRefreshRuns: () => void;
+  /** Фоновый тик списка: он НЕ гасит баннер ошибки — см. `RunList.onAutoRefresh`. */
+  onAutoRefreshRuns: () => void;
   onRefreshHistory: () => void;
   onAddProject: (name: string, path: string) => Promise<ProjectInfo | null>;
   onStart: () => void;
@@ -94,6 +97,7 @@ export function StartPage({
             onOpen={onOpenRun}
             onForget={onForget}
             onRefresh={onRefreshRuns}
+            onAutoRefresh={onAutoRefreshRuns}
           />
         ) : null}
 

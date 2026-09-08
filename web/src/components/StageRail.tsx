@@ -50,18 +50,20 @@ export function StageRail({
   // «Пройден» выводится из блокеров чистой функцией — сервер этого состояния не отдаёт.
   const states = computeStageStates(run.stages, run.stage);
   /**
-   * Раскрытые списки блокеров. По умолчанию развёрнут только выбранный этап: именно его
-   * причины оператор чинит следующими, а стена предусловий из семи этапов сразу — та
-   * простыня, ради которой блокировки и прячутся за счётчик. Клик по счётчику добавляет
-   * id в набор (или убирает) — раскрытость считается как `has ≠ выбран ли этап`, поэтому
-   * повторный клик по активному этапу его сворачивает.
+   * Раскрытость списка блокеров: ЯВНОЕ решение оператора поверх умолчания.
+   *
+   * Умолчание — «развёрнут выбранный этап»: именно его причины чинят следующими, а стена
+   * предусловий из семи этапов сразу — та простыня, ради которой блокировки и прячутся за
+   * счётчик. Раньше состояние считалось как `has ≠ выбран ли этап`, и смена выбранного
+   * этапа ПЕРЕВОРАЧИВАЛА заданное руками: свёрнутый этап сам раскрывался, а раскрытый
+   * схлопывался ровно в момент, когда его выбирали чинить (ревью).
    */
-  const [open, setOpen] = useState<ReadonlySet<StageId>>(new Set());
+  const [override, setOverride] = useState<ReadonlyMap<StageId, boolean>>(new Map());
+  const isOpen = (id: StageId): boolean => override.get(id) ?? id === selected;
   const toggle = (id: StageId): void => {
-    setOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+    setOverride((prev) => {
+      const next = new Map(prev);
+      next.set(id, !(prev.get(id) ?? id === selected));
       return next;
     });
   };
@@ -135,14 +137,14 @@ export function StageRail({
                     e.stopPropagation();
                     toggle(s.id);
                   }}
-                  title={open.has(s.id) !== active ? 'свернуть причины' : 'показать все причины'}
+                  title={isOpen(s.id) ? 'свернуть причины' : 'показать все причины'}
                   className="cursor-pointer text-[11px] text-neutral-500 underline decoration-dotted underline-offset-2 hover:text-neutral-300"
                 >
                   {s.blockers.length}{' '}
                   {s.blockers.length === 1 ? 'предусловие' : 'предусловий'}
-                  {open.has(s.id) !== active ? ' ▾' : ' ▴'}
+                  {isOpen(s.id) ? ' ▾' : ' ▴'}
                 </span>
-                {open.has(s.id) !== active ? (
+                {isOpen(s.id) ? (
                   <ul className="mt-0.5 space-y-0.5 break-words text-[11px] leading-4 text-neutral-500">
                     {s.blockers.map((b, i) => (
                       // Абсолютные пути в причинах заменяются относительными: 90% строки

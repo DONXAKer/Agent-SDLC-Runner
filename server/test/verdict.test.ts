@@ -429,3 +429,54 @@ describe('сборка входа вердикта', () => {
     ok(!computeVerdict(input).passed);
   });
 });
+
+describe('пункты задачи, о которых отчёт молчит', () => {
+  const gates = parseGates(GATES);
+
+  it('пропущенный пункт входит в вердикт как ⚠ и роняет его', () => {
+    // REPORT знает claim-1 и claim-2; задача требует ещё claim-3.
+    const { input, reportQuality } = collectVerdictInput({
+      gates,
+      gateResults: [],
+      reports: [REPORT],
+      expectedClaims: ['claim-1', 'claim-2', 'claim-3'],
+      attempt: 1,
+      attemptBudget: 3,
+      noProgress: false,
+    });
+    deepStrictEqual(
+      input.claims.find((c) => c.id === 'claim-3'),
+      { id: 'claim-3', status: '⚠' },
+    );
+    ok(reportQuality.some((r) => /claim-3/.test(r)), reportQuality.join('; '));
+    const v = computeVerdict(input);
+    ok(!v.passed);
+    ok(v.reasons.some((r) => /claim-3/.test(r)), v.reasons.join('; '));
+  });
+
+  it('все пункты задачи в отчёте есть — ничего не добавляется', () => {
+    const { input, reportQuality } = collectVerdictInput({
+      gates,
+      gateResults: [],
+      reports: [REPORT],
+      expectedClaims: ['Claim-1', 'claim-2'],
+      attempt: 1,
+      attemptBudget: 3,
+      noProgress: false,
+    });
+    strictEqual(input.claims.length, 2);
+    ok(!reportQuality.some((r) => /нет строк по пунктам/.test(r)));
+  });
+
+  it('список не передан — прежнее поведение', () => {
+    const { input } = collectVerdictInput({
+      gates,
+      gateResults: [],
+      reports: [REPORT],
+      attempt: 1,
+      attemptBudget: 3,
+      noProgress: false,
+    });
+    strictEqual(input.claims.length, 2);
+  });
+});

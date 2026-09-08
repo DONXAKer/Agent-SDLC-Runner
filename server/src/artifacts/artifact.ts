@@ -18,6 +18,9 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+// Границы h2-секции — общим разборщиком (`md/table.ts`), у которого своих зависимостей нет.
+import { h2SectionRanges } from '../md/table.ts';
+
 /**
  * Плейсхолдер формы методологии: «‹что сюда вписать›».
  *
@@ -150,6 +153,22 @@ export function pathExistsAny(path: string): boolean {
   }
 }
 
+/**
+ * Путь существует, но это каталог.
+ *
+ * `readArtifact` гасит EISDIR и отдаёт «артефакта нет» — иначе каталог, попавший в
+ * `files_to_touch`, ронял виток на сборке промпта. Но вместе с падением исчезала и
+ * ПРИЧИНА: честное «нет файла» на существующем каталоге не подсказывает, что чинить
+ * (ревью). Диагностику восстанавливает тот, у кого есть контекст, — предусловие этапа.
+ */
+export function pathIsDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export function writeArtifact(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text, 'utf8');
@@ -249,10 +268,6 @@ export function placeholderRanges(text: string): { start: number; end: number; t
 // ---------------------------------------------------------------------------
 
 /**
- * Метки полей — дословно из форм методологии. Сверка идёт по ним, поэтому менять их
- * можно только вместе с шаблонами в эталоне.
- */
-/**
  * Названы ли в задаче инварианты — адресат исхода «инвариант» в разборе последствий.
  *
  * Секция задачи законно пуста: форма разрешает «н/п — проектных инвариантов нет». Разница
@@ -260,24 +275,40 @@ export function placeholderRanges(text: string): { start: number; end: number; t
  * проверки: без неё исходом становится любая проза с этим корнем (ревью).
  */
 export function hasNamedInvariants(intentText: string): boolean {
-  let inSection = false;
-  for (const raw of intentText.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (/^#{1,6}\s/.test(line)) {
-      inSection = /^##\s*Инвариант/i.test(line);
-      continue;
+  // Границы секции — общим `h2SectionRanges`, а не своим сканом. Свой сбрасывал секцию на
+  // заголовке ЛЮБОГО уровня, поэтому подзаголовок внутри «## Инварианты» обрезал её, и
+  // записанные инварианты объявлялись отсутствующими — страж этапа 4 не выпускал верный
+  // план (ревью). Ровно тот класс, ради которого `h2SectionRanges` и заведён.
+  for (const range of h2SectionRanges(intentText, /инвариант/i)) {
+    for (const raw of intentText.slice(range.start, range.end).split(/\r?\n/)) {
+      const line = raw.trim();
+      if (line === '' || /^#{1,6}\s/.test(line)) continue;
+      // Инвариант признаётся и списком (буллет или нумерованный), и строкой таблицы:
+      // форма записи — дело автора задачи, а вопрос здесь один — назван ли хоть один.
+      const cells = /^\|/.test(line) ? line.split('|').map((c) => c.trim()) : [];
+      if (cells.length > 0) {
+        // Шапка и разделитель таблицы содержимым не являются.
+        if (/^[|\s:-]+$/.test(line)) continue;
+        if (cells.some((c) => c !== '' && !hasPlaceholder(c) && !/^н\s*\/\s*п/i.test(c) && !/^(утверждение|инвариант|чем проверяется|проверка)$/i.test(c))) {
+          return true;
+        }
+        continue;
+      }
+      const t = line.replace(/^(?:[-*+]|\d+[.)])\s*/, '').trim();
+      if (t === '' || t === line.trim() || hasPlaceholder(t)) continue;
+      // «н/п — проектных инвариантов нет» инвариантом не является, но «н/п» внутри
+      // содержательной строки её не отменяет: проверяется НАЧАЛО.
+      if (/^н\s*\/\s*п/i.test(t)) continue;
+      return true;
     }
-    if (!inSection || !/^[-*+]\s/.test(line)) continue;
-    const t = line.replace(/^[-*+]\s*/, '').trim();
-    if (t === '' || hasPlaceholder(t)) continue;
-    // «н/п — проектных инвариантов нет» инвариантом не является, но «н/п» внутри
-    // содержательной строки её не отменяет: проверяется НАЧАЛО.
-    if (/^н\s*\/\s*п/i.test(t)) continue;
-    return true;
   }
   return false;
 }
 
+/**
+ * Метки полей — дословно из форм методологии. Сверка идёт по ним, поэтому менять их
+ * можно только вместе с шаблонами в эталоне.
+ */
 export const DECISION = {
   /** plan.md — этап 4, одобрение плана. */
   approval: 'Одобрение',

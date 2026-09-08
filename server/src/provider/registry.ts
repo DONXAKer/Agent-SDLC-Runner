@@ -91,6 +91,9 @@ export function createProvider(
       baseUrl,
       apiKey,
       timeoutMs,
+      // Потолок ответа задаётся конфигом провайдера, а не константой в коде: правка
+      // рантайма сдвигала бы базовую линию всех прошлых замеров молча.
+      ...(def.maxTokens === undefined ? {} : { maxTokens: def.maxTokens }),
       ...(trace === undefined ? {} : { trace }),
     });
   }

@@ -75,7 +75,20 @@ export interface OpenAiCompatOptions {
    * секунд на набор, который весь укладывается в полторы.
    */
   retryDelayMs?: number;
+  /**
+   * Умолчание потолка длины ответа для этого провайдера (`ProviderDef.maxTokens`).
+   * Не задано — общее число `DEFAULT_MAX_TOKENS`. `ModelDef.params.max_tokens`
+   * перекрывает и то, и другое.
+   */
+  maxTokens?: number;
 }
+
+/**
+ * Общий потолок длины ответа — последний рубеж, когда его не назвали ни модель, ни
+ * провайдер. Выведен замером 2026-09-07 на ollama-тегах; менять его стоит конфигом,
+ * а не правкой этой строки: в коде он сдвигает базовую линию ВСЕХ прошлых замеров.
+ */
+const DEFAULT_MAX_TOKENS = 8192;
 
 function parseArguments(raw: unknown): { args: Record<string, unknown> | null; text: string } {
   if (typeof raw === 'object' && raw !== null) {
@@ -283,8 +296,13 @@ export class OpenAiCompatProvider implements ChatProvider {
        * отказа «лимит длины ответа» (живой замер: gemma4-12b за 15 вызовов заполнила
        * 1 поле из 9, agents-a1-4b/omnicoder-9b — тот же симптом). `ModelDef.params`
        * перекрывает дефолт ниже (`applyParams`).
+       *
+       * Само число берётся из конфига провайдера (`ProviderDef.maxTokens`), а константа
+       * ниже — последний рубеж: пока оно жило только в коде, базовая линия ВСЕХ замеров
+       * сдвигалась правкой рантайма, а не конфига, и агрегатор с меньшим потолком ответа
+       * получал 400 там, где раньше работал на умолчании сервера (ревью).
        */
-      max_tokens: 8192,
+      max_tokens: this.o.maxTokens ?? DEFAULT_MAX_TOKENS,
     };
 
     applyParams(body, req.params ?? null);

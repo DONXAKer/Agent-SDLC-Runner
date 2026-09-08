@@ -35,6 +35,21 @@ function dropEventLog(root: string, slug: string): void {
   rmSync(new WitokPaths(root, slug).events, { force: true });
 }
 
+/**
+ * Числа витка в снимок не входят — по той же причине, что и лента.
+ *
+ * `metrics.json` пишется в `finally` КАЖДОГО этапа, поэтому снимок контрольного прогона
+ * несёт токены, время, вердикты и трение sonnet/opus. `Run` восстанавливает накопители из
+ * этого файла на старте, и прогон кандидата со снимка начинал считать не с нуля: чужой
+ * расход уезжал в `result.json`, в таблицу этапов отчёта и в запись журнала как результат
+ * ИЗМЕРЯЕМОЙ модели. Снимок — состояние витка, а не измерение того, кто его сделал.
+ */
+function dropMetrics(root: string, slug: string): void {
+  const paths = new WitokPaths(root, slug);
+  rmSync(paths.metrics, { force: true });
+  rmSync(paths.metricsReport, { force: true });
+}
+
 export class SnapshotError extends Error {}
 
 export interface SnapshotMeta {
@@ -79,6 +94,7 @@ export function makeSnapshot(args: {
   cpSync(args.workspaceRoot, dest, { recursive: true });
 
   dropEventLog(dest, args.slug);
+  dropMetrics(dest, args.slug);
 
   const meta: SnapshotMeta = {
     slug: args.slug,
@@ -149,8 +165,10 @@ export function restoreSnapshot(args: {
     // который выглядел как дефект измеряемой модели. Пойман сравнением двух ревью r18:
     // оба рецензента, независимо, назвали виновником именно его.
     rmSync(metaPath(root), { force: true });
-    // Снимки, снятые до этой правки, ленту всё ещё содержат — чистим и на восстановлении.
+    // Снимки, снятые до этой правки, ленту и числа всё ещё содержат — чистим и на
+    // восстановлении.
     dropEventLog(root, meta.slug);
+    dropMetrics(root, meta.slug);
     if (args.targetSlug !== meta.slug) {
       const from = join(root, SDLC_DIR, meta.slug);
       const to = join(root, SDLC_DIR, args.targetSlug);

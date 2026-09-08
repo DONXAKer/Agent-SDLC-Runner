@@ -24,8 +24,8 @@ import { readFileSync } from 'node:fs';
 
 import type { CallKind, Decision, Question, StageId } from '@sdlc-runner/shared';
 
-import { AskGate, type PendingQuestions } from '../../server/src/approval/askGate.ts';
-import { ApprovalGate, type PendingApproval } from '../../server/src/approval/gate.ts';
+import { AskGate, type AskGateEvents, type PendingQuestions } from '../../server/src/approval/askGate.ts';
+import { ApprovalGate, type GateEvents, type PendingApproval } from '../../server/src/approval/gate.ts';
 
 // ---------------------------------------------------------------------------
 // Лог решений автоответчика
@@ -152,11 +152,21 @@ type Unsubscribe = () => void;
  * обязан отдать РОВНО одному `events`-аргументу, нескольким подписчикам (коллектору и
  * автоответчику).
  */
+/** Ровно то, что отдаёт гейт: сужать этот тип по дороге нельзя. */
+export type ApprovalResolvedInfo = Parameters<GateEvents['onResolved']>[0];
+/** То же для вопросов человеку. */
+export type AskAnsweredInfo = Parameters<AskGateEvents['onAnswered']>[0];
+
 export class ApprovalBus {
   readonly gate: ApprovalGate;
   private readonly pendingSubs = new Set<(p: PendingApproval) => void>();
+  /**
+   * Подписчики получают ИНФО ЦЕЛИКОМ, включая `createdAt` и признак отмены: сужение типа
+   * здесь молча отрезало бы поля от будущего потребителя — например от учёта трения о
+   * человека, которому нужны оба (ревью).
+   */
   private readonly resolvedSubs = new Set<
-    (info: { runId: string; stage: StageId; requestId: string }, decision: Decision) => void
+    (info: ApprovalResolvedInfo, decision: Decision) => void
   >();
 
   constructor() {
@@ -175,9 +185,7 @@ export class ApprovalBus {
     return () => this.pendingSubs.delete(fn);
   }
 
-  onResolved(
-    fn: (info: { runId: string; stage: StageId; requestId: string }, decision: Decision) => void,
-  ): Unsubscribe {
+  onResolved(fn: (info: ApprovalResolvedInfo, decision: Decision) => void): Unsubscribe {
     this.resolvedSubs.add(fn);
     return () => this.resolvedSubs.delete(fn);
   }
@@ -188,7 +196,7 @@ export class AskBus {
   readonly gate: AskGate;
   private readonly pendingSubs = new Set<(p: PendingQuestions) => void>();
   private readonly answeredSubs = new Set<
-    (info: { runId: string; stage: StageId; requestId: string }, answers: Record<string, string[]>) => void
+    (info: AskAnsweredInfo, answers: Record<string, string[]>) => void
   >();
 
   constructor() {
@@ -207,9 +215,7 @@ export class AskBus {
     return () => this.pendingSubs.delete(fn);
   }
 
-  onAnswered(
-    fn: (info: { runId: string; stage: StageId; requestId: string }, answers: Record<string, string[]>) => void,
-  ): Unsubscribe {
+  onAnswered(fn: (info: AskAnsweredInfo, answers: Record<string, string[]>) => void): Unsubscribe {
     this.answeredSubs.add(fn);
     return () => this.answeredSubs.delete(fn);
   }

@@ -81,7 +81,7 @@ function result(stagesOk: boolean) {
 describe('draftJournalEntry', () => {
   it('заголовок содержит id модели и дату из finishedAt', () => {
     const r = result(true);
-    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    const report = buildReport({ result: r });
     const draft = draftJournalEntry({ result: r, report });
     ok(draft.startsWith('## `ollama:qwen2.5-coder:7b`'));
     ok(draft.includes('2026-08-29'));
@@ -89,14 +89,14 @@ describe('draftJournalEntry', () => {
 
   it('шапка ✅/❌/— повторяет формат docs/model-runs.md', () => {
     const r = result(false);
-    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    const report = buildReport({ result: r });
     const draft = draftJournalEntry({ result: r, report });
     ok(/\| ✅ \| ❌ \| — \|/.test(draft));
   });
 
   it('в конце оставлено место для решения человека — не выдаёт готовый вердикт', () => {
     const r = result(true);
-    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    const report = buildReport({ result: r });
     const draft = draftJournalEntry({ result: r, report });
     ok(draft.includes('‹дописать словами'));
     ok(draft.includes('заполняет человек'));
@@ -115,18 +115,18 @@ describe('draftJournalEntry', () => {
       why: 'w',
       waitedMs: 1,
     });
-    const report = buildReport({ result: r, hidden: null, honesty: [] });
+    const report = buildReport({ result: r });
     const draft = draftJournalEntry({ result: r, report });
     ok(draft.includes('ОПАСНА'));
   });
 
   it('стоимость печатается, когда посчитана; «не изм.» — когда costUsd null (локальный провайдер)', () => {
     const r = result(true);
-    const withCost = draftJournalEntry({ result: r, report: buildReport({ result: r, hidden: null, honesty: [] }) });
+    const withCost = draftJournalEntry({ result: r, report: buildReport({ result: r }) });
     ok(withCost.includes('$0.09'));
 
     r.metrics.stages[0]!.usage = { ...r.metrics.stages[0]!.usage, costUsd: null };
-    const noCost = draftJournalEntry({ result: r, report: buildReport({ result: r, hidden: null, honesty: [] }) });
+    const noCost = draftJournalEntry({ result: r, report: buildReport({ result: r }) });
     ok(noCost.includes('не изм.'));
     strictEqual(noCost.includes('$0.09'), false);
   });
@@ -134,7 +134,7 @@ describe('draftJournalEntry', () => {
   it('рублёвый маршрут подписывается ₽, а не $ (хардкод завышал трату ~в 90 раз)', () => {
     const r = result(true);
     r.run.currencies = { intent: 'RUB' } as typeof r.run.currencies;
-    const draft = draftJournalEntry({ result: r, report: buildReport({ result: r, hidden: null, honesty: [] }) });
+    const draft = draftJournalEntry({ result: r, report: buildReport({ result: r }) });
     ok(draft.includes('0.0900 ₽'));
     strictEqual(draft.includes('$0.09'), false);
   });

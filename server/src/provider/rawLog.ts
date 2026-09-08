@@ -31,7 +31,7 @@ export interface TraceLabel {
   slug: string;
   stage: string;
   /** Режим исполнителя: чем этот запрос является для корпуса — ход цикла, шаг плана, поле бланка. */
-  mode: 'loop' | 'step' | 'formFill' | 'claimFill';
+  mode: 'loop' | 'step' | 'formFill' | 'claimFill' | 'reviewFill';
   /** Номер попытки этапа, если он у режима есть. */
   attempt?: number;
 }

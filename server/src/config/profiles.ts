@@ -48,6 +48,8 @@ function resolveRoute(
     leanTools: def.leanTools ?? false,
     formFill: def.formFill ?? false,
     claimFill: def.claimFill ?? false,
+    reviewFill: def.reviewFill ?? false,
+    skipTurnAfterReviewFill: def.skipTurnAfterReviewFill ?? false,
     stepFill: def.stepFill ?? false,
     compactForms: def.compactForms ?? 'off',
   };

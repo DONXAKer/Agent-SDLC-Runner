@@ -71,8 +71,12 @@ export function RunPage({
   // Вкладка диффа привязана к этапу так же, как её кнопка: смена этапа уводит с неё,
   // иначе она жила бы открытой там, где эта поверхность не предлагается.
   useEffect(() => {
+    // До ответа сервера `stage` стоит на инициализирующем `intent`, и гвард уводил с
+    // `#/run/<id>/obs/diff` ещё до того, как узнавал настоящий этап: ссылка на дифф не
+    // открывалась НИКОГДА и портилась при первом же заходе (ревью). Ждём деталей витка.
+    if (detail === null) return;
     if (view === 'obs' && tab === 'diff' && !diffStage) onViewChange('obs', 'events');
-  }, [view, tab, diffStage, onViewChange]);
+  }, [detail, view, tab, diffStage, onViewChange]);
   /**
    * Правила автоодобрения. Живут до конца этапа: сервер снимает их в `finally` запуска, и
    * обещать здесь большее (например «на весь виток») значило бы обещать не своё.
@@ -519,8 +523,12 @@ export function RunPage({
       <div className="flex min-h-0 flex-1">
         <StageRail run={detail} selected={stage} onSelect={setStage} />
 
-        {view === 'now' ? (
-          <main className="min-w-0 flex-1 overflow-auto p-4">
+        {/* Экран «Сейчас» остаётся СМОНТИРОВАННЫМ в режиме наблюдения, а не заменяется им.
+            Размонтирование стирало локальные черновики: отредактированный промпт, правку
+            аргументов вызова в очереди и набранный свободный ответ агенту — оператор уходил
+            на «Ленту» свериться и терял набранное молча (ревью). Тем же приёмом, что
+            `FocusSection` внутри самого экрана: класс `hidden`, а не условный рендер. */}
+        <main className={`min-w-0 flex-1 overflow-auto p-4 ${view === 'now' ? '' : 'hidden'}`}>
             {error !== null ? (
               <div className={`mb-3 rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
                 {error}
@@ -616,12 +624,22 @@ export function RunPage({
                 onAbort={() => void abortWitok()}
               />
             </div>
-          </main>
-        ) : (
+        </main>
+        {view === 'obs' ? (
           <main className="min-w-0 flex-1 overflow-auto p-4">
             {error !== null ? (
               <div className={`mb-3 rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
                 {error}
+              </div>
+            ) : null}
+
+            {/* Предупреждения выталкиваются наверх и здесь: на вкладках «Diff», «Метрики»
+                и «Контекст» ленты нет, и от текста оставался бы только глиф ⚠ на кнопке. */}
+            {hasWarning ? (
+              <div className={`mb-3 rounded border p-3 text-xs text-amber-200 ${PANEL_TONE.warn}`}>
+                {warnings.slice(-3).map((w, i) => (
+                  <div key={i}>⚠ {w.message}</div>
+                ))}
               </div>
             ) : null}
 
@@ -642,7 +660,7 @@ export function RunPage({
               </div>
             ) : null}
           </main>
-        )}
+        ) : null}
       </div>
     </div>
   );

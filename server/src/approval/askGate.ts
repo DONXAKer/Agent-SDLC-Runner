@@ -53,6 +53,13 @@ export class AskGate {
     this.events = events;
   }
 
+  /** Сколько вопросов этого прогона ждёт ответа — счёт без построения списка. */
+  countFor(runId: string): number {
+    let n = 0;
+    for (const w of this.waiting.values()) if (w.runId === runId) n++;
+    return n;
+  }
+
   list(): PendingQuestions[] {
     return [...this.waiting.values()].map(({ resolve: _r, ...rest }) => rest);
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { RunSummary } from '@sdlc-runner/shared';
 
@@ -17,8 +17,11 @@ import { statusLabel, statusTone } from '../lib/runStatus.ts';
  * и виток, прошедший всего лишь `intent`, читался бы как законченный.
  */
 
-/** Период самообновления списка. Секунды, а не миллисекунды: `GET /api/runs` дёшев, но
- *  не бесплатен, и витков может быть несколько. */
+/**
+ * Период самообновления списка, МИЛЛИСЕКУНДЫ (как и говорит суффикс имени): раз в пять
+ * секунд. Порядок величины секундный намеренно — `GET /api/runs` дёшев, но не бесплатен,
+ * и витков может быть несколько.
+ */
 const AUTO_REFRESH_MS = 5_000;
 
 export function RunList({
@@ -26,12 +29,21 @@ export function RunList({
   onOpen,
   onForget,
   onRefresh,
+  onAutoRefresh,
 }: {
   /** Непустой по построению: решение «показывать ли список» принимает вызывающий. */
   runs: RunSummary[];
   onOpen: (runId: string) => void;
   onForget: (runId: string) => void;
+  /** Обновление ПО КНОПКЕ — действие человека: оно вправе снять свою же прошлую ошибку. */
   onRefresh: () => void;
+  /**
+   * Фоновый тик. Отдельно от `onRefresh` намеренно: тот гасит баннер ошибки, и, будучи
+   * подключённым к таймеру, стирал причину отказа («Убрать» с кодом 409, ошибка старта,
+   * отказ /api/config) через пять секунд после её появления — кнопка выглядела просто
+   * сломанной (ревью).
+   */
+  onAutoRefresh: () => void;
 }): JSX.Element {
   // Какой виток ждёт подтверждения на «Убрать». Шаг существует потому, что удаление
   // необратимо: вместе с объектом прогона уходят итоги гейтов, вердикт и признак
@@ -42,15 +54,20 @@ export function RunList({
   // На скрытой вкладке тики пропускаются — фоновый опрос ушедшего оператора ни к чему.
   useEffect(() => {
     const t = setInterval(() => {
-      if (!document.hidden) onRefresh();
+      if (!document.hidden) onAutoRefresh();
     }, AUTO_REFRESH_MS);
     return () => clearInterval(t);
-  }, [onRefresh]);
+  }, [onAutoRefresh]);
 
   // Ждущие человека — первыми: виток, крутящийся сам, и виток, стоящий на решении,
   // выглядели одинаково, хотя второй — единственный, где человек нужен прямо сейчас.
   // Сортировка стабильная: внутри одного waiting порядок сервера сохраняется.
-  const sorted = [...runs].sort((a, b) => b.waiting - a.waiting);
+  // Порядок замораживается, пока открыто подтверждение «Убрать»: фоновый тик менял
+  // `waiting` и переставлял строки под курсором ровно перед необратимым действием.
+  const frozen = useRef<RunSummary[] | null>(null);
+  if (confirmForget === null) frozen.current = null;
+  const sorted = frozen.current ?? [...runs].sort((a, b) => b.waiting - a.waiting);
+  if (confirmForget !== null && frozen.current === null) frozen.current = sorted;
 
   return (
     <div>
@@ -95,7 +112,9 @@ export function RunList({
                     начат» на пустом `stage` соврало бы про виток, дошедший до verify. */}
                 {r.stage === null
                   ? 'сейчас ничего не выполняется'
-                  : `выполняется ${r.stage} · ${fmtDuration(Date.now() - (r.stageStartedAt ?? Date.now()))}`}{' '}
+                  : // Кламп по нулю: поправки часов клиент↔сервер у `RunSummary` нет, и на
+                    // машине с отстающими часами разность печаталась как «-120000 мс».
+                    `выполняется ${r.stage} · ${fmtDuration(Math.max(0, Date.now() - (r.stageStartedAt ?? Date.now())))}`}{' '}
                 · chunk {r.chunk} · попытка {r.attempt} из {r.attemptBudget} · профиль{' '}
                 {r.profile} · {fmtCost(r.usage, r.currency)}
               </div>

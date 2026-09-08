@@ -72,4 +72,37 @@ describe('scanHistory', () => {
     const e = entries.find((x) => x.slug === 'far-witok');
     strictEqual(e?.lastStage, 'verify');
   });
+
+  it('выдержка задачи — требование, а не легенда шаблона', () => {
+    // Ревью: фильтр пропускал только пустые строки и заголовки, поэтому у ВСЕХ витков
+    // выдержкой оказывалась markdown-цитата легенды — и она же подставлялась в поле
+    // задачи нового витка по клику в «Похожих витках».
+    const paths = new WitokPaths(root, 'legend-witok');
+    writeArtifact(
+      paths.intent,
+      [
+        '# Задача: снять надбавку за негабарит с доставки в зону 3',
+        '',
+        '> Этап 1. Заполняет **человек**; секцию «Что придётся тронуть» — разведка.',
+        '',
+        '## Коротко',
+        '',
+        'Надбавка не должна применяться к зоне 3.',
+      ].join('\n'),
+    );
+
+    const e = scanHistory(root, NO_LIVE).find((x) => x.slug === 'legend-witok');
+    strictEqual(e?.requirement, 'снять надбавку за негабарит с доставки в зону 3');
+  });
+
+  it('без заголовка «Задача» берётся первая содержательная строка, а не цитата', () => {
+    const paths = new WitokPaths(root, 'noheader-witok');
+    writeArtifact(
+      paths.intent,
+      ['# Цель витка', '', '> Легенда формы: заполняет человек.', '', 'Починить округление НДС.'].join('\n'),
+    );
+
+    const e = scanHistory(root, NO_LIVE).find((x) => x.slug === 'noheader-witok');
+    strictEqual(e?.requirement, 'Починить округление НДС.');
+  });
 });

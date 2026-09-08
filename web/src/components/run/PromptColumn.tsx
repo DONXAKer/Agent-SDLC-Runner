@@ -35,9 +35,14 @@ export function PromptColumn({
   onBuild: () => void;
   onRun: (edited: { system: string; user: string }) => void;
 }): JSX.Element {
-  // Свёрнут по умолчанию: четыре чекбокса в строке с главной кнопкой этапа спорили с ней
-  // за внимание, хотя трогают их на каждом этапе единицы операторов.
-  const [autoOpen, setAutoOpen] = useState(false);
+  // Сколько классов вызовов сейчас проходит мимо очереди решений. Число стоит НА КНОПКЕ:
+  // панель свёрнута по умолчанию и сбрасывается при перемонтировании, поэтому включённое
+  // автоодобрение выглядело точно так же, как выключенное, — вызовы шли мимо гейта без
+  // единого признака на экране (ревью).
+  const autoOn = Object.values(autoRules).filter(Boolean).length;
+  // Свёрнут по умолчанию — но не тогда, когда правила включены: то, что снимает вопросы
+  // оператору, обязано быть видно оператору.
+  const [autoOpen, setAutoOpen] = useState(autoOn > 0);
 
   return (
     <section className="min-w-0">
@@ -57,7 +62,7 @@ export function PromptColumn({
           title="Одобрять выбранные классы вызовов без вопроса до конца этапа"
           className="ml-auto text-xs text-neutral-500 hover:text-neutral-300"
         >
-          {autoOpen ? '− ' : '+ '}безопасный автопилот
+          {autoOpen ? '− ' : '+ '}безопасный автопилот{autoOn > 0 ? ` · ${autoOn}` : ''}
         </button>
       </div>
 

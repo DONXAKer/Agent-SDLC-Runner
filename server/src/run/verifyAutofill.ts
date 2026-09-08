@@ -20,6 +20,29 @@ import { gateKey } from '../gates/gatesFile.ts';
 import { escapeCell, splitRow } from '../md/table.ts';
 import { fillMechanicalPlaceholders } from './journalAutofill.ts';
 
+/**
+ * Границы первой таблицы после строки-заголовка: `[начало, конец)` в массиве строк.
+ * `null` — заголовка нет или таблицы под ним нет.
+ *
+ * Одна функция на оба шага автозаполнения. Правило «до первой не-табличной строки»
+ * выучено дорого (ревью К3: диапазон «до следующего заголовка» накрывал таблицу
+ * неприменимости и затирал начатую человеком строку), и жить в двух копиях с чуть
+ * разными регэкспами заголовка оно не должно — вторая копия уже отличалась обработкой
+ * отступа.
+ */
+function tableRange(lines: readonly string[], heading: RegExp): { from: number; to: number } | null {
+  const head = lines.findIndex((l) => heading.test(l.trim()));
+  if (head < 0) return null;
+  let from = head + 1;
+  while (from < lines.length && !lines[from]!.trimStart().startsWith('|')) {
+    if (/^#{2,3}\s/.test(lines[from]!.trim())) return null;
+    from++;
+  }
+  let to = from;
+  while (to < lines.length && lines[to]!.trimStart().startsWith('|')) to++;
+  return to > from ? { from, to } : null;
+}
+
 export interface VerifyReportFacts {
   chunk: number;
   attempt: number;
@@ -36,6 +59,16 @@ export interface VerifyReportFacts {
    * (ревью).
    */
   earlyGates?: readonly { name: string; stage: string; status: string; seenIn: string }[];
+  /**
+   * Включённые гейты ранних этапов, статуса которых у рантайма НЕТ, — их по-прежнему
+   * переносит модель.
+   *
+   * Поле нужно ровно для строки-образца: пока автозаполнение удаляло её всегда, отчёт
+   * оставался без единого примера, модель остальные ранние гейты не добавляла, и
+   * `enabledGatesMissingFromReport` ронял вердикт за них (ревью, воспроизведено сквозным
+   * прогоном на наборе с двумя ранними гейтами).
+   */
+  earlyGatesForModel?: readonly string[];
 }
 
 /** Однострочная ячейка таблицы: переносы и вертикальные черты в ней жить не могут. */
@@ -83,16 +116,11 @@ export function autofillVerificationReport(
   const byKey = new Map(gates.map((g) => [gateKey(g.name), g]));
   const used = new Set<string>();
   const lines = text.split('\n');
-  const gatesStart = lines.findIndex((l) => /^##\s+Гейты\s*$/.test(l));
-  if (gatesStart >= 0) {
-    let i = gatesStart + 1;
-    while (i < lines.length && !lines[i]!.trimStart().startsWith('|')) {
-      if (/^#{2,3}\s/.test(lines[i]!)) break; // секция без таблицы — заполнять нечего
-      i++;
-    }
-    const tableStart = i;
-    let tableEnd = tableStart;
-    while (tableEnd < lines.length && lines[tableEnd]!.trimStart().startsWith('|')) tableEnd++;
+  // Границы таблицы — общей `tableRange`: то же правило, что у шага 1б ниже.
+  const gatesTable = tableRange(lines, /^##\s+Гейты\s*$/);
+  if (gatesTable !== null) {
+    const tableStart = gatesTable.from;
+    const tableEnd = gatesTable.to;
 
     for (let j = tableStart; j < tableEnd; j++) {
       const line = lines[j]!;
@@ -128,26 +156,25 @@ export function autofillVerificationReport(
   // переписывается фактом (модель могла вписать своё мнение до автозаполнения).
   const early = f.earlyGates ?? [];
   if (early.length > 0) {
-    const head = lines.findIndex((l) => /^###\s+Гейты ранних этапов\s*$/.test(l.trim()));
-    if (head >= 0) {
-      let i = head + 1;
-      while (i < lines.length && !lines[i]!.trimStart().startsWith('|')) {
-        if (/^#{2,3}\s/.test(lines[i]!)) break;
-        i++;
-      }
-      let end = i;
-      while (end < lines.length && lines[end]!.trimStart().startsWith('|')) end++;
-      if (end > i) {
+    const range = tableRange(lines, /^###\s+Гейты ранних этапов\s*$/);
+    if (range !== null) {
+      const i = range.from;
+      const end = range.to;
+      {
         const rendered = early.map(
           (g) => `| ${escapeCell(g.name)} | ${g.stage} | ${g.status} | ${escapeCell(g.seenIn)} |`,
         );
+        // Образец сохраняется, пока в наборе остаются ранние гейты, которых рантайм не
+        // считает: без него модели неоткуда взять форму строки, а отчитаться за них
+        // обязана она.
+        const keepSample = (f.earlyGatesForModel ?? []).length > 0;
         const keep: string[] = [];
         for (let j = i; j < end; j++) {
           const line = lines[j]!;
           const name = firstCell(line);
           const isSample = line.includes('‹гейт›');
           const known = name !== null && early.some((g) => gateKey(g.name) === gateKey(name));
-          if (!isSample && !known) keep.push(line);
+          if (isSample ? keepSample : !known) keep.push(line);
         }
         const before = lines.slice(i, end).join('\n');
         const after = [...keep, ...rendered].join('\n');

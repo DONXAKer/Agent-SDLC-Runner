@@ -85,11 +85,23 @@ export interface GateEvents {
    * приходит от исполнителя и о нашем прогоне ничего не знает.
    *
    * `createdAt` — когда запрос встал в очередь: по нему колбэк считает, сколько этап ждал
-   * человека. Решения без ожидия (отказ политики, автоодобрение) тоже приходят сюда — с
+   * человека. Решения без ожидания (отказ политики, автоодобрение) тоже приходят сюда — с
    * тем же моментом, так что их ожидание нулевое по построению.
+   *
+   * `cancelled` — запрос снят обрывом прогона, а не решён человеком. Без этого признака
+   * (он есть у вопросов, `askGate.ts`) отмена витка записывала всё время висения очереди
+   * в «этап ждал человека»: `cancelRun` резолвит запросы решением `by: 'operator'`, и
+   * фильтр по автору его пропускал — метрика показывала часы ожидания там, где решения
+   * человека не было ни одного (ревью).
    */
   onResolved: (
-    info: { runId: string; stage: StageId; requestId: string; createdAt: number },
+    info: {
+      runId: string;
+      stage: StageId;
+      requestId: string;
+      createdAt: number;
+      cancelled: boolean;
+    },
     decision: Decision,
   ) => void;
 }
@@ -213,6 +225,19 @@ export class ApprovalGate {
     this.autoRules.delete(this.stageKey(runId, stage));
   }
 
+  /**
+   * Сколько запросов этого прогона ждёт решения.
+   *
+   * Отдельно от `list()`: счёт не должен материализовать очередь со всеми полями карточек
+   * ради `.length` — а делалось это на каждый виток в `GET /api/runs`, который клиент
+   * опрашивает раз в пять секунд (ревью).
+   */
+  countFor(runId: string): number {
+    let n = 0;
+    for (const w of this.waiting.values()) if (w.runId === runId) n++;
+    return n;
+  }
+
   list(): PendingApproval[] {
     return [...this.waiting.values()].map(visible);
   }
@@ -247,7 +272,7 @@ export class ApprovalGate {
       const policy = policyDeny('repeatFailure', reason);
       const decision: Decision = { allowed: false, reason: `[repeatFailure] ${reason}`, by: 'policy' };
       this.events.onPending(visible({ ...base, policy, preview: null, destructive: null, resolve: () => {} }));
-      this.events.onResolved(info, decision);
+      this.events.onResolved({ ...info, cancelled: false }, decision);
       return decision;
     }
 
@@ -261,7 +286,7 @@ export class ApprovalGate {
       // Предпросмотра здесь нет намеренно: отклонённый вызов не должен приводить к
       // чтению файла, ради которого он и был отклонён.
       this.events.onPending(visible({ ...base, policy, preview: null, destructive: null, resolve: () => {} }));
-      this.events.onResolved(info, decision);
+      this.events.onResolved({ ...info, cancelled: false }, decision);
       return decision;
     }
 
@@ -287,7 +312,7 @@ export class ApprovalGate {
     if (this.matchesRule(args.call, args.ctx, this.autoApproveRules(args.runId, args.stage))) {
       const decision: Decision = { allowed: true, updatedInput: null, by: 'auto' };
       this.events.onPending(visible({ ...base, policy, preview, destructive, resolve: () => {} }));
-      this.events.onResolved(info, decision);
+      this.events.onResolved({ ...info, cancelled: false }, decision);
       return decision;
     }
 
@@ -342,7 +367,7 @@ export class ApprovalGate {
 
     this.waiting.delete(k);
     this.events.onResolved(
-      { runId: w.runId, stage: w.stage, requestId, createdAt: w.createdAt },
+      { runId: w.runId, stage: w.stage, requestId, createdAt: w.createdAt, cancelled: false },
       effective,
     );
     w.resolve(effective);
@@ -378,7 +403,13 @@ export class ApprovalGate {
       this.waiting.delete(k);
       const decision: Decision = { allowed: false, reason, by: 'operator' };
       this.events.onResolved(
-        { runId: w.runId, stage: w.stage, requestId: w.requestId, createdAt: w.createdAt },
+        {
+          runId: w.runId,
+          stage: w.stage,
+          requestId: w.requestId,
+          createdAt: w.createdAt,
+          cancelled: true,
+        },
         decision,
       );
       w.resolve(decision);

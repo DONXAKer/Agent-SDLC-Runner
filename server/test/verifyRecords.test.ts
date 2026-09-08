@@ -11,7 +11,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { normalize } from '../src/exec/normalize.ts';
-import { anchorFound, renderRecords } from '../src/run/verifyReport.ts';
+import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } from '../src/run/verifyReport.ts';
 import { readReport } from '../src/verdict/collect.ts';
 
 describe('нормализация записей', () => {
@@ -197,5 +197,116 @@ describe('проверка ссылки на место', () => {
 
   it('голые числа привязкой не считаются: они есть в любом диффе', () => {
     strictEqual(anchorFound('42', patch), false);
+  });
+});
+
+describe('якорь: имя пункта местом не является (замер 2026-09-08, «оформитель»)', () => {
+  const patch = 'diff --git a/test/oversize.test.ts b/test/oversize.test.ts\n+describe("claim-1", () => {';
+
+  it('`test/x.ts:claim-1` держится на имени файла, а не на claim-1', () => {
+    strictEqual(anchorFound('test/oversize.test.ts:claim-1', patch), true);
+    // Тот же id без файла — привязки нет: план содержит каждый claim-N, и ссылка на
+    // него находила себя всегда.
+    strictEqual(anchorFound('claim-1', `${patch}\nplan: claim-1 — ставка 40%`), false);
+  });
+});
+
+describe('статус при приёме записи', () => {
+  it('зелёный без места в патче принимается как ⚠', () => {
+    strictEqual(acceptedClaimStatus('✅', false), '⚠');
+  });
+
+  it('зелёный с местом остаётся зелёным', () => {
+    strictEqual(acceptedClaimStatus('✅', true), '✅');
+  });
+
+  it('красный и ⚠ без места не меняются: увиденный дефект роняет вердикт и так', () => {
+    strictEqual(acceptedClaimStatus('❌', false), '❌');
+    strictEqual(acceptedClaimStatus('⚠', false), '⚠');
+    strictEqual(acceptedClaimStatus('manual', false), 'manual');
+  });
+});
+
+describe('текст пункта из листа задачи', () => {
+  it('плейсхолдер строки-образца заменяется текстом пункта задачи', () => {
+    const blank = TEMPLATE.replace('надбавка считается…', '‹начало пункта…›');
+    const { text } = renderRecords(blank, {
+      claims: [{ id: 'claim-1', status: '✅', evidence: 'src/x.ts', whatToFix: null }],
+      findings: [],
+      titles: new Map([['claim-1', 'надбавка 40% при стороне > 120 см']]),
+    });
+    ok(text.includes('надбавка 40% при стороне > 120 см'), text);
+    ok(!text.includes('‹начало пункта…›'));
+  });
+
+  it('текст формы, написанный не плейсхолдером, не пересказывается', () => {
+    const { text } = renderRecords(TEMPLATE, {
+      claims: [{ id: 'claim-1', status: '✅', evidence: 'src/x.ts', whatToFix: null }],
+      findings: [],
+      titles: new Map([['claim-1', 'другая формулировка']]),
+    });
+    ok(text.includes('надбавка считается…'));
+    ok(!text.includes('другая формулировка'));
+  });
+
+  it('дописанный пункт получает текст из листа задачи, а не прочерк', () => {
+    const { text } = renderRecords(TEMPLATE, {
+      claims: [{ id: 'claim-7', status: '✅', evidence: 'src/x.ts', whatToFix: null }],
+      findings: [],
+      titles: new Map([['claim-7', 'граница ровно 120 см']]),
+    });
+    ok(text.includes('| claim-7 | граница ровно 120 см |'), text);
+  });
+});
+
+describe('пробелы отчёта по пунктам задачи (страж завершения этапа 6)', () => {
+  it('строка с зелёным статусом и нетронутым текстом — пробел', () => {
+    const report = TEMPLATE.replace(
+      '| claim-1 | надбавка считается… | ‹✅/❌/⚠› | ‹место› | ‹что чинить› |',
+      '| claim-1 | ‹начало пункта…› | ✅ | test/oversize.test.ts:claim-1 | н/п |',
+    );
+    const gaps = verifyReportGaps(report, ['claim-1']);
+    strictEqual(gaps.length, 1);
+    ok(/claim-1/.test(gaps[0]!) && /незаполненное место/.test(gaps[0]!), gaps.join('; '));
+  });
+
+  it('пункт задачи без строки в таблице — пробел', () => {
+    const filled = renderRecords(TEMPLATE, {
+      claims: [{ id: 'claim-1', status: '✅', evidence: 'src/x.ts', whatToFix: null }],
+      findings: [],
+    }).text;
+    deepStrictEqual(verifyReportGaps(filled, ['claim-1', 'claim-2']), ['нет строки пункта claim-2']);
+  });
+
+  it('все пункты на месте и заполнены — пробелов нет', () => {
+    const filled = renderRecords(TEMPLATE, {
+      claims: [
+        { id: 'claim-1', status: '✅', evidence: 'src/x.ts', whatToFix: null },
+        { id: 'claim-2', status: '❌', evidence: 'src/y.ts', whatToFix: 'чинить' },
+      ],
+      findings: [],
+    }).text;
+    deepStrictEqual(verifyReportGaps(filled, ['claim-1', 'claim-2']), []);
+  });
+
+  it('строка-образец под чужой id — оформление, не содержание', () => {
+    // В задаче нет claim-1 (лист начат с claim-2): образец шаблона стражу не принадлежит.
+    const filled = renderRecords(TEMPLATE, {
+      claims: [{ id: 'claim-2', status: '✅', evidence: 'src/x.ts', whatToFix: null }],
+      findings: [],
+    }).text;
+    deepStrictEqual(verifyReportGaps(filled, ['claim-2']), []);
+  });
+
+  it('без списка задачи считаются только плейсхолдеры в строках пунктов', () => {
+    strictEqual(verifyReportGaps(TEMPLATE, []).length, 1);
+  });
+
+  it('регистр id не мешает сверке', () => {
+    const filled = renderRecords(TEMPLATE, {
+      claims: [{ id: 'claim-1', status: '✅', evidence: 'src/x.ts', whatToFix: null }],
+      findings: [],
+    }).text;
+    deepStrictEqual(verifyReportGaps(filled, ['Claim-1']), []);
   });
 });

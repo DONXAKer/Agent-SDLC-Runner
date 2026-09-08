@@ -10,8 +10,9 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { packForClaim, splitHunks } from '../src/run/claimEvidence.ts';
-import { parseClaimAnswer } from '../src/run/claimFill.ts';
+import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
+import { packForClaim, splitHunks, topFileForClaim } from '../src/run/claimEvidence.ts';
+import { fillClaims, parseClaimAnswer } from '../src/run/claimFill.ts';
 
 const DIFF = [
   'diff --git a/src/tariffs.ts b/src/tariffs.ts',
@@ -65,6 +66,14 @@ describe('срез под пункт', () => {
     ok(pack !== '');
     strictEqual(pack.includes('test/money.test.ts'), false);
   });
+
+  it('topFileForClaim — файл ТОП хунка среза, не первый хунк всего патча', () => {
+    // DIFF: первый хунк патча — src/tariffs.ts, второй — test/money.test.ts. Текст ниже
+    // словами совпадает только со вторым — честный fallback обязан назвать ЕГО, а не
+    // первый файл патча (была находка: `hunks[0]?.file` в reviewFill.ts игнорировал срез).
+    strictEqual(topFileForClaim('округление половины вверх', splitHunks(DIFF)), 'test/money.test.ts');
+    strictEqual(topFileForClaim('надбавка surcharge считается от базы', splitHunks(DIFF)), 'src/tariffs.ts');
+  });
 });
 
 describe('разбор ответа по пункту', () => {
@@ -95,5 +104,101 @@ describe('разбор ответа по пункту', () => {
 
   it('невнятный статус — null: пункт останется незаполненным и честно уронит вердикт', () => {
     strictEqual(parseClaimAnswer('claim-5', 'частично | где-то там | —'), null);
+  });
+});
+
+describe('добор пачками (трек 2)', () => {
+  const claims = [1, 2, 3, 4].map((n) => ({ id: `claim-${n}`, text: `пункт ${n}` }));
+
+  it('CLAIM_PARALLEL = 3: упавший запрос в пачке не топит соседей, ответившие рядом — не потеряны', async () => {
+    let n = 0;
+    const provider = {
+      name: 'stub',
+      async chat() {
+        n++;
+        if (n === 2) throw new Error('ollama: ответ не получен');
+        return {
+          text: '✅ | src/tariffs.ts:priceFor | н/п',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const notes: string[] = [];
+    const { calls: out, envFailure } = await fillClaims({
+      provider,
+      model: 'stub',
+      params: null,
+      system: 'ты рецензент',
+      claims,
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: new AbortController().signal,
+      onProgress: (m) => notes.push(m),
+    });
+    // 4 пункта: пачка 1 = [1,2,3] (2-й падает → не отвечен), пачка 2 = [4].
+    strictEqual(out.length, 3);
+    ok(out.every((c) => c.kind === 'record_claim'));
+    deepStrictEqual(
+      out.map((c) => c.kind === 'record_claim' && c.id),
+      ['claim-1', 'claim-3', 'claim-4'],
+    );
+    // Обычный Error (не ProviderEnvError) — не помечается как отказ среды.
+    strictEqual(envFailure, null);
+    ok(notes.some((m) => m.includes('claim-2') && m.includes('не отвечен')));
+  });
+
+  it('ProviderEnvError из пачки возвращается полем envFailure, а не тонет в Promise.allSettled', async () => {
+    const provider = {
+      name: 'stub',
+      async chat() {
+        throw new ProviderEnvError('ollama: ECONNREFUSED');
+      },
+    } as unknown as ChatProvider;
+    const { calls: out, envFailure } = await fillClaims({
+      provider,
+      model: 'stub',
+      params: null,
+      system: 'ты рецензент',
+      claims: claims.slice(0, 1),
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: new AbortController().signal,
+    });
+    strictEqual(out.length, 0);
+    strictEqual(envFailure, 'ollama: ECONNREFUSED');
+  });
+
+  it('отмена останавливает добор перед следующей пачкой, не откатывая пришедшие ответы текущей', async () => {
+    const ctl = new AbortController();
+    const provider = {
+      name: 'stub',
+      async chat() {
+        ctl.abort();
+        return {
+          text: '✅ | src/tariffs.ts:priceFor | н/п',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const { calls: out } = await fillClaims({
+      provider,
+      model: 'stub',
+      params: null,
+      system: 'ты рецензент',
+      claims,
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: ctl.signal,
+    });
+    // Пачка 1 = [1,2,3] уже запущена к моменту первого abort() — все трое отвечают;
+    // пачка 2 = [4] не начинается вовсе.
+    strictEqual(out.length, 3);
   });
 });

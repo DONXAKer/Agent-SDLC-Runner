@@ -1,5 +1,6 @@
 import type { RunDetail } from '@sdlc-runner/shared';
 
+import { fmtCost, fmtMoney } from '../../lib/format.ts';
 import { tailPath } from '../../lib/paths.ts';
 import { statusLabel, statusTone } from '../../lib/runStatus.ts';
 
@@ -64,6 +65,27 @@ export function RunHeader({
       </span>
 
       <div className="ml-auto flex items-center gap-4">
+        {/*
+          Расход против бюджета — снова в шапке, хотя подробные числа живут в «Метриках».
+          Полная полоса `CostBar` ушла туда намеренно (наблюдательные числа не должны
+          спорить за внимание с кнопкой отмены), но вместе с ней с рабочего экрана пропал
+          ЕДИНСТВЕННЫЙ сигнал перерасхода: виток вставал сообщением «бюджет прогона
+          исчерпан», а до того на «Сейчас» не было ни строки, ни цвета (ревью). Здесь —
+          одна короткая величина: сумма и, при перерасходе, потолок красным.
+        */}
+        <span
+          className={`text-xs ${
+            detail.usage.costUsd !== null && detail.usage.costUsd >= detail.maxBudgetUsd
+              ? 'font-medium text-red-400'
+              : 'text-neutral-500'
+          }`}
+          title="Расход витка против бюджета проекта; разбивка — на вкладке «Метрики»"
+        >
+          {fmtCost(detail.usage, detail.currency)}
+          {detail.usage.costUsd !== null && detail.usage.costUsd >= detail.maxBudgetUsd
+            ? ` / ${fmtMoney(detail.maxBudgetUsd, detail.currency)}`
+            : ''}
+        </span>
         {/* При `denied` кнопки нет, и её отсутствие читалось как «уведомления включены»:
             оператор полагался на них и пропускал ожидание. Говорим прямо. */}
         {!alerts.supported || alerts.permission === 'denied' ? (

@@ -79,3 +79,29 @@ describe('tailPath: короткая форма пути', () => {
     strictEqual(tailPath('D:\\Проекты\\X', 4), 'D:\\Проекты\\X');
   });
 });
+
+/**
+ * POSIX-корни: прод раздаётся из контейнера (`docker compose`), где `projectRoot` —
+ * `/work/app`. Ревью: ведущий слэш выпадал из шаблона корня, группа «перед корнем не
+ * разделитель» не совпадала никогда, и функция молча ничего не делала — тесты этого не
+ * видели, потому что покрывали только Windows-корни.
+ */
+describe('relativizePaths: POSIX-корни', () => {
+  it('корень в середине строки вырезается', () => {
+    strictEqual(
+      relativizePaths('/work/app', 'нет файла /work/app/.sdlc/x/plan.md'),
+      'нет файла .sdlc/x/plan.md',
+    );
+  });
+
+  it('корень в начале строки вырезается', () => {
+    strictEqual(relativizePaths('/work/app', '/work/app/.sdlc/x/plan.md в начале'), '.sdlc/x/plan.md в начале');
+  });
+
+  it('соседний каталог с тем же префиксом не трогается', () => {
+    strictEqual(
+      relativizePaths('/work/app', 'чужой /work/app-extra/src/a.ts'),
+      'чужой /work/app-extra/src/a.ts',
+    );
+  });
+});

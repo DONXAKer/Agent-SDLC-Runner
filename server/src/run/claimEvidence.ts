@@ -63,12 +63,12 @@ function tokens(text: string): string[] {
 }
 
 /**
- * Карта улик под пункт: хунки, где встречаются его слова, в пределах байтового потолка.
- *
- * Потолок обязателен: у локального контура окно 16K, и «весь патч на каждый вопрос»
- * съедает его целиком ещё до того, как модель дочитает сам пункт.
+ * Ранжирует хунки по совпадению слов с текстом. Вынесено из `packForClaim` отдельной
+ * функцией, чтобы `topFileForClaim` (fallback-место для находки, у которой модель не
+ * назвала своё) сортировал теми же весами, что и сам срез, — не своей копией формулы,
+ * которая могла бы разойтись с ней при следующей правке.
  */
-export function packForClaim(claimText: string, hunks: readonly Hunk[], budgetBytes: number): string {
+function rankHunks(claimText: string, hunks: readonly Hunk[]): { h: Hunk; score: number; i: number }[] {
   const words = new Set(tokens(claimText));
   const scored = hunks.map((h, i) => {
     const hit = new Set(tokens(`${h.file}\n${h.text}`));
@@ -79,14 +79,33 @@ export function packForClaim(claimText: string, hunks: readonly Hunk[], budgetBy
     return { h, score, i };
   });
   scored.sort((a, b) => b.score - a.score || a.i - b.i);
+  return scored;
+}
 
+/**
+ * Карта улик под пункт: хунки, где встречаются его слова, в пределах байтового потолка.
+ *
+ * Потолок обязателен: у локального контура окно 16K, и «весь патч на каждый вопрос»
+ * съедает его целиком ещё до того, как модель дочитает сам пункт.
+ */
+export function packForClaim(claimText: string, hunks: readonly Hunk[], budgetBytes: number): string {
   const parts: string[] = [];
   let used = 0;
-  for (const s of scored) {
+  for (const s of rankHunks(claimText, hunks)) {
     const size = Buffer.byteLength(s.h.text, 'utf8');
     if (used + size > budgetBytes && parts.length > 0) continue;
     parts.push(s.h.text);
     used += size;
   }
   return parts.join('\n\n');
+}
+
+/**
+ * Файл самого релевантного хунка под текст — тот же порядок, что `packForClaim` кладёт
+ * первым в срез. Нужен как честный fallback для находки без своего места: `hunks[0]` (файл
+ * первого хунка ВСЕГО патча) был случайным — не имел отношения к тому, что реально попало
+ * в срез под конкретный вопрос.
+ */
+export function topFileForClaim(claimText: string, hunks: readonly Hunk[]): string | undefined {
+  return rankHunks(claimText, hunks)[0]?.h.file;
 }

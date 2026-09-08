@@ -119,6 +119,26 @@ describe('autofillVerificationReport', () => {
     strictEqual(again.filled, 0);
   });
 
+  it('образец строки остаётся, пока есть ранние гейты, за которые отчитывается модель', () => {
+    // Ревью: автозаполнение удаляло образец ВСЕГДА, а пишет оно строку только про свой
+    // гейт. На наборе, где ранних гейтов больше одного, отчёт оставался без формы строки,
+    // модель остальные не добавляла, и вердикт падал за чужие гейты.
+    const early = [
+      { name: 'Разбор последствий', stage: '4', status: '✅', seenIn: 'plan.md, секция «Последствия шагов»' },
+    ];
+    const { text } = autofillVerificationReport(TEMPLATE, [], {
+      ...FACTS,
+      earlyGates: early,
+      earlyGatesForModel: ['Готовность задачи'],
+    });
+    match(text, /\| Разбор последствий \| 4 \| ✅ \| plan\.md/);
+    match(text, /\| ‹гейт› \| ‹этап› \|/);
+
+    // Ранних гейтов у модели нет — образец убирается, как и раньше.
+    const alone = autofillVerificationReport(TEMPLATE, [], { ...FACTS, earlyGates: early });
+    ok(!/\| ‹гейт› \| ‹этап› \|/.test(alone.text), alone.text);
+  });
+
   it('идемпотентно: повторный вызов ничего не находит', () => {
     const first = autofillVerificationReport(TEMPLATE, [gate('Сборка', '✅', 'ок')], FACTS);
     const second = autofillVerificationReport(first.text, [gate('Сборка', '✅', 'ок')], FACTS);

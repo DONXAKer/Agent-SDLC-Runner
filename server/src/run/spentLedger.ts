@@ -11,6 +11,10 @@
  * с той суммой, что потрачена в ЕГО валюте.
  */
 
+// Типы этапов, а не голые строки: опечатка в имени этапа тихо выводила бы этап
+// из-под бюджетного гарда, а отказ выглядел бы как отсутствие расхода (ревью).
+import type { StageId } from '@sdlc-runner/shared';
+
 /**
  * Копится ли расход этого этапа в бюджетный гард.
  *
@@ -24,8 +28,8 @@
  * попадает всегда, иначе отчёт врал бы о стоимости.
  */
 export function countsTowardBudget(
-  budgetStages: ReadonlySet<string> | null,
-  stage: string,
+  budgetStages: ReadonlySet<StageId> | null,
+  stage: StageId,
 ): boolean {
   return budgetStages === null || budgetStages.has(stage);
 }
@@ -42,5 +46,22 @@ export class SpentLedger {
   /** Сколько потрачено в данной валюте. Неизвестная валюта — ноль, не `undefined`. */
   spent(currency: string): number {
     return this.sums.get(currency) ?? 0;
+  }
+
+  /**
+   * Снимок сумм для персиста — виток переживает пересоздание `Run`, и бюджетный гард
+   * обязан пережить его вместе с ним. Пока сумм не было в снапшоте, рестарт сервиса
+   * обнулял `spentUsdBefore`, и виток получал полный `maxBudgetUsd` заново.
+   */
+  snapshot(): Record<string, number> {
+    return Object.fromEntries(this.sums);
+  }
+
+  /** Восстановление снимка: своё поверх чужого не складывается — начинают с нуля. */
+  restore(sums: Record<string, unknown>): void {
+    this.sums.clear();
+    for (const [currency, value] of Object.entries(sums)) {
+      if (typeof value === 'number' && Number.isFinite(value)) this.sums.set(currency, value);
+    }
   }
 }

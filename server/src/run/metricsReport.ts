@@ -10,6 +10,10 @@
 import type { RunMetrics } from '@sdlc-runner/shared';
 import { formatDuration } from '@sdlc-runner/shared';
 
+// Экранирование ячеек — общее (`md/table.ts`), обратная сторона `splitRow`: имя гейта из
+// набора приходит сюда уже РАЗэкранированным, и черта внутри него рвала бы колонки.
+import { escapeCell } from '../md/table.ts';
+
 /**
  * `null` — витку нечего рассказать ни в одной из секций: ни одного прогона гейтов, ни
  * одного ожидания человека, ни одного незакрытого плейсхолдера. Пустая секция хуже
@@ -34,7 +38,7 @@ export function metricsBlock(m: RunMetrics): string | null {
       '|---|---|---|---|---|',
       ...m.gates.map(
         (g) =>
-          `| ${g.gate} | ${g.runs} | ${g.red} | ${g.skippedWhileEnabled} | ` +
+          `| ${escapeCell(g.gate)} | ${g.runs} | ${g.red} | ${g.skippedWhileEnabled} | ` +
           `${formatDuration(g.durationMs)} |`,
       ),
       '',
@@ -50,7 +54,7 @@ export function metricsBlock(m: RunMetrics): string | null {
       '| Этап | Вопросов | Одобрений | Ждал человека |',
       '|---|---|---|---|',
       ...m.human.map(
-        (h) => `| ${h.stage} | ${h.questions} | ${h.approvals} | ${formatDuration(h.waitMs)} |`,
+        (h) => `| ${escapeCell(h.stage)} | ${h.questions} | ${h.approvals} | ${formatDuration(h.waitMs)} |`,
       ),
       '',
       '«Ждал человека» — суммарное время от постановки запроса в очередь до решения ' +
@@ -64,7 +68,7 @@ export function metricsBlock(m: RunMetrics): string | null {
       '',
       '| Артефакт | Незаполненных мест ‹…› |',
       '|---|---|',
-      ...m.artifactGaps.map((g) => `| ${g.artifact} | ${g.placeholders} |`),
+      ...m.artifactGaps.map((g) => `| ${escapeCell(g.artifact)} | ${g.placeholders} |`),
       '',
       'Счётчик — последний на момент записи метрик: артефакт, дозаполненный позже, из таблицы ' +
         'исчезает.',

@@ -58,6 +58,8 @@ function route(stage: StageId, over: Partial<ResolvedRoute> = {}): ResolvedRoute
     leanTools: false,
     formFill: false,
     claimFill: false,
+    reviewFill: false,
+    skipTurnAfterReviewFill: false,
     stepFill: false,
     compactForms: 'off',
     ...over,
@@ -179,6 +181,32 @@ describe('трение о человека', () => {
     ]);
   });
 
+  it('снятые отменой одобрения в ожидание не идут', () => {
+    const root = tempRoot();
+    const run = makeRun(root);
+
+    // Решение оператора — считается.
+    run.noteApprovalDecision(
+      { runId: run.id, stage: 'chunk', createdAt: Date.now() - 1000, cancelled: false },
+      { allowed: true, updatedInput: null, by: 'operator' },
+    );
+    // Автоодобрение и отказ политики человека не ждали.
+    run.noteApprovalDecision(
+      { runId: run.id, stage: 'chunk', createdAt: Date.now() - 5000, cancelled: false },
+      { allowed: true, updatedInput: null, by: 'auto' },
+    );
+    // Снятый обрывом прогона запрос: `cancelRun` резолвит его `by: 'operator'`, и без
+    // признака отмены всё время висения уезжало в «этап ждал человека» (ревью).
+    run.noteApprovalDecision(
+      { runId: run.id, stage: 'chunk', createdAt: Date.now() - 1_200_000, cancelled: true },
+      { allowed: false, reason: 'этап оборван', by: 'operator' },
+    );
+
+    const chunk = run.metrics.human.find((h) => h.stage === 'chunk');
+    strictEqual(chunk?.approvals, 1);
+    ok((chunk?.waitMs ?? 0) < 60_000, `ожидание не должно включать снятые запросы: ${chunk?.waitMs}`);
+  });
+
   it('AskGate отдаёт в колбэк момент вопроса, число вопросов и признак отмены', () => {
     // Метрике важна только длина списка вопросов, но тип контракта общий — форма полная.
     const q = (id: string, question: string): Question => ({
@@ -269,9 +297,70 @@ describe('восстановление метрик из metrics.json', () => {
 
     const run = makeRun(root);
     strictEqual(run.metrics.verdicts.total, 1);
+    // Проверка содержательна только вместе с накоплением ПОВЕРХ восстановленного: у
+    // свежего витка эти массивы пусты и без единой строки восстановления, поэтому голое
+    // «пусто» здесь ловило бы удаление кода восстановления как «всё в порядке» (ревью).
+    run.recordHuman('plan', 'approval', 1, 100);
+    deepStrictEqual(run.metrics.human, [{ stage: 'plan', questions: 0, approvals: 1, waitMs: 100 }]);
     deepStrictEqual(run.metrics.gates, []);
+    deepStrictEqual(run.metrics.artifactGaps, []);
+  });
+
+  it('снапшот с мусором в полях не ломает старт и не приносит мусорных строк', () => {
+    const root = tempRoot();
+    mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
+    writeFileSync(
+      join(root, '.sdlc', 'demo', 'metrics.json'),
+      JSON.stringify({
+        stages: 'строка вместо массива',
+        verdicts: { total: 'два', red: null },
+        gates: [{ gate: 42 }, { gate: 'Сборка', runs: NaN, durationMs: 'долго' }],
+        human: [{ stage: 5, questions: 1 }],
+        artifactGaps: [{ artifact: 'plan.md', placeholders: 'много' }],
+        spent: { USD: 'дорого', RUB: 120 },
+      }),
+    );
+
+    const run = makeRun(root);
+    deepStrictEqual(run.metrics.stages, []);
+    strictEqual(run.metrics.verdicts.total, 0);
+    deepStrictEqual(run.metrics.gates, [
+      { gate: 'Сборка', runs: 0, red: 0, skippedWhileEnabled: 0, durationMs: 0 },
+    ]);
     deepStrictEqual(run.metrics.human, []);
     deepStrictEqual(run.metrics.artifactGaps, []);
+  });
+
+  it('расход и суммы по валютам восстанавливаются вместе с этапами', () => {
+    const root = tempRoot();
+    mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
+    writeFileSync(
+      join(root, '.sdlc', 'demo', 'metrics.json'),
+      JSON.stringify({
+        stages: [
+          {
+            stage: 'chunk',
+            runs: 1,
+            usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 4, durationMs: 0 },
+            durationMs: 1000,
+          },
+        ],
+        verdicts: { total: 1, red: 1 },
+        redByCause: [],
+        attemptsByChunk: [],
+        friction: [],
+        gates: [],
+        human: [],
+        artifactGaps: [],
+        spent: { USD: 4 },
+      }),
+    );
+
+    // Пока расход не восстанавливался, шапка показывала $0 над вкладкой «Метрики» с $4,
+    // а бюджетный гард стартовал с нуля и разрешал потратить потолок заново (ревью).
+    const run = makeRun(root);
+    strictEqual(run.totalUsage.costUsd, 4);
+    strictEqual(run.totalUsage.inputTokens, 10);
   });
 
   it('битый снапшот не ломает старт витка', () => {
@@ -280,6 +369,60 @@ describe('восстановление метрик из metrics.json', () => {
     writeFileSync(join(root, '.sdlc', 'demo', 'metrics.json'), 'не json вовсе');
     const run = makeRun(root);
     strictEqual(run.metrics.verdicts.total, 0);
+  });
+});
+
+/**
+ * Общая обвязка сквозного кейса: текст этапа, форма артефакта и подменный
+ * OpenAI-совместимый сервер, отвечающий текстом без вызовов инструментов.
+ */
+async function runIntentWithStub(root: string, events: RunEvent[]): Promise<{ ok: boolean }> {
+  mkdirSync(join(root, 'skills', 'sdlc-intent'), { recursive: true });
+  writeFileSync(join(root, 'skills', 'sdlc-intent', 'SKILL.md'), 'Заполни intent.md по форме.');
+  mkdirSync(join(root, 'methodology', 'templates'), { recursive: true });
+  writeFileSync(
+    join(root, 'methodology', 'templates', 'intent.template.md'),
+    '# Цель\n\n| Поле | Значение |\n|---|---|\n| Задача | ‹текст задачи› |\n',
+  );
+
+  const stub = createServer((req, res) => {
+    req.on('data', () => {});
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          choices: [{ index: 0, message: { role: 'assistant', content: 'готово' }, finish_reason: 'stop' }],
+        }),
+      );
+    });
+  });
+  await new Promise<void>((r) => stub.listen(0, '127.0.0.1', r));
+  const port = (stub.address() as AddressInfo).port;
+  try {
+    const run = makeRun(root, events, {
+      providerDef: { flow: 'loop', kind: 'openai-compat', baseUrl: `http://127.0.0.1:${port}` },
+    });
+    const outcome = await run.runStage('intent');
+    return { ok: outcome.ok };
+  } finally {
+    stub.close();
+  }
+}
+
+describe('запись снапшота метрик не роняет этап', () => {
+  it('ошибка записи уходит предупреждением, а не исключением из finally', async () => {
+    const root = tempRoot();
+    // `metrics.json` — каталог: запись обязана упасть, но исход этапа считает этап, а не
+    // наблюдаемость. Ревью: `catch` в `writeMetricsSnapshot` не был покрыт ничем.
+    mkdirSync(join(root, '.sdlc', 'demo', 'metrics.json'), { recursive: true });
+
+    const events: RunEvent[] = [];
+    const outcome = await runIntentWithStub(root, events);
+
+    // Этап честно красный по своей причине (бланк не заполнен), а не из-за метрик.
+    strictEqual(outcome.ok, false);
+    const warned = events.some((e) => e.type === 'warning' && /метрики витка не записаны/.test(e.message));
+    ok(warned, 'ошибка записи метрик обязана быть названа предупреждением');
   });
 });
 

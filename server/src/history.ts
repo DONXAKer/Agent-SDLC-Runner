@@ -13,7 +13,7 @@ import { join } from 'node:path';
 
 import type { HistoryEntry, HistoryStatus, StageId } from '@sdlc-runner/shared';
 
-import { DECISION, artifactExists, readArtifact, readDecision } from './artifacts/artifact.ts';
+import { DECISION, artifactExists, hasPlaceholder, readArtifact, readDecision } from './artifacts/artifact.ts';
 import { SDLC_DIR, WitokPaths } from './artifacts/paths.ts';
 
 /**
@@ -64,20 +64,56 @@ function statusOf(paths: WitokPaths, isLive: boolean): HistoryStatus {
 }
 
 /**
- * Первая содержательная строка intent.md — текст задачи для «начать похожий виток».
- * Заголовки и пустые строки пропускаются: шаблон intent начинается с них, и без фильтра
- * выдача показывала бы заголовок формы, а не задачу. Длину режем: строка — подсказка
- * для выбора, а не полный текст.
+ * Текст задачи витка для «начать похожий» — из intent.md.
+ *
+ * Первым берётся заголовок «# Задача: …»: в каноне формы требование стоит именно там.
+ * Иначе — первая содержательная строка, и содержательной НЕ считается markdown-цитата
+ * `>`: ею оформлена легенда каждого шаблона методологии, поэтому прежний фильтр (только
+ * пустые строки и заголовки) выдавал у ВСЕХ витков один и тот же кусок методологии —
+ * и он же подставлялся в поле задачи нового витка по клику в «Похожих витках» (ревью,
+ * воспроизведено на трёх реальных intent.md).
+ *
+ * Длину режем: строка — подсказка для выбора, а не полный текст.
  */
+const requirementCache = new Map<string, { mtimeMs: number; requirement: string | undefined }>();
+
 function requirementExcerpt(paths: WitokPaths): string | undefined {
+  // Кэш по времени правки — тем же приёмом, что у набора гейтов в `Run`: `GET /api/history`
+  // сканирует ВСЕ каталоги витков проекта, и без кэша каждый заход на стартовый экран читал
+  // десятки intent.md целиком синхронно, в том же цикле событий, что и поток WebSocket.
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(paths.intent).mtimeMs;
+  } catch {
+    requirementCache.delete(paths.intent);
+    return undefined;
+  }
+  const hit = requirementCache.get(paths.intent);
+  if (hit?.mtimeMs === mtimeMs) return hit.requirement;
+
   const intent = readArtifact(paths.intent);
-  if (!intent.exists) return undefined;
-  const line = intent.text
-    .split('\n')
-    .map((l) => l.trim())
-    .find((l) => l !== '' && !l.startsWith('#'));
-  if (line === undefined) return undefined;
-  return line.length > 120 ? `${line.slice(0, 120)}…` : line;
+  if (!intent.exists) {
+    requirementCache.set(paths.intent, { mtimeMs, requirement: undefined });
+    return undefined;
+  }
+  const lines = intent.text.split('\n').map((l) => l.trim());
+
+  const titled = lines.find((l) => /^#{1,3}\s*Задача\s*[:—-]/i.test(l));
+  const fromTitle = titled?.replace(/^#{1,3}\s*Задача\s*[:—-]\s*/i, '').trim();
+  const line =
+    fromTitle !== undefined && fromTitle !== '' && !hasPlaceholder(fromTitle)
+      ? fromTitle
+      : lines.find(
+          (l) => l !== '' && !l.startsWith('#') && !l.startsWith('>') && !l.startsWith('|') && !hasPlaceholder(l),
+        );
+  const requirement =
+    line === undefined || line === ''
+      ? undefined
+      : line.length > 120
+        ? `${line.slice(0, 120)}…`
+        : line;
+  requirementCache.set(paths.intent, { mtimeMs, requirement });
+  return requirement;
 }
 
 /**

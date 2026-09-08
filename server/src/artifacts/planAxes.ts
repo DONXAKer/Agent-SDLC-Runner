@@ -100,13 +100,31 @@ export interface AxisContext {
 }
 
 /**
- * Нормализация имени — ОБЩИМ `headerKey`, а не своей копией.
+ * Нормализация ИМЕНИ оси — общим `headerKey`, а не своей копией.
  *
  * Копия отличалась одним: не снимала скобочный хвост, и ось «Безопасность (входные данные)»
  * переставала быть канонической — страж требовал строку, которая в плане была (ревью).
  */
 function key(s: string): string {
   return headerKey(s.replace(/[_]/g, ''));
+}
+
+/**
+ * Нормализация ЗНАЧЕНИЯ ячейки — своя, и намеренно НЕ `headerKey`.
+ *
+ * `headerKey` режет всё от первой открывающей скобки, потому что это правило для ключа
+ * КОЛОНКИ («Как проверить (процедура + критерий)»). Применённое к данным, оно выбрасывало
+ * содержимое: «н/п (новых настроек нет)» становилось голым «н/п» — претензия «без причины»
+ * на ячейке, где причина написана, — а «(по итогам разведки) риск утечки» схлопывалось в
+ * пустоту и читалось как «исход не из словаря» (ревью, обе формы воспроизведены).
+ */
+function cellKey(s: string): string {
+  return s
+    .replace(/[_`*]/g, '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 const CANONICAL = new Map<string, AxisName>(AXES.map((a) => [key(a), a]));
@@ -132,7 +150,7 @@ function blank(cell: string): boolean {
  */
 function readAffected(cell: string): boolean | null {
   if (blank(cell)) return null;
-  const t = key(cell);
+  const t = cellKey(cell);
   const yes = /(^|[^а-я])да($|[^а-я])/.test(t);
   const no = /(^|[^а-я])нет($|[^а-я])/.test(t);
   if (yes === no) return null;
@@ -159,7 +177,7 @@ const OUTCOME_WORDS: readonly { re: RegExp; outcome: AxisOutcome }[] = [
 
 function readOutcome(cell: string): AxisOutcome {
   if (blank(cell)) return 'unknown';
-  const t = key(cell);
+  const t = cellKey(cell);
   let best: { at: number; outcome: AxisOutcome } | null = null;
   for (const { re, outcome } of OUTCOME_WORDS) {
     re.lastIndex = 0;
@@ -173,7 +191,7 @@ function readOutcome(cell: string): AxisOutcome {
 /** Причина при `н/п`: то, что осталось после самой пометки. */
 function hasReason(cell: string): boolean {
   return (
-    key(cell)
+    cellKey(cell)
       .replace(/н\s*\/\s*п/, '')
       .replace(/[-—–:.,\s]/g, '') !== ''
   );
@@ -250,7 +268,12 @@ export function parsePlanAxes(planText: string): PlanAxes {
       for (const row of all) {
         const name = (row[0] ?? '').trim();
         if (name === '') continue;
-        const outcomeRaw = (row[iOutcome >= 0 ? iOutcome : 3] ?? row[row.length - 1] ?? '').trim();
+        // Фолбэка «последняя ячейка строки» здесь нет намеренно. Он брал исход из колонки
+        // «Что именно в шагах», стоило модели написать три ячейки вместо четырёх, — и
+        // строка без колонки исхода проходила гейт ЗЕЛЁНОЙ, если в описании шага случайно
+        // попадалось слово словаря («…включить гейт „Тесты“»). Отсутствующая ячейка обязана
+        // читаться как отсутствующая: `unknown` и претензия про исход (ревью).
+        const outcomeRaw = (row[iOutcome >= 0 ? iOutcome : 3] ?? '').trim();
         rows.push({
           name,
           canonical: CANONICAL.get(key(name)) ?? null,

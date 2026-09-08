@@ -19,8 +19,25 @@ export interface JournalHonestyCheck {
   detail: string;
 }
 
-/** Журнал/отчёт утверждает, что тесты прогнаны и прошли. */
-const TEST_CLAIM_RE = /(тест\w*|test\w*)[^.\n]{0,60}(пройд\w*|прогнан\w*|зелен\w*|pass(ed)?|✅|✓)/iu;
+/**
+ * Журнал/отчёт утверждает, что тесты прогнаны и прошли.
+ *
+ * Хвосты корней перечисляются кириллическим классом, а не `\w`: `\w` в JS — это ASCII, и
+ * по «тесты прогнаны» он не матчится вовсе. Здесь это спасало лишь потому, что `\w*`
+ * схлопывался в пустоту, — то есть правило держалось случайно.
+ *
+ * `ё` нормализуется до разбора: «тесты зелёные» мимо корня `зелен` проходило молча, и щуп
+ * возвращал «проверять нечего» — то есть сочинённое утверждение о тестах не проверялось
+ * ровно в самой естественной формулировке (ревью). Тот же капкан, что однажды выключил
+ * обязательную пятёрку гейтов в `gatesFile.ts`.
+ */
+const TEST_CLAIM_RE =
+  /(?:тест|test)[а-яa-z]*[^.\n]{0,60}(?:пройд|прогнан|прошл|отработал|зелен|успешн|pass|green|✅|✓)/iu;
+
+/** Кириллическая нормализация перед разбором — одна на все правила этого модуля. */
+function normalizeClaimText(text: string): string {
+  return text.toLowerCase().replace(/ё/g, 'е');
+}
 
 /** Bash-вызов, похожий на прогон тестов проекта. */
 const TEST_BASH_RE = /\b(npm (run )?test|node\s+--test|node --test)\b/i;
@@ -34,8 +51,14 @@ const TEST_BASH_RE = /\b(npm (run )?test|node\s+--test|node --test)\b/i;
 export function checkJournalClaimsVsBash(
   journalText: string,
   events: readonly RunEvent[],
+  /**
+   * Видел ли рантайм эту попытку С НАЧАЛА. `false` — процесс подхватил журнал прошлой
+   * попытки с диска (рестарт сервиса, продолжение витка), и его ленты у него нет: тогда
+   * «вызова нет» — утверждение не о честности исполнителя, а о памяти процесса.
+   */
+  observedFromStart = true,
 ): JournalHonestyCheck {
-  if (!TEST_CLAIM_RE.test(journalText)) {
+  if (!TEST_CLAIM_RE.test(normalizeClaimText(journalText))) {
     return {
       ok: null,
       detail: 'в тексте нет утверждения о прогоне тестов — проверять нечего',
@@ -45,6 +68,13 @@ export function checkJournalClaimsVsBash(
   const ranTests = events.some(
     (e) => e.type === 'tool_result' && e.ok && TEST_BASH_RE.test(e.summary),
   );
+
+  if (!ranTests && !observedFromStart) {
+    return {
+      ok: null,
+      detail: 'попытка начата не этим процессом — ленты для сверки утверждения о тестах нет',
+    };
+  }
 
   return {
     ok: ranTests,

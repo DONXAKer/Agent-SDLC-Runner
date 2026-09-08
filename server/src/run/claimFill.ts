@@ -18,10 +18,10 @@
  *    незаполненным и честно роняет вердикт как «не проверяем».
  */
 
-import type { NormalizedCall } from '@sdlc-runner/shared';
+import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
 
 import { normalize } from '../exec/normalize.ts';
-import type { ChatProvider } from '../provider/ChatProvider.ts';
+import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
 import { packForClaim, splitHunks } from './claimEvidence.ts';
 
 export interface ClaimAsk {
@@ -44,6 +44,23 @@ export interface ClaimFillInput {
   /** Потолок среза патча на один вопрос — окно локальной модели, а не вкус. */
   evidenceBudgetBytes: number;
   signal: AbortSignal;
+  /** Упавший в пачке запрос — оператору, тем же приёмом, что `ReviewFillInput.onProgress`. */
+  onProgress?: (note: string) => void;
+  /** Токены/стоимость каждого запроса — см. докстринг `ReviewFillInput.onUsage`, тот же долг. */
+  onUsage?: (usage: Usage) => void;
+}
+
+export interface ClaimFillResult {
+  calls: NormalizedCall[];
+  /**
+   * Первая ошибка СРЕДЫ (не модели) из пачки, если была — тем же приёмом, что
+   * `FormFillExecutor.noteEnvFailure`. До батчинга (трек 2) исключение `provider.chat()`
+   * пробрасывалось из `fillClaims` наружу нетронутым, и вызывающий (`Run.ts`) ловил его
+   * специально помеченным `ProviderEnvError`, отличая «сервер недоступен» от «модель
+   * не ответила». `Promise.allSettled` эту метку внутри пачки гасит молча — здесь она
+   * возвращается вызывающему явным полем, а не тонет вместе с остальными причинами отказа.
+   */
+  envFailure: string | null;
 }
 
 /** Ответ модели по одному пункту. `null` — разобрать не удалось. */
@@ -69,21 +86,29 @@ export function parseClaimAnswer(id: string, answer: string): NormalizedCall | n
 }
 
 /**
+ * Пачка параллельных вопросов — тот же приём, что `REVIEW_PARALLEL` в `reviewFill.ts`
+ * (`FormFillExecutor.FIELD_PARALLEL`). Число подбирается тем же живым замером трека 2
+ * (docs/model-runs.md), что и `REVIEW_PARALLEL` — независимо, «одна ручка на замер» не
+ * запрещает две РАЗНЫЕ ручки в одной серии, если каждая мерится своим прогоном.
+ */
+const CLAIM_PARALLEL = 3;
+
+/**
  * Спрашивает модель по каждому пункту и возвращает разобранные записи.
  *
- * Последовательно, а не пачкой: локальный сервер всё равно исполняет запросы по одному,
- * а отмена между пунктами обязана останавливать добор — иначе «отменить» тратило бы
- * бюджет до последнего пункта.
+ * Пачками (трек 2, 2026-09-09): `signal.aborted` проверяется перед КАЖДОЙ пачкой, а не
+ * перед каждым пунктом внутри неё. Упавший запрос (`Promise.allSettled`) не превращается
+ * в отвеченный: пункт останется незаполненным и честно уронит вердикт — тем же приёмом,
+ * что уже описан в докстринге модуля («это не решение за модель»).
  */
-export async function fillClaims(i: ClaimFillInput): Promise<NormalizedCall[]> {
+export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
   const hunks = splitHunks(i.diff);
   const out: NormalizedCall[] = [];
+  let envFailure: string | null = null;
 
-  for (const claim of i.claims) {
-    if (i.signal.aborted) break;
+  const ask = (claim: ClaimAsk) => {
     const pack = packForClaim(claim.text, hunks, i.evidenceBudgetBytes);
-
-    const answer = await i.provider.chat({
+    return i.provider.chat({
       model: i.model,
       messages: [
         { role: 'system', content: i.system },
@@ -122,10 +147,25 @@ export async function fillClaims(i: ClaimFillInput): Promise<NormalizedCall[]> {
       temperature: null,
       params: i.params,
     });
+  };
 
-    const call = parseClaimAnswer(claim.id, answer.text);
-    if (call !== null) out.push(call);
+  for (let batchStart = 0; batchStart < i.claims.length; batchStart += CLAIM_PARALLEL) {
+    if (i.signal.aborted) break;
+    const batch = i.claims.slice(batchStart, batchStart + CLAIM_PARALLEL);
+    const answers = await Promise.allSettled(batch.map((claim) => ask(claim)));
+    for (const [idx, claim] of batch.entries()) {
+      const a = answers[idx]!;
+      if (a.status !== 'fulfilled') {
+        if (envFailure === null && a.reason instanceof ProviderEnvError) envFailure = a.reason.message;
+        const why = a.reason instanceof Error ? a.reason.message : String(a.reason);
+        i.onProgress?.(`пункт ${claim.id} не отвечен: ${why}`);
+        continue;
+      }
+      i.onUsage?.(a.value.usage);
+      const call = parseClaimAnswer(claim.id, a.value.text);
+      if (call !== null) out.push(call);
+    }
   }
 
-  return out;
+  return { calls: out, envFailure };
 }

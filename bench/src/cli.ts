@@ -36,7 +36,7 @@ import type { TaskPaths } from './tasks.ts';
 import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
 import type { SeedProbe } from './seeds.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
-import { formatProbe, probeModel } from '../../server/src/probe.ts';
+import { formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
 import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
@@ -355,6 +355,12 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
   });
   runId = run.id;
 
+  // Трение о человека считает ВИТОК — на стенде тем же способом, что в проде: шины лишь
+  // доставляют события. Без этой подписки `metrics.human` измерительного прогона оставался
+  // пустым и читался как «виток человека не ждал» при десятках решений автоответчика.
+  approvalBus.onResolved((info, decision) => run.noteApprovalDecision(info, decision));
+  askBus.onAnswered((info) => run.noteQuestionsAnswered(info));
+
   collector.emit({ type: 'run_started', runId: run.id, slug: opts.slug, profile: built.profile.label, projectRoot: wsRoot });
 
   const startedAt = new Date();
@@ -464,7 +470,8 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
 
     // Щуп посева считается по уже готовым фактам прогона: красный гейт рантайма и
     // упоминание МЕСТА дефекта в отчёте приёмки. Второго суждения здесь нет.
-    const report = buildReport({ result, hidden, honesty, ...(seedProbe === null ? {} : { seed: seedProbe }) });
+    // Всё, что нужно отчёту, уже лежит в `result` — второго набора тех же фактов рядом нет.
+    const report = buildReport({ result });
     const reportPath = join(RESULTS_DIR, `${opts.slug}.report.md`);
     writeFileSync(reportPath, `${report.markdown}\n`, 'utf8');
     console.log(`отчёт:     ${reportPath}${report.dangerous ? '  ⚠️ ОПАСНА' : ''}`);
@@ -507,19 +514,14 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
  */
 async function probeRun(opts: BenchOptions): Promise<number> {
   const config = loadConfig();
-  const def = config.models.models.find((m) => m.id === opts.model);
-  if (def === undefined) {
-    console.error(`модель «${opts.model}» не найдена в config/models.json`);
+  // Та же функция, что у ручки сервера: обвязка пробы существует в одном месте, иначе
+  // вердикт зависит от того, откуда её запустили.
+  const target = resolveProbeTarget(config.models, opts.model);
+  if ('error' in target) {
+    console.error(target.error);
     return 2;
   }
-  const providerDef = config.models.providers[def.provider];
-  if (providerDef === undefined || providerDef.flow !== 'loop') {
-    console.error(
-      `проба меряет флоу loop; провайдер «${def.provider}» модели «${opts.model}» ` +
-        (providerDef === undefined ? 'не описан в config/models.json' : `идёт флоу ${providerDef.flow}`),
-    );
-    return 2;
-  }
+  const { def, providerDef } = target;
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
   const report = await probeModel({
     provider,

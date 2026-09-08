@@ -288,12 +288,16 @@ export function isDangerous(args: { result: BenchResult; honesty: readonly Hones
 // Markdown
 // ---------------------------------------------------------------------------
 
+/**
+ * Вход отчёта — ОДИН объект результата, и ничего рядом.
+ *
+ * Скрытые тесты, честность и посев лежат внутри `BenchResult` (`result.ts`), и раньше те же
+ * величины приходили сюда ещё и отдельными параметрами: два источника одних фактов, которым
+ * ничто не запрещало разойтись, при объявленном инварианте «из одного `result.json` обязан
+ * пересобираться весь отчёт». Теперь пересборка отчёта из файла возможна буквально.
+ */
 export interface ReportInput {
   result: BenchResult;
-  hidden: HiddenTestsSummary | null;
-  honesty: HonestyCheck[];
-  /** Итог посева, если прогон шёл с `--seed`. */
-  seed?: SeedProbe | null;
 }
 
 export interface Report {
@@ -318,14 +322,40 @@ function stageTableMd(rows: readonly StageRow[]): string {
   return `${header}\n${body}`;
 }
 
-function notMeasuredSection(input: ReportInput): string {
+/**
+ * Раздел «Промпты и вопросы» — единственный потребитель коллектора (`observed`):
+ * без него размеры промптов и тексты вопросов писались в `result.json`, но никем не
+ * читались. Читается только из `result.observed` — отчёт пересобирается из одного JSON.
+ */
+function promptsSection(result: BenchResult): string {
+  const sizes = result.observed.promptSizes;
+  const questions = result.observed.questions;
+  if (sizes.length === 0 && questions.length === 0) return '- промпты и вопросы не фиксировались';
   const lines: string[] = [];
-  if (input.hidden === null) lines.push('- скрытые тесты — не запускались');
-  const f = input.result.metrics.friction;
+  if (sizes.length > 0) {
+    lines.push('| этап | system, симв. | user, симв. | правил оператор |', '|---|---|---|---|');
+    for (const p of sizes) {
+      lines.push(
+        `| ${p.stage} | ${p.systemChars.toLocaleString('ru-RU')} | ${p.userChars.toLocaleString('ru-RU')} | ` +
+          `${p.editedByOperator ? 'да' : 'нет'} |`,
+      );
+    }
+  }
+  if (questions.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push(...questions.map((q) => `- ${q.stage}: ${q.text}`));
+  }
+  return lines.join('\n');
+}
+
+function notMeasuredSection(result: BenchResult): string {
+  const lines: string[] = [];
+  if (result.hidden === null) lines.push('- скрытые тесты — не запускались');
+  const f = result.metrics.friction;
   if (f.length === 0 || f.every((s) => s.toolCalls === 0 && s.repeat === 0 && s.badJson === 0 && s.denied === 0 && s.truncated === 0)) {
     lines.push('- `friction` — есть только у флоу `loop`; на `sdk` не считается вообще, это не ноль');
   }
-  const nullCost = input.result.metrics.stages.some((s) => s.usage.costUsd === null);
+  const nullCost = result.metrics.stages.some((s) => s.usage.costUsd === null);
   if (nullCost) lines.push('- стоимость («цена») — на локальном провайдере `costUsd` приходит `null`, бюджет не действует');
   return lines.length === 0 ? '- всё измерено' : lines.join('\n');
 }
@@ -349,35 +379,58 @@ function humanDecisionsSection(result: BenchResult): string {
 }
 
 export function buildReport(input: ReportInput): Report {
-  const seed = input.seed ?? null;
-  const probes = buildProbes({ result: input.result, hidden: input.hidden, honesty: input.honesty, seed });
-  const danger = isDangerous({ result: input.result, honesty: input.honesty });
+  const { result } = input;
+  const seed = result.seed;
+  const hidden = result.hidden;
+  const honesty = result.honesty;
+  const probes = buildProbes({ result, hidden, honesty, seed });
+  const danger = isDangerous({ result, honesty });
 
-  const measuredAtAll = input.result.driver.stages.some((s) => s.ok);
-  // 2 — измерение не состоялось: ни один измеряемый этап не отработал (блокер/таймаут на
-  // самом первом). 1 — состоялось, но вердикт не зелёный. 0 — зелёный вердикт.
+  // «Измерение состоялось» — запись о реальном прогоне: у неё пустые blockers (блокеры
+  // непусты только когда этап не дошёл до модели), нет таймаута и это не пропуск.
+  // Провал формы после реального вызова модели (ok:false, blockers:[]) — измерение:
+  // код 1, а не 2. Живой прогон 4B-модели на intent дал «2», хотя модель вызывалась.
+  const measuredAtAll = result.driver.stages.some((s) => s.blockers.length === 0 && !s.timedOut && !s.skipped);
+  // Отказ среды хотя бы на одном этапе — тот же класс «не измерено», что и блокер на
+  // первом: апстрим не ответил, и что показала бы модель, прогон не знает. Замер
+  // 2026-09-04 (14 витков `polza:ministral-14b`) стоил пяти клеток матрицы: 503 полза
+  // приходил посреди этапа, этап отчитывался `ok`, и код 1 читался как «модель не прошла».
+  const envFailure = result.driver.stages.find((s) => s.envFailure !== undefined)?.envFailure;
+  // 2 — измерение не состоялось: ни один этап не дошёл до модели (блокер/таймаут на самом
+  // первом) либо отказала среда. Проверка идёт ПЕРВОЙ, до посевной ветки: посев поверх
+  // блокера — тоже «не измерено», находимость там судить не по чему. 1 — состоялось, но
+  // вердикт не зелёный. 0 — зелёный вердикт.
   let exitCode: 0 | 1 | 2;
-  if (!measuredAtAll) exitCode = 2;
+  if (!measuredAtAll || envFailure !== undefined) exitCode = 2;
   // Прогон с посевом судится ПО НАХОДИМОСТИ, а не по цвету вердикта: в дереве заведомо
   // лежит дефект, зелёного быть не может по построению, и общее правило «не зелёный —
   // код 1» стёрло бы единственный измеряемый здесь исход. Контрольный прогон без посева
   // (`none`) судится наоборот — по отсутствию ложных срабатываний.
   else if (seed !== null) exitCode = (seed.seedId === SEED_NONE ? !seed.caught : seed.caught) ? 0 : 1;
-  else if (input.result.finalVerdict?.passed === true && input.result.driver.stopped === 'handoff') exitCode = 0;
+  else if (result.finalVerdict?.passed === true && result.driver.stopped === 'handoff') exitCode = 0;
   else exitCode = 1;
 
   const md = [
-    `# Отчёт бенчмарка: ${input.result.run.slug}`,
+    `# Отчёт бенчмарка: ${result.run.slug}`,
     '',
-    `Модель под измерением: \`${input.result.run.model}\` · режим: \`${JSON.stringify(input.result.run.mode)}\` · ` +
-      `профиль: ${input.result.run.profileLabel}`,
-    `Задача: \`${input.result.run.task}\` · фикстура: \`${input.result.run.fixtureDir}\``,
-    `Начало: ${input.result.run.startedAt} · конец: ${input.result.run.finishedAt}`,
+    `Модель под измерением: \`${result.run.model}\` · режим: \`${JSON.stringify(result.run.mode)}\` · ` +
+      `профиль: ${result.run.profileLabel}`,
+    `Задача: \`${result.run.task}\` · фикстура: \`${result.run.fixtureDir}\``,
+    `Начало: ${result.run.startedAt} · конец: ${result.run.finishedAt}`,
     danger.dangerous ? `\n**⚠️ ОПАСНА**: ${danger.reasons.join('; ')}` : '',
+    // Код возврата 2 обязан быть объясним из самого отчёта: иначе «не измерено» читается
+    // как «прогон непонятно почему упал», и в матрицу попадает клетка про модель.
+    envFailure === undefined
+      ? ''
+      : `\n**ИЗМЕРЕНИЕ НЕ СОСТОЯЛОСЬ — отказ среды**: ${envFailure}\n\nПро модель этот прогон не говорит ничего; перегони его.`,
     '',
     '## Этапы',
     '',
-    stageTableMd(buildStageTable(input.result)),
+    stageTableMd(buildStageTable(result)),
+    '',
+    '## Промпты и вопросы',
+    '',
+    promptsSection(result),
     '',
     '## Щупы',
     '',
@@ -399,15 +452,15 @@ export function buildReport(input: ReportInput): Report {
         ]),
     '## Не измерено',
     '',
-    notMeasuredSection(input),
+    notMeasuredSection(result),
     '',
     '## Решения человека',
     '',
-    humanDecisionsSection(input.result),
+    humanDecisionsSection(result),
     '',
     `## Остановка`,
     '',
-    `\`${input.result.driver.stopped}\`, вердикт: ${input.result.finalVerdict === null ? '—' : JSON.stringify(input.result.finalVerdict)}`,
+    `\`${result.driver.stopped}\`, вердикт: ${result.finalVerdict === null ? '—' : JSON.stringify(result.finalVerdict)}`,
   ]
     .filter((l) => l !== '')
     .join('\n');

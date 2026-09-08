@@ -192,7 +192,7 @@ describe('инвариант «result.json пересобирает отчёт �
     // Единственный «вход» — текст файла: всё, что читает отчёт, обязано пережить
     // сериализацию. Иначе по ходу прогона структурные результаты терялись бы.
     const parsed = JSON.parse(JSON.stringify(result)) as BenchResult;
-    const report = buildReport({ result: parsed, hidden: parsed.hidden, honesty: parsed.honesty });
+    const report = buildReport({ result: parsed });
 
     strictEqual(report.exitCode, 0);
     strictEqual(report.dangerous, false);

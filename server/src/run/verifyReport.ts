@@ -130,10 +130,25 @@ export interface RenderResult {
  */
 export function renderRecords(
   text: string,
-  records: { claims: readonly ClaimRecord[]; findings: readonly FindingRecord[] },
+  records: {
+    claims: readonly ClaimRecord[];
+    findings: readonly FindingRecord[];
+    /**
+     * Текст пункта по id — из приёмочного листа ЗАДАЧИ. Строка-образец шаблона несёт
+     * `‹начало пункта…›`, и пока текст брался только из неё, отчёт с зелёным статусом
+     * при нетронутом плейсхолдере выглядел заполненным. Источник текста — человек этапа 1,
+     * не рецензент: подставлять его рантайму можно, пересказывать модели — нет.
+     */
+    titles?: ReadonlyMap<string, string>;
+  },
 ): RenderResult {
   const lines = text.split('\n');
   let filled = 0;
+  const titleFor = (id: string, current: string): string => {
+    const known = records.titles?.get(id.toLowerCase());
+    const blank = current === '' || current === '—' || current.includes('‹');
+    return blank && known !== undefined && known.trim() !== '' ? known : current === '' ? '—' : current;
+  };
 
   // ── §1: таблица пунктов приёмки ──────────────────────────────────────────
   const claims = records.claims;
@@ -161,13 +176,13 @@ export function renderRecords(
           // Текст пункта берётся из существующей строки: его писал не рецензент, а форма,
           // и подменять его пересказом значило бы терять сверку по формулировке.
           const title = (splitRow(lines[at]!)[1] ?? '').trim();
-          lines[at] = claimRow(columns, r, title === '' ? '—' : title);
+          lines[at] = claimRow(columns, r, titleFor(r.id, title));
           filled++;
         }
         // Строки-образца в шаблоне (`claim-1 | ‹начало пункта…›`) может не быть под нужный
         // id: недостающие пункты дописываются в конец таблицы, а не теряются.
         if (rest.length > 0) {
-          const appended = rest.map((r) => claimRow(columns, r, '—'));
+          const appended = rest.map((r) => claimRow(columns, r, titleFor(r.id, '')));
           lines.splice(tableEnd, 0, ...appended);
           filled += appended.length;
         }
@@ -224,7 +239,63 @@ export function anchorFound(evidence: string, haystack: string): boolean {
   const tokens = evidence
     .split(/[^\p{L}\p{N}_./\\-]+/u)
     .map((t) => t.trim())
-    .filter((t) => t.length >= 4 && !/^\d+$/.test(t));
+    // `claim-N` — имя пункта, а не место в коде: план входит в корпус якорей и содержит
+    // каждый такой id, поэтому ссылка вида `test/x.ts:claim-1` находила себя всегда.
+    // Замер 2026-09-08 (`axes-ff-axis-config-blind`): «оформитель» закрыл все пункты
+    // зелёными именно такой формулой при нетронутом тексте пунктов.
+    .filter((t) => t.length >= 4 && !/^\d+$/.test(t) && !/^claim-\d+$/i.test(t));
   if (tokens.length === 0) return false;
   return tokens.some((t) => haystack.includes(t));
+}
+
+/**
+ * Статус пункта, с которым запись принимается в отчёт.
+ *
+ * Зелёный без ссылки на место в патче — не зелёный: доказательство не показано, а
+ * «доказательство держится на непройденной проверке» и есть определение `⚠` в таблице
+ * вердикта. Понижение делается ПРИ ПРИЁМЕ, а не пометкой в тексте: пометка оставляла
+ * `✅` в колонке статуса, и вердикт читал зелёный, которого рецензент не подтвердил.
+ * Красный и `⚠` без ссылки остаются как есть — модель, увидевшая дефект и не сумевшая
+ * показать пальцем, всё равно роняет вердикт, и это верно.
+ */
+export function acceptedClaimStatus(status: ClaimStatus, anchored: boolean): ClaimStatus {
+  return status === '✅' && !anchored ? '⚠' : status;
+}
+
+/**
+ * Чего в отчёте приёмки не хватает по пунктам задачи — для стража завершения этапа 6.
+ *
+ * Две дыры, обе измерены 2026-09-08 на локальном рецензенте: (1) строка пункта с
+ * зелёным статусом и нетронутым текстом `‹начало пункта…›` — бланк заполнен формулой, а
+ * не проверкой; (2) пункт задачи, которого в таблице нет вовсе — вердикт такой пункт
+ * не видел, потому что сверял только строки, которые модель написала. Проверка байт в
+ * байт с бланком (`untouchedSeeds`) обе дыры пропускала: одной правки хватало, чтобы
+ * артефакт считался «произведённым».
+ *
+ * Считаются только строки с настоящим id `claim-N`: строки-образцы и прочие
+ * плейсхолдеры формы сюда не входят намеренно — их стережёт дозаполнение по полям, а
+ * страж отвечает за содержание, не за оформление.
+ */
+export function verifyReportGaps(text: string, expectedIds: readonly string[]): string[] {
+  const lines = text.split('\n');
+  const range = sectionRange(lines, /^1\./);
+  const expected = new Set(expectedIds.map((id) => id.toLowerCase()));
+  const seen = new Set<string>();
+  const gaps: string[] = [];
+  if (range !== null) {
+    for (let i = range.from; i < range.to; i++) {
+      const id = idOf(lines[i]!);
+      if (id === null) continue;
+      seen.add(id);
+      // Строка-образец под id, которого в задаче нет (`claim-1` шаблона при листе,
+      // начатом иначе), — оформление, не содержание: её судьба у дозаполнения.
+      const mine = expected.size === 0 || expected.has(id);
+      if (mine && lines[i]!.includes('‹')) gaps.push(`строка пункта ${id} содержит незаполненное место`);
+    }
+  }
+  for (const raw of expectedIds) {
+    const id = raw.toLowerCase();
+    if (!seen.has(id)) gaps.push(`нет строки пункта ${id}`);
+  }
+  return gaps;
 }

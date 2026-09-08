@@ -156,6 +156,39 @@ describe('makeSnapshot / restoreSnapshot', () => {
     ok(existsSync(join(restored.root, '.sdlc', 'demo', 'plan.md')));
   });
 
+  it('числа витка в снимок не попадают: измеряемая модель считает с нуля', async () => {
+    // `metrics.json` пишется в finally КАЖДОГО этапа, поэтому снимок контрольного прогона
+    // нёс токены, время и вердикты sonnet/opus. `Run` восстанавливает накопители из него на
+    // старте — и прогон кандидата со снимка начинал считать с ЧУЖИХ чисел, которые уезжали
+    // в result.json, в таблицу этапов отчёта и в запись журнала как его результат (ревью).
+    const workspaceRoot = await makeWorkspace();
+    writeFileSync(
+      join(workspaceRoot, '.sdlc', 'demo', 'metrics.json'),
+      '{"stages":[{"stage":"chunk","runs":9,"durationMs":999}]}\n',
+      'utf8',
+    );
+    writeFileSync(join(workspaceRoot, '.sdlc', 'demo', 'metrics.md'), '## Метрики витка\n', 'utf8');
+    const snapshotsDir = tmp('sdlc-bench-snap-dir-');
+    makeSnapshot({
+      workspaceRoot,
+      snapshotsDir,
+      name: 'слот',
+      slug: 'demo',
+      branch: 'sdlc/demo',
+      stoppedAfterStage: 'plan',
+      task: 'oversize',
+    });
+
+    strictEqual(existsSync(join(snapshotsDir, 'слот', '.sdlc', 'demo', 'metrics.json')), false);
+
+    const restored = restoreSnapshot({ snapshotsDir, name: 'слот', targetSlug: 'кандидат', expectedTask: 'oversize' });
+    roots.push(restored.root);
+    strictEqual(existsSync(join(restored.root, '.sdlc', 'кандидат', 'metrics.json')), false);
+    strictEqual(existsSync(join(restored.root, '.sdlc', 'кандидат', 'metrics.md')), false);
+    // Артефакты витка на месте — чистятся ровно числа.
+    ok(existsSync(join(restored.root, '.sdlc', 'кандидат', 'plan.md')));
+  });
+
   it('лента чистится и у снимков, снятых до этой правки', async () => {
     const workspaceRoot = await makeWorkspace();
     const snapshotsDir = tmp('sdlc-bench-snap-dir-');

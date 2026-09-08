@@ -35,9 +35,15 @@ export function relativizePaths(root: string, text: string): string {
   const norm = root.replace(/[/\\]+$/, '');
   // Корень из одного сегмента (буква диска) совпадал бы с каждым путём на этом диске.
   if (norm.split(/[/\\]+/).filter((seg) => seg !== '').length < 2) return text;
+  // Ведущий разделитель POSIX-корня — ЧАСТЬ шаблона корня, а не «символ перед ним».
+  // `rootSource` выбрасывает пустые сегменты, поэтому у `/work/app` источник — `work/app`,
+  // а группа «перед корнем не разделитель» требовала перед `work` чего угодно, кроме `/`;
+  // слэш там стоит всегда, и на всём POSIX-проде (docker compose) функция молча не делала
+  // ничего — блокеры и артефакты показывались полными путями (ревью).
+  const rootPat = /^[/\\]/.test(norm) ? `[/\\\\]${rootSource(norm)}` : rootSource(norm);
   // Lookahead после корня: разделитель, пробел или конец строки. Без него корень
   // `…\X` сматчился бы внутри `…\X-extra`, и хвост пути обрезался бы молча.
-  const re = new RegExp(`(^|[^/\\\\])(${rootSource(norm)})(?:[/\\\\](\\S*))?(?=[/\\\\]|\\s|$)`, 'g');
+  const re = new RegExp(`(^|[^/\\\\])(${rootPat})(?:[/\\\\](\\S*))?(?=[/\\\\]|\\s|$)`, 'g');
   return text.replace(re, (_all, lead: string, _root: string, rest: string | undefined) =>
     rest === undefined ? lead : lead + rest.replace(/\\/g, '/'),
   );

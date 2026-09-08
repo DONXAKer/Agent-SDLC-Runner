@@ -38,7 +38,7 @@ import { normalizePlanPath } from './policy/paths.ts';
 import { readArtifact, readDecision } from './artifacts/artifact.ts';
 import { artifactPathOf } from './artifacts/paths.ts';
 import { Run } from './run/Run.ts';
-import { formatProbe, probeModel } from './probe.ts';
+import { PROBE_CASE_TIMEOUT_MS, formatProbe, probeModel, resolveProbeTarget } from './probe.ts';
 import { stopSandboxForProject } from './sandbox/registry.ts';
 import { createProvider } from './provider/registry.ts';
 import { detectSandboxSpec } from './sandbox/detect.ts';
@@ -104,16 +104,10 @@ const gate = new ApprovalGate({
       requestId: info.requestId,
       decision,
     });
-    // Трение о человека копит сам виток: решения политики и автоодобрения (by 'policy'/
-    // 'auto') человека не ждали и в метрики не идут. Отказ оператора идёт в ожидание, но
-    // не в одобрения.
-    if (decision.by !== 'operator') return;
-    runs.get(info.runId)?.run.recordHuman(
-      info.stage,
-      'approval',
-      decision.allowed ? 1 : 0,
-      Date.now() - info.createdAt,
-    );
+    // Что считается трением о человека, решает сам виток (`Run.noteApprovalDecision`):
+    // здесь только доставка события. Второе место классификации давало стенду пустую
+    // метрику — он идёт мимо этих колбэков.
+    runs.get(info.runId)?.run.noteApprovalDecision(info, decision);
   },
 });
 
@@ -143,15 +137,7 @@ const askGate = new AskGate({
       summary: `ответы получены: ${Object.keys(answers).length}`,
       durationMs: 0,
     });
-    // Отменённый вопрос — не ответ человека: считать его вопросом значило бы рисовать
-    // диалог там, где прогон просто оборвали.
-    if (info.cancelled) return;
-    runs.get(info.runId)?.run.recordHuman(
-      info.stage,
-      'question',
-      info.questions,
-      Date.now() - info.createdAt,
-    );
+    runs.get(info.runId)?.run.noteQuestionsAnswered(info);
   },
 });
 
@@ -202,26 +188,22 @@ app.post('/api/probe', async (req, reply) => {
   if (typeof body.model !== 'string' || body.model === '') {
     return reply.code(400).send({ error: 'нужно поле model' });
   }
-  const def = config.models.models.find((m) => m.id === body.model);
-  if (def === undefined) {
-    return reply.code(404).send({ error: `модель «${body.model}» не найдена в config/models.json` });
+  // Разрешение цели — общей функцией со стендом: копия обвязки уже успела разойтись с
+  // ним потолком кейса, и одна модель получала разный вердикт пробы в UI и на стенде.
+  const target = resolveProbeTarget(config.models, body.model);
+  if ('error' in target) {
+    return reply.code(target.error.startsWith('проба меряет') ? 400 : 404).send({ error: target.error });
   }
-  const providerDef = config.models.providers[def.provider];
-  if (providerDef === undefined) {
-    return reply.code(404).send({ error: `провайдер «${def.provider}» не описан в config/models.json` });
-  }
-  if (providerDef.flow !== 'loop') {
-    return reply
-      .code(400)
-      .send({ error: `проба меряет флоу loop; провайдер «${def.provider}» идёт флоу ${providerDef.flow}` });
-  }
+  const { def, providerDef } = target;
   try {
     const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
     const report = await probeModel({
       provider,
       model: def.model,
       params: def.params ?? null,
-      caseTimeoutMs: config.runner.limits.chatTimeoutMs,
+      // Потолок кейса СВОЙ, а не транспортный `chatTimeoutMs`: проба обещает секунды, и
+      // три кейса по десять минут держали бы HTTP-запрос дольше самого замера.
+      caseTimeoutMs: Math.min(config.runner.limits.chatTimeoutMs, PROBE_CASE_TIMEOUT_MS),
     });
     return { report, text: formatProbe(report) };
   } catch (e) {
@@ -380,6 +362,37 @@ app.post('/api/runs', async (req, reply) => {
   }
 });
 
+/**
+ * Ждёт ли этап подписи человека под артефактом: слот `humanGate` есть, артефакт написан,
+ * а решение не записано. Тем же разбором, что предусловие следующего этапа (`granted()`).
+ */
+function pendingDecisions(run: Run): number {
+  return STAGES.filter((s) => {
+    if (s.humanGate === null) return false;
+    const path = artifactPathOf(run.paths, s.humanGate.artifact, run.chunk, run.attempt);
+    const a = readArtifact(path);
+    return a.exists && readDecision(a.text, s.humanGate.label).state !== 'granted';
+  }).length;
+}
+
+/**
+ * Сколько решений ждёт человека — ОДНА формула на обе ручки.
+ *
+ * Клиент считает то же самое своей `decisionQueueCount` (`web/src/lib/pending.ts`):
+ * одобрения, вопросы, красный вердикт И неподписанный артефакт. Последнего слагаемого
+ * здесь не было, и в штатном случае «план записан, «Одобрение» не подписано» карточка
+ * показывала «ждёт: 0», а открытый виток — очередь из одной карточки; хуже того, виток
+ * проваливался вниз сортировки списка ровно там, где человек и нужен (ревью).
+ */
+function waitingCount(run: Run): number {
+  return (
+    gate.countFor(run.id) +
+    askGate.countFor(run.id) +
+    (run.lastVerdict !== null && !run.lastVerdict.passed ? 1 : 0) +
+    pendingDecisions(run)
+  );
+}
+
 app.get('/api/runs', (): RunSummary[] =>
   [...runs.values()].map(({ run, currentStage, stageStartedAt }) => ({
     runId: run.id,
@@ -393,13 +406,9 @@ app.get('/api/runs', (): RunSummary[] =>
     attempt: run.attempt,
     attemptBudget: run.attemptBudget,
     usage: run.totalUsage,
-    // Счёт ждущих решений — тот же, что очередь в RunPage: одобрения + вопросы +
-    // красный вердикт. Клиент этот счёт не собирает по ленте: число обязано совпадать
-    // с тем, что покажет открытый виток.
-    waiting:
-      gate.list().filter((p) => p.runId === run.id).length +
-      askGate.list().filter((p) => p.runId === run.id).length +
-      (run.lastVerdict !== null && !run.lastVerdict.passed ? 1 : 0),
+    // Счёт ждущих решений — общей формулой `waitingCount`: число обязано совпадать
+    // с тем, что покажет открытый виток, и второго выражения для него быть не должно.
+    waiting: waitingCount(run),
     stageStartedAt: currentStage === null ? null : stageStartedAt,
   })),
 );
@@ -475,12 +484,9 @@ app.get('/api/runs/:id', async (req, reply) => {
     attemptBudget: run.attemptBudget,
     maxBudgetUsd: run.project.maxBudgetUsd,
     usage: run.totalUsage,
-    // Дублируем счёт из GET /api/runs тем же выражением: RunDetail extends RunSummary,
-    // и карточка списка обязана показывать то же число, что очередь на странице витка.
-    waiting:
-      gate.list().filter((p) => p.runId === id).length +
-      askGate.list().filter((p) => p.runId === id).length +
-      (run.lastVerdict !== null && !run.lastVerdict.passed ? 1 : 0),
+    // Та же функция, что в GET /api/runs: `RunDetail extends RunSummary`, и карточка
+    // списка обязана показывать то же число, что очередь на странице витка.
+    waiting: waitingCount(run),
     stageStartedAt: currentStage === null ? null : live.stageStartedAt,
     stages: STAGES.map((s) => {
       const out = s.produces(run.ctx);

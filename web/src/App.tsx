@@ -62,6 +62,8 @@ export default function App(): JSX.Element {
   /** Задача витка: набирается на старте, уходит на этап intent и правится уже там. */
   const [requirement, setRequirement] = useState(() => draft?.requirement ?? '');
   const [error, setError] = useState<string | null>(null);
+  /** Виток только что заведён: поля мастера чистятся следующим проходом. */
+  const [started, setStarted] = useState(false);
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   /** Правка моделей на один виток: на диск не сохраняется. */
@@ -116,6 +118,17 @@ export default function App(): JSX.Element {
     };
     writeLS(DRAFT_KEY, JSON.stringify(next));
   }, [config, project?.name, profile, slug, requirement, stageOverrides]);
+
+  // Старт состоялся — черновик исчерпан, но чистится он ОТДЕЛЬНЫМ проходом (см. `start`).
+  // Ошибка старта черновик не трогает: человек чинит причину и жмёт снова, перенабирать
+  // задачу не должен.
+  useEffect(() => {
+    if (!started || route.kind !== 'run') return;
+    setStarted(false);
+    setSlug('');
+    setRequirement('');
+    setStageOverrides({});
+  }, [started, route]);
 
   const refreshRuns = useCallback(() => {
     // Ошибку здесь НЕ гасим: слот один на всё окно, и успешный фоновый список затёр бы
@@ -177,12 +190,12 @@ export default function App(): JSX.Element {
     setError(null);
     try {
       const r = await api.createRun(project.name, slug.trim(), profile, stageOverrides);
-      // Старт состоялся — черновик исчерпан: поля задачи чистим, чтобы следующий виток
-      // не открылся с текстом прошлого. Ошибка старта черновик НЕ трогает: человек
-      // чинит причину и жмёт снова, перенабирать задачу не должен.
-      setSlug('');
-      setRequirement('');
-      setStageOverrides({});
+      // Поля мастера НЕ чистятся здесь: `RunPage` забирает текст задачи начальным
+      // значением своего стейта, и очистка в том же батче отдавала ему пустую строку —
+      // набранная задача пропадала безвозвратно, потому что черновик в localStorage тем
+      // же рендером тоже перезаписывался пустым (ревью). Чистит эффект ниже, после того
+      // как страница витка смонтирована и текст у неё уже есть.
+      setStarted(true);
       navigate({ kind: 'run', runId: r.runId, view: 'now' });
     } catch (e) {
       setError((e as Error).message);
@@ -259,6 +272,9 @@ export default function App(): JSX.Element {
         setError(null);
         refreshRuns();
       }}
+      // Фоновый тик ошибку НЕ гасит: иначе причина отказа исчезала бы через пять секунд
+      // после появления, и оператор видел бы только неработающую кнопку (ревью).
+      onAutoRefreshRuns={refreshRuns}
       onRefreshHistory={() => {
         setError(null);
         refreshHistory();

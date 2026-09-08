@@ -418,7 +418,15 @@ export function NewRunWizard({
                     type="button"
                     onClick={() => {
                       onSlugChange(uniqueSlug(e.slug, takenSlugs));
-                      if (e.requirement !== undefined) onRequirementChange(e.requirement);
+                      if (e.requirement === undefined) return;
+                      // Набранный текст задачи не затирается молча: карточка обрезана, и
+                      // по ней кликают в том числе чтобы прочитать её целиком — прежний
+                      // абзац при этом терялся без отмены, вместе с черновиком (ревью).
+                      const busy = requirement.trim() !== '' && requirement.trim() !== e.requirement.trim();
+                      if (busy && !window.confirm('Заменить набранный текст задачи текстом этого витка?')) {
+                        return;
+                      }
+                      onRequirementChange(e.requirement);
                     }}
                     className="block w-full rounded border border-neutral-800 px-2 py-1.5 text-left text-xs hover:border-neutral-600"
                   >
