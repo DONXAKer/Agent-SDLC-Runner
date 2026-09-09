@@ -307,36 +307,89 @@ function hunkQuestion(h: Hunk, n: number, total: number): string {
   ].join('\n');
 }
 
-function axisQuestion(axis: AxisAsk, pack: string): string {
-  // Затронутая ось: план утверждает, что исход её покрывает — вопрос не «трогает ли diff
-  // эту ось» (план уже сказал «да»), а «объясняет ли ЗАЯВЛЕННЫЙ исход то, что реально в
-  // diff'е под этим ярлыком». Незатронутая ось: план утверждает обратное, вопрос — прямая
-  // сверка. Разные утверждения плана требуют разных вопросов, а не одной фразы на оба.
+/** Один блок оси внутри комбинированного вопроса — общая часть с прежним одиночным `axisQuestion`. */
+function axisBlock(n: number, axis: AxisAsk, pack: string): string {
   const declared = axis.affected === true;
   return [
     declared
-      ? `## Ось «${axis.name}» — в плане объявлена ЗАТРОНУТОЙ`
-      : `## Ось «${axis.name}» — в плане объявлена НЕ затронутой`,
+      ? `### ${n}. Ось «${axis.name}» — в плане объявлена ЗАТРОНУТОЙ`
+      : `### ${n}. Ось «${axis.name}» — в плане объявлена НЕ затронутой`,
     '',
     `Что считается затрагиванием: ${axisHint(axis.name)}.`,
     axis.outcomeRaw.trim() === '' ? '' : `Исход по плану: ${axis.outcomeRaw.trim()}`,
     '',
-    'Ниже изменения попытки, относящиеся к этой оси (срез патча):',
+    'Изменения попытки, относящиеся к этой оси (срез патча):',
     '',
     '```diff',
     pack === '' ? '(подходящих правок не нашлось)' : pack,
     '```',
-    '',
-    declared
-      ? 'Заявленный исход ДЕЙСТВИТЕЛЬНО объясняет то, что видно в срезе, — или в срезе есть ' +
-        'изменение по этой оси, которое исход не покрывает (другая переменная, другое место, ' +
-        'другое поведение)? Ответь одним словом `нет` (покрыто) либо строкой ' +
-        '`да | что не покрыто | файл:строка`.'
-      : 'Трогает ли правка эту ось? Ответь одним словом `нет` либо строкой `да | что именно | файл:строка`.',
-    'Ничего, кроме этого, не пиши.',
   ]
     .filter((l) => l !== '')
     .join('\n');
+}
+
+/**
+ * ВСЕ оси — ОДНИМ запросом, а не по одному (трек «сумма латентности», 2026-09-09).
+ *
+ * Замер показал: модель без ручки `reasoning_effort` тратит на «размышление» ~130 с на
+ * запрос ПОЧТИ НЕЗАВИСИМО от размера содержимого (probe: тривиальный вопрос — секунды,
+ * содержательный — те же ~130 с, что и полноценный вопрос по оси) — сумма 21 отдельного
+ * запроса конвейера упирается в бюджет стенных часов раньше, чем в качество ответов, и
+ * параллельные пачки (`REVIEW_PARALLEL`) этого не снимают: сервер сериализует генерацию
+ * независимо от того, сколько запросов пришло «одновременно» (см. `docs/model-runs.md`).
+ * Значит рычаг — число ЗАПРОСОВ, а не их размер: шесть осей, объединённые в один вопрос,
+ * платят цену размышления ОДИН раз вместо шести.
+ *
+ * Хунки НЕ объединяются тем же приёмом: разбиение по хункам защищает не время, а recall —
+ * «прочитай всё, ответь по всему» и есть класс «оформитель», ради которого писался весь
+ * конвейер (докстринг модуля). Совмещение осей recall не угрожает: срез под каждую ось уже
+ * мал и ограничен потолком независимо от того, сколько осей приходит в одном вопросе.
+ */
+function axesCombinedQuestion(axes: readonly AxisAsk[], packs: readonly string[]): string {
+  return [
+    `## Оси «Последствий шагов» — проверь КАЖДУЮ из ${axes.length} ниже`,
+    '',
+    ...axes.map((axis, idx) => axisBlock(idx + 1, axis, packs[idx] ?? '')),
+    '',
+    `Ответь РОВНО ${axes.length} строками — по одной на каждую ось, В ТОМ ЖЕ ПОРЯДКЕ, ` +
+      'начиная с номера оси:',
+    '`N. нет` — для затронутой оси это значит «заявленный исход покрывает всё видимое в срезе»,',
+    'для незатронутой — «правка эту ось не трогает».',
+    '`N. да | что именно | файл:строка` — для затронутой: что НЕ покрыто заявленным исходом;',
+    'для незатронутой: что именно трогает эту ось.',
+    'Ничего, кроме этих строк, не пиши.',
+  ].join('\n');
+}
+
+/**
+ * Разбор комбинированного ответа по осям: строки `N. …`, N — порядковый номер оси в ТОМ ЖЕ
+ * запросе. Разбор одной строки делегирован `parseAxisAnswer` (без изменений в его контракте)
+ * — второго места, знающего форму ответа «да/нет по оси», не появляется.
+ */
+export function parseAxesCombinedAnswer(
+  axes: readonly AxisAsk[],
+  answer: string,
+  fallbackEvidence: readonly string[],
+): { answeredIdx: Set<number>; findings: NormalizedCall[] } {
+  const answeredIdx = new Set<number>();
+  const findings: NormalizedCall[] = [];
+  const lines = answer
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '' && !l.startsWith('```'));
+  for (const line of lines) {
+    const m = /^(\d+)\.\s*(.*)$/.exec(line);
+    if (m === null) continue;
+    const idx = Number(m[1]) - 1;
+    if (idx < 0 || idx >= axes.length || answeredIdx.has(idx)) continue;
+    answeredIdx.add(idx);
+    const axis = axes[idx]!;
+    const rest = m[2] ?? '';
+    if (rest.trim() === '') continue;
+    const call = parseAxisAnswer(axis.name, rest, fallbackEvidence[idx] ?? '', axis.affected === true);
+    if (call !== null) findings.push(call);
+  }
+  return { answeredIdx, findings };
 }
 
 /**
@@ -348,16 +401,23 @@ function axisQuestion(axis: AxisAsk, pack: string): string {
 const REVIEW_PARALLEL = 3;
 
 /**
- * Конвейер: фрагменты diff'а пачками, затем пачками — оси плана (трек 2, 2026-09-09).
+ * Конвейер: фрагменты diff'а пачками (трек 2, 2026-09-09), затем ВСЕ оси плана ОДНИМ
+ * запросом (трек «сумма латентности», 2026-09-09 — см. докстринг `axesCombinedQuestion`).
  *
- * Пачками, а не по одному: латентность одного запроса, помноженная на число вопросов
- * конвейера (до ~7 хунков + 6 осей), суммарно упирается в бюджет стенных часов раньше, чем
- * в качество ответов (замер 2026-09-08 — `apriel-1.6-15b-rf`, обрыв на 12-м вопросе добора
- * claimFill; `docs/model-runs.md`). `signal.aborted` проверяется перед КАЖДОЙ пачкой, а не
- * перед каждым вопросом внутри неё — отменённая пачка не откатывает уже пришедшие в ней
- * ответы, отмена лишь не начинает следующую. Упавший запрос по-прежнему считается «не
- * отвечено» и не прячется (`ask` ловит исключение сам, `Promise.allSettled` не теряет
- * соседей упавшего): `hunksAnswered < hunksAsked` — сигнал вызывающему, что ревью неполное.
+ * Хунки — пачками: латентность одного запроса, помноженная на число вопросов конвейера,
+ * суммарно упирается в бюджет стенных часов раньше, чем в качество ответов (замер
+ * 2026-09-08 — `apriel-1.6-15b-rf`, обрыв на 12-м вопросе добора claimFill;
+ * `docs/model-runs.md`). `signal.aborted` проверяется перед КАЖДОЙ пачкой, а не перед
+ * каждым вопросом внутри неё — отменённая пачка не откатывает уже пришедшие в ней ответы,
+ * отмена лишь не начинает следующую. Упавший запрос по-прежнему считается «не отвечено» и
+ * не прячется (`ask` ловит исключение сам, `Promise.allSettled` не теряет соседей
+ * упавшего): `hunksAnswered < hunksAsked` — сигнал вызывающему, что ревью неполное.
+ *
+ * Оси — НЕ пачками: живой замер 2026-09-09 показал, что параллельные пачки не снимают
+ * латентность (сервер сериализует генерацию независимо от числа «одновременных» запросов
+ * клиента), а цена одного запроса (~130 с на этой модели) почти не зависит от размера
+ * содержимого — значит рычаг: меньше ЗАПРОСОВ, а не быстрее каждый. Хунки этим приёмом
+ * не объединяются — разбиение по хункам защищает recall, а не время (докстринг модуля).
  */
 export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResult> {
   const hunks = splitHunks(i.diff);
@@ -410,29 +470,25 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
 
   // Все оси, не только «незатронутые» по плану (трек 1а) — план может пометить ось
   // затронутой со ссылкой на claim, который покрывает не то изменение, что реально в
-  // diff'е под этим ярлыком; см. докстринг `ReviewFillInput.axes`.
-  for (let batchStart = 0; batchStart < i.axes.length; batchStart += REVIEW_PARALLEL) {
-    if (i.signal.aborted) break;
-    const batch = i.axes.slice(batchStart, batchStart + REVIEW_PARALLEL);
-    const axisQueries = batch.map((axis) => `${axis.name} ${axisHint(axis.name)}`);
+  // diff'е под этим ярлыком; см. докстринг `ReviewFillInput.axes`. ОДНИМ запросом на все
+  // оси разом — см. докстринг `axesCombinedQuestion`.
+  if (i.axes.length > 0 && !i.signal.aborted) {
+    const axisQueries = i.axes.map((axis) => `${axis.name} ${axisHint(axis.name)}`);
     const packs = axisQueries.map((q) => packForClaim(q, hunks, i.hunkBudgetBytes));
-    i.onProgress?.(
-      batch.length === 1
-        ? `ось «${batch[0]!.name}»: ${batch[0]!.affected === true ? 'объявлена затронутой — сверка исхода' : 'объявлена не затронутой — сверка с diff\'ом'}`
-        : `пачка осей: ${batch.map((a) => a.name).join(', ')}`,
-    );
-    const answers = await Promise.allSettled(batch.map((axis, idx) => ask(axisQuestion(axis, packs[idx]!))));
-    for (const [idx, axis] of batch.entries()) {
-      const a = answers[idx]!;
-      const answer = a.status === 'fulfilled' ? a.value : null;
-      if (answer === null) continue;
-      axesAnswered++;
-      const declared = axis.affected === true;
-      // Файл среза, реально показанного под ЭТУ ось — не файл первого хунка всего патча
-      // (тот был бы случайным местом для находки без явного «файл:строка» в ответе).
-      const fallbackFile = topFileForClaim(axisQueries[idx]!, hunks) ?? hunks[0]?.file ?? '';
-      const call = parseAxisAnswer(axis.name, answer, fallbackFile, declared);
-      if (call !== null) findings.push(call);
+    const fallbackFiles = axisQueries.map((q) => topFileForClaim(q, hunks) ?? hunks[0]?.file ?? '');
+    i.onProgress?.(`оси одним запросом: ${i.axes.map((a) => a.name).join(', ')}`);
+    const answer = await ask(axesCombinedQuestion(i.axes, packs));
+    if (answer !== null) {
+      const { answeredIdx, findings: axisFindings } = parseAxesCombinedAnswer(i.axes, answer, fallbackFiles);
+      // Успешный ОТВЕТ (запрос не упал) засчитывает конвейеру ВСЕ оси — контракт
+      // `axesAnswered`/`axesAsked` про «рантайм провёл обмен», а не «модель ответила
+      // по форме на каждую строку»; см. докстринг `ReviewFillInput.onUsage` — тот же
+      // принцип уже действует для `hunksAnswered` (падение самого запроса, не разбора).
+      axesAnswered = i.axes.length;
+      findings.push(...axisFindings);
+      if (answeredIdx.size < i.axes.length) {
+        i.onProgress?.(`ответ по осям неполон: разобрано ${answeredIdx.size} из ${i.axes.length} строк`);
+      }
     }
   }
 

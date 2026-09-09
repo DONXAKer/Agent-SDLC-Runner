@@ -14,6 +14,7 @@ import { describe, it } from 'node:test';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import {
   isNoAnswer,
+  parseAxesCombinedAnswer,
   parseAxisAnswer,
   parseFindingAnswer,
   reviewByHunks,
@@ -129,6 +130,38 @@ describe('разбор ответа по оси', () => {
   });
 });
 
+describe('разбор комбинированного ответа по осям (все оси ОДНИМ запросом)', () => {
+  const AXES = [
+    { name: 'Настройки', affected: false, outcomeRaw: '' },
+    { name: 'Наблюдаемость', affected: false, outcomeRaw: '' },
+    { name: 'Безопасность', affected: true, outcomeRaw: 'claim-1' },
+  ];
+
+  it('строки «N. …» разбираются по номеру, а не по порядку прихода', () => {
+    const answer = ['2. нет', '1. да | читается ENV | src/tariffs.ts:11', '3. да | claim-1 про другое | x.ts:1'].join(
+      '\n',
+    );
+    const { answeredIdx, findings } = parseAxesCombinedAnswer(AXES, answer, ['a.ts', 'b.ts', 'c.ts']);
+    strictEqual(answeredIdx.size, 3);
+    strictEqual(findings.length, 2);
+    ok(findings.some((f) => f.kind === 'record_finding' && f.text.includes('Настройки')));
+    ok(findings.some((f) => f.kind === 'record_finding' && f.text.includes('Безопасность')));
+  });
+
+  it('пропущенная строка честно отражается в answeredIdx — не считается отвеченной', () => {
+    const answer = ['1. нет', '3. нет'].join('\n');
+    const { answeredIdx } = parseAxesCombinedAnswer(AXES, answer, ['a.ts', 'b.ts', 'c.ts']);
+    deepStrictEqual([...answeredIdx].sort(), [0, 2]);
+  });
+
+  it('номер вне диапазона и дубль номера — отбрасываются, не роняют разбор остальных', () => {
+    const answer = ['0. да | мусор | x.ts:1', '9. да | мусор | x.ts:1', '1. нет', '1. да | повтор | x.ts:2'].join('\n');
+    const { answeredIdx, findings } = parseAxesCombinedAnswer(AXES, answer, ['a.ts', 'b.ts', 'c.ts']);
+    deepStrictEqual([...answeredIdx], [0]);
+    strictEqual(findings.length, 0);
+  });
+});
+
 describe('нарезка под потолок', () => {
   it('хунк меньше потолка идёт целиком, больше — режется по границам @@', () => {
     const hunks = splitHunks(DIFF);
@@ -167,9 +200,12 @@ describe('конвейер', () => {
     const provider = scripted([
       'review | чтение TARIFF_ZONE_EXTRA без умолчания | src/tariffs.ts:11',
       'review | тест сравнивает q.total с самим собой | test/oversize.test.ts:1',
-      'да | читается переменная окружения | src/tariffs.ts:11',
-      'нет',
-      'да | claim-1 говорит про другое | src/tariffs.ts:11',
+      // Все три оси теперь ОДНИМ запросом — ответ нумерует строки в том же порядке.
+      [
+        '1. да | читается переменная окружения | src/tariffs.ts:11',
+        '2. нет',
+        '3. да | claim-1 говорит про другое | src/tariffs.ts:11',
+      ].join('\n'),
     ]);
     const r = await reviewByHunks({
       provider,
@@ -196,6 +232,36 @@ describe('конвейер', () => {
     // Сводка называет проверенные файлы — этим она и якорится к патчу.
     ok(r.text.includes('src/tariffs.ts') && r.text.includes('test/oversize.test.ts'));
     ok(r.text.includes('фрагментов проверено 2 из 2'));
+  });
+
+  it('оси задаются ОДНИМ запросом независимо от их числа — цена размышления платится один раз, не N раз', async () => {
+    // Замер 2026-09-09: latency запроса локальной модели без ручки reasoning_effort почти
+    // не зависит от размера содержимого (~130 с что на тривиальном вопросе, что на
+    // содержательном) — сумма отдельных запросов на каждую ось упиралась в бюджет стенных
+    // часов раньше качества ответов. Один комбинированный запрос платит эту цену РАЗ.
+    const provider = scripted([
+      'нет', // единственный хунк
+      ['1. нет', '2. нет', '3. нет', '4. нет', '5. нет', '6. нет'].join('\n'), // все 6 осей одним ответом
+    ]);
+    const sixAxes = ['Безопасность', 'Ресурсы и скорость', 'Отказы зависимостей', 'Настройки', 'Совместимость и данные', 'Наблюдаемость'].map(
+      (name) => ({ name, affected: false, outcomeRaw: '' }),
+    );
+    const oneHunkDiff = ['diff --git a/a.ts b/a.ts', '--- a/a.ts', '+++ b/a.ts', '@@ -1 +1 @@', '+x'].join('\n');
+    const r = await reviewByHunks({
+      provider,
+      model: 'stub',
+      params: null,
+      taskContext: '',
+      diff: oneHunkDiff,
+      axes: sixAxes,
+      hunkBudgetBytes: 12_000,
+      signal: new AbortController().signal,
+    });
+    // 1 запрос на хунк + РОВНО 1 запрос на все 6 осей = 2 запроса, не 7.
+    strictEqual(provider.asked.length, 2);
+    strictEqual(r.axesAsked, 6);
+    strictEqual(r.axesAnswered, 6);
+    deepStrictEqual(r.findings, []);
   });
 
   it('чистый diff: все «нет» — находок нет, конвейер полный', async () => {

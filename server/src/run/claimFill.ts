@@ -86,84 +86,128 @@ export function parseClaimAnswer(id: string, answer: string): NormalizedCall | n
 }
 
 /**
- * Пачка параллельных вопросов — тот же приём, что `REVIEW_PARALLEL` в `reviewFill.ts`
- * (`FormFillExecutor.FIELD_PARALLEL`). Число подбирается тем же живым замером трека 2
- * (docs/model-runs.md), что и `REVIEW_PARALLEL` — независимо, «одна ручка на замер» не
- * запрещает две РАЗНЫЕ ручки в одной серии, если каждая мерится своим прогоном.
+ * Сколько пунктов приёмки группируются в ОДИН запрос (трек «сумма латентности»,
+ * 2026-09-09). Замер (`docs/model-runs.md`): latency локальной модели без ручки
+ * `reasoning_effort` почти не зависит от размера содержимого (~130 с что на тривиальном
+ * вопросе, что на содержательном) — цена «размышления» платится ЗА ЗАПРОС, а не за объём.
+ * Раньше 12 пунктов = 12 запросов (даже с параллельными пачками — сервер их всё равно
+ * сериализовал, сумма латентности не падала). Группа держит число пунктов в одном ответе
+ * разумным для слабой модели — не «всё сразу», а по образцу `REVIEW_PARALLEL` в
+ * `reviewFill.ts` (тот же порядок величины, что уже проверен на осях).
  */
-const CLAIM_PARALLEL = 3;
+const CLAIM_GROUP = 6;
+
+/** Один пункт приёмки внутри комбинированного вопроса. */
+function claimBlock(n: number, claim: ClaimAsk, pack: string): string {
+  return [
+    `### ${n}. Пункт приёмки ${claim.id}`,
+    '',
+    claim.text,
+    '',
+    'Изменения, относящиеся к пункту:',
+    '',
+    '```diff',
+    pack === '' ? '(правок, совпадающих с пунктом, не нашлось)' : pack,
+    '```',
+  ].join('\n');
+}
+
+function claimsCombinedQuestion(claims: readonly ClaimAsk[], packs: readonly string[], tests: string): string {
+  return [
+    `## Проверь КАЖДЫЙ из ${claims.length} пунктов приёмки ниже`,
+    '',
+    ...claims.map((c, idx) => claimBlock(idx + 1, c, packs[idx] ?? '')),
+    ...(tests.trim() === '' ? [] : ['', '## Что напечатал прогон тестов', '', '```', tests.trim().slice(-4000), '```']),
+    '',
+    `Ответь РОВНО ${claims.length} строками — по одной на каждый пункт, В ТОМ ЖЕ ПОРЯДКЕ, ` +
+      'начиная с номера пункта:',
+    '',
+    '`N. СТАТУС | ЧЕМ ПОДТВЕРЖДЁН | ЧТО ЧИНИТЬ`',
+    '',
+    'СТАТУС — одно из: ✅ (доказано по diff или тестом), ❌ (опровергнуто), ' +
+      '⚠ (доказательство держится на непройденной проверке), manual (пункт помечен ' +
+      '[manual] в задаче человеком).',
+    'ЧЕМ ПОДТВЕРЖДЁН — МЕСТО: `файл:символ`, имя теста или хунк. Не «проверено» и ' +
+      'не «см. код»: ссылку сверяют с патчем.',
+    'ЧТО ЧИНИТЬ — для не-зелёного статуса; для зелёного напиши `н/п`.',
+    'Ничего, кроме этих строк, не пиши.',
+  ].join('\n');
+}
 
 /**
- * Спрашивает модель по каждому пункту и возвращает разобранные записи.
+ * Разбор комбинированного ответа: строки `N. …`, N — порядковый номер пункта в ТОМ ЖЕ
+ * запросе. Разбор одной строки делегирован `parseClaimAnswer` — второго места, знающего
+ * форму ответа по пункту, не появляется.
+ */
+export function parseClaimsCombinedAnswer(
+  claims: readonly ClaimAsk[],
+  answer: string,
+): { answeredIdx: Set<number>; calls: NormalizedCall[] } {
+  const answeredIdx = new Set<number>();
+  const calls: NormalizedCall[] = [];
+  const lines = answer
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '' && !l.startsWith('```'));
+  for (const line of lines) {
+    const m = /^(\d+)\.\s*(.*)$/.exec(line);
+    if (m === null) continue;
+    const idx = Number(m[1]) - 1;
+    if (idx < 0 || idx >= claims.length || answeredIdx.has(idx)) continue;
+    answeredIdx.add(idx);
+    const rest = m[2] ?? '';
+    if (rest.trim() === '') continue;
+    const call = parseClaimAnswer(claims[idx]!.id, rest);
+    if (call !== null) calls.push(call);
+  }
+  return { answeredIdx, calls };
+}
+
+/**
+ * Спрашивает модель группами (`CLAIM_GROUP`) и возвращает разобранные записи.
  *
- * Пачками (трек 2, 2026-09-09): `signal.aborted` проверяется перед КАЖДОЙ пачкой, а не
- * перед каждым пунктом внутри неё. Упавший запрос (`Promise.allSettled`) не превращается
- * в отвеченный: пункт останется незаполненным и честно уронит вердикт — тем же приёмом,
- * что уже описан в докстринге модуля («это не решение за модель»).
+ * Группами, а не по одному (трек «сумма латентности», 2026-09-09): `signal.aborted`
+ * проверяется перед КАЖДОЙ группой, а не перед каждым пунктом внутри нее. Упавший запрос
+ * не превращается в отвеченный: вся группа останется незаполненной и честно уронит
+ * вердикт — тем же приёмом, что уже описан в докстринге модуля («это не решение за
+ * модель»).
  */
 export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
   const hunks = splitHunks(i.diff);
   const out: NormalizedCall[] = [];
   let envFailure: string | null = null;
 
-  const ask = (claim: ClaimAsk) => {
-    const pack = packForClaim(claim.text, hunks, i.evidenceBudgetBytes);
-    return i.provider.chat({
+  const ask = (content: string) =>
+    i.provider.chat({
       model: i.model,
       messages: [
         { role: 'system', content: i.system },
-        {
-          role: 'user',
-          content: [
-            `## Пункт приёмки ${claim.id}`,
-            '',
-            claim.text,
-            '',
-            '## Изменения, относящиеся к пункту',
-            '',
-            '```diff',
-            pack === '' ? '(правок, совпадающих с пунктом, не нашлось)' : pack,
-            '```',
-            ...(i.tests.trim() === ''
-              ? []
-              : ['', '## Что напечатал прогон тестов', '', '```', i.tests.trim().slice(-4000), '```']),
-            '',
-            'Ответь ОДНОЙ строкой в формате:',
-            '',
-            '`СТАТУС | ЧЕМ ПОДТВЕРЖДЁН | ЧТО ЧИНИТЬ`',
-            '',
-            'СТАТУС — одно из: ✅ (доказано по diff или тестом), ❌ (опровергнуто), ' +
-              '⚠ (доказательство держится на непройденной проверке), manual (пункт помечен ' +
-              '[manual] в задаче человеком).',
-            'ЧЕМ ПОДТВЕРЖДЁН — МЕСТО: `файл:символ`, имя теста или хунк. Не «проверено» и ' +
-              'не «см. код»: ссылку сверяют с патчем.',
-            'ЧТО ЧИНИТЬ — для не-зелёного статуса; для зелёного напиши `н/п`.',
-            'Ничего, кроме этой строки, не пиши.',
-          ].join('\n'),
-        },
+        { role: 'user', content },
       ],
       tools: [],
       signal: i.signal,
       temperature: null,
       params: i.params,
     });
-  };
 
-  for (let batchStart = 0; batchStart < i.claims.length; batchStart += CLAIM_PARALLEL) {
+  for (let start = 0; start < i.claims.length; start += CLAIM_GROUP) {
     if (i.signal.aborted) break;
-    const batch = i.claims.slice(batchStart, batchStart + CLAIM_PARALLEL);
-    const answers = await Promise.allSettled(batch.map((claim) => ask(claim)));
-    for (const [idx, claim] of batch.entries()) {
-      const a = answers[idx]!;
-      if (a.status !== 'fulfilled') {
-        if (envFailure === null && a.reason instanceof ProviderEnvError) envFailure = a.reason.message;
-        const why = a.reason instanceof Error ? a.reason.message : String(a.reason);
-        i.onProgress?.(`пункт ${claim.id} не отвечен: ${why}`);
-        continue;
-      }
-      i.onUsage?.(a.value.usage);
-      const call = parseClaimAnswer(claim.id, a.value.text);
-      if (call !== null) out.push(call);
+    const group = i.claims.slice(start, start + CLAIM_GROUP);
+    const packs = group.map((claim) => packForClaim(claim.text, hunks, i.evidenceBudgetBytes));
+    let response: Awaited<ReturnType<typeof ask>>;
+    try {
+      response = await ask(claimsCombinedQuestion(group, packs, i.tests));
+    } catch (e) {
+      if (envFailure === null && e instanceof ProviderEnvError) envFailure = e.message;
+      const why = e instanceof Error ? e.message : String(e);
+      i.onProgress?.(`группа пунктов ${group.map((c) => c.id).join(', ')} не отвечена: ${why}`);
+      continue;
+    }
+    i.onUsage?.(response.usage);
+    const { answeredIdx, calls } = parseClaimsCombinedAnswer(group, response.text);
+    out.push(...calls);
+    if (answeredIdx.size < group.length) {
+      i.onProgress?.(`ответ по группе пунктов неполон: разобрано ${answeredIdx.size} из ${group.length}`);
     }
   }
 

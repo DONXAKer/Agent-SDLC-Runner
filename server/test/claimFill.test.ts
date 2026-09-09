@@ -12,7 +12,7 @@ import { describe, it } from 'node:test';
 
 import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
 import { packForClaim, splitHunks, topFileForClaim } from '../src/run/claimEvidence.ts';
-import { fillClaims, parseClaimAnswer } from '../src/run/claimFill.ts';
+import { fillClaims, parseClaimAnswer, parseClaimsCombinedAnswer } from '../src/run/claimFill.ts';
 
 const DIFF = [
   'diff --git a/src/tariffs.ts b/src/tariffs.ts',
@@ -107,18 +107,78 @@ describe('разбор ответа по пункту', () => {
   });
 });
 
-describe('добор пачками (трек 2)', () => {
-  const claims = [1, 2, 3, 4].map((n) => ({ id: `claim-${n}`, text: `пункт ${n}` }));
+describe('разбор комбинированного ответа по группе пунктов', () => {
+  const claims = [1, 2, 3].map((n) => ({ id: `claim-${n}`, text: `пункт ${n}` }));
 
-  it('CLAIM_PARALLEL = 3: упавший запрос в пачке не топит соседей, ответившие рядом — не потеряны', async () => {
+  it('строки «N. …» разбираются по номеру, порядок прихода не важен', () => {
+    const answer = ['2. ❌ | test/a.test.ts | вернуть ставку', '1. ✅ | src/tariffs.ts:priceFor | н/п', '3. ⚠ | тест не запускался | прогнать'].join(
+      '\n',
+    );
+    const { answeredIdx, calls } = parseClaimsCombinedAnswer(claims, answer);
+    strictEqual(answeredIdx.size, 3);
+    deepStrictEqual(
+      calls.map((c) => c.kind === 'record_claim' && c.id).sort(),
+      ['claim-1', 'claim-2', 'claim-3'],
+    );
+  });
+
+  it('номер вне диапазона и дубль — отбрасываются, остальные пункты разбираются', () => {
+    const answer = ['0. ✅ | x | н/п', '9. ✅ | x | н/п', '1. ✅ | src/tariffs.ts:priceFor | н/п', '1. ❌ | повтор | чинить'].join('\n');
+    const { answeredIdx, calls } = parseClaimsCombinedAnswer(claims, answer);
+    deepStrictEqual([...answeredIdx], [0]);
+    strictEqual(calls.length, 1);
+    strictEqual(calls[0]!.kind === 'record_claim' && calls[0]!.status, '✅');
+  });
+});
+
+describe('добор группами (трек «сумма латентности», 2026-09-09)', () => {
+  const claims = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ id: `claim-${n}`, text: `пункт ${n}` }));
+  const combinedAnswer = (ids: number[]) => ids.map((n, i) => `${i + 1}. ✅ | src/tariffs.ts:priceFor | н/п`).join('\n');
+
+  it('CLAIM_GROUP = 6: 8 пунктов — РОВНО 2 запроса (группами), не 8', async () => {
+    const asked: string[] = [];
+    const provider = {
+      name: 'stub',
+      async chat(req: { messages: { role: string; content: string }[] }) {
+        const user = req.messages.find((m) => m.role === 'user')?.content ?? '';
+        asked.push(user);
+        return {
+          text: combinedAnswer([1, 2, 3, 4, 5, 6]),
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const { calls: out } = await fillClaims({
+      provider,
+      model: 'stub',
+      params: null,
+      system: 'ты рецензент',
+      claims,
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: new AbortController().signal,
+    });
+    strictEqual(asked.length, 2);
+    ok(asked[0]!.includes('### 1. Пункт приёмки claim-1') && asked[0]!.includes('### 6. Пункт приёмки claim-6'));
+    ok(asked[1]!.includes('### 1. Пункт приёмки claim-7') && asked[1]!.includes('### 2. Пункт приёмки claim-8'));
+    // Группа 1 (6 пунктов) разбирает все 6 строк фиктивного ответа; группа 2 (claim-7,
+    // claim-8 — те же 2 индекса) разбирает только первые 2 строки, остальные номера вне
+    // диапазона группы и отбрасываются `parseClaimsCombinedAnswer`.
+    strictEqual(out.length, 8);
+  });
+
+  it('упавший запрос топит ВСЮ группу (не отвечена), соседняя группа — нет', async () => {
     let n = 0;
     const provider = {
       name: 'stub',
       async chat() {
         n++;
-        if (n === 2) throw new Error('ollama: ответ не получен');
+        if (n === 1) throw new Error('ollama: ответ не получен');
         return {
-          text: '✅ | src/tariffs.ts:priceFor | н/п',
+          text: combinedAnswer([1, 2]),
           toolCalls: [],
           usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
           finishReason: 'end_turn' as const,
@@ -138,19 +198,13 @@ describe('добор пачками (трек 2)', () => {
       signal: new AbortController().signal,
       onProgress: (m) => notes.push(m),
     });
-    // 4 пункта: пачка 1 = [1,2,3] (2-й падает → не отвечен), пачка 2 = [4].
-    strictEqual(out.length, 3);
-    ok(out.every((c) => c.kind === 'record_claim'));
-    deepStrictEqual(
-      out.map((c) => c.kind === 'record_claim' && c.id),
-      ['claim-1', 'claim-3', 'claim-4'],
-    );
-    // Обычный Error (не ProviderEnvError) — не помечается как отказ среды.
+    // Группа 1 (claim-1..6) падает целиком, группа 2 (claim-7, claim-8) отвечает — 2 записи.
+    strictEqual(out.length, 2);
     strictEqual(envFailure, null);
-    ok(notes.some((m) => m.includes('claim-2') && m.includes('не отвечен')));
+    ok(notes.some((m) => m.includes('claim-1') && m.includes('не отвечена')));
   });
 
-  it('ProviderEnvError из пачки возвращается полем envFailure, а не тонет в Promise.allSettled', async () => {
+  it('ProviderEnvError возвращается полем envFailure, а не тонет молча', async () => {
     const provider = {
       name: 'stub',
       async chat() {
@@ -172,14 +226,14 @@ describe('добор пачками (трек 2)', () => {
     strictEqual(envFailure, 'ollama: ECONNREFUSED');
   });
 
-  it('отмена останавливает добор перед следующей пачкой, не откатывая пришедшие ответы текущей', async () => {
+  it('отмена останавливает добор перед следующей группой, не откатывая пришедший ответ текущей', async () => {
     const ctl = new AbortController();
     const provider = {
       name: 'stub',
       async chat() {
         ctl.abort();
         return {
-          text: '✅ | src/tariffs.ts:priceFor | н/п',
+          text: combinedAnswer([1, 2, 3, 4, 5, 6]),
           toolCalls: [],
           usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
           finishReason: 'end_turn' as const,
@@ -197,8 +251,7 @@ describe('добор пачками (трек 2)', () => {
       evidenceBudgetBytes: 10_000,
       signal: ctl.signal,
     });
-    // Пачка 1 = [1,2,3] уже запущена к моменту первого abort() — все трое отвечают;
-    // пачка 2 = [4] не начинается вовсе.
-    strictEqual(out.length, 3);
+    // Группа 1 уже запущена к моменту abort() — отвечает; группа 2 не начинается вовсе.
+    strictEqual(out.length, 6);
   });
 });
