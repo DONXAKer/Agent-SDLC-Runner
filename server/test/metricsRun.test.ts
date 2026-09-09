@@ -60,6 +60,7 @@ function route(stage: StageId, over: Partial<ResolvedRoute> = {}): ResolvedRoute
     claimFill: false,
     reviewFill: false,
     skipTurnAfterReviewFill: false,
+    planAxisFill: false,
     stepFill: false,
     compactForms: 'off',
     ...over,

@@ -50,6 +50,7 @@ function resolveRoute(
     claimFill: def.claimFill ?? false,
     reviewFill: def.reviewFill ?? false,
     skipTurnAfterReviewFill: def.skipTurnAfterReviewFill ?? false,
+    planAxisFill: def.planAxisFill ?? false,
     stepFill: def.stepFill ?? false,
     compactForms: def.compactForms ?? 'off',
   };

@@ -50,7 +50,7 @@ import {
 import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { ARTIFACT_KEYS as ARTIFACT_KEYS_ALL, type ArtifactKey } from '@sdlc-runner/shared';
 import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
-import { columnIndex, parseTables } from '../md/table.ts';
+import { columnIndex, h2SectionRanges, parseTables } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import { normalizePlanPath } from '../policy/paths.ts';
@@ -117,7 +117,9 @@ import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief, claimTextCell, type RetryDetail } from '../verdict/retryBrief.ts';
 import { describeStep, planSteps } from '../artifacts/planSteps.ts';
-import { parsePlanAxes, planAxisProblems } from '../artifacts/planAxes.ts';
+import { parsePlanAxes, planAxisProblems, unansweredAxes } from '../artifacts/planAxes.ts';
+import { applyAxisAnswers } from '../artifacts/renderAxes.ts';
+import { fillPlanAxes } from './planAxisFill.ts';
 import { reviewByHunks } from './reviewFill.ts';
 import { StepExecutor } from '../exec/StepExecutor.ts';
 import { humanFactsBlock } from '../prompt/build.ts';
@@ -1660,6 +1662,95 @@ export class Run {
     // `Promise.allSettled` эту метку внутри пачки гасит — здесь она возвращается тем же
     // классом ошибки, уже ПОСЛЕ того как успевшие ответы приняты (не теряя частичный
     // прогресс, которого до батчинга не было вовсе).
+    if (envFailure !== null) throw new ProviderEnvError(envFailure);
+  }
+
+  /**
+   * Топ-ап осей плана: спросить модель ОДНИМ запросом по каждой оси, о которой секция
+   * «Последствия шагов» ничего не сказала — см. докстринг `run/planAxisFill.ts`.
+   *
+   * Оси берутся из `unansweredAxes`, а не из `axisProblems()`: та ловит и СЕМАНТИЧЕСКИ
+   * неверный ответ (ссылка на несуществующий claim/гейт) — топ-ап не переписывает решение,
+   * которое модель уже приняла, пусть и сославшись на несуществующий адресат; такую строку
+   * `finishGuard` укажет модели как прежде, а решать её человек должен видеть сам.
+   */
+  private async topUpAxes(route: ResolvedRoute, system: string): Promise<void> {
+    if (this.axesGateRow() === null) return;
+    const plan = readArtifact(this.paths.plan);
+    if (!plan.exists) return;
+    // План уже одобрен человеком (поле «Одобрение» в шапке) — топ-ап не переписывает
+    // строки решения задним числом: одобрение принимается по прочитанному тексту, и
+    // переписать таблицу осей после него значило бы подменить то, что человек одобрил.
+    if (readDecision(plan.text, DECISION.approval).state === 'granted') return;
+    const axes = unansweredAxes(plan.text);
+    if (axes.length === 0) return;
+
+    const intent = readArtifact(this.paths.intent);
+    const claimIds = intent.exists ? [...this.intentClaimLines(intent.text).keys()] : [];
+    const gates = this.gatesFile;
+    const enabledGates = gates === null ? [] : gates.rows.filter((r) => r.enabled).map((r) => r.name);
+    const exploration = readArtifact(this.paths.explorationReport);
+    const axisSupportText = exploration.exists
+      ? h2SectionRanges(exploration.text, /^опоры\s+осей$/i)
+          .map((r) => exploration.text.slice(r.start, r.end).trim())
+          .join('\n\n')
+      : '';
+
+    const limits = this.config.runner.limits;
+    const { answers, envFailure } = await fillPlanAxes({
+      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace('plan', 'planAxisFill')),
+      model: route.model,
+      params: route.params,
+      system,
+      axes,
+      planText: plan.text,
+      axisSupportText,
+      claimIds,
+      enabledGates,
+      hasOpenQuestion: intent.exists ? hasOpenQuestions(intent.text) : false,
+      hasInvariants: intent.exists ? hasNamedInvariants(intent.text) : false,
+      signal: this.aborter?.signal ?? new AbortController().signal,
+      onProgress: (note) => this.emit({ type: 'warning', runId: this.id, stage: 'plan', message: `топ-ап осей: ${note}` }),
+      onUsage: (usage) => this.accountOffPathUsage('plan', usage, route.providerDef.currency),
+    });
+
+    if (answers.length > 0) {
+      // Перечитываем план ПОСЛЕ `fillPlanAxes` — тот только что сделал долгий сетевой
+      // запрос (минуты для локальных моделей), а `plan.text` снят ДО него. Строить запись
+      // на устаревшей копии значило бы молча затереть ручную правку человека, внесённую,
+      // пока модель отвечала (ревью) — та же причина, по которой одобрение плана тоже
+      // проверяется заново, а не доверяет проверке в начале метода.
+      const fresh = readArtifact(this.paths.plan);
+      if (!fresh.exists || readDecision(fresh.text, DECISION.approval).state === 'granted') {
+        if (envFailure !== null) throw new ProviderEnvError(envFailure);
+        return;
+      }
+      const updated = applyAxisAnswers(fresh.text, answers);
+      if (updated !== fresh.text) {
+        // Запись — тем же путём, что у `applyRecords`: нормализованный `Write` через
+        // политику и гейт одобрения. Второго места решения о доступе не появляется.
+        const call: NormalizedCall = { kind: 'write', path: this.paths.plan, content: updated };
+        const decision = await this.gate.request({
+          runId: this.id,
+          stage: 'plan',
+          requestId: `axis-fill-${this.salvageSeq++}`,
+          toolName: 'Write',
+          rawInput: { file_path: this.paths.plan, content: updated },
+          call,
+          ctx: this.policyContext('plan'),
+        });
+        if (decision.allowed) {
+          const edited = (decision.updatedInput as Record<string, unknown> | null)?.['content'];
+          writeArtifact(this.paths.plan, typeof edited === 'string' ? edited : updated);
+          this.emit({
+            type: 'warning',
+            runId: this.id,
+            stage: 'plan',
+            message: `топ-ап осей: дописано ${answers.length} из ${axes.length}`,
+          });
+        }
+      }
+    }
     if (envFailure !== null) throw new ProviderEnvError(envFailure);
   }
 
@@ -3902,6 +3993,18 @@ export class Run {
         !this.aborter.signal.aborted
       ) {
         await this.topUpClaims(route, stagePrompt.system);
+      }
+
+      // Топ-ап осей плана (`ModelDef.planAxisFill`): оси, о которых секция «Последствия
+      // шагов» ничего не сказала, добираются ОДНИМ запросом. До `finishGuard`'а этапа —
+      // он увидит меньше проблем, если топ-ап уже закрыл часть строк.
+      if (
+        stage === 'plan' &&
+        route.flow === 'loop' &&
+        route.planAxisFill &&
+        !this.aborter.signal.aborted
+      ) {
+        await this.topUpAxes(route, stagePrompt.system);
       }
 
       // Записи рецензента вносятся в отчёт ДО дозаполнения по полям и до ансамбля:

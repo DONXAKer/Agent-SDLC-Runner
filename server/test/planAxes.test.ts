@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { AXES, parsePlanAxes, planAxisProblems } from '../src/artifacts/planAxes.ts';
+import { AXES, parsePlanAxes, planAxisProblems, unansweredAxes } from '../src/artifacts/planAxes.ts';
 import type { AxisContext } from '../src/artifacts/planAxes.ts';
 import { hasNamedInvariants } from '../src/artifacts/artifact.ts';
 import { loadConfig } from '../src/config/load.ts';
@@ -141,6 +141,54 @@ describe('разбор последствий: словарь исходов', (
         p.includes('объявлена незатронутой'),
       ),
     );
+  });
+});
+
+describe('unansweredAxes', () => {
+  // Уже уже, чем planAxisProblems, — по замыслу плана merry-foraging-unicorn:
+  // «молчание» топ-ап обязан закрыть, а «ссылку на несуществующий адресат» — нет
+  // (это остаётся заботой finishGuard/planAxisProblems, топ-ап её не решит переспросом).
+
+  it('полностью разобранный план — доспрашивать нечего', () => {
+    deepStrictEqual(unansweredAxes(полныйПлан()), []);
+  });
+
+  it('строка оси отсутствует в таблице целиком', () => {
+    const rows = AXES.filter((a) => a !== 'Наблюдаемость').map((a) => ось(a, 'нет', 'н/п — не затронута'));
+    deepStrictEqual(unansweredAxes(план(rows)), ['Наблюдаемость']);
+  });
+
+  it('ячейка «затронута» пуста/не распознана — ось считается неотвеченной', () => {
+    const text = каноnСоСтрокой('Безопасность', '', 'н/п — не затронута');
+    deepStrictEqual(unansweredAxes(text), ['Безопасность']);
+  });
+
+  it('исход не из словаря (unknown) — ось считается неотвеченной', () => {
+    const text = каноnСоСтрокой('Безопасность', 'да', 'стоит подумать о валидации входа');
+    deepStrictEqual(unansweredAxes(text), ['Безопасность']);
+  });
+
+  it('исход ссылается на несуществующего адресата (claim-99) — НЕ считается неотвеченной', () => {
+    // Это ключевое отличие от planAxisProblems: строка формально заполнена и указывает
+    // на класс исхода, топ-ап её переспросом не улучшит — нужна правка модели/человека.
+    const text = каноnСоСтрокой('Безопасность', 'да', 'claim-99');
+    deepStrictEqual(unansweredAxes(text), []);
+    ok(planAxisProblems(text, ПОЛНЫЙ).length > 0, 'planAxisProblems при этом находку даёт');
+  });
+
+  it('несколько осей молчат одновременно — возвращаются все, в каноническом порядке', () => {
+    const rows = [
+      ось('Безопасность', 'да', 'claim-1'),
+      ось('Ресурсы и скорость', '', ''),
+      ось('Отказы зависимостей', 'нет', 'н/п — не затронута'),
+      ось('Настройки', 'да', 'неизвестно что делать'),
+    ];
+    deepStrictEqual(unansweredAxes(план(rows)), [
+      'Ресурсы и скорость',
+      'Настройки',
+      'Совместимость и данные',
+      'Наблюдаемость',
+    ]);
   });
 });
 

@@ -148,7 +148,7 @@ function blank(cell: string): boolean {
  * не работает вовсе (`CLAUDE.md` → «Особенности»). Ячейка, где остались оба варианта
  * («да / нет»), выбором не считается.
  */
-function readAffected(cell: string): boolean | null {
+export function readAffected(cell: string): boolean | null {
   if (blank(cell)) return null;
   const t = cellKey(cell);
   const yes = /(^|[^а-я])да($|[^а-я])/.test(t);
@@ -288,6 +288,40 @@ export function parsePlanAxes(planText: string): PlanAxes {
   }
 
   return { present: true, rows, risks };
+}
+
+/**
+ * Оси, на которые секция не даёт ответа: строки нет вовсе, колонка «Затронута» пуста, либо
+ * исход не распознан словарём. НЕ то же самое, что `planAxisProblems` — та ловит ещё и
+ * СЕМАНТИЧЕСКИ неверный ответ (ссылка на несуществующий claim/гейт), а топ-ап (`planAxisFill`)
+ * обязан переспрашивать только то, о чём модель промолчала, тем же принципом, что
+ * `topUpClaims` дополняет пункты приёмки, а не переделывает написанное. Смешивать эти два
+ * критерия значило бы, что топ-ап переписывает строку, где модель уже сделала выбор — пусть
+ * и сославшись на несуществующий адресат, — а это решение человек обязан увидеть и поправить
+ * сам, а не получить молча перезаписанным.
+ *
+ * Ось с ДВУМЯ и более строками — не «неотвечена», даже если первая из них пуста: у топ-апа
+ * нет способа записать ответ ровно в нужную из дублей, не тронув другую (`renderAxes.ts`
+ * матчит по первому вхождению) — итог был бы двумя строками одной оси с рассинхроном
+ * содержимого. Дубль остаётся отдельной, уже существующей претензией `planAxisProblems`
+ * («ось разобрана N раз») — её решает человек или следующий ход модели, а не топ-ап.
+ */
+export function unansweredAxes(planText: string): AxisName[] {
+  const parsed = parsePlanAxes(planText);
+  const byCanonical = new Map<AxisName, AxisRow[]>();
+  for (const row of parsed.rows) {
+    if (row.canonical === null) continue;
+    const rows = byCanonical.get(row.canonical);
+    if (rows === undefined) byCanonical.set(row.canonical, [row]);
+    else rows.push(row);
+  }
+  return AXES.filter((a) => {
+    const rows = byCanonical.get(a);
+    if (rows === undefined) return true;
+    if (rows.length > 1) return false;
+    const row = rows[0]!;
+    return row.affected === null || row.outcome === 'unknown';
+  });
 }
 
 /**

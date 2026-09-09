@@ -171,6 +171,20 @@ export interface ModelDef {
    */
   skipTurnAfterReviewFill?: boolean;
   /**
+   * Этап 4 по осям прод-готовности (`run/planAxisFill.ts`): после основного хода рантайм
+   * задаёт ОДИН закрытый вопрос по всем осям, о которых секция «Последствия шагов» плана
+   * ничего не сказала (`unansweredAxes` в `artifacts/planAxes.ts`) — та же природа, что у
+   * `reviewFill` для этапа 6, только это добор ПОСЛЕ хода (симметрично `claimFill`), а не
+   * замена его части: секция логически зависит от шагов плана, которых до хода модели ещё
+   * не существует.
+   *
+   * Не переписывает строки, которые модель уже заполнила, пусть и неверно (сославшись на
+   * несуществующий claim/гейт) — только те, о которых она промолчала. `finishGuard`/
+   * `axisProblems()` остаются работать как раньше и ловят то, что топ-ап не смог закрыть.
+   * Только flow `loop`. Умолчание — выключено: ручка заведена под замер, не для всех.
+   */
+  planAxisFill?: boolean;
+  /**
    * Этап 5 по шагам плана (`exec/StepExecutor.ts`): рантайм ведёт цикл сам — по одному
    * шагу плана за запрос, обычным completion'ом без tool-use, с содержимым ровно ОДНОГО
    * файла в контексте; запись идёт через тот же гейт и ту же политику, после каждого
@@ -344,6 +358,8 @@ export interface ResolvedRoute {
   reviewFill: boolean;
   /** Пропуск хода после полного конвейера — см. `ModelDef.skipTurnAfterReviewFill`. */
   skipTurnAfterReviewFill: boolean;
+  /** Топ-ап осей плана по образцу claimFill — см. `ModelDef.planAxisFill`. */
+  planAxisFill: boolean;
   /** Этап 5 по шагам плана без tool-use — см. `ModelDef.stepFill`. */
   stepFill: boolean;
   /** Схема формы вместо сплошного текста — см. `ModelDef.compactForms`. */

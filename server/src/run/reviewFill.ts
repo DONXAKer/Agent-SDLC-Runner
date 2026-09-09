@@ -234,7 +234,7 @@ export function parseFindingAnswer(answer: string, fallbackEvidence: string): No
  * пробел/пунктуация/конец строки — но не любая буква (иначе «дальше», «давно» тоже
  * считались бы утвердительным ответом).
  */
-const AFFIRMATIVE_HEAD = /^(?:да(?=\s|[—:,.!]|$)|yes\b)/i;
+export const AFFIRMATIVE_HEAD = /^(?:да(?=\s|[—:,.!]|$)|yes\b)/i;
 
 /**
  * Ответ по оси: `нет` либо `да | что именно | место`.
