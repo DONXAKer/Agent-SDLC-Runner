@@ -1,0 +1,131 @@
+{
+  "run": {
+    "slug": "ministral3-selfreview-1",
+    "model": "lmstudio:ministral3-14b-reasoning-selfreview",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "claude-sdk:haiku",
+      "verify": "lmstudio:ministral3-14b-reasoning-selfreview",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-09T20:57:33.695Z",
+    "finishedAt": "2026-09-09T20:57:38.432Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "lmstudio: HTTP 400 от http://localhost:1434/v1 — {\"error\":\"Engine protocol predict request returned 400: {\\\"error\\\":{\\\"code\\\":400,\\\"message\\\":\\\"request (22202 tokens) exceeds the available context size (16384 tokens), try increasing it\\\",\\\"type\\\":\\\"exceed_context_size_error\\\",\\\"n_prompt_tokens\\\":22202,\\\"n_ctx\\\":16384}}\"}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 0,
+          "durationMs": 0
+        },
+        "durationMs": 4624
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 20449,
+        "userChars": 35289,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}
