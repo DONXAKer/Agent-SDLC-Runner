@@ -1,0 +1,1148 @@
+{
+  "run": {
+    "slug": "day-gpt-oss-20b-effort-low-rf-longest-side-drops-third",
+    "model": "ollama:gpt-oss-20b-effort-low-rf",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "claude-sdk:haiku",
+      "verify": "ollama:gpt-oss-20b-effort-low-rf",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-09T07:14:03.054Z",
+    "finishedAt": "2026-09-09T07:22:47.988Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 2,
+        "ok": true,
+        "note": "этап завершён за 29 ход(ов)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 2,
+        "ok": false,
+        "note": "артефакт этапа не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\.sdlc\\day-gpt-oss-20b-effort-low-rf-longest-side-drops-third\\verification-report-1-attempt-2.md, C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\.sdlc\\day-gpt-oss-20b-effort-low-rf-longest-side-drops-third\\verification-report-1-attempt-2.md (строка пункта claim-1 содержит незаполненное место; нет строки пункта claim-2; нет строки пункта claim-3; нет строки пункта claim-4; нет строки пункта claim-5; нет строки пункта claim-6; нет строки пункта claim-7; нет строки пункта claim-8; нет строки пункта claim-9; нет строки пункта claim-10; нет строки пункта claim-11; нет строки пункта claim-12). Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "escalate",
+      "reasons": [
+        "путь плана «src/oversize.ts» помечен «не сделано»",
+        "две попытки подряд дали один и тот же diff по существу — это остановка, а не следующая попытка",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "патч этой попытки совпадает с предыдущей на 100% по существу (порог 90%) — похоже на топтание на месте; решение о переходе принимает человек",
+        "посевом не проверялись гейты: Разбор последствий, Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 1520407,
+          "outputTokens": 12621,
+          "cacheReadTokens": 1349994,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 471924
+        },
+        "durationMs": 336874
+      },
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 170,
+          "outputTokens": 16769,
+          "cacheReadTokens": 1075166,
+          "cacheWriteTokens": 53764,
+          "costUsd": 0.3109766,
+          "durationMs": 185689
+        },
+        "durationMs": 187781
+      }
+    ],
+    "verdicts": {
+      "total": 2,
+      "red": 2
+    },
+    "redByCause": [
+      {
+        "kind": "integrity",
+        "count": 2
+      }
+    ],
+    "attemptsByChunk": [
+      {
+        "chunk": 1,
+        "attempts": 2
+      }
+    ],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 5,
+        "toolCalls": 34,
+        "reminders": 3
+      },
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 28,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 276
+      },
+      {
+        "gate": "Тесты",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 491
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 390
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 531
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 340
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 164
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 77
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 2,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 84
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 32,
+        "waitMs": 40
+      },
+      {
+        "stage": "chunk",
+        "questions": 0,
+        "approvals": 13,
+        "waitMs": 31
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 18
+      },
+      {
+        "artifact": "verification-report-1-attempt-2.md",
+        "placeholders": 19
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "escalate",
+    "reasons": [
+      "путь плана «src/oversize.ts» помечен «не сделано»",
+      "две попытки подряд дали один и тот же diff по существу — это остановка, а не следующая попытка",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "патч этой попытки совпадает с предыдущей на 100% по существу (порог 90%) — похоже на топтание на месте; решение о переходе принимает человек",
+      "посевом не проверялись гейты: Разбор последствий, Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "loop:74fa66ed-97e2-4354-89be-b8a9da7d8068",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:0da6bb79-946a-47ef-9fdf-b3ca8eccd793",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:0387c339-e3f1-44af-8135-4398b5938d6e",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:d6135371-ba63-4c05-99ae-3aca1d11fa31",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:31d4d84a-aec2-434b-a00b-193ad0317773",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:34552fbf-f5c1-4749-a009-6814a18da635",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:bb85973c-f9eb-4406-8434-905221eaec98",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:59082b5f-99fe-43d9-ad0f-aab6f4fbcf4f",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:bf6800a4-697c-454b-867b-b6cdb567d263",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:bb04b969-4e66-44fd-ad58-91cdfa9227cd",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:e20326bc-049c-4606-8715-042f62882259",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:f6b52aa9-0d88-4b29-b389-502302a1e3c7",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:f23af53d-a73d-401b-b61c-0a0754dfcd31",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-effort-low-rf-longest-side-drops-third/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:723edaa8-4ebc-49e7-a825-c7e8f9608a6b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-effort-low-rf-longest-side-drops-third/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:0281181c-6ffc-4dc8-8e69-5a6450a0605d",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\.sdlc\\day-gpt-oss-20b-effort-low-rf-longest-side-drops-third\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:846f4c6a-693e-4862-af61-0b69d739146a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\day-gpt-oss-20b-effort-low-rf-longest-side-drops-third\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01YbZiM6gu9MMAbtnu8xEyD4",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_011jG1G3yrtzWqdn4eZ2NYby",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\src\\tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01KkXwLGmTxP8EQBg3z9jufd",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\src\\tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01UkS72N8pGXJBVpGd4Kgt92",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\src\\tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01FzrCru1majX2rroGmRWHtX",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\src\\tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01CbMRMAFtkqAN4vivATAjyE",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\src\\oversize.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01MMUjqtgorRFj54eQXRprXm",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\test\\oversize.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01Vr8NK3poTZp6UpozSzh23s",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01RW5ajJUTtD15uXqEaJfUor",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01VUc2G2VB76QhYU6yWuLD3J",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-effort-low-rf-longest-side-drops-third/chunk-1-attempt-2-diff.patch"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01XACAFt8moubSTj6DhWut3y",
+        "kind": "bash",
+        "toolName": "Bash",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-effort-low-rf-longest-side-drops-third/chunk-1-attempt-2-tests.txt"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_019k1BKQeE8s7PoYYWBenSgk",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\.sdlc\\day-gpt-oss-20b-effort-low-rf-longest-side-drops-third\\chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "toolu_01W9n1KLsxqd8pd35Y5EvUZM",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\.sdlc\\day-gpt-oss-20b-effort-low-rf-longest-side-drops-third\\self-review-1-attempt-2.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:43ab97c2-a87a-43d0-80d7-8844e2c4c9df",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:d27c4973-3193-462b-9633-1bc630011db3",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:931872b9-4e65-40a2-ba20-74d9d8c72d91",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:b7479e0d-7153-419a-b629-6acb5dfb5542",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:9f79114b-cc6e-4802-80b3-b48554936275",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:a34a2997-7be7-472f-9f5d-815f3e8a8017",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:9af8ad58-1519-4737-82cc-56b09ce1456f",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:b663798f-6581-4a61-b2e5-4f8a315a7081",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-effort-low-rf-longest-side-drops-third/verification-report-1-attempt-2.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:3f6c05a1-777f-473d-a5d2-0ff97804baf2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-effort-low-rf-longest-side-drops-third/verification-report-1-attempt-2.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:bdd2c0cb-d756-412e-b455-78967a5f661e",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:3fb3d9ad-31b0-4d9e-a671-6a29358561ea",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:15875490-d17d-482a-8813-6d1a4192ea70",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:b94d33e0-c5e4-4fdb-a91f-15b9ffa3a662",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-1",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-ySDmmv\\.sdlc\\day-gpt-oss-20b-effort-low-rf-longest-side-drops-third\\verification-report-1-attempt-2.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:dd724b9a-0d7c-4ead-ab41-a77b95525a83",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\day-gpt-oss-20b-effort-low-rf-longest-side-drops-third\\verification-report-1-attempt-2.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "verify",
+        "requestId": "loop:850dbbf3-9779-4f3c-86f4-2177c5d56d8d",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Bash",
+        "kind": "bash"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "functionsRecordFinding",
+        "kind": "unknown"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 19386,
+        "userChars": 40470,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 12040,
+        "userChars": 25512,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 19386,
+        "userChars": 40472,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": {
+    "seedId": "longest-side-drops-third",
+    "klass": "логика правила: потеряно измерение",
+    "expected": "review",
+    "caught": false,
+    "where": [],
+    "note": "посев «longest-side-drops-third» НЕ назван: `longestSide` считает максимум по двум сторонам из трёх — негабарит по третьей стороне не определяется"
+  },
+  "hidden": {
+    "total": 9,
+    "pass": 9,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: longestSide/dimensionSum уже существуют в фикстуре ДО витка и считают верно — это не то, что добавляет модель."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: dimensionSum на том же заказе — сумма трёх измерений."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-2): Сторона ровно 120 см — не негабарит («строго больше»), surcharge отсутствует или 0."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-3): Сторона 121 см (>120), сумма в пределах — надбавка 40% от базы зоны."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-4): Сумма трёх измерений ровно 300 см — не негабарит."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "ok 6 - Pr4 [precision] (invariant-1): Скидка лояльности считается от БАЗЫ, а не от базы с учётом надбавки: gold-клиент с негабаритным по стороне отправлением получает ту же скидку 12% от базы, что и без надбавки."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "human",
+        "label": "ok 7 - H1 [human] (claim-5): Сумма трёх измерений 301 см (>300), сторона в пределах — ставка 90%, а не 40% (число, которого нет в репозитории — только в ответе человека, fixture/human.json → rules[0])."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "human",
+        "label": "ok 8 - H2 [human] (claim-5): Та же ставка 90% на ДРУГОЙ базе (зона center) — ловит модель, что скопировала конкретное число H1 вместо процента: значение обязано пересчитаться под новую базу."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H3",
+        "category": "human",
+        "label": "ok 9 - H3 [human] (claim-6): Оба условия разом (сторона >120 И сумма >300) — одна ставка 90%, бо́льшая из подошедших, ставки НЕ складываются (40%+90%=130% было бы неверно). Этот факт — тоже из ответа человека."
+      }
+    ],
+    "errorText": null
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": true,
+      "detail": "9 из 9 скрытых тестов зелёные"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 1"
+    }
+  ]
+}

@@ -1,0 +1,440 @@
+{
+  "run": {
+    "slug": "day-gpt-oss-20b-rf-longest-side-drops-third",
+    "model": "ollama:gpt-oss-20b-rf",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "claude-sdk:haiku",
+      "verify": "ollama:gpt-oss-20b-rf",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-09T05:45:09.540Z",
+    "finishedAt": "2026-09-09T05:59:09.024Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель упёрлась в лимит длины ответа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "регрессия — откат ранее работавшего поведения: Найдено несоответствие по оси «Настройки» (пороговые значения и ставки негабарита не покрыты планом) и по оси «Совместимость и данные» (добавлено необязательное поле `surcharge` в `Quote`, не предусмотрено в плане). / нет",
+        "путь плана «test/oversize.test.ts» помечен «не сделано»",
+        "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+        "посевом не проверялись гейты: Разбор последствий, Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 803023,
+          "outputTokens": 40691,
+          "cacheReadTokens": 668616,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1288648
+        },
+        "durationMs": 839373
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "claim",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 2,
+        "truncated": 6,
+        "toolCalls": 17,
+        "reminders": 1
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 168
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 275
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 232
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 281
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 184
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 87
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 42
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 43
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 10,
+        "waitMs": 35
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 14
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "регрессия — откат ранее работавшего поведения: Найдено несоответствие по оси «Настройки» (пороговые значения и ставки негабарита не покрыты планом) и по оси «Совместимость и данные» (добавлено необязательное поле `surcharge` в `Quote`, не предусмотрено в плане). / нет",
+      "путь плана «test/oversize.test.ts» помечен «не сделано»",
+      "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+      "посевом не проверялись гейты: Разбор последствий, Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "loop:e32a17b3-0342-4d93-b90c-eb64d8597dcb",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:af62ad57-da94-4152-bb8c-ece072cf620e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-rf-longest-side-drops-third/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:433ebde6-f7dc-4329-bb8b-e68d8a43fea9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-rf-longest-side-drops-third/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:d948f027-7f47-43a5-9434-998d9864da72",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-rf-longest-side-drops-third/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:fd9d7cce-0924-4baa-9ec8-effa852e51d1",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-rf-longest-side-drops-third/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:e57f6e2d-5325-407a-b32e-ef83a5699516",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-rf-longest-side-drops-third/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:7edc96f7-e38e-46e0-8246-77c7ebf23e1d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-rf-longest-side-drops-third/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:c47b0d8d-51d3-42c9-9236-5c092ea1ee0f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/day-gpt-oss-20b-rf-longest-side-drops-third/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-0l72mp\\.sdlc\\day-gpt-oss-20b-rf-longest-side-drops-third\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:d166b781-78b1-454c-98a9-f18b712fdd0a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\day-gpt-oss-20b-rf-longest-side-drops-third\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "verify",
+        "requestId": "loop:8d03ef75-92a4-4981-8ad0-7ec82620e4d5",
+        "reason": "policy"
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:21bf2356-6aba-47ae-a363-54134fd1f0be",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 19331,
+        "userChars": 40426,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": {
+    "seedId": "longest-side-drops-third",
+    "klass": "логика правила: потеряно измерение",
+    "expected": "review",
+    "caught": false,
+    "where": [],
+    "note": "посев «longest-side-drops-third» НЕ назван: `longestSide` считает максимум по двум сторонам из трёх — негабарит по третьей стороне не определяется"
+  },
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": false,
+      "detail": "рантайм сам отметил: перегенерированный diff не совпал с патчем попытки"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 2"
+    }
+  ]
+}

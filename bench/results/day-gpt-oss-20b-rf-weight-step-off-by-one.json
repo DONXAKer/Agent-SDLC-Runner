@@ -1,0 +1,485 @@
+{
+  "run": {
+    "slug": "day-gpt-oss-20b-rf-weight-step-off-by-one",
+    "model": "ollama:gpt-oss-20b-rf",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "claude-sdk:haiku",
+      "verify": "ollama:gpt-oss-20b-rf",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-09T06:12:59.236Z",
+    "finishedAt": "2026-09-09T06:26:31.667Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "исчерпан лимит ходов этапа (25)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "гейт «Тесты» провалился (❌)",
+        "нарушен инвариант: none",
+        "регрессия — откат ранее работавшего поведения: Тесты не прошли / нет",
+        "путь плана «src/oversize.ts» помечен «не сделано»",
+        "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+        "посевом не проверялись гейты: Разбор последствий, Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 1000548,
+          "outputTokens": 37884,
+          "cacheReadTokens": 856330,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1352431
+        },
+        "durationMs": 812314
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "gate",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 2,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 5,
+        "toolCalls": 26,
+        "reminders": 1
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 174
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 1,
+        "skippedWhileEnabled": 0,
+        "durationMs": 285
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 248
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 308
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 194
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 92
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 46
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 45
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 14,
+        "waitMs": 18
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 17
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "гейт «Тесты» провалился (❌)",
+      "нарушен инвариант: none",
+      "регрессия — откат ранее работавшего поведения: Тесты не прошли / нет",
+      "путь плана «src/oversize.ts» помечен «не сделано»",
+      "перегенерированный diff не совпал с патчем попытки — артефакт этапа 5 устарел",
+      "посевом не проверялись гейты: Разбор последствий, Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "loop:dc24702b-4d6b-446b-9496-7c595e56c6fd",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:1f16a98d-c16f-49b4-9354-d6c08a8d35b9",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:c86c058a-563f-48c0-afa6-a793f5a7d6d6",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:31f1a2dc-f82b-4224-b087-67f8cb7efea0",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:eea920bb-96f7-4cc5-a767-d2dd6e57f090",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:ea2d3014-c2de-44fb-88e8-0e5e2c8b042e",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:0d4daa3c-60d5-49df-9fc0-787fafbb6c85",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:d35aedb7-7aec-4ab0-b0b1-1cb2b9e0178b",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:063ef7bb-e4cf-4790-b50e-5100af649613",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:f0fcbc05-4632-4e3a-8135-3a44c03ec373",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:0f080065-238f-45a8-aaac-22f94af80db9",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:4e93804d-1a10-420d-a600-c007a9dc0c36",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-IXAUeg\\.sdlc\\day-gpt-oss-20b-rf-weight-step-off-by-one\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:d20d6afd-5dc2-4f3a-aba6-3750203ad299",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\day-gpt-oss-20b-rf-weight-step-off-by-one\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "verify",
+        "requestId": "loop:7f4a004a-0855-4186-a32f-d0629ad10248",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "unknown"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 19321,
+        "userChars": 40397,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": {
+    "seedId": "weight-step-off-by-one",
+    "klass": "off-by-one на границе (контроль стенда)",
+    "expected": "gate",
+    "caught": true,
+    "where": [
+      "gate",
+      "report"
+    ],
+    "note": "посев «weight-step-off-by-one» назван (gate, report): `weightStep` делает границы ступеней исключающими: ровно 500 г уезжает на следующую ступень"
+  },
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": false,
+      "detail": "рантайм сам отметил: перегенерированный diff не совпал с патчем попытки"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 1"
+    }
+  ]
+}
