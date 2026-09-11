@@ -1,10 +1,15 @@
 /**
  * Выбор гейтов для проверки после шага этапа 5 по шагам (`stepFill`, без tool-use).
  *
- * «Сборка» — всегда, «Тесты» — дополнительно, и только для шага с тестовым файлом.
- * Разбор трёх реальных прогонов (docs/model-runs.md) показал: без второго гейта
- * поломка собственного теста модели (потерянный дефолт хелпера, TDZ-затенение,
- * неверные ожидаемые числа) видна только на прогоне всего chunk'а целиком.
+ * «Сборка» и «Тесты» — ОБЕ безусловно, если включены, независимо от того, тестовый ли
+ * файл у шага. Раньше «Тесты» подключалась только к тестовым шагам — живой замер поймал
+ * дыру: шаг продуктового кода ломает свой же файл (забытый импорт, `ReferenceError`
+ * только в рантайме — «Сборка» такое не ловит), а красный «Тесты» всплывает только на
+ * следующем тестовом шаге, чинить уже нечем (docs/model-runs.md, `ministral3-14b-
+ * reasoning-stepfill` / `lmstudio:qwen3-8b-stepfill`, идентичные 14/10/4). Опасение
+ * «ложный красный на промежуточном состоянии» закрывает `mentionsFile()` в
+ * `StepExecutor.ts`, не сужение набора здесь. Сигнатура больше не принимает файл шага —
+ * решение больше от него не зависит.
  */
 
 import { deepStrictEqual } from 'node:assert/strict';
@@ -33,25 +38,46 @@ const ONLY_BUILD = [
   '',
 ].join('\n');
 
-describe('gatesForStep', () => {
-  it('шаг не тестовый — только «Сборка», даже если «Тесты» включена', () => {
-    const rows = gatesForStep('src/oversize.ts', parseGates(BOTH_ENABLED));
-    deepStrictEqual(
-      rows.map((r) => r.name),
-      ['Сборка'],
-    );
-  });
+const WITH_IMPORTS = [
+  '## Набор',
+  '',
+  '| Гейт | Вкл | Где отчитывается | Чем реализован |',
+  '|---|---|---|---|',
+  '| Сборка | да | этап 6 | встроенная проверка рантайма |',
+  '| Тесты | да | этап 6 | встроенная проверка рантайма |',
+  '| Импорты | да | этап 6 | встроенная проверка рантайма |',
+  '',
+].join('\n');
 
-  it('шаг тестовый при включённой «Тесты» — оба гейта, «Сборка» первой', () => {
-    const rows = gatesForStep('test/oversize.test.ts', parseGates(BOTH_ENABLED));
+describe('gatesForStep', () => {
+  it('обе строки включены — оба гейта, «Сборка» первой', () => {
+    const rows = gatesForStep(parseGates(BOTH_ENABLED));
     deepStrictEqual(
       rows.map((r) => r.name),
       ['Сборка', 'Тесты'],
     );
   });
 
-  it('шаг тестовый, но «Тесты» выключена в наборе — только «Сборка», как раньше', () => {
-    const rows = gatesForStep('test/oversize.test.ts', parseGates(ONLY_BUILD));
+  // «Импорты» — не в MINIMUM: подключается только если проект сам завёл строку в
+  // .sdlc/gates.md, раннер не навязывает языковую проверку всем целевым проектам.
+  it('«Импорты» включена в наборе — все три гейта, «Импорты» последней', () => {
+    const rows = gatesForStep(parseGates(WITH_IMPORTS));
+    deepStrictEqual(
+      rows.map((r) => r.name),
+      ['Сборка', 'Тесты', 'Импорты'],
+    );
+  });
+
+  it('«Импорты» нет в наборе проекта — не попадает в список', () => {
+    const rows = gatesForStep(parseGates(BOTH_ENABLED));
+    deepStrictEqual(
+      rows.map((r) => r.name).includes('Импорты'),
+      false,
+    );
+  });
+
+  it('«Тесты» выключена в наборе — только «Сборка»', () => {
+    const rows = gatesForStep(parseGates(ONLY_BUILD));
     deepStrictEqual(
       rows.map((r) => r.name),
       ['Сборка'],
@@ -59,6 +85,6 @@ describe('gatesForStep', () => {
   });
 
   it('набора гейтов нет вовсе (null) — пустой список', () => {
-    deepStrictEqual(gatesForStep('test/oversize.test.ts', null), []);
+    deepStrictEqual(gatesForStep(null), []);
   });
 });

@@ -1,0 +1,180 @@
+{
+  "run": {
+    "slug": "lmstudio-granite32-oversize-full",
+    "model": "lmstudio:granite-3.2-8b-stepfill",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:granite-3.2-8b-stepfill",
+      "explore": "lmstudio:granite-3.2-8b-stepfill",
+      "ask": "lmstudio:granite-3.2-8b-stepfill",
+      "plan": "lmstudio:granite-3.2-8b-stepfill",
+      "chunk": "lmstudio:granite-3.2-8b-stepfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "lmstudio:granite-3.2-8b-stepfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-10T16:32:57.176Z",
+    "finishedAt": "2026-09-10T16:36:25.952Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "цикл остановлен: «FinalizeArtifact» вызван 3 раза подряд с теми же аргументами — прогресса нет",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 60615,
+          "outputTokens": 5279,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 208645
+        },
+        "durationMs": 208772
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 2,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 1
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 16
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 35
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "loop:cfcdf097-3540-40d1-89b7-fb396a6657fa",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "intent",
+        "requestId": "loop:82d16a97-f2d0-457d-9a74-ef9654f6977b",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "FinalizeArtifact",
+        "kind": "unknown"
+      },
+      {
+        "stage": "intent",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10651,
+        "userChars": 4753,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 1"
+    }
+  ]
+}

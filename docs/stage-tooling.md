@@ -1,0 +1,260 @@
+# Инструментовка этапов: что делает программа, что — диалог, что — данные, что — только модель
+
+Результирующее состояние и план, не журнал. Основание — три класса отказа и принцип «всё,
+что модель делает плохо, а программа умеет, делает программа; модели остаётся один узкий
+вопрос с узким контекстом» (`docs/weak-models-analysis.md` §1, §3, §4); измеренные классы —
+`docs/model-runs.md`, `docs/model-task-matrix.md`; конструкция этапа 6 как образец —
+`CLAUDE.md` → «Этап 6 устроен как конвейер рантайма». Фазы взяты из эталонных
+`implementations/claude-code/skills/sdlc-*/SKILL.md` и `templates/*.template.md` и разложены
+по четырём колонкам честно, включая то, где эталон поручает модели факт рантайма.
+
+## 0. Четыре колонки и условные знаки
+
+| Колонка | Что это | Признак |
+|---|---|---|
+| **Механика** | рантайм без модели: факт с диска/git/гейта, запись в артефакт, страж, предусловие. Сюда же — прямой диалог рантайм ↔ человек (`askGate`, `humanGate`): решение человека не должно проходить через модель | функция/гейт/предусловие; ручки нет |
+| **Диалог** | рантайм ведёт цикл, модель отвечает на один узкий вопрос обычным completion'ом, ответ разбирается общим `normalize`/`applyFill` | ручка `ModelDef.*Fill` |
+| **Готовые данные** | подаются в промпт вместо права искать: содержимое файлов, команды, списки символов, образцы | блок в `prompt/build.ts` или `extra` |
+| **Только модель** | суждение, которого не заменить ни фактом, ни закрытым вопросом. Отдельно — **человек**: решения, которые нельзя делать инструментом (§4) | — |
+
+Знаки: без пометки — есть в `main`; **→** — предлагается; **✓ волна 1** — сделано этой
+волной, живьём не замерено (см. §5).
+
+Сквозная механика на всех этапах, ниже не повторяется: раскладка бланка (`run/seed.ts`);
+страж завершения `finishGuard`/`notDone()` с отказом `FinalizeArtifact`, называющим секцию
+(`artifacts/finalizeCheck.ts`); `salvageFromText`; анти-цикл (`REPEAT_LIMIT`,
+`finalizeStreak`, `readStreak`/`bashStreak`); `destructiveOverwrite`; политика `stageTools →
+denyList → pathScope → planScope`; `protectedArtifacts`; окно истории (`exec/history.ts`);
+`max_tokens` по остатку окна (`exec/contextBudget.ts`); схема формы + `FillField` под
+`compactForms`; метрики (`metrics.json`).
+
+## 1. Карта по этапам
+
+### Этап 1 — intent
+
+Измерено: лимит длины на бланке (25+ записей); бланк «закрыт» с плейсхолдерами; 0 `[edge]`;
+цикл `FinalizeArtifact`; «Ветка витка» из окружения вместо задачи (4 задачи у `gpt-oss-20b`).
+`formFill` снимает первые два; образец `[edge]` — третий (1/5 → 5/5).
+
+| Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
+|---|---|---|---|---|
+| P0: slug, ветка, контур | `branchFactBlock`; `branchMismatchBlocker` на входе plan/chunk/verify/handoff. **→ `autofillIntent`**: «Ветка витка» → `owner: 'runtime'` в `SCHEMA_OVERRIDES`, значение `currentBranch()` той же механикой, что `autofillJournal` | — | `branchFactBlock` | **человек**: контур |
+| P1: набор гейтов | минимальная пятёрка на старте каждого этапа (`gatesFile.ts`). **→ `gatesAutofill`**: «Чем реализован» строк «Сборка»/«Тесты» — из `describeBuild` (скилл: «факт из кодовой базы не спрашивают, его читают») | — | блок `ecosystem` | **человек**: да/нет по остальным строкам, владелец, долг |
+| P2: интервью | `formFill`; `askClaimsTopUp`; `edgeExampleLines`. **→ поля `owner: 'human'` рантайм спрашивает у человека сам** (`askGate.ask`), минуя модель | `formFill`; `compactForms: 'fill'` | образец `[edge]`; **→ список существующих тестов и раннер** | **модель**: тройка «наблюдаем + чем + годно», инварианты. **Человек**: лист, «Чего не делаем», «Когда остановиться» |
+| P3: механическая часть (7 пунктов) | пп. 3–4 `claimsMinimum` (предусловием этапа 2, после ухода модели); п. 6 `hasOpenQuestions`; п. 7 `placeholderRanges`; п. 1 `gatesFile`. **→ `readinessAutofill`**: таблица «Прогон 1» рантаймом ДО модели (приём `verifyAutofill`); красный пункт — в страж intent | — | — | — |
+| P3: человеческая часть + пересчёт | **→ 4 вопроса задаёт рантайм человеку напрямую**; **→** литералы «Как проверить» — `literalsOf` (`humanFacts.ts`). Исполнение примера — не механика (`Bash` снят у этапа) | — | — | **модель**: пересчёт без оболочки; **человек**: признать, 4 ответа |
+| Выход | `closeOnFinalizeReady`; `salvageFromText` | — | — | — |
+
+### Этап 2 — explore (волна 1 ✓)
+
+Измерено (`freeship`, 2026-09-11): все пять «годных по oversize» моделей встали здесь; у
+`qwen3-8b` 25 вызовов — `Task`×1, `Write`×5, `Edit`×13, `FinalizeArtifact`×6, **ни одного
+`Read`/`Glob`/`Grep`**. Цикл Edit↔Finalize, разрушающая перезапись отчёта, сочинённые пути,
+поиск `src/` внутри `.sdlc/`.
+
+| Фаза скилла | Механика | Диалог | Готовые данные | Только модель / человек |
+|---|---|---|---|---|
+| P0: вход | предусловия (`filledExceptTouchSection`, `readiness`, `claimsMinimum`); гейт claims — `Run.claimsGateRow` ✓ | — | — | — |
+| P1, агент 1 (разведчик): стек, карта, переиспользование, опоры осей | ✓ индекс проекта `explore/*` (`readTree`, `declaredSymbols`, `callersOf`, `intentKeywords`, `rankFiles`, `reuseCandidates`, `axisMechanismCandidates`); ✓ `autofillExplorationReport` (название, цель, стек, команды, гейт заполненности); страж `explorationPathProblem` | ✓ `exploreFill` (`ExploreExecutor`): один закрытый вопрос на карту (по карточкам файлов-кандидатов), один — на переиспользование, один — на шесть осей, один — на вопросы; свободные поля — вложенный `FormFillExecutor` со `skipFields` | ✓ блок «Индекс проекта» в промпте (`exploreIndex`, оба флоу, потолок по флоу `INDEX_BLOCK_BYTES`); карточки файлов (`fileCard`/`symbolCard`/`packCards`) | **модель**: «что там сейчас», «что меняем», точка правки, границы, риски |
+| P1, агент 2 (`sdlc-claims`) | ✓ `Run.runClaimsBlind` — запуск рантаймом до хода модели, слепота ВХОДОМ (четыре секции задачи, индекс, карточки; без инструментов; `.sdlc` в индексе нет) | — | — | **модель-агент**: лист от нуля |
+| P2: сверка листов | ✓ `explore/compare.ts` — предсортировка «совпало / кандидат / вне scope» по значимым словам, обратное расхождение; рендер таблицы и «Расхождение» построчно | — | — | **человек**: «Решение человека о полноте» (humanGate, поле не трогается) |
+| P3: артефакты | ✓ «Всплывшие вопросы» рендер `- [ ] **[блокирующий]**` (иначе этап 3 их не увидит); ✓ гейт «Заполненность артефактов» по факту; ✓ «Что придётся тронуть» в задаче из карты; запись — `writeThroughGate` (тот же гейт, что у любой записи) | — | — | — |
+| P4: неточность в задаче | — | — | — | **модель + человек**: «scope vs уточнение» (в конвейере нет — уходит в вопросы) |
+
+Цена режима названа: `AskHuman`/`Task` в конвейере нет; файл вне кандидатов модель прочитать
+не может (в блоке промпта — может `Read`'ом, в конвейере — нет). Слепой агент без
+инструментов видит только карточки — агентный вариант требует префиксного `readDenied` и
+исключения `.sdlc` из `grepTool` (следующая волна).
+
+### Этап 3 — ask
+
+Измерено: после `FinalizeArtifact` 25 ходов «`Edit` чек-бокса в `intent.md` → отказ
+`[planScope]` → `AskHuman` „начать план?“»; Phase 1 «ответь сам из кода» не делается.
+**Структурная находка:** скилл велит закрыть ответ в `intent.md`, а рантайм на ask защищает
+`intent.md` (`RUNTIME_PROTECTED`) — противоречие ровно в точке цикла. Переносить ответы обязан
+рантайм.
+
+| Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
+|---|---|---|---|---|
+| P0 | `skipIf` по `hasOpenQuestions`; предусловия | — | — | — |
+| P1: фильтр | **→ `openQuestions()`**: кандидаты собирает рантайм (`- [ ]` из intent и отчёта) | **→ `askFill`** (ручка, тип `claimFill`): на кандидата один вопрос — `ответ из кода: путь:символ + ответ` / `спросить человека: блокирующий, рекомендация, цена ошибки` | кандидат + `путь:символ` из карты разведки; индекс волны 1 | **модель**: доказать «есть в коде» адресом |
+| P2: спросить | **→ рантайм задаёт человеку сам** через `askGate.ask`, ≤4, блокирующие первыми | — | — | **человек**: ответ |
+| P3: закрыть в задаче | **→ `closeAnsweredQuestions`**: `- [ ] → - [x] … — ответ` в `intent.md` по таблице отчёта (`extractHumanFacts`), приём `setDecision`/`replaceAfterLabel` | — | — | **модель**: правка секции — с одобрения |
+| P4: отчёт | таблица из записей `askFill` (как `renderRecords`); «Отложено»; **→ `autofillClarification`** («Разведка») | поле «Уточнённое требование» — `formFill` | — | **модель**: переформулировка; «scope vs уточнение» |
+
+### Этап 4 — plan
+
+Измерено: оси свободным текстом; «ось vs claim-N»; риск на все 6 осей; пустой
+`files_to_touch`; Grep вызывающих не делается; ветка.
+
+| Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
+|---|---|---|---|---|
+| P0: прогон 2 | предусловия plan. **→ `readinessAutofill` прогон 2**: пп. 1, 2, 3 (`extractFilesToTouch`), 5 (`countClaims`) | — | — | п. 4 пересчёт |
+| P1: шаги | `planSteps.ts`; **→ `planStepsProblem`** (страж рядом с `axisProblems`): файл существует/«новый», символ найден в файле, `закрывает:` — существующий claim; **→** каждая строка «Найдено для переиспользования» упомянута в шагах или «решено не использовать — причина» | — | секции отчёта во входе | **модель**: подход, шаги, порядок «тест до реализации» |
+| P2: `files_to_touch` | `extractFilesToTouch`; пустой список блокирует chunk; добор в `formFill`. **→ `planDiffVsExploration`**: сравнение с «Что придётся тронуть», кандидаты «Добавлено/Исключено» — модели остаётся причина | **→ `callersFill`**: на вызывающего вне списка — «добавить / совместим без правок — почему» | **→ `callersBlock`**: вызывающие символов шагов (`callersOf` индекса волны 1) готовой таблицей | **модель**: меняется ли контракт |
+| P3: чем закрывается | **→** ожидаемый набор `claim-id`; страж: пункт без строки и без «уходит chunk'у» | **→ `claimCoverageFill`** (симметрично `claimFill`): «тест / место / следующий chunk»; адресат сверяется с `files_to_touch` | тексты пунктов | **модель**: чем именно |
+| P3.6: оси | `axisProblems()`; `axesGateRow`; **→ страж** «риск на оси с „Затронута = нет“» | `planAxisFill` | «Опоры осей», id, гейты | **модель**: исход; **человек**: риск полем «Одобрение» |
+| P5 | `SCHEMA_OVERRIDES` объявляет «База», «Вход» механическими — автозаполнения нет → **→ `autofillPlan`**; `humanGate` «Одобрение» | — | — | **человек**: одобрение |
+
+### Этап 5 — chunk
+
+Измерено: пути импорта ×4 (гейт «Импорты»), забытый импорт (`gatesForStep`), порча `Edit`'ом
+×3 (`stepFill`), **тесты вхолостую** (`NaN==NaN`; 14/14 своих при 4/6 скрытых), тесты без
+интеграции, «карта разошлась» на новом файле, регрессия между попытками.
+
+| Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
+|---|---|---|---|---|
+| P0 | `granted()`; `autofillJournal`; `detectNoProgress` + `diffDistance`; `retryBrief`; `suggestEscalation` | — | бриф ретрая | — |
+| P1: разведка | `Task sdlc-locator`. **→ `planMapCheck`**: сверка «символ на месте / файл существует» по `planSteps` рантаймом до старта (`declaredSymbols` индекса); расхождение → возврат на план | — | prefetch файлов плана; `stepFill` — один файл | — |
+| P2: место, база | humanGate «Подтвердил»; `snapshotBaseline` | — | — | **человек** |
+| P4: реализация | `stepFill` + гейты после шага; `verifyTsImports`; `editMatch`; `humanAnswersGate`; `planConstantsMissingFromDiff` | `stepFill`; **→ `testScaffold`** (§1.5а) | `humanFactsBlock`; `ecosystem`; **→ `testExampleBlock`** | **модель**: код |
+| P5 | `recordAttemptEvidence`; `treeProblem`; дозаполнение журнала | `formFill` над журналом | отчёт о шагах | **модель**: «что чинили» одной строкой |
+
+#### 1.5а. Тесты: механика и подсказка
+
+| Что | Класс | Вид | Переиспользует | Ручка |
+|---|---|---|---|---|
+| **→ `testScaffold`**: каркас теста по `claim-N` — `describe('claim-N: …')`, `it` с литералом из «Как проверить», импорт продуктового файла по экосистеме (путь с расширением); модель дописывает вызов и ассерт | пути импорта, `NaN==NaN`, тест без литерала | механика (loop) | `countClaims`, `literalsOf`, `resolveTsSpecifier`, реестр экосистем | под `stepFill` |
+| **→ гейт «Сверка тестов с claims»** (есть в `gates.template.md`, в `BUILTIN` нет): новый тест содержит `claim-N`, иначе `❌` | тест не про приёмку | механика | `addedFunctionNames`, `diffLines` | нет |
+| **→ гейт «Литерал задачи в ассерте»**: для claim с литералом — ассерт с этим литералом в добавленных тестах; исход `⏭` с вопросом (эвристика, как `duplicatesGate`) | самореферентные ожидания | механика | `humanAnswersGate`, `humanFacts.ts` | нет |
+| `planCoverageGate` — включить в `bench/fixture/.sdlc/gates.md` | тесты без интеграции | механика | есть | нет |
+| **→ `testExampleBlock`**: ближайший существующий тест к файлу плана — импорты, первый `it` | пути импорта, раннер | данные | `PREFETCH_*`, индекс волны 1 (`kind: 'test'`) | нет, loop |
+| Регрессия между попытками: `✅` в K−1 → `❌` в K → `VerdictInput.regressions` | `two-right-answers` | механика (этап 6) | `collect.ts`, `iterationsLog.ts` | нет |
+| **→ щуп bench «тест-разрыв»**: свои зелёные ∧ скрытые < 6/6 | измеритель | стенд | `bench/src/{hiddenTests,honesty,report}.ts` | — |
+
+Модели остаётся: сценарий в пределах claim, вызов, форма ассерта, фикстуры. Человеку: «Как
+проверить» как источник литералов.
+
+### Этап 6 — verify
+
+Измерено: «оформитель» (три дыры закрыты); лимит длины (`reviewFill`); находимость 3/8 при
+чистом контроле (контроль `opus` на тех же посевах не снят); ложные находки из пустых полей;
+адрес строки врёт (`:154` при `:158`).
+
+| Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
+|---|---|---|---|---|
+| P0 | `diffStillMatchesTree`; `preflightBlockers`; `readDenied` | — | патч, tests | — |
+| P1: гейты | `runVerifyGates`; `BUILTIN`; `earlyGates`. **→** перенос «Готовность задачи» и «Заполненность» тоже рантаймом | — | `gateReportBlock` | **человек**: неприменимость |
+| P2: рецензент | `runReviewerDirectly`; `anchorFound`; `acceptRecord` | `reviewFill`, `claimFill`, `skipTurnAfterReviewFill`; **→ кап** по времени/хункам; **→ `lineFix`**: цитата из находки ищется в патче, номер строки переписывает рантайм | срез патча, `AXIS_HINTS`; **→** вызывающие изменённых символов (угол 3) — `callersOf` индекса | **рецензент**: четыре угла |
+| P3: вердикт | `verdict.ts`, `collect.ts`, `classify.ts`; **→** классификатор «проверка плоха vs код плох» | — | — | — |
+| P4 | `autofillVerificationReport`; `renderRecords`. **→ `journalOutcomeAutofill`**: колонку «Итог» журнала пишет рантайм (сегодня — `Edit` рецензента); **→** гейт «Сверка отчёта с набором» как обёртка над `collectVerdictInput` | `formFill`-дозаполнение | — | — |
+| P5 | **→** предзаполнение «Кандидаты в запись о дефекте» из `RecordFinding` | — | — | **модель**: «какой гейт должен был поймать» |
+
+### Этап 7 — handoff
+
+Данных почти нет (два прогона). Девять механических полей объявлены в `SCHEMA_OVERRIDES`,
+`autofillHandoff` не написан.
+
+| Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
+|---|---|---|---|---|
+| P1: приёмка | humanGate «Приёмка»; **→ спросить человека рантаймом** | — | отчёт, журнал | **человек** |
+| P2: публикация | `publishGate` есть; **→ `runNamedGate('Проверка предусловий публикации')` на входе handoff** | — | — | — |
+| P3: коммит | **→ `commitByRuntime`**: `git add` (`files_to_touch` + `.sdlc/<slug>/`) и commit после приёмки, состав через тот же гейт, что `Bash` | — | — | **человек**: одобрить состав |
+| P4: дефект | **→** кандидаты по всем `verification-report-*`; **→** список «Класс» из `.sdlc/*/handoff.md`; «Кто утвердил» — только из ответа человека | — | кандидаты, классы | **человек**: класс, «чем закреплено» |
+| P5 | **→ `autofillHandoff`**: yaml-блок, таблица «Готовность» копией статусов, пункты ❌/⚠/[manual] из `collect.ts` | `formFill` | `postmortemBlock` | **модель**: «Что сделано», «С чего начинать» |
+| P6–P7 | флаг обрыва | — | — | **человек**: публикация — никогда инструментом |
+
+## 2. Предлагаемые инструменты — сводно
+
+| Инструмент | Этап | Класс сбоя | Переиспользует | Ручка | Как измерить |
+|---|---|---|---|---|---|
+| `autofillIntent` (ветка) | 1 | ветка из окружения (4 задачи) | `SCHEMA_OVERRIDES`, `fillMechanicalPlaceholders`, `currentBranch` | нет | клетка plan без «сверка ветки» |
+| `readinessAutofill` (прогоны 1, 2) | 1, 4 | intent `ok`, explore не стартует (раунд 2 ×2) | `verifyAutofill`-приём, `countClaims`, `hasOpenQuestions` | нет | readiness без плейсхолдеров в механической части |
+| Поля человека → `askGate` | 1, 3, 7 | «`AskHuman` в `formFill` нет» | `askGate.ask`, `owner === 'human'` | внутри `formFill` | 4 ответа readiness — словами автоответчика |
+| `gatesAutofill` | 1 | 12/14 `Bash` на поиске команд | `describeBuild` | нет | `gates.md` без `‹команда›` |
+| ✓ `exploreIndex` / `exploreFill` / claims рантаймом / предсортировка | 2 | §1, этап 2 | `describeBuild`, `declaredFunctionNames`, `namedExportsOf`, `significantTokens`, `applyFill`, `FormFillExecutor`, `loadSubagent` | `exploreIndex`, `exploreFill` | §5 |
+| `openQuestions` + `askFill` + `closeAnsweredQuestions` | 3 | 25 ходов после Finalize; конфликт скилл/раннер | `hasOpenQuestions`, `extractHumanFacts`, `claimFill`-конвейер | `askFill` | `two-right-answers`, `ghost-requirement`; контроль без развилок |
+| `callersBlock` + `callersFill` | 4 | Grep вызывающих не делается; `silent-contract` | `callersOf`, `planSteps` | `callersFill` | `silent-contract`: секция непуста, совпадает с `sdlc-locator` |
+| `claimCoverageFill` | 4 | пункты без строки | `claimFill`-конвейер, `countClaims` | `claimCoverageFill` (или под `planAxisFill`) | снимок `oversize-ask` |
+| `planStepsProblem`, `planDiffVsExploration`, страж риска | 4 | «карта разошлась», пустой список, риск на 6 осей | `planSteps`, `planFiles`, `planAxes` | нет | снимок `oversize-ask` |
+| `autofillPlan/Clarification/Handoff`, `journalOutcomeAutofill` | 4, 3, 7, 6 | объявлено `runtime`, не заполняется | `journalAutofill.ts` | нет | 0 плейсхолдеров в механических полях; `Edit` снять из verify |
+| `testScaffold`, гейты «Сверка тестов с claims», «Литерал в ассерте», `testExampleBlock` | 5 | §1.5а | §1.5а | `testScaffold` под `stepFill`; гейты — строки набора | снимок `oversize-plan`, серия ≥3, щуп «тест-разрыв» |
+| `planMapCheck` | 5 | локатора нет в `stepFill` | `planSteps`, `declaredSymbols` | нет | доля возвратов на план до первого запроса |
+| `lineFix`, кап `reviewFill`, регрессия между попытками, классификатор | 6 | адрес врёт; effort-high таймаут; эскалация по своим тестам | `anchorFound`, `collect.ts`, `classify.ts` | нет | посевы + `none` |
+| `commitByRuntime`, гейт публикации на входе 7, кандидаты дефекта | 7 | коммит — единственный `Bash` этапа | `gates/git.ts`, `publishGate`, `collect.ts` | нет | снимок после зелёного verify |
+
+## 3. Очередь волн
+
+Правило: одна ручка на замер, серия ≥3, контроль `claude-sdk:sonnet`/`opus`. Чистая механика
+без ручки поведение модели не меняет, серии не требует — проверяется тестами и щупами
+честности.
+
+- **Волна 0 — механика без ручки, поштучно, в любой момент:** `autofillIntent`,
+  `readinessAutofill`, `autofillPlan/Clarification/Handoff`, `journalOutcomeAutofill`,
+  `closeAnsweredQuestions`, гейт публикации на handoff, `planCoverageGate` в наборе фикстуры.
+- **Волна 1 — explore** — ✓ написана (§5), не замерена.
+- **Волна 2 — chunk, тесты (§1.5а).** Единственный этап с воспроизводимым снимко-замером
+  (`--stage chunk --from-snapshot oversize-plan`), класс на трёх моделях, отравляет этап 6.
+  Сначала гейты и `testExampleBlock` (без ручки), потом `testScaffold` серией.
+- **Волна 3 — plan.** Стена лучшей lmstudio-модели, снимок `oversize-ask` есть, `planAxisFill`
+  как образец. `callersBlock` → стражи → `claimCoverageFill`/`callersFill`.
+- **Волна 4 — ask (`askFill`).** После волны 0 остаётся Phase 1 и фильтр; до ask доходит
+  меньше моделей, чем встаёт на plan.
+- **Волна 5 — verify-пакет и handoff.** Сначала контроль `opus` на пяти пропущенных посевах
+  (отделить потолок модели от пробела промпта), потом механика; `commitByRuntime` — последним.
+
+## 4. Чего инструментом не делать
+
+- **Решение человека о полноте** — предсортировку рантайм считает, решение — нет.
+- **Одобрение плана**, **«Подтвердил»**, **Приёмка**, **публикация** — `DECISION.*`;
+  `setDecision` только от оператора.
+- **Неприменимость гейта** — только с именем; `⏭` от рантайма — это `❌`.
+- **Приёмочный лист за человека**; «Чего не делаем»; «Когда остановиться».
+- **Четыре вопроса readiness** — рантайм задаёт, не отвечает.
+- **Выбор между двумя верными ответами** (`two-right-answers`) — человек.
+- **«Уже сделано»** (`already-done`) — суждение разведки; механика подаёт кандидатов
+  (`reuseCandidates`, `duplicatesGate`), не объявляет.
+- **«Изменился scope vs уточнилось описание»** — суждение + одобрение.
+- **Исход по оси** и **принятие риска** — модель с адресатом / поле «Одобрение».
+- **Действие по проскочившему дефекту** и **«Кто утвердил»** — только из ответа человека.
+- **`retry_instruction`** — слова рецензента; бриф — факты.
+- **Команда из поля «проверка» шага** — не исполняется без гейта.
+- **Признать пересчитанный пример** — человек.
+- **Вердикт и статусы гейтов** — механика, назад модели не отдавать.
+
+## 5. Волна 1 — что сделано и как мерить
+
+Код (2026-09-11), покрыт герметичными тестами и тестом по реальному шаблону эталона; живьём не
+прогонялось:
+
+- `server/src/explore/` — индекс: `tree.ts` (единственный I/O: обход строго внутри realpath
+  корня, `.sdlc` и скрытые каталоги исключены, потолки честные), `symbols.ts`, `keywords.ts`,
+  `rank.ts`, `axes.ts`, `view.ts`, `render.ts`, `cards.ts`, `fields.ts`, `compare.ts`.
+- `ModelDef.exploreIndex` — блок «Индекс проекта (собран рантаймом)» в промпте этапа 2, оба
+  флоу; строка adapter-блока «не трать ходы на `Glob`/`Grep` по корню». Без ручки промпт
+  байт-в-байт прежний.
+- `ModelDef.exploreFill` — `exec/ExploreExecutor.ts` (только `loop`; на `sdk` игнорируется с
+  предупреждением, как `stepFill`): `Run.runClaimsBlind` → `run/claimsBlind.ts` (слепота
+  входом), `run/exploreAutofill.ts`, четыре закрытых вопроса, `explore/compare.ts`, запись через
+  `exec/gateWrite.ts` (общий с `FormFillExecutor`), вложенный `FormFillExecutor` со `skipFields`,
+  гейт заполненности по факту, «Что придётся тронуть» в задаче.
+- Дефект по пути: страж дозаполнения по полям считал плейсхолдер «Решение человека о полноте»
+  незаполненным полем — на explore дозаполнение не могло перевернуть исход никогда
+  (`countPlaceholdersExceptDecisions`, `Run.fillFormFields`).
+- Записи `config/models.json`: `lmstudio:qwen3-8b-exploreindex`, `-explorefill`,
+  `lmstudio:gemma-4-e4b-exploreindex`, `-explorefill`, `claude-sdk:sonnet-exploreindex`.
+
+Замер (одна ручка на прогон):
+
+```bash
+# снимок после intent — один раз, на сильной модели
+npm run bench -- --all --task freeship --model claude-sdk:sonnet --snapshot-after intent \
+  --make-snapshot freeship-intent --keep-workspace --slug snap-freeship-intent
+# серии ≥3 на каждое плечо
+npm run bench -- --stage explore --task freeship --from-snapshot freeship-intent --keep-workspace \
+  --model lmstudio:qwen3-8b-stepfill      --slug ex-base-qwen-1
+npm run bench -- --stage explore --task freeship --from-snapshot freeship-intent --keep-workspace \
+  --model lmstudio:qwen3-8b-exploreindex  --slug ex-index-qwen-1
+npm run bench -- --stage explore --task freeship --from-snapshot freeship-intent --keep-workspace \
+  --model lmstudio:qwen3-8b-explorefill   --slug ex-fill-qwen-1
+# контроль
+npm run bench -- --stage explore --task freeship --from-snapshot freeship-intent --keep-workspace \
+  --model claude-sdk:sonnet-exploreindex  --slug ex-index-sonnet-1
+```
+
+Что считать: исход этапа; запросов/ходов и время; `explorationPathProblem === null`; карта
+содержит `src/discounts.ts`/`src/tariffs.ts` и «новый» для модуля льготы; «Найдено для
+переиспользования» содержит `weightStep`, `discountFor`, `percent`; таблица претензий не н/п и
+есть кандидат про `silver`; плейсхолдер решения человека цел; `hasOpenQuestions` (вопрос про
+порог → этап 3). Запись в `docs/model-runs.md`, клетка матрицы, карточка в `model-runs/`
+эталона.

@@ -35,8 +35,9 @@ import { TaskError, taskById, taskPaths } from './tasks.ts';
 import type { TaskPaths } from './tasks.ts';
 import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
 import type { SeedProbe } from './seeds.ts';
-import { createProvider } from '../../server/src/provider/registry.ts';
+import { baseUrlFor, createProvider } from '../../server/src/provider/registry.ts';
 import { formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
+import { checkLmStudioContext } from '../../server/src/provider/lmstudioContext.ts';
 import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
@@ -188,6 +189,30 @@ async function dryRun(opts: BenchOptions): Promise<number> {
  * (см. `operator.ts`): один поток событий уходит в коллектор (лента на диск + числа
  * рантайма), второй — автоответчику, который отвечает вместо человека.
  */
+/**
+ * Проверка окна контекста LM Studio ПЕРЕД тратой прогона — общая для пробы и живого
+ * прогона: расхождение между `ModelDef.contextWindow` и фактически загруженным окном
+ * обнаруживалось раньше только по факту (`exceed_context_size_error` посреди дорогого
+ * прогона), а проверяется одним HTTP-запросом за секунду. Применимо только к провайдеру
+ * `lmstudio` и только когда запись назвала своё окно — для остальных `null` (нечего
+ * проверять, обычный путь идёт как раньше). `null` — либо проверка не применима, либо
+ * прошла; непустая строка — готовое сообщение оператору, почему прогон не стоит начинать.
+ */
+async function lmStudioContextProblem(
+  provider: string,
+  modelId: string,
+  contextWindow: number | undefined,
+  providerBaseUrl: string | undefined,
+): Promise<string | null> {
+  if (provider !== 'lmstudio' || contextWindow === undefined) return null;
+  const baseUrl = baseUrlFor(provider) ?? providerBaseUrl;
+  // Пустой/не заданный baseUrl — не наша забота: обычный путь запроса к провайдеру
+  // упадёт своей, более точной ошибкой («не задан baseUrl»), дублировать её здесь незачем.
+  if (baseUrl === undefined || baseUrl === '') return null;
+  const check = await checkLmStudioContext(baseUrl, modelId, contextWindow);
+  return check.ok ? null : check.message;
+}
+
 /** Сводка одного живого прогона — вход сводки серии `--repeat`. */
 interface LiveOutcome {
   code: number;
@@ -269,6 +294,19 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
   for (const stage of STAGE_ORDER) {
     const measured = built.measured.includes(stage);
     console.log(`  ${measured ? '→' : ' '} ${stage.padEnd(8)} ${built.routes[stage]}${measured ? '   (под измерением)' : ''}`);
+  }
+
+  // Окно контекста LM Studio — только у измеряемых маршрутов: контрольные (обычно
+  // claude-sdk) сюда не попадают, и проверять там нечего. Дёшево (один HTTP-запрос на
+  // маршрут) и дороже стоит промолчать — расхождение иначе всплывает посреди прогона.
+  for (const stage of built.measured) {
+    const route = built.profile.routes[stage];
+    const problem = await lmStudioContextProblem(route.provider, route.model, route.contextWindow, route.providerDef.baseUrl);
+    if (problem !== null) {
+      console.error(`\nокно контекста LM Studio (этап «${stage}»): ${problem}`);
+      wsDispose();
+      return { code: 2, hidden: null, durationMs: 0 };
+    }
   }
 
   const approvalBus = new ApprovalBus();
@@ -522,6 +560,11 @@ async function probeRun(opts: BenchOptions): Promise<number> {
     return 2;
   }
   const { def, providerDef } = target;
+  const contextProblem = await lmStudioContextProblem(def.provider, def.model, def.contextWindow, providerDef.baseUrl);
+  if (contextProblem !== null) {
+    console.error(`окно контекста LM Studio: ${contextProblem}`);
+    return 2;
+  }
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
   const report = await probeModel({
     provider,

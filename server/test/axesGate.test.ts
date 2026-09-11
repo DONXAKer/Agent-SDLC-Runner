@@ -54,6 +54,8 @@ function route(stage: StageId): ResolvedRoute {
     planAxisFill: false,
     stepFill: false,
     compactForms: 'off',
+    exploreIndex: false,
+    exploreFill: false,
   };
 }
 

@@ -39,6 +39,8 @@ import { trimHistory } from './history.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
 import { isToolName, specsFor } from './toolSpecs.ts';
 import { finalizeRejection } from '../artifacts/finalizeCheck.ts';
+import { marginFor, maxTokensForRemaining } from './contextBudget.ts';
+import { applyParams } from '../provider/ChatProvider.ts';
 
 export interface LoopOptions {
   provider: ChatProvider;
@@ -57,6 +59,14 @@ export interface LoopOptions {
   historyBudgetBytes?: number;
   /** Валюта провайдера маршрута — для честной подписи трат в нотах. Умолчание USD. */
   currency?: string;
+  /**
+   * Окно контекста этой ЗАПИСИ конфига (`ModelDef.contextWindow`) — до сих пор читалось
+   * только преполётной проверкой LM Studio (`provider/lmstudioContext.ts`), хотя поле
+   * общее для всех провайдеров. Заданное значение включает расчёт `max_tokens` по остатку
+   * окна (см. `paramsFor`); не задано — прежнее поведение: провайдер шлёт свой дефолт
+   * (`ProviderDef.maxTokens`/`DEFAULT_MAX_TOKENS`), а окно руками не подгоняется.
+   */
+  contextWindow?: number;
 }
 
 /**
@@ -105,6 +115,27 @@ const READ_KINDS = new Set(['read', 'glob', 'grep']);
  */
 const BASH_STREAK_LIMIT = 4;
 const BASH_STREAK_REMINDERS = 2;
+
+/**
+ * Сколько напоминаний даём, прежде чем закрыть готовый этап по диску — см.
+ * `closeOnFinalizeReady` в `StageExecutor.ts`. Первый ход «готово» напоминания не получает
+ * (модель вправе позвать `FinalizeArtifact` и закончить сама следующим ходом), поэтому
+ * реальный запас — три хода готовности подряд, а не два.
+ */
+const READY_STREAK_REMINDERS = 2;
+
+/**
+ * Сколько результатов инструментов, добавленных СВЕРХ прошлого измерения, покрывает
+ * запас `max_tokens` (см. `paramsFor`) — кратно потолку одного результата
+ * (`LoopOptions.maxResultBytes`), а не фиксированному числу токенов.
+ *
+ * Прежний фиксированный запас (512 токенов) был на порядок меньше одного результата у
+ * потолка `localMaxToolResultBytes` (12 000 байт ≈ 3000 токенов) — один крупный `Read`/
+ * `Grep`/`Bash` уже выбивал его с большим запасом (code-review-all, 2026-09-11). Три —
+ * не «весь ход», а «несколько вызовов подряд без ответа модели»: ровно столько, сколько
+ * `trimHistory` (`history.ts`, `HISTORY_KEEP_LAST`) держит целиком независимо от бюджета.
+ */
+const TOOL_RESULTS_MARGIN_FACTOR = 3;
 
 /** Опросный ли это инструмент — по шаблонам из конфига сервера. */
 function isPolling(toolName: string, req: ExecRequest): boolean {
@@ -160,6 +191,8 @@ export class LoopExecutor implements StageExecutor {
 
     let usage: Usage = emptyUsage();
     let finalText = '';
+    /** `prompt_tokens` ПРЕДЫДУЩЕГО ответа — вход расчёта `max_tokens`, см. `paramsFor`. */
+    let lastPromptTokens: number | null = null;
     let lastFingerprint: string | null = null;
     let repeats = 0;
     /** Сколько работы было зафиксировано, когда началась текущая серия повторов. */
@@ -169,6 +202,26 @@ export class LoopExecutor implements StageExecutor {
     let readNudges = 0;
     let bashStreak = 0;
     let bashNudges = 0;
+    let readyStreak = 0;
+    let readyNudges = 0;
+
+    /**
+     * Готов ли этап к финализации ПРЯМО СЕЙЧАС — вход детектора «готово, а ход не
+     * кончается» (`req.closeOnFinalizeReady`, только когда он включён).
+     *
+     * `finishGuard()` одного `notDone()` тут мало: у документных этапов он проверяет лишь
+     * «файл не тронут — не byte-in-byte бланк» (`seed.ts`, `stillMissing`/`untouchedSeeds`),
+     * и правка ОДНОЙ строки шаблона уже снимает этот complaint, пусть в файле останутся
+     * все прочие `‹…›`. Настоящую пустоту мест видит `finalizeRejection` — та же проверка,
+     * которую проходит сам вызов `FinalizeArtifact` (`finalizeCheck.ts`), поэтому «готов» и
+     * «финализация прошла бы прямо сейчас» здесь — буквально одно и то же утверждение.
+     */
+    const stageReady = (): boolean => {
+      if (req.finishGuard === null || req.finishGuard() !== null) return false;
+      const artifacts = req.formArtifacts ?? [];
+      return artifacts.every((p) => finalizeRejection(p, req.cwd, artifacts) === null);
+    };
+
     /**
      * Детектор застревания на `FinalizeArtifact`: путь артефакта → число незаполненных
      * мест на КАЖДОМ отказе подряд по этому пути. Ловит то, что не ловит анти-цикл выше
@@ -191,7 +244,13 @@ export class LoopExecutor implements StageExecutor {
      * готовности зелёного по зацикливанию не бывает).
      */
     const finishedByDisk = (): StageResult | null => {
-      if (req.finishGuard === null || req.finishGuard() !== null) return null;
+      // Тот же критерий, что у `stageReady()` выше — раньше здесь стоял только
+      // `finishGuard() === null`, а сам `stageReady()` был заведён именно потому, что
+      // этого мало: правка ОДНОЙ строки шаблона снимает complaint, пусть `‹…›` остались
+      // во всех прочих местах. Анти-цикл, сработавший на таком «полу-готовом» файле, до
+      // этой правки закрывал этап `ok:true` ровно на том пробеле, который `stageReady()`
+      // в этом же файле специально не признаёт готовым (code-review-all, 2026-09-11).
+      if (!stageReady()) return null;
       const note = 'цикл остановлен повтором вызова, но артефакт готов — этап закрыт по диску';
       hooks.onWarn(note);
       return { ok: true, finalText, usage, note };
@@ -219,10 +278,20 @@ export class LoopExecutor implements StageExecutor {
         tools,
         signal: req.signal,
         temperature: this.o.temperature,
-        params: this.o.params ?? null,
+        params: this.paramsFor(lastPromptTokens, hooks),
       });
 
       usage = addUsage(usage, answer.usage);
+      // `0` от сервера НЕ на первом ходу — типичный признак того, что сервер вовсе не
+      // прислал usage (`OpenAiCompatProvider.ts` подставляет 0 по умолчанию), а не что
+      // окно и правда опустело. Доверять такому `0` в `paramsFor` нельзя: он превратил бы
+      // «сервер смолчал» в «контекст свободен» и потребовал бы у модели максимум
+      // токенов — самый переполняющий запрос, воспроизводящий ровно то, от чего эта
+      // механика защищает. `null` — тот же безопасный путь, что у первого хода: `paramsFor`
+      // просто не считает `max_tokens` в СЛЕДУЮЩЕМ запросе, вместо того чтобы посчитать
+      // его неверно.
+      lastPromptTokens =
+        answer.usage.inputTokens === 0 && lastPromptTokens !== null ? null : answer.usage.inputTokens;
       hooks.onUsage(answer.usage);
       if (answer.text !== '') {
         finalText = answer.text;
@@ -499,6 +568,35 @@ export class LoopExecutor implements StageExecutor {
             'раз ПОСЛЕ правки, вместо серии команд до неё. Каждый ход стоит полного промпта.',
         });
       }
+
+      // Артефакт готов к финализации, а ход не кончается — по любой из двух причин
+      // (`StageExecutor.ts`, `closeOnFinalizeReady`): успешный `FinalizeArtifact` не
+      // остановил модель, либо правки уже готовы, а вызова не было вовсе. Первый ход
+      // «готово» — без напоминания: модель вправе позвать `FinalizeArtifact` СЛЕДУЮЩИМ
+      // ходом и закончить сама. Дальше — тот же ритм, что у серий чтения/Bash: два
+      // напоминания, и если готовность держится, этап закрывает рантайм.
+      if (req.closeOnFinalizeReady === true && req.finishGuard !== null) {
+        readyStreak = stageReady() ? readyStreak + 1 : 0;
+        if (readyStreak > 1) {
+          if (readyNudges < READY_STREAK_REMINDERS) {
+            readyNudges++;
+            hooks.onFriction('reminder');
+            messages.push({
+              role: 'user',
+              content:
+                'Артефакт этапа уже готов к финализации — дальнейшие правки не нужны. Вызови ' +
+                'FinalizeArtifact (если ещё не вызывал) и заверши ход, не открывая новых правок ' +
+                `(напоминание ${readyNudges} из ${READY_STREAK_REMINDERS}).`,
+            });
+          } else {
+            const note =
+              'цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ход не ' +
+              'завершён — этап закрыт по диску';
+            hooks.onWarn(note);
+            return { ok: true, finalText, usage, note };
+          }
+        }
+      }
     }
 
     return {
@@ -507,6 +605,38 @@ export class LoopExecutor implements StageExecutor {
       usage,
       note: `исчерпан лимит ходов этапа (${req.maxTurns})`,
     };
+  }
+
+  /**
+   * `params` запроса, с `max_tokens` по остатку окна вместо константы провайдера — когда
+   * `contextWindow` задан конфигом и есть с чем сравнить (не первый ход). `ModelDef.params`
+   * (`this.o.params`), если там назван `max_tokens`, перекрывает вычисленное значение —
+   * тем же порядком, что и у `applyParams` в провайдере: оператор, назвавший число явно,
+   * знает больше рантайма.
+   *
+   * Остаток ушёл ниже пола — предупреждение оператору тем же путём, что у `trimHistory`
+   * (`onOverBudget`/`hooks.onWarn` чуть выше): тихий пол выглядел бы как рабочий расчёт,
+   * хотя это уже признание, что защититься не вышло, и переполнение всё ещё вероятно.
+   */
+  private paramsFor(
+    lastPromptTokens: number | null,
+    hooks: ExecHooks,
+  ): Record<string, unknown> | null {
+    if (this.o.contextWindow === undefined || lastPromptTokens === null) {
+      return this.o.params ?? null;
+    }
+    const margin = marginFor(this.o.maxResultBytes, TOOL_RESULTS_MARGIN_FACTOR);
+    const budget = maxTokensForRemaining(this.o.contextWindow, lastPromptTokens, margin);
+    if (budget.clamped) {
+      hooks.onWarn(
+        `окно контекста (${this.o.contextWindow}) почти исчерпано: занято ~${lastPromptTokens} ` +
+          `токенов из истории плюс запас ${margin} — max_tokens ограничен полом ${budget.maxTokens}, ` +
+          'переполнение всё ещё вероятно',
+      );
+    }
+    const body: Record<string, unknown> = { max_tokens: budget.maxTokens };
+    applyParams(body, this.o.params ?? null);
+    return body;
   }
 
   private async handleCall(

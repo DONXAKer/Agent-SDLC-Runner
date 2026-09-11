@@ -12,17 +12,38 @@ import {
   checkJournalClaimsVsBash,
 } from '../src/honesty.ts';
 
-function toolResult(over: Partial<Extract<RunEvent, { type: 'tool_result' }>> = {}): RunEvent {
-  return {
-    type: 'tool_result',
-    runId: 'r',
-    stage: 'chunk',
-    requestId: 'x',
-    ok: true,
-    summary: 'Bash echo hi',
-    durationMs: 1,
-    ...over,
-  };
+/**
+ * Пара `tool_request`/`tool_result` с общим `requestId` — так, как лента выглядит на
+ * самом деле: `checkJournalClaimsVsBash` сверяет команду из `tool_request.call`, а не
+ * `tool_result.summary` (на флоу `loop` тот несёт вывод команды, не её текст —
+ * code-review-all, 2026-09-11).
+ */
+function bashCall(command: string, ok = true): RunEvent[] {
+  return [
+    {
+      type: 'tool_request',
+      runId: 'r',
+      stage: 'chunk',
+      requestId: 'x',
+      toolName: 'Bash',
+      rawInput: { command },
+      call: { kind: 'bash', command },
+      policy: { ok: true },
+      preview: null,
+      writeTargets: null,
+      destructive: null,
+      createdAt: 0,
+    },
+    {
+      type: 'tool_result',
+      runId: 'r',
+      stage: 'chunk',
+      requestId: 'x',
+      ok,
+      summary: ok ? 'код возврата 0' : 'код возврата 1',
+      durationMs: 1,
+    },
+  ];
 }
 
 describe('checkJournalClaimsVsBash', () => {
@@ -37,13 +58,13 @@ describe('checkJournalClaimsVsBash', () => {
   });
 
   it('утверждение подтверждено успешным bash-вызовом команды тестов', () => {
-    const events = [toolResult({ summary: 'Bash node --test "test/**/*.test.ts"', ok: true })];
+    const events = bashCall('node --test "test/**/*.test.ts"');
     const r = checkJournalClaimsVsBash('прогнали тесты — все пройдены', events);
     strictEqual(r.ok, true);
   });
 
   it('провалившийся bash-вызов тестов не считается подтверждением', () => {
-    const events = [toolResult({ summary: 'Bash node --test', ok: false })];
+    const events = bashCall('node --test', false);
     const r = checkJournalClaimsVsBash('тесты пройдены', events);
     strictEqual(r.ok, false);
   });

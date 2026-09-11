@@ -30,7 +30,7 @@ import type {
   ChatTurn,
   FinishReason,
 } from './ChatProvider.ts';
-import { ProviderEnvError } from './ChatProvider.ts';
+import { ProviderEnvError, applyParams } from './ChatProvider.ts';
 import { dumpExchange, type TraceLabel } from './rawLog.ts';
 
 interface OpenAiChoice {
@@ -166,21 +166,6 @@ export function toolCallFromText(text: string, known: ReadonlySet<string>): Chat
     };
   }
   return null;
-}
-
-/**
- * Параметры из конфига модели (`ModelDef.params`) — поверх собранного тела запроса:
- * оператор сознательно перекрывает наши умолчания (temperature, max_tokens, tool_choice,
- * response_format, seed…). Служебные ключи не отдаются: их подмена ломала бы разбор
- * ответа, а не поведение модели, — `stream: true` молча оставил бы раннер ждать конца
- * несобираемого ответа, а подменённые `messages` разошлись бы с показанным оператору
- * промптом.
- */
-export function applyParams(body: Record<string, unknown>, params: Record<string, unknown> | null): void {
-  for (const [key, value] of Object.entries(params ?? {})) {
-    if (key === 'model' || key === 'messages' || key === 'tools' || key === 'stream') continue;
-    body[key] = value;
-  }
 }
 
 /** Индекс закрывающей скобки объекта, начинающегося в `start`. `-1` — не закрыт. */

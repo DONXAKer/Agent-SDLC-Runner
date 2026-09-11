@@ -1,0 +1,520 @@
+{
+  "run": {
+    "slug": "ollama-gptoss20bagent-freeship-full",
+    "model": "ollama:gpt-oss-20b-agent",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-agent",
+      "explore": "ollama:gpt-oss-20b-agent",
+      "ask": "ollama:gpt-oss-20b-agent",
+      "plan": "ollama:gpt-oss-20b-agent",
+      "chunk": "ollama:gpt-oss-20b-agent",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:gpt-oss-20b-agent"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-11T07:35:39.559Z",
+    "finishedAt": "2026-09-11T08:20:46.935Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 24, осталось на диске 14; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "секция «Последствия шагов» плана не доведена:\n- в таблице принятых рисков есть строка «Совместимость и данные», но исход этой оси — не «риск»\nИсход — из закрытого словаря: claim-N, инвариант, гейт «имя», принятый риск (с причиной и сроком возврата), следующий виток либо «н/п — почему». Совет свободным текстом исходом не является: у него нет исполнителя.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 128418,
+          "outputTokens": 28113,
+          "cacheReadTokens": 75151,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2545326
+        },
+        "durationMs": 1045087
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 317814,
+          "outputTokens": 13326,
+          "cacheReadTokens": 156673,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1099458
+        },
+        "durationMs": 938378
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 55192,
+          "outputTokens": 7672,
+          "cacheReadTokens": 45875,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 136199
+        },
+        "durationMs": 136243
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 250618,
+          "outputTokens": 33266,
+          "cacheReadTokens": 230251,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 985258
+        },
+        "durationMs": 587527
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 0,
+        "toolCalls": 16,
+        "reminders": 3
+      },
+      {
+        "stage": "ask",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 6,
+        "reminders": 1
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 10
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 14
+      },
+      {
+        "stage": "ask",
+        "questions": 1,
+        "approvals": 4,
+        "waitMs": 16
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 3
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 22
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 16
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 8
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:60a78e3c-e192-4a90-a55b-6c351fffe4db",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\ollama-gptoss20bagent-freeship-full\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:2b9789bc-0fb4-4e1f-8756-a3435d4fac51",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\ollama-gptoss20bagent-freeship-full\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:44fcaeef-f54d-44b2-a610-99b666ac0ef5",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-52szBq/.sdlc/ollama-gptoss20bagent-freeship-full/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:88fd729d-c759-4457-abd2-4d1b6bebd9c6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-52szBq/.sdlc/ollama-gptoss20bagent-freeship-full/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:175a273f-b5d4-42ab-b662-abea47b61ce2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-52szBq/.sdlc/ollama-gptoss20bagent-freeship-full/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:9f2bcbcd-c736-4dd6-9f32-ed7b95472a19",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\ollama-gptoss20bagent-freeship-full\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:840ed21b-42f8-4ac7-ba2c-0a95dc78df09",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/ollama-gptoss20bagent-freeship-full/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:09985a40-d6de-4d06-a600-6e9239e41185",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/ollama-gptoss20bagent-freeship-full/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:7a7562ca-50c3-4f4b-9c7e-262cf5f7c99a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/ollama-gptoss20bagent-freeship-full/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:e0718eae-62b5-4f9f-9fe7-4bf2e882eecd",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:ab5805db-e684-4ba0-8779-8f1ad766e6e5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\ollama-gptoss20bagent-freeship-full\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Укажите ветку, в которой вы работаете, например `sdlc/freeship`."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": [
+      {
+        "stage": "explore",
+        "requestId": "loop:6fe2f875-7843-4412-99a7-5c1f8da47540",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10192,
+        "userChars": 5340,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10493,
+        "userChars": 11756,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 6168,
+        "userChars": 11737,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 14476,
+        "userChars": 16489,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "ask",
+        "requestId": "ask-8dbf858f-37ce-4b4e-9eda-b187db01bd29-1",
+        "questionId": "q1",
+        "text": "Укажите ветку, в которой вы работаете, например `sdlc/freeship`."
+      }
+    ]
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 1"
+    }
+  ]
+}

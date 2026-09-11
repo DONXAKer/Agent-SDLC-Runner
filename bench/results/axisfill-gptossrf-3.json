@@ -1,0 +1,167 @@
+{
+  "run": {
+    "slug": "axisfill-gptossrf-3",
+    "model": "ollama:gpt-oss-20b-rf",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "plan"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "ollama:gpt-oss-20b-rf",
+      "chunk": "claude-sdk:sonnet",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "plan"
+    ],
+    "startedAt": "2026-09-10T08:50:05.608Z",
+    "finishedAt": "2026-09-10T08:59:43.572Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "секция «Последствия шагов» плана не доведена:\n- ось «claim-9»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «claim-9»: исход не из словаря (пусто) — нужен claim-N, инвариант, гейт «имя», риск, следующий виток либо «н/п — почему». Свободный текст исходом не является: у рекомендации нет исполнителя\n- ось «claim-10»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «claim-10»: исход не из словаря (пусто) — нужен claim-N, инвариант, гейт «имя», риск, следующий виток либо «н/п — почему». Свободный текст исходом не является: у рекомендации нет исполнителя\n- ось «claim-11»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «claim-11»: исход не из словаря (пусто) — нужен claim-N, инвариант, гейт «имя», риск, следующий виток либо «н/п — почему». Свободный текст исходом не является: у рекомендации нет исполнителя\n- в таблице принятых рисков есть строка «Безопасность», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Ресурсы и скорость», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Отказы зависимостей», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Настройки», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Совместимость и данные», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Наблюдаемость», но исход этой оси — не «риск»\nИсход — из закрытого словаря: claim-N, инвариант, гейт «имя», принятый риск (с причиной и сроком возврата), следующий виток либо «н/п — почему». Совет свободным текстом исходом не является: у него нет исполнителя.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 275697,
+          "outputTokens": 31072,
+          "cacheReadTokens": 254998,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 958795
+        },
+        "durationMs": 577865
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 6
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "plan.md",
+        "placeholders": 8
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 12
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "plan",
+        "requestId": "form:acd85c63-ad2a-4722-9772-7fab65373506",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\axisfill-gptossrf-3\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "plan",
+        "systemChars": 14417,
+        "userChars": 18505,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

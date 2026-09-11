@@ -54,8 +54,12 @@ export function splitHunks(diff: string): Hunk[] {
   return out;
 }
 
-/** Значимые слова строки: короткие и числовые отбрасываются — они совпадают со всем. */
-function tokens(text: string): string[] {
+/**
+ * Значимые слова строки: короткие и числовые отбрасываются — они совпадают со всем.
+ * Экспортируется для индекса разведки (`explore/keywords.ts`, `explore/compare.ts`): та же
+ * мера значимости, что у среза патча под пункт, — не вторая копия.
+ */
+export function significantTokens(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[^\p{L}\p{N}_]+/u)
@@ -69,9 +73,9 @@ function tokens(text: string): string[] {
  * которая могла бы разойтись с ней при следующей правке.
  */
 function rankHunks(claimText: string, hunks: readonly Hunk[]): { h: Hunk; score: number; i: number }[] {
-  const words = new Set(tokens(claimText));
+  const words = new Set(significantTokens(claimText));
   const scored = hunks.map((h, i) => {
-    const hit = new Set(tokens(`${h.file}\n${h.text}`));
+    const hit = new Set(significantTokens(`${h.file}\n${h.text}`));
     let score = 0;
     for (const w of words) if (hit.has(w)) score++;
     // Порядок в патче — вторичный ключ: при равном совпадении срез обязан быть

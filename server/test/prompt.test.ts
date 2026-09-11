@@ -198,6 +198,60 @@ describe('сборка промпта из эталона', { skip: нетЭта
     ok(/помечай словом «новый»/.test(p.system), p.system.slice(-600));
   });
 
+  // В режиме `formFill`/`exploreFill` инструментов нет вовсе (проверяется отдельным пунктом
+  // промпта) — называть `Task`/`Read`/`Glob`/`Grep` как доступные вызовы было бы прямым
+  // противоречием в том же промпте (ревью code-review-all, 2026-09-11). Правило карты
+  // (только существующие пути) при этом остаётся — оно про содержание ответа, не про
+  // инструмент.
+  it('этап 2 в режиме formFill: без инструментов не называет ни Task, ни Read/Glob/Grep', () => {
+    writeArtifact(paths.intent, '# Задача\n');
+
+    const p = buildPrompt({
+      runner: cfg.runner,
+      stage: stageById('explore'),
+      ctx,
+      flow: 'loop',
+      slug: 'demo',
+      now,
+      formFill: true,
+    });
+
+    ok(/только пути, которые СЕЙЧАС есть в дереве/.test(p.system), 'правило карты пропало вместе с инструментами');
+    ok(!/Роль «Агент 1/.test(p.system), 'зовёт делать разведку Read/Glob/Grep без инструментов');
+    ok(!p.system.includes('Субагенты этого этапа'), 'называет Task при отсутствии инструментов');
+  });
+
+  it('этап 4: правило оси канона отличается от claim-N названо в промпте', () => {
+    const p = buildPrompt({
+      runner: cfg.runner,
+      stage: stageById('plan'),
+      ctx,
+      flow: 'loop',
+      slug: 'demo',
+      now,
+    });
+
+    ok(/Безопасность, Ресурсы и скорость/.test(p.system), p.system.slice(-600));
+    ok(/а не `claim-1`\/`claim-2`/.test(p.system), p.system.slice(-600));
+  });
+
+  it('правило оси канона не протекает на другие этапы', () => {
+    writeArtifact(paths.intent, '# Задача\n');
+    writeArtifact(paths.plan, '# План\n');
+    writeArtifact(paths.chunkJournal(2), '# Журнал\n');
+
+    const p = buildPrompt({
+      runner: cfg.runner,
+      stage: stageById('chunk'),
+      ctx,
+      flow: 'loop',
+      slug: 'demo',
+      now,
+    });
+
+    ok(!p.system.includes('Последствия шагов» ровно'));
+  });
+
   it('вычитающий блок этапа 6 не протекает на другие этапы', () => {
     writeArtifact(paths.intent, '# Задача\n');
     writeArtifact(paths.plan, '# План\n');

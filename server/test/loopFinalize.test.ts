@@ -7,10 +7,10 @@
  * делал только вход СЛЕДУЮЩЕГО этапа, то есть ложный зелёный жил до чужого предусловия.
  */
 
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ok } from 'node:assert/strict';
+import { ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { NormalizedCall, ToolName } from '@sdlc-runner/shared';
@@ -189,8 +189,116 @@ describe('детектор застревания FinalizeArtifact (explore не
   });
 });
 
+const readCall = (id: string, path: string) => ({ id, name: 'Read', arguments: { file_path: path } });
+
+/** Страж, эквивалентный `notDone()` для одного артефакта: готов ↔ ни одного `‹…›`. */
+function finishGuardFor(path: string): () => string | null {
+  return () => (readFileSync(path, 'utf8').includes('‹') ? 'не готово' : null);
+}
+
+describe('закрытие готового этапа рантаймом (closeOnFinalizeReady)', () => {
+  it('успешный FinalizeArtifact не останавливает модель — рантайм закрывает этап сам', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const h = hooks({ results: [] });
+
+    const result = await exec([
+      // Ход 1: правка закрывает последнее место и туда же — успешный FinalizeArtifact.
+      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего'), finalizeCall('exploration-report.md')] },
+      // Ходы 2–4: модель не завершает ход, хотя готовность уже достигнута.
+      { text: '', toolCalls: [readCall('r1', 'a.txt')] },
+      { text: '', toolCalls: [readCall('r2', 'b.txt')] },
+      { text: '', toolCalls: [readCall('r3', 'c.txt')] },
+    ]).run(
+      request(root, {
+        maxTurns: 10,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      h,
+    );
+
+    strictEqual(result.ok, true, result.note);
+    ok(result.note.includes('закрыт по диску'), result.note);
+  });
+
+  it('правки сделали артефакт готовым, а FinalizeArtifact не вызван вовсе — тот же исход', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const h = hooks({ results: [] });
+
+    const result = await exec([
+      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего')] },
+      { text: '', toolCalls: [readCall('r1', 'a.txt')] },
+      { text: '', toolCalls: [readCall('r2', 'b.txt')] },
+      { text: '', toolCalls: [readCall('r3', 'c.txt')] },
+    ]).run(
+      request(root, {
+        maxTurns: 10,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      h,
+    );
+
+    strictEqual(result.ok, true, result.note);
+    ok(result.note.includes('закрыт по диску'), result.note);
+  });
+
+  it('первый ход готовности напоминания не получает — модель успевает закончить сама', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const h = hooks({ results: [] });
+
+    const result = await exec([
+      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего'), finalizeCall('exploration-report.md')] },
+      { text: 'готово' },
+    ]).run(
+      request(root, {
+        maxTurns: 10,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      h,
+    );
+
+    strictEqual(result.ok, true, result.note);
+    ok(!result.note.includes('закрыт по диску'), result.note);
+  });
+
+  it('ручка выключена (умолчание) — этап тянется до maxTurns как раньше', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const h = hooks({ results: [] });
+
+    const result = await exec([
+      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего'), finalizeCall('exploration-report.md')] },
+      { text: '', toolCalls: [readCall('r1', 'a.txt')] },
+      { text: '', toolCalls: [readCall('r2', 'b.txt')] },
+      { text: '', toolCalls: [readCall('r3', 'c.txt')] },
+    ]).run(
+      request(root, {
+        maxTurns: 4,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        // closeOnFinalizeReady не задан — то же, что chunk сегодня.
+      }),
+      h,
+    );
+
+    strictEqual(result.ok, false, result.note);
+    ok(result.note.includes('исчерпан лимит ходов'), result.note);
+  });
+});
+
 // Хвост вывода для улики тестов: см. BuiltinOutcome.outputTail.
-import { strictEqual } from 'node:assert/strict';
 import { outputTailOf } from '../src/gates/builtin/index.ts';
 
 describe('outputTailOf — хвост вывода для улики', () => {

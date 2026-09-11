@@ -1,0 +1,219 @@
+{
+  "run": {
+    "slug": "lmstudio-qwen3coder30b-freeship-full-mt40-v2",
+    "model": "lmstudio:qwen3-coder-30b-stepfill",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:qwen3-coder-30b-stepfill",
+      "explore": "lmstudio:qwen3-coder-30b-stepfill",
+      "ask": "lmstudio:qwen3-coder-30b-stepfill",
+      "plan": "lmstudio:qwen3-coder-30b-stepfill",
+      "chunk": "lmstudio:qwen3-coder-30b-stepfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "lmstudio:qwen3-coder-30b-stepfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-11T07:11:02.682Z",
+    "finishedAt": "2026-09-11T07:26:52.712Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 29, осталось на диске 9; поле не спрошено (.sdlc\\lmstudio-qwen3coder30b-freeship-full-mt40-v2\\intent.md, ‹path/to/file›): lmstudio: HTTP 400 от http://localhost:1434/v1 — {\"error\":\"Engine protocol predict stream returned an error: {\\\"code\\\":500,\\\"message\\\":\\\"Context size has been e; поле не спрошено (.sdlc\\lmstudio-qwen3coder30b-freeship-full-mt40-v2\\intent.md, ‹что в этом коде нельзя менять без вопроса›): lmstudio: HTTP 400 от http://localhost:1434/v1 — {\"error\":\"Engine protocol predict request returned 500: {\\\"error\\\":{\\\"code\\\":500,\\\"message\\\":\\\"Context size has; поле не спрошено (.sdlc\\lmstudio-qwen3coder30b-freeship-full-mt40-v2\\intent.md, ‹чем›): lmstudio: HTTP 400 от http://localhost:1434/v1 — {\"error\":\"Engine protocol predict request returned 500: {\\\"error\\\":{\\\"code\\\":500,\\\"message\\\":\\\"Context size has; добор листа приёмки (попытка 1): модель вернула 63 строк, добавлено 63 — теперь пунктов 103, [edge] 63",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-xPZupp\\.sdlc\\lmstudio-qwen3coder30b-freeship-full-mt40-v2\\intent.md осталось незаполненных мест: 2 — артефакт не готов",
+        "blockers": [
+          "в C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-xPZupp\\.sdlc\\lmstudio-qwen3coder30b-freeship-full-mt40-v2\\intent.md осталось незаполненных мест: 2 — артефакт не готов"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 222792,
+          "outputTokens": 38897,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1157858
+        },
+        "durationMs": 950017
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 26
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 14
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:0e5d63eb-735d-4ec9-9a72-24f775e6bac8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\lmstudio-qwen3coder30b-freeship-full-mt40-v2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 12
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:c8c7a851-8392-450b-ad8e-af5adfc058ce",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\lmstudio-qwen3coder30b-freeship-full-mt40-v2\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:0829e0fe-0fab-4908-849b-867f626ff32f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\lmstudio-qwen3coder30b-freeship-full-mt40-v2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 10
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10237,
+        "userChars": 5340,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

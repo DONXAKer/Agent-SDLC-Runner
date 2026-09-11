@@ -39,14 +39,34 @@ function normalizeClaimText(text: string): string {
   return text.toLowerCase().replace(/ё/g, 'е');
 }
 
-/** Bash-вызов, похожий на прогон тестов проекта. */
-const TEST_BASH_RE = /\b(npm (run )?test|node\s+--test|node --test)\b/i;
+/**
+ * Bash-вызов, похожий на прогон тестов проекта — по нескольким экосистемам, не только
+ * Node: раннер поддерживает Go/Python/Rust/… целевые проекты (`gates/ecosystems/`), и
+ * честность доказательства не обязана зависеть от языка (найдено code-review-all,
+ * 2026-09-11— прежний список из трёх Node-форм давал ложную нечестность на любом
+ * нероста Node-проекте).
+ */
+const TEST_BASH_RE =
+  /\b(npm (run )?test|node\s+--test|pytest|python[3]?\s+-m\s+pytest|cargo\s+test|go\s+test|dotnet\s+test|bundle exec rspec|rspec|swift\s+test|gradle\s+test|gradlew\s+test|mvn\s+test)\b/i;
+
+/** Успешный `tool_result` — по `requestId`, узнать вызов можно только через него. */
+function isOkToolResult(e: RunEvent): e is Extract<RunEvent, { type: 'tool_result' }> {
+  return e.type === 'tool_result' && e.ok;
+}
 
 /**
  * Утверждение о прогоне тестов в журнале против факта bash-вызова в ленте.
  *
  * Текст без вызова — сочинённое утверждение: рассказ о работе, которой не было. Лента —
- * события витка как их видит рантайм (`tool_result` с результатом вызова).
+ * события витка как их видит рантайм.
+ *
+ * Сверяется КОМАНДА из `tool_request.call` (`NormalizedCall`, одна и та же форма на обоих
+ * флоу — CLAUDE.md, «два флоу — одна форма вызова»), а не текст `tool_result.summary`: на
+ * флоу `loop` `summary` успешного Bash — первая строка его ВЫВОДА («код возврата 0»,
+ * `LoopExecutor.handleCall`), а не описание вызова, и проверка по ней не находила ни
+ * одного реального запуска тестов на этом флоу вообще, независимо от regex'а (найдено
+ * code-review-all, 2026-09-11). На флоу `sdk` `summary` уже был описанием вызова
+ * (`describeCall`), поэтому расхождение не проявлялось там и не было замечено раньше.
  */
 export function checkJournalClaimsVsBash(
   journalText: string,
@@ -65,9 +85,11 @@ export function checkJournalClaimsVsBash(
     };
   }
 
-  const ranTests = events.some(
-    (e) => e.type === 'tool_result' && e.ok && TEST_BASH_RE.test(e.summary),
-  );
+  const okRequestIds = new Set(events.filter(isOkToolResult).map((e) => e.requestId));
+  const ranTests = events.some((e) => {
+    if (e.type !== 'tool_request' || e.call.kind !== 'bash') return false;
+    return okRequestIds.has(e.requestId) && TEST_BASH_RE.test(e.call.command);
+  });
 
   if (!ranTests && !observedFromStart) {
     return {

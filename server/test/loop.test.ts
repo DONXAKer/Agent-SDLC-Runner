@@ -16,6 +16,7 @@ import type { Decision, PreparedPrompt } from '@sdlc-runner/shared';
 import { emptyUsage } from '@sdlc-runner/shared';
 
 import { LoopExecutor } from '../src/exec/LoopExecutor.ts';
+import type { LoopOptions } from '../src/exec/LoopExecutor.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import { executeTool, type ToolContext } from '../src/exec/tools/index.ts';
 import type { ChatProvider, ChatRequest, ChatTurn } from '../src/provider/ChatProvider.ts';
@@ -170,6 +171,18 @@ describe('инструменты цикла', () => {
     ok(r.ok, r.text);
   });
 
+  // Относительный импорт без расширения `.ts` резолвится здесь терпимо (эта проверка — про
+  // имена экспорта, не про формат пути): в отличие от прежней версии, «файл нашёлся» не
+  // считается расхождением сама по себе. Формат пути под конкретный проект — гейт
+  // «Импорты» (`server/test/importsGate.test.ts`), не эта проверка Write/Edit.
+  it('Write с импортом без расширения `.ts` — не расхождение (формат пути не здесь)', async () => {
+    const r = await executeTool(
+      { kind: 'write', path: 'noExt.ts', content: "import { add } from './money';\n" },
+      ctx,
+    );
+    ok(r.ok, r.text);
+  });
+
   // Серии из 4–26 промахов подряд у одной и той же модели по одному и тому же файлу
   // (`docs/model-runs.md`, серия r33) — модель не звала Read между попытками.
   it('промах Edit возвращает текущее содержимое файла, а не только «прочитай заново»', async () => {
@@ -316,13 +329,14 @@ function provider(turns: Partial<ChatTurn>[]): ChatProvider & { seen: ChatReques
   };
 }
 
-function executor(p: ChatProvider): LoopExecutor {
+function executor(p: ChatProvider, over: Partial<LoopOptions> = {}): LoopExecutor {
   return new LoopExecutor({
     provider: p,
     maxResultBytes: 5_000,
     readRangeRequiredAboveBytes: 1_000_000,
     bashTimeoutMs: 30_000,
     temperature: null,
+    ...over,
   });
 }
 
@@ -509,5 +523,80 @@ describe('цикл tool-use', () => {
     // является — права субагента задаются конструкцией, а не просьбой модели.
     await executor(p).run(request({ allowedTools: ['Read', 'Task'] }), h);
     ok(h.warns.some((w) => /не объявлен/.test(w)), h.warns.join('; '));
+  });
+});
+
+describe('max_tokens по остатку окна (LoopOptions.contextWindow)', () => {
+  it('не задан contextWindow — params уходит как есть, без вычисления', async () => {
+    const p = provider([
+      { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    await executor(p, { params: { seed: 1 } }).run(request(), hooks());
+    deepStrictEqual(p.seen[0]?.params, { seed: 1 });
+    deepStrictEqual(p.seen[1]?.params, { seed: 1 });
+  });
+
+  it('первый ход — окну ещё не с чем сравнить, params не тронут', async () => {
+    const p = provider([{ toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' }]);
+    await executor(p, { contextWindow: 4096 }).run(request({ maxTurns: 1 }), hooks());
+    deepStrictEqual(p.seen[0]?.params, null);
+  });
+
+  it('второй ход — max_tokens посчитан по prompt_tokens первого ответа и запасу', async () => {
+    const p = provider([
+      {
+        toolCalls: [readCall('src/deep/A.ts')],
+        finishReason: 'tool_use',
+        usage: { ...emptyUsage(), inputTokens: 3000 },
+      },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    const h = hooks();
+    // Запас — TOOL_RESULTS_MARGIN_FACTOR (3) результатов у потолка `maxResultBytes`
+    // тестового исполнителя (5000 байт): ceil(5000/4)×3 = 3750 (code-review-all,
+    // 2026-09-11 — прежний фиксированный запас 512 был на порядок меньше одного
+    // крупного результата инструмента). Окно взято большим специально, чтобы остаток
+    // остался положительным при таком запасе: 16384 − 3000 − 3750 = 9634.
+    await executor(p, { contextWindow: 16384 }).run(request(), h);
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 9634 });
+    ok(!h.warns.some((w) => /почти исчерпано/.test(w)), 'предупреждения при незажатом расчёте быть не должно');
+  });
+
+  it('остаток ушёл в минус — пол не даёт вырожденный потолок, и оператор предупреждён', async () => {
+    const p = provider([
+      {
+        toolCalls: [readCall('src/deep/A.ts')],
+        finishReason: 'tool_use',
+        usage: { ...emptyUsage(), inputTokens: 3000 },
+      },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    const h = hooks();
+    // 4096 − 3000 − 3750 (запас) < 0 — пол MIN_MAX_TOKENS = 256 забирает верх.
+    await executor(p, { contextWindow: 4096 }).run(request(), h);
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 256 });
+    ok(
+      h.warns.some((w) => /почти исчерпано/.test(w)),
+      'тихий пол выглядел бы как рабочий расчёт — оператор обязан быть предупреждён',
+    );
+  });
+
+  it('явный max_tokens в ModelDef.params перекрывает вычисленное значение', async () => {
+    const p = provider([
+      {
+        toolCalls: [readCall('src/deep/A.ts')],
+        finishReason: 'tool_use',
+        usage: { ...emptyUsage(), inputTokens: 3000 },
+      },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    await executor(p, { contextWindow: 4096, params: { max_tokens: 999, temperature: 0.1 } }).run(
+      request(),
+      hooks(),
+    );
+    // Оператор назвал число явно — он знает больше рантайма (тот же порядок, что у
+    // `applyParams` в провайдере).
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 999, temperature: 0.1 });
   });
 });

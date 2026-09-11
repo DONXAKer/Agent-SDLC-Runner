@@ -111,6 +111,8 @@ function route(stage: StageId, modelId: string, rank: number): ResolvedRoute {
     planAxisFill: false,
     stepFill: false,
     compactForms: 'off',
+    exploreIndex: false,
+    exploreFill: false,
   };
 }
 

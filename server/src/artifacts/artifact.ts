@@ -248,6 +248,27 @@ export function countPlaceholdersExceptSections(text: string, headings: readonly
   return placeholderRanges(text).filter((p) => !excluded.some((r) => p.start >= r.start && p.start < r.end)).length;
 }
 
+/**
+ * Плейсхолдеры, не считая строк решений человека (метка `DECISION.*` и их продолжения).
+ *
+ * Нужен стражам дозаполнения по полям: на отчёте разведки плейсхолдер «Решение человека о
+ * полноте» остаётся ВСЕГДА — это humanGate этапа, и модели он не отдаётся. Пока страж
+ * считал `readArtifact().placeholders > 0`, дозаполнение explore не могло перевернуть исход
+ * ни при каком заполнении (найдено при проектировании волны 1 туллинга, 2026-09-11).
+ */
+export function countPlaceholdersExceptDecisions(text: string): number {
+  let n = 0;
+  for (const r of placeholderRanges(text)) {
+    const lineStart = text.lastIndexOf('\n', r.start - 1) + 1;
+    const lineEndIdx = text.indexOf('\n', r.start);
+    const line = text.slice(lineStart, lineEndIdx < 0 ? text.length : lineEndIdx);
+    if (isDecisionLine(line)) continue;
+    if (/^\s+\S/.test(line) && continuationOfDecision(text, lineStart)) continue;
+    n++;
+  }
+  return n;
+}
+
 /** Позиции незаполненных мест — для подсветки в редакторе артефакта. */
 export function placeholderRanges(text: string): { start: number; end: number; text: string }[] {
   const out: { start: number; end: number; text: string }[] = [];
@@ -639,6 +660,17 @@ export function readDecision(text: string, label: string): DecisionState {
   }
 
   return { state: 'granted', raw: rawFull };
+}
+
+/**
+ * Заменяет всё после жирной метки поля (`**Метка:**`) значением — тем же приёмом, что
+ * `setDecision`, но для ЛЮБОГО поля-метки, не только решения человека. `null` — поля нет:
+ * вызывающий решает сам, ошибка это или норма (отсутствующая необязательная строка).
+ */
+export function replaceAfterLabel(text: string, label: string, value: string): string | null {
+  const re = fieldRegex(label);
+  if (!re.test(text)) return null;
+  return text.replace(re, (_full, head: string) => `${head} ${value}`);
 }
 
 /** Записывает решение в поле, заменяя всё после метки. Возвращает новый текст. */

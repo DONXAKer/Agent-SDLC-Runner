@@ -63,9 +63,11 @@ import { symlinkEscape } from '../approval/symlink.ts';
 import { git } from '../gates/git.ts';
 import { isAbsolute, relativizeWithin, resolveUserPath, toPosix } from '../policy/paths.ts';
 import type { ChatMessage, ChatProvider, FinishReason } from '../provider/ChatProvider.ts';
+import { applyParams } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { cap, executeTool, type ToolContext } from './tools/index.ts';
+import { estimateMessageTokens, marginFor, maxTokensForRemaining } from './contextBudget.ts';
 
 /**
  * Исход проверки после шага. `skipped` — проверка не состоялась (строки гейта нет, среда
@@ -85,6 +87,17 @@ export interface StepExecutorOptions {
   bashTimeoutMs: number;
   params?: Record<string, unknown> | null;
   currency?: string;
+  /**
+   * Окно контекста этой записи конфига (`ModelDef.contextWindow`) — тот же смысл, что у
+   * `LoopOptions.contextWindow` (`contextBudget.ts`), только остаток считается не по
+   * `prompt_tokens` прошлого хода (шаги не делят историю — каждый запрос независим), а
+   * прямой оценкой СОБИРАЕМОГО запроса: она известна ДО отправки, точнее любой лаг-оценки.
+   * Не задано — прежнее поведение, `max_tokens` остаётся дефолтом провайдера/`params`.
+   * До этой правки поле читала только преполётная проверка LM Studio — маршруты
+   * `stepFill` с объявленным `contextWindow` (`config/models.json`) не получали от него
+   * никакой защиты (code-review-all, 2026-09-11).
+   */
+  contextWindow?: number;
   steps: readonly PlanStep[];
   /** Текст плана — для ориентира; режется по `maxResultBytes`. */
   planText: string;
@@ -361,6 +374,29 @@ export class StepExecutor implements StageExecutor {
     this.o = o;
   }
 
+  /**
+   * `params` запроса — `max_tokens` по остатку окна (`contextBudget.ts`), когда
+   * `contextWindow` задан. В отличие от `LoopExecutor` (растущая история, остаток
+   * известен только по прошлому `prompt_tokens`), здесь каждый запрос независим и его
+   * размер известен ДО отправки — оценка `estimateMessageTokens` точнее любой лаг-оценки,
+   * запас нужен лишь под её собственную неточность (`Math.ceil(bytes/4)`), не под
+   * непрослеженный прирост истории между ходами.
+   */
+  private paramsFor(messages: readonly ChatMessage[], hooks: ExecHooks): Record<string, unknown> | null {
+    if (this.o.contextWindow === undefined) return this.o.params ?? null;
+    const margin = marginFor(this.o.maxResultBytes, 1);
+    const budget = maxTokensForRemaining(this.o.contextWindow, estimateMessageTokens(messages), margin);
+    if (budget.clamped) {
+      hooks.onWarn(
+        `окно контекста (${this.o.contextWindow}) почти исчерпано этим запросом шага — max_tokens ` +
+          `ограничен полом ${budget.maxTokens}, переполнение всё ещё вероятно`,
+      );
+    }
+    const body: Record<string, unknown> = { max_tokens: budget.maxTokens };
+    applyParams(body, this.o.params ?? null);
+    return body;
+  }
+
   async run(req: ExecRequest, hooks: ExecHooks): Promise<StageResult> {
     if (this.o.steps.length === 0) {
       return {
@@ -410,7 +446,7 @@ export class StepExecutor implements StageExecutor {
         tools: [],
         signal: req.signal,
         temperature: null,
-        params: this.o.params ?? null,
+        params: this.paramsFor(messages, hooks),
       });
       callsTotal++;
       usage = addUsage(usage, answer.usage);

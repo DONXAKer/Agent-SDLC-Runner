@@ -44,6 +44,16 @@ function splice(text: string, range: { start: number; end: number }, value: stri
 }
 
 /**
+ * Конец строки документа — `\r\n` или `\n`. Шаблоны эталона лежат с `\r\n`; склейка
+ * многострочных значений (`renderList`/`renderRecords`) через голый `\n` давала файл со
+ * смешанными концами строк (ревью code-review-all, 2026-09-11: подтверждено прогоном на
+ * реальном `exploration-report.template.md`).
+ */
+function eolOf(text: string): string {
+  return text.includes('\r\n') ? '\r\n' : '\n';
+}
+
+/**
  * Строка выбранного варианта меню — целиком, с её собственным плейсхолдером или
  * значением, если у варианта был слот комментария. Ровно то, что делает `setDecision`
  * («заменяет всё после метки»): вторая ветка меню исчезает по построению, а не остаётся
@@ -76,8 +86,14 @@ function countExistingRecords(existing: string, shape: FormField['shape']): numb
   return existing.split('\n').filter((l) => /^[-*+]\s/.test(l.trim())).length;
 }
 
-/** Записи `records`-поля по образцу поля: столько строк, сколько дал ответ. */
-function renderRecords(field: FormField, rows: readonly Record<string, string>[], startIndex = 0): string {
+/**
+ * Записи `records`-поля по образцу поля: столько строк, сколько дал ответ. `eol` — конец
+ * строки ДОКУМЕНТА, а не образца: образец однострочен почти всегда (`| ‹a› | ‹b› |`) и
+ * своего `\r\n` не несёт, поэтому определять его по образцу значило бы всегда получать
+ * голый `\n` и смешивать концы строк с окружающим CRLF-текстом (ревью code-review-all,
+ * 2026-09-11, подтверждено прогоном на реальном шаблоне эталона).
+ */
+function renderRecords(field: FormField, rows: readonly Record<string, string>[], eol: string, startIndex = 0): string {
   const columns = field.columns ?? [];
   if (field.shape === 'table') {
     return rows
@@ -99,19 +115,43 @@ function renderRecords(field: FormField, rows: readonly Record<string, string>[]
         });
         return `| ${cells.join(' | ')} |`;
       })
-      .join('\n');
+      .join(eol);
   }
   // records-список (`- ‹a› — ‹b›`): по образцу, тем же разделителем.
   const sepMatch = /\s+[—–]\s+/.exec(field.sample ?? '');
   const sep = sepMatch === null ? ' — ' : sepMatch[0];
   return rows
     .map((row) => `- ${columns.map((c) => row[c.id] ?? '').join(sep)}`)
-    .join('\n');
+    .join(eol);
 }
 
-function renderList(field: FormField, items: readonly string[]): string {
-  const numbered = /^\s*\d+[.)]/.test(field.sample ?? '');
-  return items.map((it, i) => (numbered ? `${i + 1}. ${it}` : `- ${it}`)).join('\n');
+/**
+ * Статичное окружение образца вокруг ПЕРВОГО плейсхолдера (`- [ ] **[блокирующий]** ‹вопрос›`
+ * → префикс `- [ ] **[блокирующий]** `, суффикс ``) — то, что образец несёт помимо самого
+ * значения. Без этого `renderList` рисовал голое `- item` и терял чек-бокс/метку списка,
+ * которые сам список несёт в разметке, а не в тексте элемента (ревью code-review-all,
+ * 2026-09-11: `applyFill('всплывшие вопросы', …)` терял `- [ ] **[блокирующий]**`, из-за
+ * чего `hasOpenQuestions` не видел записанный вопрос). Единый префикс не различает
+ * варианты образца («блокирующий» vs «неблокирующий») — это ограничение самого
+ * проводного формата `FillField` (список несёт только значения, не типы строк), но
+ * маркер `- [ ]`, от которого зависит `hasOpenQuestions`, сохраняется всегда.
+ */
+function listAffixes(sample: string | undefined): { prefix: string; suffix: string } {
+  const marker = /^\s*[-*+]\s+/.exec(sample ?? '');
+  if (marker === null) return { prefix: '- ', suffix: '' };
+  const rest = (sample ?? '').slice(marker[0].length);
+  const ph = /‹[^›]*›/.exec(rest);
+  if (ph === null) return { prefix: marker[0], suffix: '' };
+  return { prefix: marker[0] + rest.slice(0, ph.index), suffix: rest.slice(ph.index + ph[0].length) };
+}
+
+/** `eol` — конец строки документа, тем же приёмом, что у `renderRecords`. */
+function renderList(field: FormField, items: readonly string[], eol: string): string {
+  if (/^\s*\d+[.)]/.test(field.sample ?? '')) {
+    return items.map((it, i) => `${i + 1}. ${it}`).join(eol);
+  }
+  const { prefix, suffix } = listAffixes(field.sample);
+  return items.map((it) => `${prefix}${it}${suffix}`).join(eol);
 }
 
 /**
@@ -125,6 +165,7 @@ export function applyFill(
   op: 'set' | 'add' = 'set',
   templateName?: string,
 ): ApplyOk | ApplyProblem {
+  const eol = eolOf(text);
   const schema = deriveSchema(text, templateName);
   const field = findField(schema, fieldId);
   if (field === undefined) {
@@ -164,9 +205,9 @@ export function applyFill(
         }
         return { ok: false, problem: `поле «${fieldId}»: список пуст, а альтернативы «пусто» у него нет` };
       }
-      const rendered = renderList(field, value.items);
+      const rendered = renderList(field, value.items, eol);
       if (op === 'add') {
-        const merged = `${text.slice(field.range.start, field.range.end)}\n${rendered}`;
+        const merged = `${text.slice(field.range.start, field.range.end)}${eolOf(text)}${rendered}`;
         return { ok: true, text: splice(text, field.range, merged), rendered };
       }
       return { ok: true, text: splice(text, field.range, rendered), rendered };
@@ -190,15 +231,15 @@ export function applyFill(
         // двухколоночные bullets), не только таблицы: обе рисуются той же строкой-на-строку
         // конкатенацией. Нумерация продолжает уже занятые id, а не начинает с `claim-1`.
         const existing = text.slice(field.range.start, field.range.end);
-        const rendered = renderRecords(field, value.rows, countExistingRecords(existing, field.shape));
-        const merged = `${existing}\n${rendered}`;
+        const rendered = renderRecords(field, value.rows, eol, countExistingRecords(existing, field.shape));
+        const merged = `${existing}${eolOf(text)}${rendered}`;
         return {
           ok: true,
           text: splice(text, field.range, merged),
           rendered: short ? `${rendered}\n(меньше минимума листа: ${min.rows})` : rendered,
         };
       }
-      const rendered = renderRecords(field, value.rows);
+      const rendered = renderRecords(field, value.rows, eol);
       return {
         ok: true,
         text: splice(text, field.range, rendered),

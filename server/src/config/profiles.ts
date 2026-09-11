@@ -53,6 +53,9 @@ function resolveRoute(
     planAxisFill: def.planAxisFill ?? false,
     stepFill: def.stepFill ?? false,
     compactForms: def.compactForms ?? 'off',
+    ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),
+    exploreIndex: def.exploreIndex ?? false,
+    exploreFill: def.exploreFill ?? false,
   };
 }
 

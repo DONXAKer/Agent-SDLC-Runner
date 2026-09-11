@@ -1,0 +1,260 @@
+{
+  "run": {
+    "slug": "lmstudio-gemma4e4b-oversize-chunk",
+    "model": "lmstudio:gemma-4-e4b-stepfill",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "lmstudio:gemma-4-e4b-stepfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-10T12:12:55.428Z",
+    "finishedAt": "2026-09-10T12:23:05.339Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "шагов 3: применено 0, без правок 1, красных 2 — ни один шаг не дал правки",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 50598,
+          "outputTokens": 16891,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 605616
+        },
+        "durationMs": 609605
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 6,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "chunk",
+        "questions": 0,
+        "approvals": 6,
+        "waitMs": 22
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "chunk-1-journal.md",
+        "placeholders": 4
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "step:b7b949b2-d24c-4a23-a86d-7697ce017223",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "src/oversize.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:317fa038-e3f5-4796-bd23-5253d0bb3fe6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/oversize.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:c5e64e2f-1980-47ad-9ef4-4ee430204a57",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:c4b60b3c-4f6c-4359-b816-195c8d03bbd9",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:3efd33c9-8839-4f25-ab54-381f540a4e83",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/tariffs.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:9c4f7199-e1d0-42ce-9536-b424db3fb51e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "test/oversize.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 12758,
+        "userChars": 16332,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 0,
+    "pass": 0,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [],
+    "errorText": "скрытые тесты не дали ни одной разобранной строки TAP — # node:internal/modules/esm/resolve:271\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\\\\Users\\\\Root\\\\AppData\\\\Local\\\\Temp\\\\sdlc-bench-snap-qKVOiv\\\\src\\\\money' imported from C:\\\\Users\\\\Root\\\\AppData\\\\Local\\\\Temp\\\\sdlc-bench-snap-qKVOiv\\\\src\\\\oversize.ts\n#     at finalizeResolution (node:internal/modules/esm/resolve:271:11)\n#     at moduleResolve (node:internal/modules/esm/resolve:865:10)\n#     at defaultResolve (node:internal/modules/esm/resolve:992:11)\n#     at \\#cachedDefaultResolve (node:internal/modules/esm/loader:701:20)\n#     at \\#resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:721:38)\n#     at ModuleLoader.resolveSync (node:internal/modules/esm/loader:759:56)\n#     at \\#resolve (node:internal/modules/esm/loader:683:17)\n#     at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:603:35)\n#     at ModuleJob.syncLink (node:internal/modules/esm/module_job:163:33)\n#     at ModuleJob.link (node:internal/modules/esm/module_job:253:17) {\n#   code: 'ERR_MODULE_NOT_FOUND',\n#   url: 'file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-snap-qKVOiv/src/money'\n# }\n# Node.js v24.18.0\n# Subtest: D:\\\\Проекты\\\\Agent-SDLC-Runner\\\\bench\\\\checks\\\\hidden\\\\oversize.hidden.mjs"
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": false,
+      "detail": "скрытые тесты упали до единого теста: скрытые тесты не дали ни одной разобранной строки TAP — # node:internal/modules/esm/resolve:271\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\\\\Users\\\\Root\\\\AppData\\\\Local\\\\Temp\\\\sdlc-bench-snap-qKVOiv\\\\src\\\\money' imported from C:\\\\Users\\\\"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

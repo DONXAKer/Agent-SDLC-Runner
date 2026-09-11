@@ -21,13 +21,15 @@ import {
 } from '../ecosystems/index.ts';
 import { foldPathCase, normalizePlanPath, toPosix } from '../../policy/paths.ts';
 import { addedFunctionNames, findDuplicates } from './duplicates.ts';
+import { resolveTsSpecifier } from '../../fs/tsSpecifier.ts';
+import { extensionProblems, type ImportExtensionProblem } from './imports.ts';
 import { extractHumanFacts, literalPattern } from '../../artifacts/humanFacts.ts';
 import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative, resolve as resolvePath } from 'node:path';
 
 import type { GateStatus } from '@sdlc-runner/shared';
 
@@ -654,6 +656,24 @@ async function testOne(
   if (r.denied !== null) {
     return { status: '⏭', command: system.test, exitCode: null, lastLine: r.lastLine };
   }
+
+  // «Раннер отработал нулём» — не то же самое, что «тесты прошли»: у node:test, pytest,
+  // cargo пустой набор (файл переименован, паттерн раннера не совпал, фильтр промахнулся)
+  // тоже даёт exitCode 0. Проверяется ТОЛЬКО зелёный прогон: красный уже не зелёный, и
+  // различать его причину незачем.
+  if (r.exitCode === 0) {
+    const zero = zeroTestsCollected(r.stdout, r.stderr);
+    if (zero !== null) {
+      return {
+        status: '⏭',
+        command: system.test,
+        exitCode: r.exitCode,
+        lastLine: `раннер завершился без ошибок, но собрал 0 тестов (${zero}) — ТЕСТЫ НЕ ЗАПУСКАЛИСЬ по существу`,
+        outputTail: outputTailOf(r.stdout, r.stderr),
+      };
+    }
+  }
+
   return {
     status: r.exitCode === 0 ? '✅' : '❌',
     command: system.test,
@@ -662,6 +682,41 @@ async function testOne(
     // Хвост нужен и на зелёном прогоне: «какие тесты прошли» — тоже свидетельство.
     outputTail: outputTailOf(r.stdout, r.stderr),
   };
+}
+
+/**
+ * Признаки «раннер отработал, но не собрал ни одного теста» — по конкретным экосистемам,
+ * не по универсальному числу: свободный поиск «0» в выводе цеплял бы и «0 failed» рядом с
+ * «12 passed». Список неполон нарочно (`docs/proposals/model-flow-improvements.md` §3):
+ * где формат раннера незнаком, гейт остаётся честным по коду возврата, как и раньше, а не
+ * гадает по тексту.
+ */
+export function zeroTestsCollected(stdout: string, stderr: string): string | null {
+  const text = `${stdout}\n${stderr}`;
+  const patterns: readonly { re: RegExp; label: string }[] = [
+    // `node --test`, оба репортёра (spec печатает значок ℹ, tap — «#»): «tests» сразу
+    // перед «0» как отдельным числом. Без привязки к началу/концу строки: значок
+    // репортёра, ведущие пробелы или кавычки внешней оболочки не должны ломать разбор
+    // (живой случай на Windows: `cmd`-обёртка теста заменяла ℹ и сохраняла кавычки).
+    { re: /\btests\s+0\b/i, label: 'node:test — «tests 0»' },
+    { re: /collected 0 items/i, label: 'pytest — «collected 0 items»' },
+    { re: /no tests ran/i, label: 'pytest — «no tests ran»' },
+    { re: /no tests found/i, label: '«no tests found»' },
+  ];
+  for (const { re, label } of patterns) {
+    if (re.test(text)) return label;
+  }
+  // `cargo test` — отдельный случай, не простая подстрока: за ОДИН вызов печатается свой
+  // блок «running N tests» на каждую цель (юнит-тесты, каждый интеграционный бинарник,
+  // doctests), и «running 0 tests» у пустой юнит-цели не значит, что не проверено ничего
+  // — доктесты в соседнем блоке того же вывода могли реально пройти. Найдено
+  // code-review-all (2026-09-11): наивная подстрока красила такой прогон ложным ⏭.
+  // Флагуем только когда ВСЕ найденные блоки — «running 0 tests».
+  const cargoBlocks = [...text.matchAll(/running (\d+) tests?\b/gi)];
+  if (cargoBlocks.length > 0 && cargoBlocks.every((m) => m[1] === '0')) {
+    return 'cargo test — все цели «running 0 tests»';
+  }
+  return null;
 }
 
 const testGate: BuiltinGate = async (ctx) => {
@@ -997,6 +1052,98 @@ const duplicatesGate: BuiltinGate = async (ctx) => {
       ),
       'Если это разные вещи — подпишите строку неприменимости своим именем.',
     ].join('\n'),
+  };
+};
+
+/**
+ * `moduleResolution: "bundler"` — единственная настройка tsconfig, которая ДЕЙСТВИТЕЛЬНО
+ * значит «расширение резолвит бандлер, не жди явного `.ts`»: она специально заведена в TS
+ * под Vite/esbuild/Webpack, а не под прямое исполнение Node.
+ *
+ * Сам факт `tsconfig.json` в проекте — не тот сигнал: этот репозиторий (CLAUDE.md) держит
+ * `tsconfig.json` ТОЛЬКО ради `tsc --noEmit`, а рантайм — `node --watch src/index.ts` без
+ * какого-либо бандлера, то есть строго тот случай, для которого гейт и заведён. У него в
+ * `moduleResolution: "NodeNext"`, и `allowImportingTsExtensions: true` там же не значит
+ * «расширение необязательно» — значит ровно противоположное: разрешает писать литеральный
+ * `.ts` в специфайере, который здесь и требуется. Слепой скип по факту файла молча гасил
+ * гейт на проекте с ТОЙ ЖЕ конвенцией, для которой он написан (code-review-all, 2026-09-11).
+ * Разбор нарочно текстовый, не через `JSON.parse`: `tsconfig.json` допускает комментарии
+ * и висячие запятые, которые `JSON.parse` не переживёт, а нужно только одно значение.
+ */
+function tsconfigDeclaresBundlerResolution(projectRoot: string): boolean {
+  const path = join(projectRoot, 'tsconfig.json');
+  if (!existsSync(path)) return false;
+  try {
+    const raw = readFileSync(path, 'utf8');
+    return /"moduleResolution"\s*:\s*"bundler"/i.test(raw);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Гейт «Импорты» — правило и резолюция специфайера разделены нарочно: `imports.ts` не
+ * знает файловую систему, здесь — только её подключение (git diff, `resolveTsSpecifier`).
+ * Не входит в `MINIMUM` — включается проектом через `.sdlc/gates.md`, как решено при
+ * разборе (raннер не навязывает языковую проверку всем целевым проектам безусловно).
+ * Список кандидатов достройки расширения общий с `exec/tools/index.ts`
+ * (`fs/tsSpecifier.ts`) — раньше был продублирован дословно в обоих местах.
+ */
+const importsGate: BuiltinGate = async (ctx) => {
+  if (tsconfigDeclaresBundlerResolution(ctx.projectRoot)) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine:
+        'tsconfig.json объявляет moduleResolution «bundler» — формат относительных импортов резолвит бандлер, не наш случай',
+    };
+  }
+  if (!(await isRepo(ctx.projectRoot))) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: `${ctx.projectRoot} не git-репозиторий — импорты НЕ проверялись`,
+    };
+  }
+
+  const added = diffLines(await cachedWorkingDiff(ctx)).filter((l) => l.added && /\.tsx?$/.test(l.file));
+  const byFile = new Map<string, string[]>();
+  for (const line of added) {
+    const arr = byFile.get(line.file) ?? [];
+    arr.push(line.text.startsWith('+') ? line.text.slice(1) : line.text);
+    byFile.set(line.file, arr);
+  }
+
+  const problems: ImportExtensionProblem[] = [];
+  for (const [file, lines] of byFile) {
+    const fileAbs = join(ctx.projectRoot, file);
+    const found = extensionProblems(file, lines.join('\n'), (specifier) => {
+      const base = resolvePath(dirname(fileAbs), specifier);
+      const match = resolveTsSpecifier(base);
+      if (match === null) return null;
+      return { exact: match.exact, resolvedAs: match.exact ? file : relative(ctx.projectRoot, match.path) };
+    });
+    problems.push(...found);
+  }
+
+  if (problems.length === 0) {
+    return {
+      status: '✅',
+      command: null,
+      exitCode: null,
+      lastLine: 'относительные импорты в изменённых файлах — с явным расширением',
+    };
+  }
+  return {
+    status: '❌',
+    command: null,
+    exitCode: 1,
+    lastLine: `${problems.length} импорт(ов) без явного расширения — под node --test/родным загрузчиком упадут ERR_MODULE_NOT_FOUND`,
+    outputTail: problems
+      .map((p) => `${p.file}: \`${p.specifier}\` резолвится только как ${p.resolvedAs} — допиши расширение в специфайер`)
+      .join('\n'),
   };
 };
 
@@ -1465,6 +1612,7 @@ const publishGate: BuiltinGate = async (ctx) => {
 export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, BuiltinGate>([
   ['сборка', buildGate],
   ['тесты', testGate],
+  ['импорты', importsGate],
   ['scope: файлы вне плана', scopeGate],
   ['scope: пути плана без правок', planCoverageGate],
   ['scope: нетракованные файлы', untrackedGate],

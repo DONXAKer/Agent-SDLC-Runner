@@ -63,6 +63,8 @@ function route(stage: StageId, over: Partial<ResolvedRoute> = {}): ResolvedRoute
     planAxisFill: false,
     stepFill: false,
     compactForms: 'off',
+    exploreIndex: false,
+    exploreFill: false,
     ...over,
   };
 }

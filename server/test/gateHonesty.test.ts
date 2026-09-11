@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { match, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { BUILTIN } from '../src/gates/builtin/index.ts';
+import { BUILTIN, zeroTestsCollected } from '../src/gates/builtin/index.ts';
 import type { GateContext } from '../src/gates/builtin/index.ts';
 import type { ModuleProfile } from '../src/config/schema.ts';
 
@@ -92,6 +92,68 @@ describe('гейт сборки: языки без компиляции', () => 
 
     const r = await build!(ctx(root, { planFiles: ['api/a.php'] }));
     strictEqual(r.command, null, `composer validate всё ещё выдаётся за сборку: ${r.command}`);
+  });
+});
+
+describe('распознавание «раннер отработал, но собрал 0 тестов»', () => {
+  it('node:test — строка «tests 0» (репортёр spec, значок ℹ)', () => {
+    const out = 'ℹ tests 0\nℹ suites 0\nℹ pass 0\nℹ fail 0\n';
+    match(zeroTestsCollected(out, '') ?? '', /node:test/);
+  });
+
+  it('node:test — репортёр tap, строка «# tests 0»', () => {
+    match(zeroTestsCollected('# tests 0\n# pass 0\n', '') ?? '', /node:test/);
+  });
+
+  it('pytest — «collected 0 items»', () => {
+    match(zeroTestsCollected('collected 0 items\n', '') ?? '', /pytest/);
+  });
+
+  it('cargo test — «running 0 tests» (единственная цель)', () => {
+    match(zeroTestsCollected('running 0 tests\n\ntest result: ok.\n', '') ?? '', /cargo/);
+  });
+
+  it('cargo test — доктесты в соседнем блоке реально прошли, ложного ⏭ нет', () => {
+    // code-review-all, 2026-09-11: наивная подстрока `/running 0 tests/i` красила такой
+    // прогон ложным «тесты не запускались» — юнит-цель пуста, но доктесты прошли.
+    const out =
+      'running 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored\n\n' +
+      '   Doc-tests my_crate\n\nrunning 8 tests\n\ntest result: ok. 8 passed; 0 failed; 0 ignored\n';
+    strictEqual(zeroTestsCollected(out, ''), null);
+  });
+
+  it('обычный зелёный прогон не считается пустым', () => {
+    strictEqual(zeroTestsCollected('ℹ tests 12\nℹ pass 12\nℹ fail 0\n', ''), null);
+    strictEqual(zeroTestsCollected('12 passed, 0 failed in 1.20s\n', ''), null);
+  });
+
+  it('«0 failed» рядом с прошедшими тестами не путается с «0 тестов собрано»', () => {
+    // Риск ложного срабатывания: наивный поиск «0» в выводе цеплял бы именно такую строку.
+    strictEqual(zeroTestsCollected('Tests:       0 failed, 12 passed, 12 total\n', ''), null);
+  });
+
+  it('гейт «Тесты»: зелёный код возврата при пустом наборе даёт ⏭, а не ✅', async () => {
+    // Без кавычек и значков в команде: `cmd`-обёртка на Windows и сохраняет кавычки
+    // буквально, и не умеет напечатать ℹ в консольной кодировке — оба искажения
+    // проверены отдельно, чистой функцией `zeroTestsCollected`, выше.
+    const root = repo();
+    const modules: ModuleProfile[] = [{ dir: 'api', ecosystem: 'go', test: 'echo tests 0 && exit 0' }];
+    const test = BUILTIN.get('тесты');
+    ok(test !== undefined);
+
+    const r = await test!(ctx(root, { modules, planFiles: ['api/main.go'] }));
+    strictEqual(r.status, '⏭', r.lastLine);
+    match(r.lastLine, /собрал 0 тестов/);
+  });
+
+  it('гейт «Тесты»: зелёный код возврата с настоящими тестами остаётся ✅', async () => {
+    const root = repo();
+    const modules: ModuleProfile[] = [{ dir: 'api', ecosystem: 'go', test: 'echo tests 3 && exit 0' }];
+    const test = BUILTIN.get('тесты');
+    ok(test !== undefined);
+
+    const r = await test!(ctx(root, { modules, planFiles: ['api/main.go'] }));
+    strictEqual(r.status, '✅', r.lastLine);
   });
 });
 

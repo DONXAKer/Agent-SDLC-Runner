@@ -20,6 +20,7 @@ import type { ArtifactKey, NormalizedCall } from '@sdlc-runner/shared';
 
 import { applyFill } from '../../artifacts/applyFill.ts';
 import { findLooseRange } from '../editMatch.ts';
+import { resolveTsSpecifier } from '../../fs/tsSpecifier.ts';
 import { resolveUserPath, toPosix } from '../../policy/paths.ts';
 import { runShell } from '../../gates/shell.ts';
 import { templateNameFor } from '../../run/seed.ts';
@@ -46,7 +47,11 @@ export interface ToolOutcome {
   text: string;
 }
 
-const SKIP_DIRS = new Set([
+/**
+ * Каталоги, которые обход дерева не заходит. Экспортируется для индекса разведки
+ * (`explore/tree.ts`): второй список тех же имён разошёлся бы с этим при первой правке.
+ */
+export const SKIP_DIRS = new Set([
   'node_modules',
   '.git',
   'dist',
@@ -101,7 +106,7 @@ function numberedLines(text: string): string {
  * сверки: `verifyTsImports` из-за этого молчит, если множество пусто, а не считает файл
  * без единого экспорта.
  */
-function namedExportsOf(source: string): Set<string> {
+export function namedExportsOf(source: string): Set<string> {
   const names = new Set<string>();
   const DECL_RE = /\bexport\s+(?:declare\s+)?(?:const|function|class|interface|type|enum|abstract\s+class)\s+(\w+)/g;
   for (const m of source.matchAll(DECL_RE)) names.add(m[1]!);
@@ -122,14 +127,22 @@ function namedExportsOf(source: string): Set<string> {
  * CLAUDE.md), поэтому прямое совпадение пробуется первым; `.ts`/`index.ts` — на случай
  * файла из другого проекта, где соглашение не соблюдено. `null` — не относительный путь
  * (пакет, алиас) или файла нет ни в одном варианте: не наш случай, молчим.
+ *
+ * Терпимость к отсутствующему расширению — здесь нарочно (целевой проект чужой, у него
+ * может быть свой бандлер/tsc, допускающий импорт без расширения): эта функция ловит
+ * только расхождение ИМЁН экспорта, а не формат пути. Проверка самого пути (нужно ли
+ * расширение под конкретный проект) — отдельный гейт «Импорты» (`gates/builtin/imports.ts`),
+ * не здесь: этот файл — общий инструмент Write/Edit для любого целевого проекта, а не
+ * место для решений «что должен проверять именно этот проект» (см. `.sdlc/gates.md`).
+ *
+ * Список кандидатов достройки расширения — общий с гейтом «Импорты» (`fs/tsSpecifier.ts`),
+ * не продублирован здесь: расхождение списков означало бы, что эта проверка и гейт молчат
+ * на разных файлах.
  */
 function resolveRelativeImport(fromFileAbs: string, specifier: string): string | null {
   if (!specifier.startsWith('.')) return null;
   const base = resolvePath(dirname(fromFileAbs), specifier);
-  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')]) {
-    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
-  }
-  return null;
+  return resolveTsSpecifier(base)?.path ?? null;
 }
 
 /**

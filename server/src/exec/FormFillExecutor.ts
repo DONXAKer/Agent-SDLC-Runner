@@ -37,7 +37,6 @@
  * правкой кода, а не незаметной подстановкой данных.
  */
 
-import { randomUUID } from 'node:crypto';
 import { relative } from 'node:path';
 
 import type { StageId, Usage } from '@sdlc-runner/shared';
@@ -63,9 +62,9 @@ import { templateNameFor } from '../run/seed.ts';
 import { isSeparatorRow, splitRow } from '../md/table.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
-import { normalize } from './normalize.ts';
+import { writeThroughGate } from './gateWrite.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
-import { executeTool, type ToolContext } from './tools/index.ts';
+import type { ToolContext } from './tools/index.ts';
 
 /**
  * Сколько полей спрашивается одновременно. Поля независимы (каждый запрос несёт полный
@@ -109,6 +108,14 @@ export interface FormFillOptions {
    * исполнитель; пусто — эталона нет, и спрашивается как раньше.
    */
   edgeExample?: readonly string[];
+  /**
+   * Поля (id схемы), которые этот проход НЕ спрашивает — только в режиме `compact`. Нужно
+   * конвейеру разведки (`ExploreExecutor`): часть полей он заполняет сам структурно
+   * (карта, переиспользование, оси, вопросы, гейт заполненности), а свободные поля
+   * («конвенции», «точка правки», «границы», «риски») отдаёт этому исполнителю. Без
+   * фильтра второй проход переспрашивал бы и переписывал уже заполненное.
+   */
+  skipFields?: readonly string[];
 }
 
 /**
@@ -265,6 +272,14 @@ export class FormFillExecutor implements StageExecutor {
     this.o = o;
   }
 
+  /** Поля модели в режиме `compact` минус `skipFields` — один источник для прохода и для счёта остатка. */
+  private compactFields(text: string, path: string): SchemaField[] {
+    const skip = new Set((this.o.skipFields ?? []).map((id) => id.toLowerCase().replace(/ё/g, 'е')));
+    return modelFields(deriveSchema(text, templateNameFor(path)), this.o.stage).filter(
+      (f) => !skip.has(f.id.toLowerCase().replace(/ё/g, 'е')),
+    );
+  }
+
   async run(req: ExecRequest, hooks: ExecHooks): Promise<StageResult> {
     const artifacts = req.formArtifacts ?? [];
     if (artifacts.length === 0) {
@@ -329,7 +344,7 @@ export class FormFillExecutor implements StageExecutor {
         return (
           n +
           (this.o.compact
-            ? modelFields(deriveSchema(a.text, templateNameFor(p)), this.o.stage).length
+            ? this.compactFields(a.text, p).length
             : groupFields(a.text).length)
         );
       }, 0);
@@ -342,42 +357,23 @@ export class FormFillExecutor implements StageExecutor {
      */
     const flushArtifact = async (path: string, text: string): Promise<boolean> => {
       const rel = relative(req.cwd, path);
-      const rawInput = { file_path: rel, content: text };
-      const call = normalize('Write', rawInput);
-      const requestId = `form:${randomUUID()}`;
-      const decision = await hooks.onToolRequest(call, {
-        requestId,
-        toolName: 'Write',
-        rawInput,
-        callerTools: req.allowedTools,
-      });
-      if (!decision.allowed) {
-        hooks.onFriction('denied');
-        hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
-        notes.push(`запись ${rel} отклонена: ${decision.reason}`);
+      // Сам путь через гейт — общий `writeThroughGate` (им же пишет конвейер разведки);
+      // здесь остаётся только учёт: отказ окончателен, сбой исполнения — на повтор.
+      const written = await writeThroughGate(hooks, req, toolCtx, path, text, 'form');
+      if (written.ok) {
+        wroteAny = true;
+        pendingText.delete(path);
+        return true;
+      }
+      if (written.denied) {
+        notes.push(`запись ${rel} отклонена: ${written.reason}`);
         writeDenied.add(path);
         pendingText.delete(path);
         return false;
       }
-      const effective =
-        decision.updatedInput === null
-          ? call
-          : normalize('Write', decision.updatedInput as Record<string, unknown>);
-      const outcome = await executeTool(effective, toolCtx);
-      hooks.onToolResult({
-        requestId,
-        ok: outcome.ok,
-        summary: outcome.text.split('\n')[0]?.slice(0, 200) ?? '',
-        durationMs: 0,
-      });
-      if (!outcome.ok) {
-        notes.push(`запись ${rel} не удалась: ${outcome.text}`);
-        pendingText.set(path, text);
-        return false;
-      }
-      wroteAny = true;
-      pendingText.delete(path);
-      return true;
+      notes.push(`запись ${rel} не удалась: ${written.reason}`);
+      pendingText.set(path, text);
+      return false;
     };
 
     /** Полевой до-запрос модели: промпт этапа + служебная обвязка поля (см. шапку файла). */
@@ -653,8 +649,7 @@ export class FormFillExecutor implements StageExecutor {
     ): Promise<{ stop: StageResult | null; changed: boolean; text: string }> => {
       let text = startText;
       let changed = false;
-      const schema = deriveSchema(text, templateNameFor(path));
-      const fields = modelFields(schema, this.o.stage);
+      const fields = this.compactFields(text, path);
 
       for (let batchStart = 0; batchStart < fields.length; batchStart += FIELD_PARALLEL) {
         if (req.signal.aborted) return { stop: { ok: false, finalText: '', usage, note: 'этап отменён' }, changed, text };
