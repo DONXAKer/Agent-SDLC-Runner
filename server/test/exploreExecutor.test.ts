@@ -391,6 +391,20 @@ describe('конвейер разведки на копии бланка', () =>
     ok(result.note.includes('вопрос не задан') || (result.finalText ?? '').includes('вопрос не задан'), result.finalText);
   });
 
+  it('переиспользование: ответ прозой мимо формата (0 строк «N. …») не путается с честным «ничего не нашли»', async () => {
+    // Замер `oversize`/`exploreFill`, 2026-09-12: обе проверенные модели дали
+    // «переиспользования 0» при 12 предложенных кандидатах — конвейер не различал
+    // «ответила по форме и сказала нет всем» от «ответила прозой, разобрать нечего».
+    const { root, paths } = setup(BLANK);
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const prosa = 'Рассмотрели предложенных кандидатов и решили не привязываться к ним напрямую в этом патче.';
+    const result = await executor(root, paths, { provider: provider([], { reuse: prosa }) }).run(request(root, paths), hooks(seen));
+    const report = readFileSync(paths.explorationReport, 'utf8');
+    ok(!report.includes('_Ничего подходящего не найдено: да_'), 'ответ не по форме, а поле утверждает, что поиск проведён и пуст');
+    ok(!report.includes('_Ничего подходящего не найдено: нет_'), report);
+    ok(result.note.includes('не по форме') || (result.finalText ?? '').includes('не по форме'), result.finalText);
+  });
+
   it('«Прогон 2» готовности (поле этапа 4) не мешает гейту заполненности дойти до ✅', async () => {
     const { root, paths } = setup(BLANK);
     writeFileSync(

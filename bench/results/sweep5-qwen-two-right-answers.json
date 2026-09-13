@@ -1,0 +1,537 @@
+{
+  "run": {
+    "slug": "sweep5-qwen-two-right-answers",
+    "model": "lmstudio:qwen3-8b-stepfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:qwen3-8b-stepfill",
+      "explore": "lmstudio:qwen3-8b-stepfill",
+      "ask": "lmstudio:qwen3-8b-stepfill",
+      "plan": "lmstudio:qwen3-8b-stepfill",
+      "chunk": "lmstudio:qwen3-8b-stepfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "lmstudio:qwen3-8b-stepfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-13T01:22:24.978Z",
+    "finishedAt": "2026-09-13T01:39:01.313Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 21, осталось на диске 17; добор листа приёмки (попытка 1): модель вернула 2 строк, добавлено 2 — теперь пунктов 5, [edge] 2",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "этап закрыт: код и содержание — работа модели, оформление добрано рантаймом (исполнитель упал только на лимите/оформлении при полных артефактах)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "«Опоры осей» в отчёте разведки называют несуществующие адреса: test/move-hold.test.ts — механизм, которого нет, закрыть ось не может. Либо назови настоящий адрес, либо напиши «нет механизма»: это законный ответ и такое же знание",
+        "blockers": [
+          "«Опоры осей» в отчёте разведки называют несуществующие адреса: test/move-hold.test.ts — механизм, которого нет, закрыть ось не может. Либо назови настоящий адрес, либо напиши «нет механизма»: это законный ответ и такое же знание"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 136029,
+          "outputTokens": 15429,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 644651
+        },
+        "durationMs": 297360
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 549619,
+          "outputTokens": 23199,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 921181
+        },
+        "durationMs": 698957
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 4,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 28,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 12
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 17,
+        "waitMs": 43
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 27
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:96a4de1a-1e56-4b6a-80ea-e7aa1d891690",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\sweep5-qwen-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:06b16c33-6837-4454-8b17-a435168a4974",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\sweep5-qwen-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:09d1eb81-7c33-4ce5-949a-bd539a005046",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0b7218dc-095d-4eb6-b8ac-03c60fc394fc",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4f43d968-e59f-4e7d-9ef7-9b9f3ea13581",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e57572c3-7825-463a-a1a2-585751665c9d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d5cb2b91-6223-4be9-acef-be307e94a102",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6d5f378f-5c2f-4b9a-b48a-380ee419d4e0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:171683a9-ce6b-43ba-ab28-f8b125c9cf26",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d57fb762-5f21-4de1-a337-c44bbe6dd4fe",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:474816c4-70cb-490d-8372-72745d93034c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4605d1f4-1571-493a-981c-1a8b7be2a010",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:8b6fd45b-4da7-435b-b403-a41e79ee790f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2938cea4-1da7-4604-861f-f1f8860d137d",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b1cc4b6a-737c-4582-b812-d683ac7d12df",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:52e309a3-ba9c-4f4f-b6d0-5c5fd5533558",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4619bf88-3fcb-4c05-98f2-f1c8175162bc",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5-qwen-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5ab73ae3-b77f-401f-b352-8898664a8c37",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:10f38da2-2ef4-4eff-b901-f20fe38869ec",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\sweep5-qwen-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10162,
+        "userChars": 4192,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10463,
+        "userChars": 12675,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

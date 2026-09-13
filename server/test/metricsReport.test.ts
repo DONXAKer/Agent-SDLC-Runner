@@ -28,6 +28,7 @@ const metrics = (over: Partial<RunMetrics> = {}): RunMetrics => ({
     { stage: 'plan', questions: 0, approvals: 1, waitMs: 5_000 },
   ],
   artifactGaps: [{ artifact: 'plan.md', placeholders: 3 }],
+  chunkEvidence: [],
   ...over,
 });
 
@@ -50,6 +51,23 @@ describe('metrics.md: рендер снапшота метрик', () => {
     match(b, /\| plan\.md \| 3 \|/);
   });
 
+  it('улики chunk\'а — своя таблица, видна ДО verify по построению снапшота', () => {
+    const b = metricsBlock(
+      metrics({
+        gates: [],
+        human: [],
+        artifactGaps: [],
+        chunkEvidence: [
+          { chunk: 1, attempt: 1, testsStatus: '❌', treeChanged: true, scopeViolation: false },
+          { chunk: 1, attempt: 2, testsStatus: '✅', treeChanged: true, scopeViolation: true },
+        ],
+      }),
+    );
+    ok(b !== null);
+    match(b, /\| 1 \| 1 \| ❌ \| да \| ✅ \|/);
+    match(b, /\| 1 \| 2 \| ✅ \| да \| ❌ \|/);
+  });
+
   it('время прогонов и ожидания форматируется человекочитаемо', () => {
     const b = metricsBlock(metrics());
     ok(b !== null);
@@ -62,6 +80,7 @@ describe('metrics.md: рендер снапшота метрик', () => {
     ok(b !== null);
     strictEqual(b.includes('| Этап | Вопросов |'), false);
     strictEqual(b.includes('Незаполненных мест'), false);
+    strictEqual(b.includes('| Chunk | Попытка |'), false);
     match(b, /\| Гейт \| Прогонов \|/);
   });
 

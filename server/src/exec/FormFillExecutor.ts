@@ -58,6 +58,7 @@ import {
   type FormField as SchemaField,
 } from '../artifacts/formSchema.ts';
 import { isSheetError, parseFieldValue } from '../artifacts/sheet.ts';
+import { readTree } from '../explore/tree.ts';
 import { templateNameFor } from '../run/seed.ts';
 import { isSeparatorRow, splitRow } from '../md/table.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
@@ -75,6 +76,25 @@ const FIELD_PARALLEL = 3;
 
 /** Шапка таблицы `files_to_touch` плана (`plan.template.md`) — узнаётся по колонкам. */
 const FILES_TO_TOUCH_HEADER = /\|\s*Путь\s*\|\s*Что делаем\s*\|/;
+
+/**
+ * Шапка таблицы «Карта кодовой базы» (`exploration-report.template.md`) — узнаётся по
+ * колонкам, тем же приёмом, что `FILES_TO_TOUCH_HEADER`.
+ *
+ * Это поле — единственное во всём дозаполнении, отвечая на которое модель ОБЯЗАНА знать
+ * реальные пути в проекте, а у режима нет ни `Read`, ни `Task` (см. шапку файла): без
+ * заземления модель сочиняет правдоподобные, но несуществующие пути — измерено живьём
+ * пять раз за один прогон (серия v3, 2026-09-13, `docs/model-runs.md` → «Серия 5×5, повтор
+ * v3»), и находка ловится только ПОСТФАКТУМ, гейтом честности (`explorationPathProblem`),
+ * не предотвращается. Список путей ниже — тот же безопасный обход, что у индекса разведки
+ * (`explore/tree.ts`, symlink-safe, `.`-каталоги и `node_modules` исключены), не полноценный
+ * индекс с кандидатами по ключевым словам — тот конвейер (`ExploreExecutor`) требует задачи
+ * и структуры, которых у голого дозаполнения одного поля нет.
+ */
+const CODE_MAP_HEADER = /\|\s*Файл\s*\|\s*Что там сейчас\s*\|\s*Что меняем\s*\|/;
+
+/** Потолок байт заземляющего списка путей — контекст локальной модели не резиновый. */
+const CODE_MAP_LIST_BYTES = 4000;
 
 /**
  * Сколько попыток даётся добору приёмочного листа (счёт с первой, не «ремонтов сверх»).
@@ -291,6 +311,26 @@ export class FormFillExecutor implements StageExecutor {
       };
     }
 
+    // Заземление для поля «Карта кодовой базы» — считается максимум один раз за прогон
+    // (не на поле), и только если такое поле реально встретится: обход дерева читает
+    // содержимое файлов (`explore/tree.ts` — общий код с индексом разведки), и платить
+    // за него, когда дозаполнение спрашивает другой бланк (журнал chunk'а, отчёт приёмки),
+    // незачем.
+    let codeMapListing: string | null = null;
+    const codeMapGrounding = (): string => {
+      if (codeMapListing !== null) return codeMapListing;
+      const index = readTree(req.cwd);
+      const lines = index.files.map((f) => `- \`${f.path}\``);
+      let text = lines.join('\n');
+      if (Buffer.byteLength(text, 'utf8') > CODE_MAP_LIST_BYTES) {
+        let cut = text.slice(0, CODE_MAP_LIST_BYTES);
+        cut = cut.slice(0, cut.lastIndexOf('\n'));
+        text = `${cut}\n… обрезано рантаймом, файлов больше`;
+      }
+      codeMapListing = text === '' ? '(дерево проекта пусто или недоступно)' : text;
+      return codeMapListing;
+    };
+
     const toolCtx: ToolContext = {
       projectRoot: req.cwd,
       maxResultBytes: this.o.maxResultBytes,
@@ -311,6 +351,52 @@ export class FormFillExecutor implements StageExecutor {
     let envFailure: string | null = null;
     const noteEnvFailure = (e: unknown): void => {
       if (envFailure === null && e instanceof ProviderEnvError) envFailure = e.message;
+    };
+    /**
+     * Систематическая ошибка провайдера — та же строка N раз подряд по РАЗНЫМ полям —
+     * не всегда `ProviderEnvError` (HTTP 404 «модель не найдена» им намеренно не считается,
+     * `OpenAiCompatProvider`: чинится правкой конфига, не средой) и без этой проверки
+     * тонет в потоке обычных «поле не спрошено», неотличимом от слабой модели, не
+     * справившейся с бланком (замер `qwen3-coder-30b-a3b`/sweep5, 2026-09-13: 24
+     * одинаковые строки `HTTP 404 model not found` по всем полям `intent.md`+`readiness.md`
+     * на пяти разных задачах — причиной оказалась мёртвая запись конфига, а не модель).
+     * Дальше спрашивать бессмысленно: тратить ходы на заведомо тот же отказ — не поведение
+     * модели, которое стоит измерять.
+     */
+    const SYSTEMATIC_FAILURE_STREAK = 3;
+    // Три разных диагноза за одной и той же формой сообщения — «модель не найдена»
+    // (мёртвый config), «контекст переполнен» (бюджет промпта) и «модель недоступна прямо
+    // сейчас» (движок провайдера упал/выгрузил модель между вызовами) — все три
+    // воспроизводятся на КАЖДОМ поле одинаково (общий базовый промпт не меняется между
+    // полями), и для всех продолжать спрашивать бессмысленно, но причина, которую стоит
+    // чинить, разная, и текст обязан её различать. Класс «недоступна» — не то же самое, что
+    // «мёртвый конфиг»: конфиг рабочий, файл модели цел, а `lms ps`/`ollama ps` сразу
+    // показывают причину. Живой замер `qwen3-8b`/`refuse-dangerous`, 2026-09-13: «Context
+    // size has been exceeded» после 3 полей подряд на этапе `plan» (контекст). Живой замер
+    // `qwencoder-30b-stepfill`/`freeship` и `/silent-contract`, серия v3, 2026-09-13: LM
+    // Studio выгрузил/уронил модель под давлением памяти (второй незакрытый процесс держал
+    // VRAM) — `HTTP 400 {"error":"fetch failed"}` и `{"error":"terminated"}` на трёх полях
+    // подряд, диагноз «сломанный конфиг» был бы неверным (модель отвечала штатно до и после).
+    const CONTEXT_SIZE_RE = /context.{0,20}(size|length).{0,20}(exceed|超|too\s*(large|long))/i;
+    const PROVIDER_UNAVAILABLE_RE = /fetch failed|econnrefused|econnreset|socket hang up|"error":\s*"terminated"/i;
+    let lastRejectionReason: string | null = null;
+    let rejectionStreak = 0;
+    let systematicFailure: string | null = null;
+    const trackRejection = (reason: unknown): string | null => {
+      const text = ((reason as Error | undefined)?.message ?? String(reason)).slice(0, 300);
+      rejectionStreak = text === lastRejectionReason ? rejectionStreak + 1 : 1;
+      lastRejectionReason = text;
+      if (systematicFailure === null && rejectionStreak >= SYSTEMATIC_FAILURE_STREAK) {
+        const diagnosis = CONTEXT_SIZE_RE.test(text)
+          ? 'похоже, базовый промпт этой формы не помещается в окно контекста модели — дело не в бланке и не в конфиге, а в размере запроса'
+          : PROVIDER_UNAVAILABLE_RE.test(text)
+            ? 'похоже, модель недоступна прямо сейчас (не загружена или упал движок провайдера) — не конфиг и не бланк, проверь `lms ps`/`ollama ps` и перезагрузи модель'
+            : 'похоже на сломанный конфиг модели, а не на бланк';
+        systematicFailure =
+          `провайдер вернул одну и ту же ошибку ${rejectionStreak} раз подряд на разных полях ` +
+          `(${text}) — ${diagnosis}; дальнейшие поля не спрашивались`;
+      }
+      return systematicFailure;
     };
     /**
      * Артефакты, запись которых ОТКЛОНИЛ гейт (политика или оператор): отказ окончательный,
@@ -397,6 +483,22 @@ export class FormFillExecutor implements StageExecutor {
               range.kind === 'row' ? sectionAt(text, range.start) : lineAt(text, range.start),
               '```',
               '',
+              // Заземление ТОЛЬКО для карты кодовой базы: у режима нет Read/Task (см. шапку
+              // файла), и без списка реальных путей это единственное поле бланка, где модель
+              // вынуждена либо угадывать пути по памяти, либо честно писать «новый» —
+              // измерено живьём, что угадывает (см. комментарий у CODE_MAP_HEADER).
+              ...(range.kind === 'row' && CODE_MAP_HEADER.test(range.header)
+                ? [
+                    '### Реальные файлы проекта (получены рантаймом обходом дерева, не твоей памятью)',
+                    '',
+                    codeMapGrounding(),
+                    '',
+                    'Называй в карте ТОЛЬКО пути из этого списка. Файл, которого в списке нет и ' +
+                      'который предстоит СОЗДАТЬ по плану, помечай словом «новый» рядом с путём — ' +
+                      'не выдавай его за уже существующий.',
+                    '',
+                  ]
+                : []),
               range.kind === 'row'
                 ? 'Последняя строка секции — ОБРАЗЕЦ строки таблицы, один на весь список. ' +
                   'Верни заполненные строки таблицы того же формата — столько, сколько ' +
@@ -672,6 +774,8 @@ export class FormFillExecutor implements StageExecutor {
           if (a.status !== 'fulfilled') {
             const why = (a.reason as Error | undefined)?.message ?? String(a.reason);
             noteEnvFailure(a.reason);
+            const systematic = trackRejection(a.reason);
+            if (systematic !== null) return { stop: { ok: false, finalText: '', usage, note: systematic }, changed, text };
             notes.push(`поле не спрошено (${relative(req.cwd, path)}, ${field.id}): ${why.slice(0, 160)}`);
             continue;
           }
@@ -838,6 +942,8 @@ export class FormFillExecutor implements StageExecutor {
             if (a.status !== 'fulfilled') {
               const why = (a.reason as Error | undefined)?.message ?? String(a.reason);
               noteEnvFailure(a.reason);
+              const systematic = trackRejection(a.reason);
+              if (systematic !== null) return { ok: false, finalText: '', usage, note: systematic };
               notes.push(
                 `поле не спрошено (${relative(req.cwd, path)}, ` +
                   `${range.kind === 'row' ? 'строка таблицы' : range.text}): ${why.slice(0, 160)}`,

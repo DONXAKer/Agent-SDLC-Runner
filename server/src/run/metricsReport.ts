@@ -20,7 +20,12 @@ import { escapeCell } from '../md/table.ts';
  * отсутствующей: она читается как «проблем не было», а не «смотреть было нечего».
  */
 export function metricsBlock(m: RunMetrics): string | null {
-  if (m.gates.length === 0 && m.human.length === 0 && m.artifactGaps.length === 0) {
+  if (
+    m.gates.length === 0 &&
+    m.human.length === 0 &&
+    m.artifactGaps.length === 0 &&
+    m.chunkEvidence.length === 0
+  ) {
     return null;
   }
 
@@ -60,6 +65,23 @@ export function metricsBlock(m: RunMetrics): string | null {
       '«Ждал человека» — суммарное время от постановки запроса в очередь до решения ' +
         'оператора. Автоодобрения по правилам и отказы политики сюда не входят: они человека ' +
         'не ждали.',
+    );
+  }
+
+  if (m.chunkEvidence.length > 0) {
+    lines.push(
+      '',
+      '| Chunk | Попытка | Тесты | Дерево менялось | Scope |',
+      '|---|---|---|---|---|',
+      ...m.chunkEvidence.map(
+        (e) =>
+          `| ${e.chunk} | ${e.attempt} | ${e.testsStatus} | ${e.treeChanged ? 'да' : 'нет — правки не было'} | ` +
+          `${e.scopeViolation ? '❌' : '✅'} |`,
+      ),
+      '',
+      'Улика попытки chunk\'а — то, что рантайм уже посчитал фактически (тот же гейт «Тесты» и ' +
+        'те же Scope-гейты, что и на этапе 6), ДО дорогого verify. Не влияет на исход самого ' +
+        'chunk\'а — только видимость: судит по-прежнему verify.',
     );
   }
 

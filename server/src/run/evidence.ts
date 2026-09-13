@@ -23,6 +23,7 @@ import { writeFileSync } from 'node:fs';
 
 import { workingDiff } from '../gates/git.ts';
 import type { BuiltinGate, GateContext } from '../gates/builtin/index.ts';
+import type { GateStatus } from '@sdlc-runner/shared';
 
 /**
  * Что стало с деревом за эту попытку.
@@ -37,6 +38,13 @@ export interface EvidenceResult {
   tree: TreeChange;
   /** Первая строка записи о тестах — для журнала событий. */
   testsNote: string;
+  /**
+   * Статус того же прогона, структурой, а не подстрокой `testsNote` — для `RunMetrics.
+   * chunkEvidence` (см. комментарий там): второй разбор той же строки регуляркой рано или
+   * поздно разошёлся бы с текстом, который правится свободно. `⏭` — гейт «Тесты» не найден
+   * в наборе, тем же смыслом, что и у `runGates`.
+   */
+  testsStatus: GateStatus;
   /** Тот же текст, что лёг в `diffPath` — вызывающему он нужен ещё раз (сверка с планом). */
   diff: string;
 }
@@ -67,11 +75,14 @@ export async function recordAttemptEvidence(args: {
   const tree: TreeChange = diff.trim() === args.diffBefore.trim() ? 'empty' : 'changed';
 
   let testsNote: string;
+  let testsStatus: GateStatus;
   if (args.runTests === null) {
     testsNote = 'гейт «Тесты» в наборе не найден — рантайм тестов не запускал';
+    testsStatus = '⏭';
     writeFileSync(args.testsPath, `${testsNote}\n`, 'utf8');
   } else {
     const outcome = await args.runTests(args.gateCtx);
+    testsStatus = outcome.status;
     testsNote = `${outcome.status} ${outcome.command ?? 'встроенная реализация'} (код ${outcome.exitCode ?? '—'})`;
     // Заголовок обязателен: без него файл читается как рассказ исполнителя, а весь смысл
     // правки в том, что читатель видит, КТО его составил. В патче такого заголовка нет —
@@ -95,5 +106,5 @@ export async function recordAttemptEvidence(args: {
     writeFileSync(args.testsPath, text, 'utf8');
   }
 
-  return { tree, testsNote, diff };
+  return { tree, testsNote, testsStatus, diff };
 }

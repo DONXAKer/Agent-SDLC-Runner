@@ -36,7 +36,7 @@ function built(measured: BuiltProfile['measured']): BuiltProfile {
 }
 
 function metrics(over: Partial<RunMetrics> = {}): RunMetrics {
-  return { stages: [], verdicts: { total: 0, red: 0 }, redByCause: [], attemptsByChunk: [], friction: [], gates: [], human: [], artifactGaps: [], ...over };
+  return { stages: [], verdicts: { total: 0, red: 0 }, redByCause: [], attemptsByChunk: [], friction: [], gates: [], human: [], artifactGaps: [], chunkEvidence: [], ...over };
 }
 
 const HIDDEN_ALL_GREEN: HiddenTestsSummary = {

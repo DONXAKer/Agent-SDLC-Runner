@@ -8,7 +8,7 @@
  */
 
 import { ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -197,6 +197,136 @@ describe('заполнение бланка по полям', () => {
     const text = readFileSync(artifact, 'utf8');
     ok(text.includes('- **Итог:** готово'), text);
     ok(text.includes('‹почему сейчас›'), 'незаполненное поле должно остаться плейсхолдером');
+  });
+
+  it('систематическая ошибка провайдера (та же строка N раз подряд) останавливает этап рано, а не тонет в «поле не спрошено» (замер qwen3-coder-30b-a3b/sweep5, 2026-09-13)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(
+      artifact,
+      [
+        '# Задача',
+        '',
+        '- **Поле 1:** ‹а›',
+        '- **Поле 2:** ‹б›',
+        '- **Поле 3:** ‹в›',
+        '- **Поле 4:** ‹г›',
+        '- **Поле 5:** ‹д›',
+        '',
+      ].join('\n'),
+    );
+    // Не `ProviderEnvError` — намеренно обычная ошибка, тот же класс, что HTTP 404
+    // «модель не найдена» у OpenAiCompatProvider (чинится конфигом, не средой), и он же
+    // не даёт классифицировать это как envFailure — раньше тонул в notes целиком.
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat() {
+        throw new Error("model 'dead-tag' not found");
+      },
+    } as unknown as ChatProvider;
+
+    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, false);
+    ok(result.note.includes('одну и ту же ошибку'), result.note);
+    ok(result.note.includes('сломанный конфиг'), result.note);
+    // Остановка ранняя — не «поле не спрошено» на каждое из пяти полей подряд.
+    ok(!result.note.includes('поле не спрошено'), result.note);
+  });
+
+  it('систематическая ошибка «Context size has been exceeded» — диагноз про размер промпта, не про конфиг (замер qwen3-8b/refuse-dangerous, 2026-09-13)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(
+      artifact,
+      ['# Задача', '', '- **Поле 1:** ‹а›', '- **Поле 2:** ‹б›', '- **Поле 3:** ‹в›', ''].join('\n'),
+    );
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat() {
+        throw new Error(
+          'lmstudio: HTTP 400 от http://localhost:1434/v1 — {"error":"Engine protocol predict stream returned an ' +
+            'error: {\\"code\\":500,\\"message\\":\\"Context size has been exceeded.\\",\\"type\\":\\"server_error\\"}"}',
+        );
+      },
+    } as unknown as ChatProvider;
+
+    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, false);
+    ok(result.note.includes('одну и ту же ошибку'), result.note);
+    ok(result.note.includes('не помещается в окно контекста'), result.note);
+    ok(!result.note.includes('сломанный конфиг'), result.note);
+  });
+
+  it('систематическая ошибка «fetch failed» — диагноз про недоступность модели, не про конфиг (замер qwen3-coder-30b-stepfill/freeship, серия v3, 2026-09-13)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(
+      artifact,
+      ['# Задача', '', '- **Поле 1:** ‹а›', '- **Поле 2:** ‹б›', '- **Поле 3:** ‹в›', ''].join('\n'),
+    );
+    // Живой замер: LM Studio выгрузил/уронил модель под давлением памяти между `lms load`
+    // и первым запросом бенча — три поля подряд получили одну и ту же сетевую ошибку.
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat() {
+        throw new Error(
+          'lmstudio: HTTP 400 от http://localhost:1434/v1 — {"error":"Engine protocol predict request failed: fetch failed"}',
+        );
+      },
+    } as unknown as ChatProvider;
+
+    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, false);
+    ok(result.note.includes('одну и ту же ошибку'), result.note);
+    ok(result.note.includes('недоступна прямо сейчас'), result.note);
+    ok(!result.note.includes('сломанный конфиг'), result.note);
+    ok(!result.note.includes('не помещается в окно контекста'), result.note);
+  });
+
+  it('поле «Карта кодовой базы» получает заземление — реальные пути проекта, не память модели', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    // Файл реально существует в дереве проекта — заземление обязано его назвать.
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src', 'real.ts'), 'export const real = 1;\n');
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(
+      artifact,
+      [
+        '## Карта кодовой базы',
+        '',
+        '| Файл | Что там сейчас | Что меняем |',
+        '|---|---|---|',
+        '| ‹путь› | ‹что там сейчас› | ‹что меняем› |',
+        '',
+      ].join('\n'),
+    );
+    let seenPrompt = '';
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        seenPrompt = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        return {
+          text: '| `src/real.ts` | код | правка |',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    ok(seenPrompt.includes('Реальные файлы проекта'), 'нет заземляющего блока в промпте поля');
+    ok(seenPrompt.includes('src/real.ts'), 'заземление не назвало реальный файл дерева');
+    ok(seenPrompt.includes('Называй в карте ТОЛЬКО пути из этого списка'), 'нет инструкции не сочинять пути');
   });
 
   it('лист приёмки ниже нормы добирается повторным запросом, дубли id отбрасываются (r17)', async () => {

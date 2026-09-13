@@ -263,7 +263,10 @@ describe('восстановление метрик из metrics.json', () => {
   it('пересозданный Run подхватывает накопители, как chunk/attempt из журналов', () => {
     const root = tempRoot();
     mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
-    const snapshot: RunMetrics = {
+    // `Omit<'chunkEvidence'>`, не `RunMetrics`: это байт-в-байт СТАРЫЙ снапшот на диске,
+    // записанный до появления поля — сам тест и проверяет, что рестор не ломается на его
+    // отсутствии (тот же принцип, что уже проверен для gates/human/artifactGaps).
+    const snapshot: Omit<RunMetrics, 'chunkEvidence'> = {
       stages: [{ stage: 'chunk', runs: 2, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 }, durationMs: 3000 }],
       verdicts: { total: 2, red: 1 },
       redByCause: [{ kind: 'gate', count: 1 }],
@@ -284,6 +287,28 @@ describe('восстановление метрик из metrics.json', () => {
     strictEqual(run.metrics.gates[0]?.runs, 3);
     strictEqual(run.metrics.human[0]?.approvals, 3);
     deepStrictEqual(run.metrics.artifactGaps, [{ artifact: 'plan.md', placeholders: 1 }]);
+  });
+
+  it('chunkEvidence восстанавливается тем же путём и копится по chunk:attempt', () => {
+    const root = tempRoot();
+    mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
+    const snapshot: RunMetrics = {
+      stages: [],
+      verdicts: { total: 0, red: 0 },
+      redByCause: [],
+      attemptsByChunk: [],
+      friction: [],
+      gates: [],
+      human: [],
+      artifactGaps: [],
+      chunkEvidence: [{ chunk: 1, attempt: 1, testsStatus: '❌', treeChanged: true, scopeViolation: false }],
+    };
+    writeFileSync(join(root, '.sdlc', 'demo', 'metrics.json'), JSON.stringify(snapshot));
+
+    const run = makeRun(root);
+    deepStrictEqual(run.metrics.chunkEvidence, [
+      { chunk: 1, attempt: 1, testsStatus: '❌', treeChanged: true, scopeViolation: false },
+    ]);
   });
 
   it('старый снапшот без новых полей — пустые массивы, без исключения', () => {

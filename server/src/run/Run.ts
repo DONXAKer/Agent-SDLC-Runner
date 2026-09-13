@@ -12,6 +12,7 @@ import type {
   NormalizedCall,
   Decision,
   EventSink,
+  ChunkEvidenceMetric,
   GateRunResult,
   GateStatus,
   McpServerInfo,
@@ -147,6 +148,7 @@ import { buildPrompt } from '../prompt/build.ts';
 import {
   checkPreconditions,
   explorationPathProblem,
+  filesToTouchProblem,
   hasOpenQuestions,
   relOf,
   stageById,
@@ -290,6 +292,24 @@ const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
  * human-кейса скрытых тестов покраснели — щуп мерил нашу конструкцию, а не модель.
  */
 const FORM_FILL_STAGES: ReadonlySet<StageId> = new Set(['intent', 'plan']);
+
+/**
+ * Потолок ходов дозаполнения (`fillFormFields`) — не плоская константа, а функция от
+ * реального числа незакрытых мест: `12` был откалиброван под журнал chunk'а («полей в
+ * журнале единицы»), но тот же вызов достаётся и `exploration-report.md`, где мест часто
+ * заметно больше десятка — с плоской константой добор упирался в потолок ходов, не
+ * ответив хотя бы раз на КАЖДОЕ поле (живой замер: `gemma-4-e4b`/`security-bait`,
+ * 2026-09-13 — 17 мест, потолок 12, добор остановился на 11/17, `ход` истёк раньше, чем
+ * добор дошёл до последних полей). Запас сверх количества мест — под добор списков
+ * (`askClaimsTopUp`/`askFilesToTouchTopUp`), который тратит ходы, не закрывая НОВОЕ поле.
+ */
+const FILL_TURNS_FLOOR = 12;
+const FILL_TURNS_MARGIN = 6;
+const FILL_TURNS_CEILING = 60;
+
+export function fillTurnsFor(remainingPlaceholders: number): number {
+  return Math.min(FILL_TURNS_CEILING, Math.max(FILL_TURNS_FLOOR, remainingPlaceholders + FILL_TURNS_MARGIN));
+}
 
 /**
  * Какие строки гейтов прогонять ПОСЛЕ конкретного шага этапа 5 по шагам (`stepFill`,
@@ -617,6 +637,14 @@ export class Run {
    */
   private readonly artifactGapsByFile = new Map<string, number>();
 
+  /**
+   * Улики попытки chunk'а (`RunMetrics.chunkEvidence`) — ключ `chunk:attempt`, по записи на
+   * попытку, той же формой Map-аккумулятора, что `gateAgg`/`humanAgg`. Наполняется в
+   * `recordEvidence()` сразу после `recordAttemptEvidence()` и вызова Scope-гейтов — то,
+   * что рантайм УЖЕ посчитал фактически, ДО дорогого `verify`.
+   */
+  private readonly chunkEvidenceAgg = new Map<string, ChunkEvidenceMetric>();
+
   /** Внешние MCP-серверы витка: набор задан конфигом проекта, соединения — ленивые. */
   private readonly mcpSetup: McpSetup;
   private readonly hub: McpHub;
@@ -748,6 +776,7 @@ export class Run {
       artifactGaps: [...this.artifactGapsByFile.entries()]
         .filter(([, placeholders]) => placeholders > 0)
         .map(([artifact, placeholders]) => ({ artifact, placeholders })),
+      chunkEvidence: [...this.chunkEvidenceAgg.values()],
     };
   }
 
@@ -908,6 +937,17 @@ export class Run {
     for (const g of list<RunMetrics['artifactGaps'][number]>(m.artifactGaps)) {
       if (typeof g?.artifact !== 'string') continue;
       this.artifactGapsByFile.set(g.artifact, num(g.placeholders));
+    }
+    this.chunkEvidenceAgg.clear();
+    for (const e of list<ChunkEvidenceMetric>(m.chunkEvidence)) {
+      if (typeof e?.chunk !== 'number' || typeof e?.attempt !== 'number') continue;
+      this.chunkEvidenceAgg.set(`${e.chunk}:${e.attempt}`, {
+        chunk: e.chunk,
+        attempt: e.attempt,
+        testsStatus: e.testsStatus === '✅' || e.testsStatus === '❌' || e.testsStatus === '⏭' ? e.testsStatus : '⏭',
+        treeChanged: e.treeChanged === true,
+        scopeViolation: e.scopeViolation === true,
+      });
     }
   }
 
@@ -1910,12 +1950,33 @@ export class Run {
     notDone: () => string[],
     signal: AbortSignal,
   ): Promise<StageResult> {
+    // Честность карты кодовой базы — общий страж для ОБОИХ путей ниже, не только для
+    // рескью closableFailure. `FormFillExecutor` у дозаполнения не несёт ни `Read`, ни
+    // `Task` (см. комментарий у места вызова), и поле «Карта кодовой базы» дозаполнение
+    // может закрыть СОЧИНЁННЫМ путём. Раньше проверка стояла только внутри closableFailure
+    // (`!result.ok`) — но дозаполнение зовётся БЕЗУСЛОВНО, когда на диске остались
+    // плейсхолдеры, даже если исходный ход уже вернул `ok:true`: страж хода видит файл ДО
+    // добора и проверяет более слабое условие («файл тронут», не «плейсхолдеров не
+    // осталось»). В этом случае фабрикация в добранных полях проходила мимо проверки и
+    // всплывала на шаг позже, на входе в `ask` (живой замер `qwencoder-freeship`, серия
+    // v3, 2026-09-13 — пять из шести находок этого класса прошли именно так).
+    const explorationHonestyProblem = (): StageResult | null => {
+      if (stage !== 'explore') return null;
+      const problem = explorationPathProblem(this.ctx);
+      return problem === null
+        ? null
+        : { ...result, ok: false, note: `дозаполнение закрыло плейсхолдеры, но не честность: ${problem}` };
+    };
+
     // Полный журнал — не повод выйти до переворота исхода: живой прогон (r6/ff1) показал
     // сэмпл, где модель добила журнал САМА, но сожгла лимит, не успев завершить ход, —
     // ранний return здесь оставлял этап красным при полностью выполненном контракте.
-    if (countPlaceholdersExceptDecisions(readArtifact(path).text) > 0) {
-      const filled = await this.fillFormFields(stage, path, prompt, hooks, signal);
+    const remaining = countPlaceholdersExceptDecisions(readArtifact(path).text);
+    if (remaining > 0) {
+      const filled = await this.fillFormFields(stage, path, prompt, hooks, signal, remaining);
       if (!filled) return result;
+      const dishonest = explorationHonestyProblem();
+      if (dishonest !== null) return dishonest;
     }
 
     // «Лимит длины ОТВЕТА» — тот же класс, что «исчерпан лимит ходов»: бюджет кончился на
@@ -1932,6 +1993,11 @@ export class Run {
     // полей быть не должно, иначе красное станет зелёным на недоделанном артефакте.
     const closableFailure = !result.ok && isFormattingFailure(result.note);
     if (closableFailure && notDone().length === 0) {
+      // Рескью нужен своя проверка честности: `remaining` мог быть 0 уже на входе (ход
+      // упал не по счётчику плейсхолдеров, а, например, по лимиту длины ответа) — тогда
+      // блок выше не запускался вовсе, и это первая проверка для данного прогона.
+      const dishonest = explorationHonestyProblem();
+      if (dishonest !== null) return dishonest;
       const note =
         'этап закрыт: код и содержание — работа модели, оформление добрано рантаймом ' +
         '(исполнитель упал только на лимите/оформлении при полных артефактах)';
@@ -1941,13 +2007,19 @@ export class Run {
     return result;
   }
 
-  /** Дозаполнение полей артефакта per-field completion'ами. `false` — поля не закрылись. */
+  /**
+   * Дозаполнение полей артефакта per-field completion'ами. `false` — поля не закрылись.
+   *
+   * `remainingPlaceholders` — сколько мест не закрыто ПЕРЕД добором: потолок ходов
+   * (`fillTurnsFor`) считается от него, не плоской константой (см. комментарий там).
+   */
   private async fillFormFields(
     stage: StageId,
     path: string,
     prompt: PreparedPrompt,
     hooks: ExecHooks,
     signal: AbortSignal,
+    remainingPlaceholders: number,
   ): Promise<boolean> {
     const route = this.profile.routes[stage];
     const limits = this.config.runner.limits;
@@ -1986,8 +2058,10 @@ export class Run {
         finishGuard: () =>
           countPlaceholdersExceptDecisions(readArtifact(path).text) > 0 ? 'в артефакте остались незаполненные поля' : null,
         salvageFromText: null,
-        // Свой потолок: полей в журнале единицы, а лимит этапа уже сожжён исполнителем.
-        maxTurns: 12,
+        // Потолок — от реального числа мест, не плоская константа (см. `fillTurnsFor`):
+        // лимит этапа уже сожжён исполнителем, но добор не должен упираться в потолок
+        // раньше, чем дойдёт до КАЖДОГО поля хотя бы раз.
+        maxTurns: fillTurnsFor(remainingPlaceholders),
         maxBudgetUsd: this.project.maxBudgetUsd,
         spentUsdBefore: this.spent.spent(route.providerDef.currency ?? 'USD'),
         formArtifacts: [path],
@@ -2981,7 +3055,12 @@ export class Run {
       // Индекс проекта — под ручками `exploreIndex`/`exploreFill` (см. `ModelDef`): конвейер
       // тоже показывает его в промпте — оператор видит те же кандидаты, что уйдут в карточки.
       ...(stage === 'explore' && (route.exploreIndex || route.exploreFill)
-        ? { exploreIndex: this.exploreIndexFor(ecosystem).built.view }
+        ? {
+            exploreIndex: this.exploreIndexFor(ecosystem).built.view,
+            // Бюджет блока индекса режется по остатку ЭТОГО окна (`prompt/build.ts`) — то
+            // же поле, что уже сверяет загрузку LM Studio и режет `max_tokens` в исполнителях.
+            ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
+          }
         : {}),
       // Набор MCP-инструментов и состояние серверов: считаются до сборки промпта, чтобы
       // панель промпта показывала ровно то, что уходит в модель.
@@ -3322,7 +3401,7 @@ export class Run {
         });
       }
 
-      const { tree, testsNote, diff } = await recordAttemptEvidence({
+      const { tree, testsNote, testsStatus, diff } = await recordAttemptEvidence({
         projectRoot: this.project.projectRoot,
         diffPath: this.paths.chunkDiff(this.chunk, this.attempt),
         testsPath: this.paths.chunkTests(this.chunk, this.attempt),
@@ -3330,6 +3409,25 @@ export class Run {
         gateCtx,
         runTests,
         ...(this.aborter === null ? {} : { signal: this.aborter.signal }),
+      });
+
+      // Улика для RunMetrics.chunkEvidence — дешёвый, безмодельный сигнал ДО дорогого
+      // verify (Opus, десятки ходов): те же ДВА Scope-гейта, что этап 6 гоняет тем же
+      // `gateCtx` (git diff + сверка путей с планом, без LLM). Не блокирует попытку и не
+      // влияет на stage_done chunk'а — только видимость (см. комментарий в evidence.ts).
+      // Разбор двух `escalate` у ministral3-14b-instruct-ctx32k (docs/model-runs.md →
+      // «Серия 5×5») нашёл: рантайм уже знал «Тесты ❌»/scope-нарушение ДО старта verify,
+      // но это оставалось только текстом в ленте, не структурой.
+      const [scopeOutside, scopeUntouched] = await Promise.all([
+        this.runNamedGate('Scope: файлы вне плана'),
+        this.runNamedGate('Scope: пути плана без правок'),
+      ]);
+      this.chunkEvidenceAgg.set(`${this.chunk}:${this.attempt}`, {
+        chunk: this.chunk,
+        attempt: this.attempt,
+        testsStatus,
+        treeChanged: tree === 'changed',
+        scopeViolation: scopeOutside?.status === '❌' || scopeUntouched?.status === '❌',
       });
 
       // Пустой патч называется вслух: «этап закончился, артефакты на месте» при нетронутом
@@ -4203,6 +4301,12 @@ export class Run {
             // после ухода планировщика, а дописывать исход за него стало бы некому — кроме
             // самого исполнителя, которому решение человека не принадлежит.
             if (stage === 'plan') {
+              // Пустой files_to_touch — раньше axisProblems: без адресов правки разбор
+              // последствий по осям тоже не может ссылаться на реальные пути, но само по
+              // себе отсутствие files_to_touch — более фундаментальная и более дешёвая в
+              // проверке находка (см. filesToTouchProblem).
+              const filesProblem = filesToTouchProblem(this.ctx);
+              if (filesProblem !== null) return filesProblem;
               const problems = this.axisProblems();
               if (problems.length > 0) {
                 return [

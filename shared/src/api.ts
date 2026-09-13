@@ -10,6 +10,7 @@
 import type {
   FlowId,
   GateRunResult,
+  GateStatus,
   McpServerInfo,
   NormalizedCall,
   PolicyVerdict,
@@ -203,6 +204,24 @@ export interface GateMetrics {
   durationMs: number;
 }
 
+/**
+ * Улика одной попытки chunk'а — то, что `Run.recordEvidence` УЖЕ посчитал фактически
+ * (не заявлением исполнителя), до дорогого `verify`. См. `RunMetrics.chunkEvidence`.
+ */
+export interface ChunkEvidenceMetric {
+  chunk: number;
+  attempt: number;
+  /** Гейт «Тесты», прогнанный тем же путём, что и на этапе 6 (`Run.recordEvidence`). */
+  testsStatus: GateStatus;
+  /** Дерево изменилось за попытку — `false` означает «правки не было» (`TreeChange`). */
+  treeChanged: boolean;
+  /**
+   * Хотя бы один из двух Scope-гейтов («файлы вне плана», «пути плана без правок») уже
+   * красный на этом chunk'е — тем же детерминированным кодом, что и на этапе 6, без LLM.
+   */
+  scopeViolation: boolean;
+}
+
 /** Трение витка о человека по этапам: сколько раз этап ждал решения или ответа. */
 export interface HumanMetrics {
   stage: StageId;
@@ -276,6 +295,21 @@ export interface RunMetrics {
   human: HumanMetrics[];
   /** Артефакты с незакрытыми `‹…›` на момент записи метрик. */
   artifactGaps: ArtifactGap[];
+  /**
+   * Улики попытки chunk'а — то, что рантайм УЖЕ считает фактически (`Run.recordEvidence`,
+   * тот же гейт «Тесты» и те же Scope-гейты, что и на этапе 6), но раньше это оставалось
+   * только текстом в ленте событий и в `chunk-N-attempt-K-tests.txt`, не структурой.
+   *
+   * По одной записи на попытку chunk'а. Отдельно от `gates` (которые считают ТОЛЬКО
+   * прогоны `runGates` этапа 6) — здесь дешёвый, безмодельный сигнал ДО дорогого verify:
+   * найдено разбором двух `escalate` у `ministral3-14b-instruct-ctx32k` (docs/model-runs.md
+   * → «Серия 5×5»), где рантайм уже знал «Тесты ❌»/scope-нарушение до старта verify, но
+   * это не было видно без чтения сырой трассы. Не влияет на `stage_done` chunk'а и не
+   * блокирует попытку — только видимость (см. комментарий в `evidence.ts`: «улика говорит
+   * правду, судит verify»). Появилось после старых снапшотов `metrics.json` — читатели
+   * обязаны считать отсутствующее пустым массивом.
+   */
+  chunkEvidence: ChunkEvidenceMetric[];
 }
 
 /**

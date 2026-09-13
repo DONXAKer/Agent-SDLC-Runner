@@ -46,6 +46,11 @@ export type DriverStopReason =
   | 'escalate'
   /** `blocked_env` дважды подряд на verify — чинить надо машину, не виток. */
   | 'blocked-env-repeat'
+  /**
+   * `envFailure` дважды подряд на ОДНОМ И ТОМ ЖЕ этапе кроме `verify` (там своя причина
+   * выше) — тот же смысл: чинить надо машину/провайдера, а не мерить модель ещё раз.
+   */
+  | 'stage-env-repeat'
   /** `retry`, но бюджет попыток исчерпан. */
   | 'attempts-exhausted'
   /** `stopAfterStage` дошёл — снимок делает вызывающая сторона, не драйвер. */
@@ -161,6 +166,35 @@ export function decideAfterVerify(args: {
   return { kind: 'continue' };
 }
 
+/** Итог решения после `ok:false` обычного (не `verify`) этапа — чистая функция. */
+export type AfterStageFailureDecision =
+  | { kind: 'retry-stage-env' }
+  | { kind: 'stop'; reason: Extract<DriverStopReason, 'blocked' | 'stage-env-repeat'> };
+
+/**
+ * Что делать, когда этап кроме `verify` вернул `ok:false`.
+ *
+ * `verify` сюда не попадает — у неё уже есть свой механизм (`decideAfterVerify`,
+ * `blockedEnvStreak`/`retry-verify-env`). Здесь тот же принцип для остальных этапов:
+ * `envFailure` (сбой инфраструктуры — апстрим не ответил, 5xx/429 после исчерпанных
+ * повторов самого провайдера) даёт ОДИН повтор САМОГО ЭТАПА, а не второй HTTP-ретрай —
+ * диск уже несёт частичный прогресс (правки применены), это не холодный старт, и живой
+ * инцидент (`gpt-oss-20b`/`freeship`, docs/model-runs.md → «Серия 5×5») показал, что HTTP-
+ * ретрай самого запроса на систематический сбой не помогает: все повторы падали идентично.
+ * Второй `envFailure` подряд на ТОМ ЖЕ этапе — явная отдельная остановка, а не молчаливый
+ * `blocked`, который читался бы как провал модели, хотя чинить надо машину/провайдера.
+ */
+export function decideAfterStageFailure(args: {
+  stage: StageId;
+  envFailure: string | undefined;
+  alreadyRetriedThisStage: boolean;
+}): AfterStageFailureDecision {
+  if (args.stage !== 'verify' && args.envFailure !== undefined) {
+    return args.alreadyRetriedThisStage ? { kind: 'stop', reason: 'stage-env-repeat' } : { kind: 'retry-stage-env' };
+  }
+  return { kind: 'stop', reason: 'blocked' };
+}
+
 export async function runBench(args: DriverArgs): Promise<DriverResult> {
   const { run, stageTimeoutMs, runTimeoutMs, attempts } = args;
   const stages: DriverStageRecord[] = [];
@@ -168,6 +202,14 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
 
   /** `blocked_env` не занимает попытку, но два подряд означают сломанную машину, не виток. */
   let blockedEnvStreak = 0;
+  /**
+   * Этап (кроме `verify`, у неё свой механизм выше), уже повторённый один раз из-за
+   * `envFailure` — второй `envFailure` на ТОМ ЖЕ этапе подряд останавливает виток отдельной
+   * причиной, а не молчаливым `blocked`. Сбрасывается на любом успешном этапе — иначе
+   * `chunk`, retry которого прыгает назад по `nextAttempt()`, после одного пережитого сбоя
+   * навсегда терял бы право на повтор в следующих попытках того же витка.
+   */
+  let envRetriedStage: StageId | null = null;
 
   let i = args.startStage === undefined ? 0 : STAGE_ORDER.indexOf(args.startStage);
   while (i < STAGE_ORDER.length) {
@@ -218,8 +260,18 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       return { stages, finalVerdict: run.lastVerdict, stopped: 'stage-timeout' };
     }
     if (!result.ok) {
-      return { stages, finalVerdict: run.lastVerdict, stopped: 'blocked' };
+      const decision = decideAfterStageFailure({
+        stage,
+        envFailure: result.envFailure,
+        alreadyRetriedThisStage: envRetriedStage === stage,
+      });
+      if (decision.kind === 'retry-stage-env') {
+        envRetriedStage = stage;
+        continue;
+      }
+      return { stages, finalVerdict: run.lastVerdict, stopped: decision.reason };
     }
+    envRetriedStage = null;
 
     const def = stageById(stage);
     if (def.humanGate !== null) {

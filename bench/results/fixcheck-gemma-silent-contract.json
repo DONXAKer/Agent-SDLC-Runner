@@ -1,0 +1,634 @@
+{
+  "run": {
+    "slug": "fixcheck-gemma-silent-contract",
+    "model": "lmstudio:gemma-4-e4b-stepfill",
+    "task": "silent-contract",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:gemma-4-e4b-stepfill",
+      "explore": "lmstudio:gemma-4-e4b-stepfill",
+      "ask": "lmstudio:gemma-4-e4b-stepfill",
+      "plan": "lmstudio:gemma-4-e4b-stepfill",
+      "chunk": "lmstudio:gemma-4-e4b-stepfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "lmstudio:gemma-4-e4b-stepfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-13T20:21:01.345Z",
+    "finishedAt": "2026-09-13T20:41:39.951Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 23, осталось на диске 15; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап зациклился на правке «.sdlc/fixcheck-gemma-silent-contract/exploration-report.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (23 → 23 → 23) — застряло: «стек и конвенции»: язык / стек; «стек и конвенции»: сборка / тесты; «стек и конвенции»: конвенции; «стек и конвенции»: требования к окружению прогона; «найдено для переиспользования»: Самый ценный выход шага: что из нужного **уже написано**. Результат — `путь + имя символа`, а не «наверное есть похожее». Каждая строка становится шагом плана «использовать», а не «написать». Ненайденный хелпер порождает второй экземпляр той же логики, который потом ловится ревью как дефект. Отличие от карты выше: там файлы, которые мы **меняем**, здесь — символы, которые **вызываем**. Пересечение…; и ещё 9 мест — правки идут, но не закрывают нужные места",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 119165,
+          "outputTokens": 25327,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 874699
+        },
+        "durationMs": 376855
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 597610,
+          "outputTokens": 39055,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1274644
+        },
+        "durationMs": 861739
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 27,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 11
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 23,
+        "waitMs": 58
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 24
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:e655a470-d41e-40c7-b42c-47aadac93f64",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\fixcheck-gemma-silent-contract\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:19b91c46-5281-4b32-89b5-2d8a863fa322",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\fixcheck-gemma-silent-contract\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f518de56-3b45-4008-8731-965219f90ee7",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:95b17906-6952-48aa-9d5d-bfe51f4b1ea3",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0f9774c1-4194-4882-946e-3d6b03ebeac4",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4323534a-9268-43af-86e6-089871b8a585",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:090db284-151c-4396-a88c-1d84db2078dc",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:00d4da35-3ae5-43d6-8063-2af5c48864ab",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ee897472-d0ef-4d7d-8289-512281c15f84",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7899263d-6523-47f4-be30-ee4beb927cc6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d4a988b4-4ee6-4ab0-b583-63f56b864c43",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d010d412-5fd8-420d-aa2f-73cd108b8941",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9dec7d5c-221c-4dc2-99f1-aacac6305649",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5bb2fc73-ccda-44d0-9b7b-bbf612fee589",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a673f54c-5e37-4b68-b234-3c3bfdd9f938",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:801118b7-daf7-4801-9b70-0af511aa95bf",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a674bdbc-7ccf-41e4-af12-230b300cc7a8",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:73ac96d9-1212-4fc3-861e-5689f22a23af",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0e9f3b76-33cd-4253-8edd-d46d6f70e43f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a216bb33-b485-45ac-a75e-330620f66d10",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5f7dfa5f-08d0-41b3-8fb8-2a55cc4a4569",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f299822a-87ed-4864-9572-a2c9c3025806",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/fixcheck-gemma-silent-contract/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e6f4b541-c289-4e69-a018-026c1ceb8e28",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:0432caaa-09c0-4dc5-b00c-419a41b0fe83",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\fixcheck-gemma-silent-contract\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:44ed7b15-ec83-4fe0-9193-e38a21da9bfa",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\fixcheck-gemma-silent-contract\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10167,
+        "userChars": 3955,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10468,
+        "userChars": 14276,
+        "editedByOperator": false
+      }
+    ],
+    "questions": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

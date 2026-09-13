@@ -16,6 +16,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
 import { capBytes } from './bytes.ts';
 import { INDEX_BLOCK_BYTES, renderIndexBlock } from '../explore/render.ts';
+import { BYTES_PER_TOKEN_ESTIMATE } from '../exec/contextBudget.ts';
 import type { ExploreIndexView } from '../explore/view.ts';
 import { deriveSchema, modelFields } from '../artifacts/formSchema.ts';
 import { extractHumanFacts } from '../artifacts/humanFacts.ts';
@@ -148,6 +149,16 @@ export interface BuildPromptInput {
    * прежний.
    */
   exploreIndex?: ExploreIndexView;
+  /**
+   * Заявленное окно контекста маршрута (`ModelDef.contextWindow` через `route`, как у
+   * `LoopExecutor`/`StepExecutor`). Не задано — блок индекса режется плоской константой
+   * `INDEX_BLOCK_BYTES`, как раньше. Задано — бюджет блока считается по остатку окна:
+   * базовый промпт (без индекса) сам по себе может быть близко к потолку окна маленькой
+   * модели, и добавленный поверх него блок индекса переполнял запрос ещё ДО первого хода
+   * модели (замер `qwen3-8b`/`oversize`, 2026-09-12: 34042 токена запроса против окна
+   * 32768 — индекс в границах СВОЕЙ константы 8000 байт, но общий промпт уже не влезал).
+   */
+  contextWindow?: number;
 }
 
 export function readSkillBody(skillsDir: string, skill: string): string {
@@ -543,7 +554,14 @@ export function humanFactsBlock(clarificationReportPath: string): string | null 
   ].join('\n\n');
 }
 
-function userMessage(i: BuildPromptInput): string {
+/**
+ * Запас под ответ модели при подрезке блока индекса под окно — фиксированное число, а не
+ * `params.max_tokens`: этот параметр сюда не приходит (промпт собирается до выбора
+ * провайдера), и заниженный запас безопаснее, чем отсутствие запаса вовсе.
+ */
+const EXPLORE_INDEX_RESPONSE_MARGIN_TOKENS = 4_096;
+
+function userMessage(i: BuildPromptInput, systemBytes = 0): string {
   const parts: string[] = [];
 
   if (i.requirement !== undefined && i.requirement.trim() !== '') {
@@ -599,17 +617,43 @@ function userMessage(i: BuildPromptInput): string {
   // читает их там же, где сам список. Фактичность карты всё равно проверяет страж
   // (`explorationPathProblem`) — блок снижает цену, а не снимает проверку.
   if (i.stage.id === 'explore' && i.exploreIndex !== undefined) {
-    parts.push(
-      '## Индекс проекта (собран рантаймом)',
-      '',
-      'Дерево, символы и кандидаты ниже прочитаны рантаймом из рабочего дерева при сборке ' +
-        'промпта. Пути ниже существуют — карту кодовой базы составляй из них. Файл, которого ' +
-        'здесь нет, в карту без `Read` не попадает; файл, который предстоит создать, называй в ' +
-        'разделе о будущих правках с пометкой «новый». Список кандидатов — подсказка по ' +
-        'ключевым словам задачи, не карта: что из него относится к делу, решаешь ты.',
-      '',
-      renderIndexBlock(i.exploreIndex, INDEX_BLOCK_BYTES[i.flow]),
-    );
+    const flatBudget = INDEX_BLOCK_BYTES[i.flow];
+    // Окно известно — считаем остаток: базовый промпт (без индекса) сам по себе может уже
+    // быть близко к потолку маленькой модели, и плоская константа блока это не видит (см.
+    // комментарий у `BuildPromptInput.contextWindow`). Окно не задано (sdk/облако без
+    // объявленного потолка) — прежнее поведение, плоская константа.
+    const usedBytes = systemBytes + Buffer.byteLength(parts.join('\n'), 'utf8');
+    const budget =
+      i.contextWindow === undefined
+        ? flatBudget
+        : Math.max(
+            0,
+            Math.min(flatBudget, i.contextWindow * BYTES_PER_TOKEN_ESTIMATE - usedBytes - EXPLORE_INDEX_RESPONSE_MARGIN_TOKENS * BYTES_PER_TOKEN_ESTIMATE),
+          );
+    if (budget > 0) {
+      parts.push(
+        '## Индекс проекта (собран рантаймом)',
+        '',
+        'Дерево, символы и кандидаты ниже прочитаны рантаймом из рабочего дерева при сборке ' +
+          'промпта. Пути ниже существуют — карту кодовой базы составляй из них. Файл, которого ' +
+          'здесь нет, в карту без `Read` не попадает; файл, который предстоит создать, называй в ' +
+          'разделе о будущих правках с пометкой «новый». Список кандидатов — подсказка по ' +
+          'ключевым словам задачи, не карта: что из него относится к делу, решаешь ты.',
+        '',
+        renderIndexBlock(i.exploreIndex, budget),
+      );
+    } else {
+      // Окну не хватает места даже под минимальный блок — молчание было бы тише отказа:
+      // модель осталась бы без предупреждения, почему подсказок по коду не пришло.
+      parts.push(
+        '## Индекс проекта (собран рантаймом)',
+        '',
+        '_Пропущен рантаймом: базовый промпт этапа уже занимает окно контекста модели ' +
+          `(${i.contextWindow} токенов) без запаса под ответ. Разведку по коду веди сама ` +
+          '(`Read`/`Grep`/`Glob`) — подсказок по файлам-кандидатам и переиспользованию в ' +
+          'этом ходу не будет._',
+      );
+    }
   }
 
   // Prefetch файлов плана — только этап 5 и только флоу loop: сильной модели flow sdk
@@ -729,7 +773,7 @@ export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
           'не показан — всё остальное, что уйдёт в модель, видно ниже.'
         : null,
     system,
-    user: userMessage(i),
+    user: userMessage(i, Buffer.byteLength(system, 'utf8')),
     tools,
     editedByOperator: false,
   };

@@ -232,7 +232,7 @@ export class LoopExecutor implements StageExecutor {
      * `explore` либо сжигает `maxTurns`, либо пытается переписать файл целиком
      * (`destructiveOverwrite` ловит попытку, но сам цикл это не останавливает).
      */
-    const finalizeStreak = new Map<string, number[]>();
+    const finalizeStreak = new Map<string, { placeholders: number; located: string[] }[]>();
     const FINALIZE_STALL_LIMIT = 3;
 
     /**
@@ -510,16 +510,27 @@ export class LoopExecutor implements StageExecutor {
             // не существует) — серия по этому пути больше не показательна.
             finalizeStreak.delete(normalized.artifact);
           } else {
-            const history = [...(finalizeStreak.get(normalized.artifact) ?? []), rejection.placeholders];
+            const history = [
+              ...(finalizeStreak.get(normalized.artifact) ?? []),
+              { placeholders: rejection.placeholders, located: rejection.located ?? [] },
+            ];
             finalizeStreak.set(normalized.artifact, history);
             const recent = history.slice(-FINALIZE_STALL_LIMIT);
             const stalled =
-              recent.length >= FINALIZE_STALL_LIMIT && recent.every((n, i) => i === 0 || n >= recent[i - 1]!);
+              recent.length >= FINALIZE_STALL_LIMIT &&
+              recent.every((n, i) => i === 0 || n.placeholders >= recent[i - 1]!.placeholders);
             if (stalled) {
+              // Числа отказов подряд — как и раньше, но ПОСЛЕДНИЙ отказ называет ещё и
+              // сами поля (то же `located`, что уже видела модель в тексте отказа
+              // FinalizeArtifact на каждой попытке) — человек, читающий трассу, видит,
+              // что именно застряло, не разбирая сырые вызовы по одному.
+              const last = recent[recent.length - 1]!;
               const note =
                 `этап зациклился на правке «${normalized.artifact}» без прогресса: число ` +
                 `незаполненных мест не убывает ${FINALIZE_STALL_LIMIT} отказов подряд ` +
-                `(${recent.join(' → ')}) — правки идут, но не закрывают нужные места`;
+                `(${recent.map((n) => n.placeholders).join(' → ')})` +
+                (last.located.length > 0 ? ` — застряло: ${last.located.join('; ')}` : '') +
+                ' — правки идут, но не закрывают нужные места';
               hooks.onWarn(note);
               return { ok: false, finalText, usage, note };
             }

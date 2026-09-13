@@ -1,0 +1,472 @@
+{
+  "run": {
+    "slug": "sweep5v3-ministral-two-right-answers",
+    "model": "ollama:ministral3-14b-instruct-ctx32k",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-13T16:13:46.581Z",
+    "finishedAt": "2026-09-13T16:37:31.688Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 21, осталось на диске 17; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "карта кодовой базы в отчёте разведки называет несуществующие пути: pkg.json, test/held.test.ts, .sdlc/sweep5v3-ministral.../intent.md, test/halled.test.ts, pkg.json — отчёт сочинён, а не прочитан из кода. Разведку нужно переделать по реальным файлам",
+        "blockers": [
+          "карта кодовой базы в отчёте разведки называет несуществующие пути: pkg.json, test/held.test.ts, .sdlc/sweep5v3-ministral.../intent.md, test/halled.test.ts, pkg.json — отчёт сочинён, а не прочитан из кода. Разведку нужно переделать по реальным файлам"
+        ],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 131379,
+          "outputTokens": 7836,
+          "cacheReadTokens": 122093,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 564339
+        },
+        "durationMs": 299308
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 283422,
+          "outputTokens": 23408,
+          "cacheReadTokens": 237625,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1423036
+        },
+        "durationMs": 1125782
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 24,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 13
+      },
+      {
+        "stage": "explore",
+        "questions": 4,
+        "approvals": 10,
+        "waitMs": 25
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 28
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:1e6858d9-5909-42ca-a393-15378e24f1c5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\sweep5v3-ministral-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:7f835a0b-ee01-4f8d-be75-277b9b2af269",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\sweep5v3-ministral-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:026e1116-21d2-49f1-9dd5-3cb73c935baf",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:540a8d39-506c-4f78-9949-37d22bd43a46",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v3-ministral-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:376cd14c-a90c-4006-ba58-83c04e8578b0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v3-ministral-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7230ce76-6379-48d4-b0ce-b389d108a94f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v3-ministral-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0a6c0f4d-b892-42cd-8cae-121b5c709f1d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v3-ministral-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:92d7899b-ea65-4768-9cdf-f2c8fa2eacb3",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v3-ministral-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5af14283-b412-48b2-b2b8-96c78befc9a7",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:605e7bff-45ae-4163-8bc8-106564f05ea5",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v3-ministral-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:f8d19511-8763-4c5e-a3d7-6ff1a5ca421d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\sweep5v3-ministral-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:407ac58e-9f11-4498-8030-cb12c9f394a7",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\sweep5v3-ministral-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Выберите стратегию для `moveHold` (конфликт зависит от того, какие поля запрещены к мутации в `hold.ts`)."
+          },
+          {
+            "id": "q2",
+            "question": "Учитывая, что полный контракты для `hold` есть в тестах, какой подход требует явной проверки?"
+          },
+          {
+            "id": "q3",
+            "question": "Что необходимо в артефактах до разведки? (можно несколько)"
+          },
+          {
+            "id": "q4",
+            "question": "Обратить внимание на бюджет итераций (3 попытки на задачу)."
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.arch"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10197,
+        "userChars": 4192,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10498,
+        "userChars": 16482,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-7115bca0-c270-4bee-a99a-c3e67e779f7e-1",
+        "questionId": "q1",
+        "text": "Выберите стратегию для `moveHold` (конфликт зависит от того, какие поля запрещены к мутации в `hold.ts`)."
+      },
+      {
+        "stage": "explore",
+        "requestId": "ask-7115bca0-c270-4bee-a99a-c3e67e779f7e-1",
+        "questionId": "q2",
+        "text": "Учитывая, что полный контракты для `hold` есть в тестах, какой подход требует явной проверки?"
+      },
+      {
+        "stage": "explore",
+        "requestId": "ask-7115bca0-c270-4bee-a99a-c3e67e779f7e-1",
+        "questionId": "q3",
+        "text": "Что необходимо в артефактах до разведки? (можно несколько)"
+      },
+      {
+        "stage": "explore",
+        "requestId": "ask-7115bca0-c270-4bee-a99a-c3e67e779f7e-1",
+        "questionId": "q4",
+        "text": "Обратить внимание на бюджет итераций (3 попытки на задачу)."
+      }
+    ]
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

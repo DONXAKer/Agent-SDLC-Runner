@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 
 import type { Verdict } from '@sdlc-runner/shared';
 
-import { attemptCeiling, decideAfterVerify } from '../src/driver.ts';
+import { attemptCeiling, decideAfterStageFailure, decideAfterVerify } from '../src/driver.ts';
 
 function verdict(action: Verdict['action'], passed = false): Verdict {
   return { passed, action, reasons: [] };
@@ -25,6 +25,36 @@ describe('attemptCeiling', () => {
     strictEqual(attemptCeiling({ attemptBudget: 5 }, 3), 3);
     strictEqual(attemptCeiling({ attemptBudget: 2 }, 3), 2);
     strictEqual(attemptCeiling({ attemptBudget: 4 }, 4), 4);
+  });
+});
+
+describe('decideAfterStageFailure', () => {
+  it('обычный провал (без envFailure) — сразу blocked, повтора нет', () => {
+    deepStrictEqual(
+      decideAfterStageFailure({ stage: 'intent', envFailure: undefined, alreadyRetriedThisStage: false }),
+      { kind: 'stop', reason: 'blocked' },
+    );
+  });
+
+  it('envFailure первый раз на этапе — один повтор самого этапа', () => {
+    deepStrictEqual(
+      decideAfterStageFailure({ stage: 'explore', envFailure: 'HTTP 500', alreadyRetriedThisStage: false }),
+      { kind: 'retry-stage-env' },
+    );
+  });
+
+  it('envFailure второй раз подряд на том же этапе — отдельная остановка, не blocked', () => {
+    deepStrictEqual(
+      decideAfterStageFailure({ stage: 'explore', envFailure: 'HTTP 500', alreadyRetriedThisStage: true }),
+      { kind: 'stop', reason: 'stage-env-repeat' },
+    );
+  });
+
+  it('verify исключена — у неё свой механизм (decideAfterVerify), envFailure здесь не даёт повтора', () => {
+    deepStrictEqual(
+      decideAfterStageFailure({ stage: 'verify', envFailure: 'HTTP 500', alreadyRetriedThisStage: false }),
+      { kind: 'stop', reason: 'blocked' },
+    );
   });
 });
 

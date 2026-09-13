@@ -40,6 +40,7 @@ function result(stagesOk: boolean) {
     gates: [],
     human: [],
     artifactGaps: [],
+    chunkEvidence: [],
   };
   return buildResult({
     opts: {

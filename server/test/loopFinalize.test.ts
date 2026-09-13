@@ -168,6 +168,11 @@ describe('детектор застревания FinalizeArtifact (explore не
     strictEqual(result.ok, false);
     ok(result.note.includes('зациклился на правке'), result.note);
     ok(result.note.includes('1 → 1 → 1'), result.note);
+    // Итоговое сообщение называет застрявшее ПОЛЕ, не только число — та же локализация,
+    // что модель уже видела на каждом отдельном отказе FinalizeArtifact (finalizeCheck.ts),
+    // теперь и в сообщении для человека, читающего трассу после остановки этапа.
+    ok(result.note.includes('застряло'), result.note);
+    ok(/риски/i.test(result.note), result.note);
   });
 
   it('число мест убывает между отказами — детектор застревания НЕ срабатывает', async () => {

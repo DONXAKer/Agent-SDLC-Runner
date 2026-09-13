@@ -60,7 +60,7 @@ function view(treeSize = 3): ExploreIndexView {
   };
 }
 
-function build(stage: 'explore' | 'plan', flow: 'loop' | 'sdk', v?: ExploreIndexView) {
+function build(stage: 'explore' | 'plan', flow: 'loop' | 'sdk', v?: ExploreIndexView, contextWindow?: number) {
   return buildPrompt({
     runner,
     stage: stageById(stage),
@@ -69,6 +69,7 @@ function build(stage: 'explore' | 'plan', flow: 'loop' | 'sdk', v?: ExploreIndex
     slug: 'demo',
     now: new Date('2026-01-01T00:00:00Z'),
     ...(v === undefined ? {} : { exploreIndex: v }),
+    ...(contextWindow === undefined ? {} : { contextWindow }),
   });
 }
 
@@ -103,5 +104,30 @@ describe('блок индекса проекта в промпте', () => {
     ok(Buffer.byteLength(blockOf(loop), 'utf8') < Buffer.byteLength(blockOf(sdk), 'utf8'));
     ok(Buffer.byteLength(renderIndexBlock(big, INDEX_BLOCK_BYTES.loop), 'utf8') <= INDEX_BLOCK_BYTES.loop, 'блок больше потолка');
     ok(loop.includes('обрезано рантаймом'));
+  });
+
+  it('заданное окно режет блок сильнее плоской константы, если остаток мал', () => {
+    // Без окна — обычный потолок флоу (INDEX_BLOCK_BYTES.loop). С маленьким окном (4096
+    // токенов) блок обязан сжаться сильнее этой константы, а не переполнить запрос
+    // (регресс `qwen3-8b`/`oversize`, 2026-09-12: 34042 токена запроса против окна 32768 —
+    // индекс был в границах СВОЕЙ константы, но общий промпт уже не влезал).
+    const blockOf = (u: string): string => u.slice(u.indexOf('## Индекс проекта'));
+    const flatBlock = Buffer.byteLength(blockOf(build('explore', 'loop', view(2000)).user), 'utf8');
+    const windowedBlock = Buffer.byteLength(blockOf(build('explore', 'loop', view(2000), 4096).user), 'utf8');
+    ok(windowedBlock < flatBlock, 'малое окно обязано срезать блок сильнее плоской константы');
+
+    // Щедрое окно с той же задачей блок не трогает — регресс не должен резать всех подряд.
+    const generous = build('explore', 'loop', view(50), 200_000);
+    ok(generous.user.includes('## Индекс проекта (собран рантаймом)'));
+    ok(!generous.user.includes('Пропущен рантаймом'));
+  });
+
+  it('окна не хватает даже под минимальный блок — явное предупреждение, а не тихий обрыв', () => {
+    // Окно меньше, чем уже занято одним base-промптом (запас на ответ уже съеден) —
+    // индекс обязан замениться предупреждением, а не выдать пустой/обрезанный до мусора блок.
+    const p = build('explore', 'loop', view(5), 10);
+    ok(p.user.includes('## Индекс проекта'));
+    ok(p.user.includes('Пропущен рантаймом'), 'нет явного предупреждения о пропуске блока');
+    ok(!p.user.includes('Дерево, символы и кандидаты ниже'), 'обычный текст блока не должен появляться');
   });
 });

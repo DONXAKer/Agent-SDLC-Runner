@@ -24,6 +24,7 @@ const metrics = (over: Partial<RunMetrics> = {}): RunMetrics => ({
   gates: [],
   human: [],
   artifactGaps: [],
+  chunkEvidence: [],
   ...over,
 });
 

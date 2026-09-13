@@ -16,6 +16,7 @@ import { CLAIMS_MINIMUM, countClaims } from '../artifacts/claims.ts';
 import type { ArtifactKey, WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_DIR } from '../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../md/table.ts';
+import { extractFilesToTouch } from '../artifacts/planFiles.ts';
 import type { StageId, ToolName } from '@sdlc-runner/shared';
 
 export interface StageContext {
@@ -349,6 +350,29 @@ function explorationPathsExist(): Precondition {
     describe: 'пути из карты кодовой базы существуют в дереве',
     check: explorationPathProblem,
   };
+}
+
+/**
+ * `files_to_touch` плана пуст — та же находка, что уже ловит `Run.blockers()` на входе в
+ * `chunk` (`PlanScope выключился бы молча`), но здесь она приходит модели в её собственном
+ * ходу на этапе `plan`, а не после ухода планировщика: без этой проверки виток тратил целый
+ * холостой цикл — план закрывался зелёным, а бесполезность вскрывалась только на входе в
+ * `chunk` (живой замер `gemma-4-e4b`/`security-bait`, 2026-09-13). Пустой список никогда не
+ * легитимен в текущей архитектуре: `chunk.skipIf` отсутствует, `planScope.ts` трактует
+ * пустой `files_to_touch` как «защита выключена», а не как «нечего трогать».
+ *
+ * Переиспользует `extractFilesToTouch` — тот же разбор секции, что и `Run.planFilesFor`
+ * (второй парсер здесь завёл бы риск расхождения, см. предупреждение в `planFiles.ts`).
+ */
+export function filesToTouchProblem(c: StageContext): string | null {
+  const plan = readArtifact(c.paths.plan);
+  if (!plan.exists) return null; // отсутствие плана ловит соседнее предусловие
+  if (extractFilesToTouch(plan.text).length > 0) return null;
+  return (
+    `в files_to_touch плана нет ни одного пути: без него PlanScope выключится молча на ` +
+    `этапе 5, и запись перестанет быть ограниченной планом. Впиши хотя бы один путь строкой ` +
+    `таблицы.`
+  );
 }
 
 /** Отчёт приёмки последней попытки говорит, что виток принят. */
