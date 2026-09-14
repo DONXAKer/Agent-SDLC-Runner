@@ -83,8 +83,10 @@ describe('contextProblemFor', () => {
     strictEqual(await contextProblemFor('ollama', 'm', 16384, baseUrl), null);
   });
 
-  it('ollama: сервер недоступен — null (обычный путь запроса назовёт это средовой ошибкой)', async () => {
-    strictEqual(await contextProblemFor('ollama', 'm', 16384, 'http://127.0.0.1:1/v1'), null);
+  // Выключенная Ollama перед часами прогона — не «окна в порядке» (code-review, 2026-09-15).
+  it('ollama: сервер недоступен — проблема, а не молчаливое «неприменимо»', async () => {
+    const problem = await contextProblemFor('ollama', 'm', 16384, 'http://127.0.0.1:1/v1');
+    ok(problem !== null, 'недоступный сервер обязан дать проблему');
   });
 
   it('ollama: мёртвый тег — по-прежнему проблема', async () => {

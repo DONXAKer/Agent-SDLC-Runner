@@ -95,6 +95,14 @@ describe('explorationPathProblem: дублированная секция «Ка
     strictEqual(explorationPathProblem(ctx(UNRELATED_MAP_HEADING_REPORT)), null);
   });
 
+  // Признак без якоря ловил «кодов» и «кодовой базе» в любом месте заголовка (code-review, 2026-09-15).
+  it('«Карта кодов ошибок» и «Что уже есть в кодовой базе» с прозой — не вторая карта', () => {
+    for (const heading of ['## Карта кодов ошибок', '## Что уже есть в кодовой базе']) {
+      const report = [NORMAL_REPORT, heading, '', 'Проза без таблицы.', ''].join('\n');
+      strictEqual(explorationPathProblem(ctx(report)), null, heading);
+    }
+  });
+
   it('две секции карты, обе с таблицами реальных путей, — честная разбивка, не дубль', () => {
     const report = [
       '# Отчёт разведки',

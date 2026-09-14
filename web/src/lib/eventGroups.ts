@@ -9,9 +9,10 @@ type ToolResultEvent = Extract<RunEvent, { type: 'tool_result' }>;
  *
  * `pending` — ждёт решения человека или политики, `running` — разрешён и исполняется.
  * Оба не имеют результата, но сворачивать `pending` в нейтральную строку нельзя:
- * «ждёт решения» обязано оставаться заметным.
+ * «ждёт решения» обязано оставаться заметным. `cancelled` — запрос снят обрывом витка:
+ * решение приходит `allowed: false`, но это не отказ, и показывать его отказом нельзя.
  */
-export type ToolCallStatus = 'pending' | 'running' | 'denied' | 'ok' | 'failed';
+export type ToolCallStatus = 'pending' | 'running' | 'denied' | 'cancelled' | 'ok' | 'failed';
 
 export type EventItem =
   | {
@@ -53,7 +54,9 @@ export function groupEvents(events: RunEvent[]): EventItem[] {
       // — исполнитель обязан вернуть модели хоть какой-то результат на отклонённый вызов.
       // Если решать по `result` первым, отказ неотличим от настоящего падения инструмента.
       const status: ToolCallStatus =
-        resolved !== undefined && !resolved.decision.allowed
+        resolved?.cancelled === true
+          ? 'cancelled'
+          : resolved !== undefined && !resolved.decision.allowed
           ? 'denied'
           : result !== undefined
             ? result.ok

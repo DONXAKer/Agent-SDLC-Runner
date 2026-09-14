@@ -194,10 +194,10 @@ describe('checkOllamaContext', () => {
     ok(r.message.includes('неприменима'), r.message);
   });
 
-  it('сервер недоступен — ok:false, skipped, не бросает исключение', async () => {
+  it('сервер недоступен — ok:false, НЕ skipped (выключенная Ollama — не «окна в порядке»), не бросает', async () => {
     const r = await checkOllamaContext('http://127.0.0.1:1/v1', 'm', 1, NO_ENV);
     strictEqual(r.ok, false);
-    strictEqual(r.skipped, true);
+    strictEqual(r.skipped, false);
     strictEqual(r.effectiveContextLength, null);
   });
 

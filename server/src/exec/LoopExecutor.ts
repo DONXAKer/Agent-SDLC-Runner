@@ -322,7 +322,9 @@ export class LoopExecutor implements StageExecutor {
         req.progressSignal !== undefined &&
         !noProgressNudged &&
         turn < req.maxTurns &&
-        turnsDone >= Math.ceil(req.maxTurns * NO_PROGRESS_BUDGET_FRACTION) &&
+        // Порог не позже предпоследнего хода: при maxTurns 3–4 доля давала последний ход, на
+        // котором напоминание уже не отправляется, — и не приходило ни разу.
+        turnsDone >= Math.min(Math.ceil(req.maxTurns * NO_PROGRESS_BUDGET_FRACTION), req.maxTurns - 1) &&
         req.progressSignal() === 0
       ) {
         noProgressNudged = true;
@@ -368,9 +370,17 @@ export class LoopExecutor implements StageExecutor {
       //
       // К `prompt_tokens` прибавляется `completion_tokens` того же ответа: сам ответ уже
       // лежит в истории следующего запроса, а `prompt_tokens` его не содержит — на ходу с
-      // длинным `Write` бюджет недосчитывал ровно этот `Write`.
+      // длинным `Write` бюджет недосчитывал ровно этот `Write`. Прибавляется оценка того, что
+      // из ответа ЛЯЖЕТ в историю, а не `completion_tokens`: у reasoning-моделей в них входит
+      // рассуждение, которое в историю не возвращается, и переоценка на его длину сажала
+      // `max_tokens` следующего хода на пол.
       lastUsedTokens =
-        answer.usage.inputTokens === 0 ? null : answer.usage.inputTokens + answer.usage.outputTokens;
+        answer.usage.inputTokens === 0
+          ? null
+          : answer.usage.inputTokens +
+            estimateMessageTokens([
+              { content: answer.text + answer.toolCalls.map((c) => `${c.name}${c.rawArguments}`).join('') },
+            ]);
       hooks.onUsage(answer.usage);
       if (answer.text !== '') {
         finalText = answer.text;
@@ -663,14 +673,13 @@ export class LoopExecutor implements StageExecutor {
         readNudges++;
         readStreak = 0;
         hooks.onFriction('reminder');
-        messages.push({
-          role: 'user',
-          content:
-            `Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
+        pushUserNote(
+          messages,
+          `Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
             'записи. Результат этапа — записанный артефакт, а не прочитанные файлы: если ' +
             'контекста уже достаточно, переходи к записи инструментами Write/Edit. Продолжай ' +
             'читать только то, без чего правку не сделать.',
-        });
+        );
       }
 
       // Серия оболочки — тем же местом и по тем же правилам, что серия чтений.
@@ -683,13 +692,12 @@ export class LoopExecutor implements StageExecutor {
         bashNudges++;
         bashStreak = 0;
         hooks.onFriction('reminder');
-        messages.push({
-          role: 'user',
-          content:
-            `Последние ${streak} вызовов — только Bash. Этап делается правками файлов ` +
+        pushUserNote(
+          messages,
+          `Последние ${streak} вызовов — только Bash. Этап делается правками файлов ` +
             '(Write/Edit) и записью артефакта, а не командной строкой: запусти проверку один ' +
             'раз ПОСЛЕ правки, вместо серии команд до неё. Каждый ход стоит полного промпта.',
-        });
+        );
       }
 
       // Артефакт готов к финализации, а ход не кончается — по любой из двух причин
@@ -704,13 +712,12 @@ export class LoopExecutor implements StageExecutor {
           if (readyNudges < READY_STREAK_REMINDERS) {
             readyNudges++;
             hooks.onFriction('reminder');
-            messages.push({
-              role: 'user',
-              content:
-                'Артефакт этапа уже готов к финализации — дальнейшие правки не нужны. Вызови ' +
+            pushUserNote(
+              messages,
+              'Артефакт этапа уже готов к финализации — дальнейшие правки не нужны. Вызови ' +
                 'FinalizeArtifact (если ещё не вызывал) и заверши ход, не открывая новых правок ' +
                 `(напоминание ${readyNudges} из ${READY_STREAK_REMINDERS}).`,
-            });
+            );
           } else {
             const note =
               'цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ход не ' +

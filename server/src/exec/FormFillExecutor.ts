@@ -1187,8 +1187,16 @@ export class FormFillExecutor implements StageExecutor {
       return null;
     };
 
+    // Обрыв (бюджет, отмена, систематический отказ) уносит число запросов и отказ среды:
+    // без них вызывающий (`ExploreExecutor`, `Run.finishFormArtifact`) терял оплаченные
+    // запросы оборванного дозаполнения из учёта.
+    const withSpent = (r: StageResult): StageResult => ({
+      ...r,
+      modelRequests: callsSpent,
+      ...(envFailure === null || r.envFailure !== undefined ? {} : { envFailure }),
+    });
     const stopped = await sweep();
-    if (stopped !== null) return stopped;
+    if (stopped !== null) return withSpent(stopped);
     // Второй проход — только когда есть ЧТО добирать: остатки в бланках без отказа гейта
     // (эти стоят ходов модели — нужен запас лимита) либо недоехавшая запись (перезапись
     // БЕСПЛАТНА и лимитом ходов не запирается — иначе оплаченный текст, ради спасения
@@ -1199,7 +1207,7 @@ export class FormFillExecutor implements StageExecutor {
     if (retriable && !req.signal.aborted) {
       secondSweep = true;
       const stopped2 = await sweep();
-      if (stopped2 !== null) return stopped2;
+      if (stopped2 !== null) return withSpent(stopped2);
     }
     // Каждый пересчёт — чтение всех бланков и `deriveSchema`. Без отказов гейта «только
     // пересчитываемые» и «все» — одно и то же число, а без второго прохода диск с тех пор

@@ -380,6 +380,9 @@ export function isDecisionLine(line: string): boolean {
  * уроке шаблона (ровно так и случилось с формой handoff-бланка, ревью-3).
  */
 export function decisionLabelsIn(text: string): DecisionLabel[] {
+  // Зовётся на каждом `Write` любого этапа, в том числе по исходникам в мегабайты: без
+  // жирной разметки поля решения нет по построению, и проходы по строкам не нужны.
+  if (!text.includes('**')) return [];
   const lines = text.split('\n');
   return DECISION_LABELS.filter((label) => decisionLineIndexes(lines, label).length > 0);
 }

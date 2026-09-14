@@ -79,11 +79,10 @@ describe('провал по существу дозаполнением НЕ з�
     strictEqual(isFormattingFailure(''), false);
   });
 
-  // На chunk антицикл — повтор правки кода; страж переворота смотрит только журнал, и
-  // заполненный журнал закрыл бы зелёным этап с недописанным кодом (code-review, 2026-09-14).
-  it('антицикл на chunk — не оформление; лимит ходов на chunk — по-прежнему оформление', () => {
-    strictEqual(isFormattingFailure('этап зациклился на правке «src/tariffs.ts» без прогресса', 'chunk'), false);
-    strictEqual(isFormattingFailure('этап зациклился на правке «exploration-report.md»', 'explore'), true);
-    strictEqual(isFormattingFailure('исчерпан лимит ходов этапа (40)', 'chunk'), true);
+  // «Этап зациклился» рождается только застреванием FinalizeArtifact — на chunk это журнал,
+  // то есть оформление; недописанный код сторожит место переворота, а не классификация.
+  it('антицикл застрявшего журнала — оформление', () => {
+    strictEqual(isFormattingFailure('этап зациклился на правке «.sdlc/s/chunk-1-journal.md» без прогресса'), true);
+    strictEqual(isFormattingFailure('исчерпан лимит ходов этапа (40)'), true);
   });
 });

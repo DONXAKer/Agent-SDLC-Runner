@@ -246,7 +246,31 @@ describe('createCollector', () => {
         decision: { allowed: true, updatedInput: { content: 'y' }, by: 'auto' },
       });
 
-      deepStrictEqual(collector.state.denials?.map((d) => [d.requestId, d.decisionsLost]), [['lost', ['Решение человека о полноте']]]);
+      // Починённый, но отклонённый за другое вызов: не починка (не применился) и не «стирание
+      // поля» (поле в нём возвращено).
+      collector.emit({ ...repaired, requestId: 'fix-denied', destructive: 'перезапись: −300 строк' });
+      collector.emit({
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'plan',
+        requestId: 'fix-denied',
+        decision: { allowed: false, reason: 'разрушающая перезапись', by: 'operator' },
+      });
+      // Починённый и снятый обрывом — тоже не починка.
+      collector.emit({ ...repaired, requestId: 'fix-cancelled' });
+      collector.emit({
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'plan',
+        requestId: 'fix-cancelled',
+        decision: { allowed: false, reason: 'прогон отменён', by: 'operator' },
+        cancelled: true,
+      });
+
+      deepStrictEqual(
+        collector.state.denials?.map((d) => [d.requestId, d.decisionsLost]),
+        [['lost', ['Решение человека о полноте']], ['fix-denied', undefined]],
+      );
       deepStrictEqual(collector.state.repairs, [{ stage: 'plan', requestId: 'fix', decisionsLost: ['Одобрение'] }]);
     } finally {
       rmSync(root, { recursive: true, force: true });

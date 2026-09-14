@@ -456,6 +456,17 @@ export class ApprovalGate {
     // исполнитель подставляет `updatedInput` дословно.
     const merged = { ...w.rawInput, ...(decision.updatedInput as Record<string, unknown>) };
     const edited = normalize(w.toolName, merged);
+    // Починённый вход собран из полей ЭТОГО файла: перенаправленный в другой путь, он писал
+    // бы туда чужие поля решений, а проверку стирания правка не проходит заново.
+    if (w.repairedInput !== undefined && w.call.kind === 'write' && (edited.kind !== 'write' || edited.path !== w.call.path)) {
+      return {
+        allowed: false,
+        reason:
+          'вход исправлен рантаймом (возвращено поле решения человека) — перенаправить его в другой файл нельзя: ' +
+          'отклони запрос, и модель запишет нужный файл заново',
+        by: 'policy',
+      };
+    }
     const verdict = this.checkAll(edited, w.ctx);
     if (verdict.ok) return { ...decision, updatedInput: merged };
 

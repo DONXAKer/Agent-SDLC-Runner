@@ -18,6 +18,7 @@
  */
 
 import { specsFor } from './exec/toolSpecs.ts';
+import { lexicalNormalize } from './policy/paths.ts';
 import type { ChatMessage, ChatProvider, ChatToolCall } from './provider/ChatProvider.ts';
 import type { ModelDef, ProviderDef } from './config/schema.ts';
 
@@ -106,8 +107,7 @@ const noCall = (text: string, prefix = 'вызова нет'): CaseOutcome => ({
  * другое имя по-прежнему не совпадут.
  */
 function samePath(path: string, declared: string): boolean {
-  const norm = (p: string): string => p.replace(/\\/g, '/').replace(/^(\.\/)+/, '');
-  return norm(path) === norm(declared);
+  return lexicalNormalize(path) === lexicalNormalize(declared);
 }
 
 /**

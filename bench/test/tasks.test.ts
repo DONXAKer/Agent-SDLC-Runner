@@ -50,11 +50,10 @@ describe('реестр задач', () => {
     }
   });
 
-  it('цвет фикстуры: мигающая отдельно от намеренно красной; прежняя пометка читается как red', () => {
+  it('цвет фикстуры: мигающая отдельно от намеренно красной', () => {
     strictEqual(fixtureColorOf(taskById('flaky-by-design')), 'flaky');
     strictEqual(fixtureColorOf(taskById('broken-test')), 'red');
     strictEqual(fixtureColorOf(taskById('oversize')), 'green');
-    strictEqual(fixtureColorOf({ ...taskById('oversize'), expectFixtureRed: true }), 'red');
   });
 
   it('проверка файлов задачи — одна на CLI и преполёт, с причиной', () => {

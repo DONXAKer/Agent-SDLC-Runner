@@ -118,6 +118,12 @@ describe('группировка троек вызова инструмента'
     strictEqual(failed.status, 'failed');
   });
 
+  it('снятый обрывом витка — cancelled, а не denied', () => {
+    const g = groupEvents([req('x'), { ...resolved('x', false), cancelled: true }])[0];
+    if (g?.kind !== 'tool') throw new Error('ожидалась группа');
+    strictEqual(g.status, 'cancelled');
+  });
+
   it('отклонённый вызов остаётся denied и при синтетическом tool_result от loop-флоу', () => {
     // LoopExecutor эмитит tool_resolved(denied) И tool_result(ok:false) на один отказ —
     // исполнитель обязан вернуть модели хоть какой-то результат. `denied` не должен

@@ -70,27 +70,41 @@ export function parseNumCtx(parameters: string | undefined): number | null {
  *
  * Серверное `OLLAMA_CONTEXT_LENGTH` перекрывает встроенные 4096 для всех тегов разом, и
  * без его учёта преполёт давал ложный красный «окно 4096» (код 2) на рабочей среде
- * (code-review, 2026-09-14). Читаем окружение раннера: переменная, заданная на этой же
- * машине, — лучшее доступное знание об умолчании сервера; `/api/*` его не отдаёт. Если
- * `ollama serve` запущен с другим окружением, проверка ошибается ровно так же, как до
- * этой правки, — не хуже.
+ * (code-review, 2026-09-14). Читаем окружение раннера, `/api/*` его не отдаёт — и только
+ * для сервера на петле: у удалённого `baseUrl` окружение раннера о сервере не говорит
+ * ничего, и переменная раннера давала бы ложный зелёный там, где прежде был честный
+ * красный. Служба на этой же машине с другим окружением остаётся слепым пятном — источник
+ * числа поэтому назван в тексте проблемы.
  */
-function defaultWindow(env: Readonly<Record<string, string | undefined>>): { value: number; source: string } {
+function defaultWindow(
+  env: Readonly<Record<string, string | undefined>>,
+  origin: string,
+): { value: number; source: string } {
   const raw = env['OLLAMA_CONTEXT_LENGTH']?.trim();
-  if (raw !== undefined && /^\d+$/.test(raw) && Number(raw) > 0) {
+  if (isLoopback(origin) && raw !== undefined && /^\d+$/.test(raw) && Number(raw) > 0) {
     return { value: Number(raw), source: `OLLAMA_CONTEXT_LENGTH=${raw} — num_ctx в тег не зашит` };
   }
   return { value: OLLAMA_DEFAULT_NUM_CTX, source: 'умолчание Ollama — num_ctx в тег не зашит' };
 }
 
+function isLoopback(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname;
+    return host === 'localhost' || host === '::1' || host === '[::1]' || /^127\./.test(host);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * `/api/tags` здесь не отвечает Ollama-ответом — значит, по адресу не Ollama-шный `/api`,
- * и проверять нечего. 404 — прокси с одним `/v1`; сетевой отказ и таймаут — сервер не
- * отвечает (чат упадёт своей средовой ошибкой, точнее нашей); 200 не-JSON — заглушка
- * прокси. 5xx сюда НЕ входит: сервер на месте и болен, это проблема.
+ * и проверять нечего. 404 — прокси с одним `/v1`; 401/403 — прокси с ключом только на
+ * `/v1`; 200 не-JSON — заглушка прокси. Сетевой отказ и таймаут сюда НЕ входят: сервер
+ * выключен или завис, и «окна в порядке» на нём было бы ложным зелёным перед часами
+ * прогона. 5xx тоже не входит: сервер на месте и болен, это проблема.
  */
 function apiAbsent(f: FetchJsonFailure): boolean {
-  return f.kind === 'network' || f.kind === 'timeout' || f.kind === 'json' || (f.kind === 'http' && f.status === 404);
+  return f.kind === 'json' || (f.kind === 'http' && (f.status === 404 || f.status === 401 || f.status === 403));
 }
 
 /**
@@ -159,7 +173,7 @@ export async function checkOllamaContext(
   if (!show.ok) return fail(describeFetchFailure(showUrl, show.failure, 'Ollama', '`ollama serve`'));
 
   const numCtx = parseNumCtx((show.body as OllamaShowBody | null)?.parameters);
-  const fallback = defaultWindow(options.env ?? process.env);
+  const fallback = defaultWindow(options.env ?? process.env, origin);
   const effective = numCtx ?? fallback.value;
   const windowSource = numCtx === null ? ` (${fallback.source})` : '';
 

@@ -113,10 +113,13 @@ function parseArguments(raw: unknown): { args: Record<string, unknown> | null; t
  * вызов с оборванной строкой аргументов, и пока `hasCalls` побеждал безусловно, цикл
  * диагностировал «сломанный JSON» и «прогресса нет» вместо настоящей причины.
  *
- * Исключение — вызовы, извлечённые из ТЕКСТА: `toolCallsFromText` берёт только закрытый
- * и разобранный объект, то есть обрыв по длине пришёлся уже после вызова (обычно на
- * хвостовой прозе). Отдавать здесь `max_tokens` значило бы, что цикл выбросит целый
- * вызов как «обрезан на середине вызова инструмента» (code-review, 2026-09-14).
+ * Исключение — ЗАКРЫТАЯ последовательность вызовов формы Mistral из текста: разбор берёт
+ * только закрытые объекты, и обрыв по длине пришёлся уже после вызовов (обычно на
+ * хвостовой прозе). Отдавать здесь `max_tokens` значило бы, что цикл выбросит целые
+ * вызовы как «обрезан на середине вызова инструмента» (code-review, 2026-09-14).
+ * Последовательность, оборванная на незакрытом `Имя[ARGS]`, и JSON-форма (объект ищется
+ * после любой скобки — в обрезанной прозе это может быть цитата) исключением не являются:
+ * вызывающий передаёт `callsFromText` только для закрытой формы Mistral.
  */
 export function mapFinish(reason: string | undefined, hasCalls: boolean, callsFromText = false): FinishReason {
   if (hasCalls && callsFromText) return 'tool_use';
@@ -151,13 +154,56 @@ export function toolCallFromText(text: string, known: ReadonlySet<string>): Chat
  * отдаём все; JSON-форма, как и раньше, даёт не больше одного.
  */
 export function toolCallsFromText(text: string, known: ReadonlySet<string>): ChatToolCall[] {
+  return textToolCalls(text, known).calls;
+}
+
+export interface TextToolCalls {
+  calls: ChatToolCall[];
+  form: 'mistral' | 'json' | null;
+  /** Последовательность Mistral оборвана на объявленном `Имя[ARGS]` с незакрытым объектом. */
+  truncated: boolean;
+}
+
+export function textToolCalls(text: string, known: ReadonlySet<string>): TextToolCalls {
   const mistral = mistralCallsFromText(text, known);
-  if (mistral.length > 0) return mistral;
+  if (mistral.calls.length > 0) return { calls: mistral.calls, form: 'mistral', truncated: mistral.truncated };
   const json = jsonCallFromText(text, known);
-  return json === null ? [] : [json];
+  return json === null ? { calls: [], form: null, truncated: mistral.truncated } : { calls: [json], form: 'json', truncated: false };
 }
 
 const TOOL_CALLS_TOKEN = '[TOOL_CALLS]';
+
+const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+/**
+ * id вызова из текста: 9 алфавитно-цифровых символов, свежие на каждый вызов. Шаблоны Mistral
+ * в vLLM требуют ровно такую форму `tool_call_id` и отвергают следующий ход с `text-Read-0`;
+ * одинаковые между ходами id к тому же склеивали бы результаты разных ходов.
+ */
+function textCallId(): string {
+  let id = '';
+  for (let i = 0; i < 9; i++) id += ID_ALPHABET[Math.floor(Math.random() * ID_ALPHABET.length)];
+  return id;
+}
+
+/**
+ * Начало последовательности вызовов: после ведущих блоков рассуждения `<think>…</think>`
+ * (движок, не отделивший рассуждение, отдаёт его в `content`) либо у явного служебного
+ * токена `[TOOL_CALLS]` в любом месте. Токен цитатой не бывает — его пишет шаблон движка, а
+ * не модель в прозе; голое `Имя[ARGS]` посреди прозы по-прежнему не вызов.
+ */
+function sequenceStart(text: string): number {
+  let pos = 0;
+  for (;;) {
+    const m = /^\s*<think>[\s\S]*?<\/think>/.exec(text.slice(pos));
+    if (m === null) break;
+    pos += m[0].length;
+  }
+  const token = text.indexOf(TOOL_CALLS_TOKEN, pos);
+  if (token < 0) return pos;
+  const between = text.slice(pos, token);
+  return /^\s*$/.test(between) || !/^\s*[A-Za-z_][\w-]*\[ARGS\]/.test(text.slice(pos)) ? token : pos;
+}
 
 /**
  * Форма Mistral: `[TOOL_CALLS]Имя[ARGS]{…}`. Служебный токен шаблон движка съедает, и до
@@ -172,11 +218,12 @@ const TOOL_CALLS_TOKEN = '[TOOL_CALLS]';
  * модель не просила». Родной вывод движка идёт вызовами подряд, без прозы перед ними, и
  * последовательность разбирается целиком: прежде второй и следующие вызовы
  * `Read[ARGS]{…}Read[ARGS]{…}` терялись молча (code-review, 2026-09-14). Неразобранный
- * элемент последовательность обрывает; хвост после неё не читается.
+ * элемент последовательность обрывает; хвост после неё не читается. Начало — `sequenceStart`.
  */
-function mistralCallsFromText(text: string, known: ReadonlySet<string>): ChatToolCall[] {
+function mistralCallsFromText(text: string, known: ReadonlySet<string>): { calls: ChatToolCall[]; truncated: boolean } {
   const calls: ChatToolCall[] = [];
-  let pos = 0;
+  let truncated = false;
+  let pos = sequenceStart(text);
   const skipSpace = (): void => {
     while (pos < text.length && /\s/.test(text[pos]!)) pos++;
   };
@@ -191,9 +238,16 @@ function mistralCallsFromText(text: string, known: ReadonlySet<string>): ChatToo
     if (head === null || name === undefined || !known.has(name)) break;
     let start = pos + head[0].length;
     while (start < text.length && /\s/.test(text[start]!)) start++;
+    if (start >= text.length) {
+      truncated = true;
+      break;
+    }
     if (text[start] !== '{') break;
     const end = objectEnd(text, start);
-    if (end < 0) break;
+    if (end < 0) {
+      truncated = true;
+      break;
+    }
     const raw = text.slice(start, end + 1);
     let parsed: unknown;
     try {
@@ -202,17 +256,17 @@ function mistralCallsFromText(text: string, known: ReadonlySet<string>): ChatToo
       break;
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) break;
-    // id уникален в пределах ответа: цикл сопоставляет результат вызову по id, и два
-    // `text-Read` склеили бы результаты двух чтений в одно.
+    // id уникален: цикл сопоставляет результат вызову по id, и два `text-Read` склеили бы
+    // результаты двух чтений в одно.
     calls.push({
-      id: `text-${name}-${calls.length}`,
+      id: textCallId(),
       name,
       arguments: parsed as Record<string, unknown>,
       rawArguments: raw,
     });
     pos = end + 1;
   }
-  return calls;
+  return { calls, truncated };
 }
 
 function jsonCallFromText(text: string, known: ReadonlySet<string>): ChatToolCall | null {
@@ -241,7 +295,7 @@ function jsonCallFromText(text: string, known: ReadonlySet<string>): ChatToolCal
     if (name === undefined || !known.has(name)) continue;
     const args = r['arguments'] ?? r['parameters'] ?? r['input'] ?? r['args'];
     return {
-      id: `text-${name}-0`,
+      id: textCallId(),
       name,
       arguments: typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {},
       rawArguments: JSON.stringify(args ?? {}),
@@ -506,9 +560,9 @@ export class OpenAiCompatProvider implements ChatProvider {
     let callsFromText = false;
     if (toolCalls.length === 0 && content !== '') {
       const known = new Set(req.tools.map((t) => t.name));
-      const fromText = toolCallsFromText(content, known);
-      toolCalls.push(...fromText);
-      callsFromText = fromText.length > 0;
+      const fromText = textToolCalls(content, known);
+      toolCalls.push(...fromText.calls);
+      callsFromText = fromText.form === 'mistral' && !fromText.truncated;
     }
 
     const usage: Usage = {

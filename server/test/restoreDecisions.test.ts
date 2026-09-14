@@ -103,6 +103,23 @@ describe('restoreLostDecisions: одинаковые метки и заголо�
     '',
   ].join('\n');
 
+  // Первую запись модель изменила, вторую стёрла: по тексту стёртое не опознать, и поле
+  // уходило в чужую запись (code-review, 2026-09-15). Угадывать нельзя — решает человек.
+  it('одна запись изменена, другая стёрта — не угадывать: null', () => {
+    const changedAndErased = HANDOFF.replace(`- **${WHO}:** ‹имя›`, `- **${WHO}:** ‹имя› (правка)`)
+      .split('\n')
+      .filter((l) => !l.includes('Иван'))
+      .join('\n');
+    strictEqual(restoreLostDecisions(HANDOFF, changedAndErased), null);
+  });
+
+  it('одна из одинаковых секций удалена — номер заголовка не переносится: null', () => {
+    const lines = HANDOFF.split('\n');
+    const secondDefect = lines.lastIndexOf('## Дефект');
+    const erased = [...lines.slice(0, secondDefect)].filter((l) => !l.includes(WHO)).join('\n');
+    strictEqual(restoreLostDecisions(HANDOFF, erased), null);
+  });
+
   it('две записи с одной меткой стёрты обе — возвращаются обе, а не одна', () => {
     const erased = HANDOFF.split('\n').filter((l) => !l.includes(WHO)).join('\n');
     const r = restoreLostDecisions(HANDOFF, erased);

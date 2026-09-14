@@ -38,17 +38,11 @@ export interface TaskDef {
   humanFile: string;
   /** Цвет нетронутой фикстуры, если он не зелёный. См. `FixtureColor`, `fixtureColorOf`. */
   fixtureColor?: Exclude<FixtureColor, 'green'>;
-  /**
-   * Прежняя пометка намеренно красной фикстуры. Оставлена для совместимости записей;
-   * реестр пользуется `fixtureColor`, читать цвет — только через `fixtureColorOf`.
-   */
-  expectFixtureRed?: boolean;
 }
 
 /** Единственное место, где из записи задачи выводится ожидаемый цвет фикстуры. */
 export function fixtureColorOf(def: TaskDef): FixtureColor {
-  if (def.fixtureColor !== undefined) return def.fixtureColor;
-  return def.expectFixtureRed === true ? 'red' : 'green';
+  return def.fixtureColor ?? 'green';
 }
 
 /**

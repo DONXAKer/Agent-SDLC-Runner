@@ -345,10 +345,11 @@ function checkSnapshot(deps: PreflightDeps, opts: BenchOptions): PreflightCheck 
     if (e instanceof SnapshotError) return bad(name, true, e.message, Date.now() - started);
     throw e;
   }
-  const start = startStageAfter(point);
+  // Точку `readSnapshotMeta` уже проверил: `null` здесь невозможен.
+  const start = startStageAfter(point)!;
   const measured = measuredStages(opts.mode);
-  const first = start === null ? null : firstMeasuredFrom(start, measured);
-  if (start === null || first === null) {
+  const first = firstMeasuredFrom(start, measured);
+  if (first === null) {
     return bad(
       name,
       true,

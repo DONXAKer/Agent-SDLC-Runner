@@ -11,7 +11,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, describe, it } from 'node:test';
 
-import { OpenAiCompatProvider, mapFinish, toolCallsFromText } from '../src/provider/OpenAiCompatProvider.ts';
+import { OpenAiCompatProvider, mapFinish, textToolCalls, toolCallsFromText } from '../src/provider/OpenAiCompatProvider.ts';
 
 const known = new Set(['Read', 'Write']);
 
@@ -53,6 +53,31 @@ describe('toolCallsFromText: форма Mistral', () => {
       calls.map((c) => c.name),
       ['Read'],
     );
+  });
+
+  it('ведущий <think> и явный [TOOL_CALLS] после прозы — вызов; голая форма после прозы — нет', () => {
+    deepStrictEqual(
+      toolCallsFromText('<think>надо прочитать</think>\nRead[ARGS]{"file_path": "a.ts"}', known).map((c) => c.name),
+      ['Read'],
+    );
+    deepStrictEqual(
+      toolCallsFromText('Прочитаю файл.\n[TOOL_CALLS]Read[ARGS]{"file_path": "a.ts"}', known).map((c) => c.name),
+      ['Read'],
+    );
+    deepStrictEqual(toolCallsFromText('Прочитаю файл.\nRead[ARGS]{"file_path": "a.ts"}', known), []);
+  });
+
+  it('id — 9 алфавитно-цифровых символов (шаблон Mistral в vLLM)', () => {
+    for (const c of toolCallsFromText('Read[ARGS]{"file_path": "a.ts"}Read[ARGS]{"file_path": "b.ts"}', known)) {
+      strictEqual(/^[A-Za-z0-9]{9}$/.test(c.id), true, c.id);
+    }
+  });
+
+  it('последовательность, оборванная на незакрытом объекте, помечена truncated', () => {
+    const r = textToolCalls('Read[ARGS]{"file_path": "a.ts"}Read[ARGS]{"file_pa', known);
+    strictEqual(r.calls.length, 1);
+    strictEqual(r.truncated, true);
+    strictEqual(textToolCalls('Read[ARGS]{"file_path": "a.ts"} и текст', known).truncated, false);
   });
 
   it('JSON-форма — по-прежнему один вызов', () => {
@@ -121,6 +146,20 @@ describe('OpenAiCompatProvider: вызовы из текста', () => {
     const turn = await chat(baseUrl);
     strictEqual(turn.toolCalls.length, 2);
     strictEqual(turn.finishReason, 'tool_use');
+  });
+
+  it('последовательность, оборванная по length на незакрытом вызове, — max_tokens', async () => {
+    const baseUrl = await stub({
+      choices: [{ message: { content: 'Read[ARGS]{"file_path": "a.ts"}Read[ARGS]{"file_pa' }, finish_reason: 'length' }],
+    });
+    strictEqual((await chat(baseUrl)).finishReason, 'max_tokens');
+  });
+
+  it('JSON-форма при length — max_tokens: объект после любой скобки может быть цитатой', async () => {
+    const baseUrl = await stub({
+      choices: [{ message: { content: 'Пример: {"tool": "Read", "arguments": {"file_path": "a.ts"}} и дал' }, finish_reason: 'length' }],
+    });
+    strictEqual((await chat(baseUrl)).finishReason, 'max_tokens');
   });
 
   it('нативный tool_calls при length — max_tokens, как раньше', async () => {

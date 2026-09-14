@@ -298,6 +298,10 @@ export function restoreLostDecisions(before: string, content: string): { content
         unmatched.push(i);
       }
     }
+    // Одинаковых меток несколько, а стёртые по тексту не опознаются однозначно (модель
+    // изменила одну запись и стёрла другую; тексты полей совпадают) — угадывать нельзя:
+    // поле ушло бы в чужую запись, и проверка по числу меток это пропустила бы.
+    if (inSrc.length > 1 && unmatched.length !== need) return null;
     const chosen = [...unmatched, ...matched.reverse()].slice(0, need);
     for (const at of chosen) missing.push({ label, at });
     restored.push(label);
@@ -313,6 +317,17 @@ export function restoreLostDecisions(before: string, content: string): { content
 
     let h = at - 1;
     while (h >= 0 && !HEADING.test(src[h]!)) h--;
+    // Порядковый номер заголовка переносим, только если одинаковых заголовков столько же:
+    // модель удалила или переименовала одну из одинаковых секций — k-я в новом тексте уже
+    // чужая запись, либо её нет, и поле молча ушло бы в конец документа.
+    if (h >= 0) {
+      const heading = src[h]!.trim();
+      const count = (lines: readonly string[]): number => lines.filter((l) => l.trim() === heading).length;
+      const inSrc = count(src);
+      // Единственный заголовок, пропавший целиком, — не угадывание: поле уходит в конец
+      // документа и по метке читается. Угадывание — только среди одинаковых.
+      if (inSrc > 1 && inSrc !== count(out)) return null;
+    }
     const hIdx = h < 0 ? -1 : nthIndexOf(out, src[h]!.trim(), ordinalOf(src, h));
 
     let insertAt: number;
@@ -376,6 +391,12 @@ export function repairErasedDecisions(call: NormalizedCall, projectRoot: string)
   const loss = overwriteLoss(call.path, before.text, call.content);
   if (loss === null || loss.decisionsLost === undefined || loss.decisionsLost.length === 0) return { loss, repair: null };
   if (isMassLoss(loss)) return { loss, repair: null };
+  // Потеря структуры — тоже мусор при любом размере файла: пороги по строкам короткий
+  // бланк (9 строк → 1) массовой потерей не считают, и «починка» вставкой поля выдала бы
+  // одну строку мусора за исправленную запись.
+  const headings = (t: string): number => t.split('\n').filter((l) => HEADING.test(l)).length;
+  const headingsBefore = headings(before.text);
+  if (headingsBefore >= 2 && headings(call.content) * 2 < headingsBefore) return { loss, repair: null };
 
   const fixed = restoreLostDecisions(before.text, call.content);
   if (fixed === null) return { loss, repair: null };

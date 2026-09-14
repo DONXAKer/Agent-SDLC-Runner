@@ -589,24 +589,29 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
     deepStrictEqual(sent.params, { max_tokens: 16384 - estimate - 1250 });
   });
 
-  it('второй ход — к prompt_tokens прошлого ответа прибавлен его completion_tokens', async () => {
+  // Сам ответ уже в истории второго запроса, а `prompt_tokens` его не содержит. Прибавляется
+  // оценка того, что ЛЕГЛО в историю, а не `completion_tokens`: у reasoning-модели в них
+  // рассуждение, которое в историю не возвращается (code-review, 2026-09-15).
+  it('второй ход — к prompt_tokens прибавлена оценка сохранённого ответа, а не completion_tokens', async () => {
+    const call = readCall('src/deep/A.ts');
     const p = provider([
       {
-        toolCalls: [readCall('src/deep/A.ts')],
+        toolCalls: [call],
         finishReason: 'tool_use',
-        usage: { ...emptyUsage(), inputTokens: 3000, outputTokens: 500 },
+        usage: { ...emptyUsage(), inputTokens: 3000, outputTokens: 5000 },
       },
       { text: 'готово', finishReason: 'end_turn' },
     ]);
-    // Сам ответ (500 токенов) уже в истории второго запроса: 16384 − (3000 + 500) − 3750.
     await executor(p, { contextWindow: 16384 }).run(request(), hooks());
-    deepStrictEqual(p.seen[1]?.params, { max_tokens: 9134 });
+    const stored = estimateMessageTokens([{ content: `${call.name}${call.rawArguments}` }]);
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 16384 - 3000 - stored - 3750 });
   });
 
   it('второй ход — max_tokens посчитан по prompt_tokens первого ответа и запасу', async () => {
+    const call = readCall('src/deep/A.ts');
     const p = provider([
       {
-        toolCalls: [readCall('src/deep/A.ts')],
+        toolCalls: [call],
         finishReason: 'tool_use',
         usage: { ...emptyUsage(), inputTokens: 3000 },
       },
@@ -617,9 +622,10 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
     // тестового исполнителя (5000 байт): ceil(5000/4)×3 = 3750 (code-review-all,
     // 2026-09-11 — прежний фиксированный запас 512 был на порядок меньше одного
     // крупного результата инструмента). Окно взято большим специально, чтобы остаток
-    // остался положительным при таком запасе: 16384 − 3000 − 3750 = 9634.
+    // остался положительным при таком запасе: 16384 − 3000 − ответ − 3750.
     await executor(p, { contextWindow: 16384 }).run(request(), h);
-    deepStrictEqual(p.seen[1]?.params, { max_tokens: 9634 });
+    const stored = estimateMessageTokens([{ content: `${call.name}${call.rawArguments}` }]);
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 16384 - 3000 - stored - 3750 });
     ok(!h.warns.some((w) => /почти исчерпано/.test(w)), 'предупреждения при незажатом расчёте быть не должно');
   });
 

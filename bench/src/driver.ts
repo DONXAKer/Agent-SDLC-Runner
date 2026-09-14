@@ -45,7 +45,7 @@ export interface DriverStageRecord {
    */
   modelRequests?: number;
   /** `runtime` — этап закрыл рантайм, а не заявка модели (`StageResult.closedBy`). */
-  closedBy?: 'model' | 'runtime';
+  closedBy?: 'runtime';
 }
 
 export type DriverStopReason =
@@ -262,8 +262,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     // отличает их только то, что пропуск не тратит ни ход, ни время: пустой `finalText`
     // и нулевая длительность видны лишь при пропуске, реальный ход всегда что-то стоит.
     const skipped = result.ok && result.finalText === '' && result.usage.durationMs === 0;
-    // Поле может ещё не быть в типе `StageResult` у этой версии рантайма — читаем опционально.
-    const modelRequests = (result as StageResult & { modelRequests?: number }).modelRequests;
+    const modelRequests = result.modelRequests;
     stages.push({
       stage,
       chunk: run.chunk,

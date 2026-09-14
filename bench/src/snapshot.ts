@@ -110,6 +110,11 @@ export function readSnapshotMeta(args: { snapshotsDir: string; name: string; exp
         'банк ответов и скрытые тесты не совпали бы с деревом; укажи --task ' + meta.task,
     );
   }
+  if (!STAGE_ORDER.includes(meta.stoppedAfterStage as StageId)) {
+    throw new SnapshotError(
+      `${metaFile}: поле stoppedAfterStage (${JSON.stringify(meta.stoppedAfterStage)}) не этап витка — снимок битый, пересними его`,
+    );
+  }
   const point = startStageAfter(meta.stoppedAfterStage);
   if (point === null) {
     throw new SnapshotError(

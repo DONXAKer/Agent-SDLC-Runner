@@ -936,7 +936,14 @@ export async function listSourceFiles(
   const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', 'vendor', '.sdlc', 'venv', '__pycache__']);
   // Точечные каталоги, которые в режиме `includeDotDirs` всё равно не исходники: кэши
   // сборщиков и локальные зависимости — тот же класс, что `node_modules` в SKIP.
-  const DOT_SKIP = new Set(['.venv', '.next', '.nuxt', '.cache', '.turbo', '.yarn', '.pnpm-store', '.gradle', '.idea', '.vscode']);
+  // Точка сортируется раньше букв: мусорный точечный каталог обходится первым и съедает
+  // потолок и байтовую обрезку списка, а настоящий `src` уходит за неё. `.claude` несёт
+  // worktrees — полные копии исходников.
+  const DOT_SKIP = new Set([
+    '.venv', '.next', '.nuxt', '.cache', '.turbo', '.yarn', '.pnpm-store', '.gradle', '.idea', '.vscode',
+    '.tox', '.nox', '.mypy_cache', '.pytest_cache', '.ruff_cache', '.terraform', '.dart_tool', '.angular',
+    '.svelte-kit', '.parcel-cache', '.expo', '.claude',
+  ]);
   const skipped = (name: string): boolean =>
     SKIP.has(name) || (opts.includeDotDirs === true ? DOT_SKIP.has(name) : name.startsWith('.'));
   const out: string[] = [];

@@ -49,13 +49,13 @@ import {
   setDecision,
   writeArtifact,
 } from '../artifacts/artifact.ts';
-import { WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
+import { SDLC_DIR, WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { ARTIFACT_KEYS as ARTIFACT_KEYS_ALL, type ArtifactKey } from '@sdlc-runner/shared';
 import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
-import { normalizePlanPath } from '../policy/paths.ts';
+import { normalizePlanPath, relativizeWithin, resolveUserPath } from '../policy/paths.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
 import { effectiveMode } from '../policy/mcp.ts';
@@ -239,11 +239,10 @@ async function branchFactBlock(root: string): Promise<string | null> {
  * дозаполнение закрыло бы этап, который обязан остаться красным. Само по себе попадание
  * в этот список исхода не переворачивает — решает `notDone().length === 0` на месте вызова.
  */
-export function isFormattingFailure(note: string, stage?: StageId): boolean {
-  // На chunk антицикл — это повтор ПРАВКИ КОДА, а не оформления: страж переворота там
-  // смотрит только журнал (`notDone`), и заполненный журнал закрыл бы этап с недописанным
-  // кодом зелёным. Остальные три причины на chunk по-прежнему про бюджет.
-  if (stage === 'chunk' && /этап зациклился/.test(note)) return false;
+export function isFormattingFailure(note: string): boolean {
+  // Отдельного исключения для chunk нет: «этап зациклился» рождается только застреванием
+  // `FinalizeArtifact` на журнале, то есть это провал ОФОРМЛЕНИЯ. Недописанный код на chunk
+  // сторожит место переворота (`finishFormArtifact`, `codeChanged`), а не классификация.
   return (
     /исчерпан лимит ходов/.test(note) ||
     /артефакт этапа не заполнен/.test(note) ||
@@ -1691,7 +1690,9 @@ export class Run {
     let total = 0;
     for (const job of jobs) {
       const artifact = readArtifact(job.path);
-      if (!artifact.exists || artifact.placeholders === 0) continue;
+      // Меню «Разведка» отчёта по вопросам плейсхолдера не несёт по построению: счётчик
+      // пропускал его, когда прочие места уже закрыты, и обе ветки оставались навсегда.
+      if (!artifact.exists || (artifact.placeholders === 0 && stage !== 'ask')) continue;
       const { text, filled } = await job.fill(artifact.text);
       if (filled === 0) continue;
       this.writeAutofilled(job.path, text, seeded);
@@ -2082,6 +2083,12 @@ export class Run {
     hooks: ExecHooks,
     notDone: () => string[],
     signal: AbortSignal,
+    /**
+     * На chunk — была ли принятая правка кода. `notDone` там смотрит только журнал, и
+     * заполненный дозаполнением журнал переворачивал в ok этап, упавший на лимите ходов с
+     * нетронутым кодом.
+     */
+    codeChanged: () => boolean = () => true,
   ): Promise<StageResult> {
     // Честность карты кодовой базы — общий страж для ОБОИХ путей ниже, не только для
     // рескью closableFailure. `FormFillExecutor` у дозаполнения не несёт ни `Read`, ни
@@ -2131,8 +2138,8 @@ export class Run {
     //
     // Переворот исхода по-прежнему сторожит `notDone().length === 0`: пустых обязательных
     // полей быть не должно, иначе красное станет зелёным на недоделанном артефакте.
-    const closableFailure = !result.ok && isFormattingFailure(result.note, stage);
-    if (closableFailure && notDone().length === 0) {
+    const closableFailure = !result.ok && isFormattingFailure(result.note);
+    if (closableFailure && notDone().length === 0 && (stage !== 'chunk' || codeChanged())) {
       // Рескью нужен своя проверка честности: `remaining` мог быть 0 уже на входе (ход
       // упал не по счётчику плейсхолдеров, а, например, по лимиту длины ответа) — тогда
       // блок выше не запускался вовсе, и это первая проверка для данного прогона.
@@ -3251,8 +3258,8 @@ export class Run {
     precomputed?: PreconditionReport,
     withBlame = true,
   ): { text: string; blamed: StageId | null }[] {
-    const report = precomputed ?? checkPreconditions(stageById(stage), this.ctx, opts);
-    const blame = (path: string | null): StageId | null =>
+    const report = precomputed ?? checkPreconditions(stageById(stage), this.ctx, { ...opts, withArtifacts: withBlame });
+    const blame =(path: string | null): StageId | null =>
       withBlame && path !== null ? stageProducing(path, stage, this.ctx) : null;
     const problems: { text: string; blamed: StageId | null }[] = report.details.map((d) => ({
       text: d.text,
@@ -3981,7 +3988,7 @@ export class Run {
     // Предусловия считаются ОДИН раз: `blockers` вызывает `checkPreconditions` внутри,
     // и второй вызов рядом был чистым дублированием чтения артефактов, хотя комментарий
     // рядом утверждал обратное.
-    const report = checkPreconditions(def, this.ctx, abortOpts);
+    const report = checkPreconditions(def, this.ctx, { ...abortOpts, withArtifacts: false });
     const blockers = this.blockers(stage, abortOpts, report);
     if (blockers.length > 0) {
       const message = blockers.join('\n');
@@ -4286,10 +4293,14 @@ export class Run {
           // Прогресс — правка вне артефактов витка: правка журнала chunk'а в `.sdlc`
           // гасила напоминание о нулевом прогрессе ровно в том случае, под который оно
           // заведено (журнал заполнен, код не тронут — серия v4, `ministral`/`security-bait`).
+          // Путь — сырая строка модели: сравнивается тем же лексическим приведением, что у
+          // политики (регистр диска, `..`, обратные слэши), иначе `src/../.sdlc/x` засчитывался.
           if (
             decision.allowed &&
             (call.kind === 'write' || call.kind === 'edit') &&
-            !relOf(this.ctx, call.path).replace(/\\/g, '/').replace(/^\.\//, '').startsWith('.sdlc/')
+            !(
+              relativizeWithin(this.ctx.paths.projectRoot, resolveUserPath(this.ctx.paths.projectRoot, call.path)) ?? ''
+            ).startsWith(`${SDLC_DIR}/`)
           ) {
             pendingWrites.add(meta.requestId);
           }
@@ -4562,7 +4573,14 @@ export class Run {
                   'сейчас, бюджет ходов не резиновый.',
               }
             : stage === 'chunk'
-              ? { progressSignal: () => acceptedWrites }
+              ? {
+                  progressSignal: () => acceptedWrites,
+                  // Без императива «Edit»: на задаче, где требуемое уже сделано, правка не
+                  // нужна вовсе, и совет по умолчанию толкал модель портить готовый код.
+                  progressHint:
+                    'если правка кода нужна — делай её сейчас инструментом Edit; если требуемое ' +
+                    'уже есть в коде — зафиксируй это в журнале и заверши этап.',
+                }
               : {}),
           // Для режима заполнения по полям: где искать плейсхолдеры. Обычные исполнители
           // поле не читают.
@@ -4673,6 +4691,7 @@ export class Run {
           hooks,
           notDone,
           this.aborter.signal,
+          () => acceptedWrites > 0 || stepProduced,
         );
       }
 

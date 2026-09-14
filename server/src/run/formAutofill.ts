@@ -101,7 +101,7 @@ export interface ClarificationFacts {
  */
 export function autofillClarification(
   text: string,
-  f: { title: string; explorationDone: boolean },
+  f: ClarificationFacts,
 ): { text: string; filled: number } {
   const titled = autofillTitle(text, f.title);
   const current = readField(titled.text, 'Разведка');

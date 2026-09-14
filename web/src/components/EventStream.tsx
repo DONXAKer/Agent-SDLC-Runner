@@ -43,6 +43,8 @@ function ToolLine({
         {' '}
         ✗ {resolved !== undefined && !resolved.decision.allowed ? resolved.decision.reason : ''}
       </span>
+    ) : status === 'cancelled' ? (
+      <span className="text-neutral-500"> — снят обрывом витка</span>
     ) : status === 'running' ? (
       <span className="text-neutral-500"> ⋯</span>
     ) : (
@@ -66,7 +68,9 @@ function ToolLine({
             <div className="text-neutral-500">
               {resolved.decision.allowed
                 ? `✓ разрешено (${resolved.decision.by})`
-                : `✗ ${resolved.decision.reason}`}
+                : resolved.cancelled === true
+                  ? `снят обрывом витка: ${resolved.decision.reason}`
+                  : `✗ ${resolved.decision.reason}`}
             </div>
           ) : null}
           {result !== undefined ? (
@@ -102,7 +106,11 @@ function PlainEvent({ e, currency }: { e: RunEvent; currency?: string }): JSX.El
     case 'tool_resolved':
       return (
         <div className="text-neutral-500">
-          {e.decision.allowed ? `  ✓ разрешено (${e.decision.by})` : `  ✗ ${e.decision.reason}`}
+          {e.decision.allowed
+            ? `  ✓ разрешено (${e.decision.by})`
+            : e.cancelled === true
+              ? `  снят обрывом витка: ${e.decision.reason}`
+              : `  ✗ ${e.decision.reason}`}
         </div>
       );
 

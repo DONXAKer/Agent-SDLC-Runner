@@ -13,21 +13,8 @@ import type { EventSink, PolicyName, RunEvent, StageId } from '@sdlc-runner/shar
 
 import { appendEvent } from '../../server/src/eventLog.ts';
 
-/**
- * Поля событий, которые рантайм может ещё не нести в типе: старые ленты и версии сервера
- * без них должны читаться, а не падать. Локальное расширение, а не правка контракта: контракт
- * событий — `shared`, и коллектор его не расширяет.
- */
-export type ToolRequestEvent = Extract<RunEvent, { type: 'tool_request' }> & {
-  /** Рантайм вернул в содержимое стёртое поле решения человека (`restoreErasedDecisions`). */
-  repaired?: string;
-  /** Метки полей решений человека, стёртых ИСХОДНЫМ вызовом. */
-  decisionsLost?: string[];
-};
-export type ToolResolvedEvent = Extract<RunEvent, { type: 'tool_resolved' }> & {
-  /** Запрос снят обрывом прогона (`cancelRun`), а не решён. */
-  cancelled?: true;
-};
+export type ToolRequestEvent = Extract<RunEvent, { type: 'tool_request' }>;
+export type ToolResolvedEvent = Extract<RunEvent, { type: 'tool_resolved' }>;
 
 export interface CollectedToolCall {
   stage: StageId;
@@ -126,8 +113,12 @@ export function createCollector(args: {
   const repairs: CollectedRepair[] = [];
   state.denials = denials;
   state.repairs = repairs;
-  /** Запрос ждёт решения: отказ приходит отдельным `tool_resolved` без имени и политики. */
-  const pending = new Map<string, Omit<CollectedDenial, 'reason' | 'by'>>();
+  /**
+   * Запрос ждёт решения: отказ приходит отдельным `tool_resolved` без имени и политики.
+   * Починка тоже ждёт исхода — отклонённый или снятый обрывом починенный вызов не применился,
+   * и «починено рантаймом» о нём было бы неправдой.
+   */
+  const pending = new Map<string, { denial: Omit<CollectedDenial, 'reason' | 'by'>; repaired: boolean }>();
 
   const emit: EventSink = (e) => {
     appendEvent(args.projectRoot(), args.slug(), e);
@@ -140,30 +131,43 @@ export function createCollector(args: {
       // Отмена ожидающего запроса (`cancelRun`) приходит решением `by: 'operator'`, но это
       // обрыв прогона, а не отказ: без фильтра каждый снятый таймаутом этап добавлял модели
       // «отказ оператора», которого не было.
-      if (resolved.cancelled === true) return;
-      if (req !== undefined && !resolved.decision.allowed) {
-        denials.push({ ...req, by: resolved.decision.by, reason: resolved.decision.reason });
+      if (resolved.cancelled === true || req === undefined) return;
+      if (resolved.decision.allowed) {
+        if (req.repaired) {
+          const lost = req.denial.decisionsLost;
+          repairs.push({
+            stage: req.denial.stage,
+            requestId: req.denial.requestId,
+            ...(lost === undefined ? {} : { decisionsLost: [...lost] }),
+          });
+        }
+        return;
       }
+      // Отклонён починенный вызов: стёртое поле в нём уже возвращено, и отказ вынесен за
+      // другое — метки потери увели бы его в класс «стирание поля решения».
+      const { decisionsLost: _lost, ...rest } = req.denial;
+      const denial = req.repaired ? rest : req.denial;
+      denials.push({ ...denial, by: resolved.decision.by, reason: resolved.decision.reason });
       return;
     }
 
     if (e.type === 'tool_request') {
       const request: ToolRequestEvent = e;
       const lost = request.decisionsLost;
-      pending.set(request.requestId, {
-        stage: request.stage,
-        requestId: request.requestId,
-        toolName: request.toolName,
-        kind: request.call.kind,
-        policy: request.policy.ok ? null : request.policy.policy,
-        destructive: request.destructive,
-        ...(lost === undefined ? {} : { decisionsLost: [...lost] }),
-      });
-      if (request.repaired !== undefined) {
-        repairs.push({
-          stage: request.stage,
-          requestId: request.requestId,
-          ...(lost === undefined ? {} : { decisionsLost: [...lost] }),
+      // Вопрос человеку решается `AskGate`, а не гейтом одобрений: `tool_resolved` по нему
+      // не приходит никогда, и запись висела бы до конца прогона.
+      if (request.call.kind !== 'ask_human') {
+        pending.set(request.requestId, {
+          denial: {
+            stage: request.stage,
+            requestId: request.requestId,
+            toolName: request.toolName,
+            kind: request.call.kind,
+            policy: request.policy.ok ? null : request.policy.policy,
+            destructive: request.destructive,
+            ...(lost === undefined ? {} : { decisionsLost: [...lost] }),
+          },
+          repaired: request.repaired !== undefined,
         });
       }
       state.toolCalls.push({ stage: request.stage, toolName: request.toolName, kind: request.call.kind });

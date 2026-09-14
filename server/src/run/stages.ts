@@ -103,15 +103,15 @@ function filled(describe: string, file: (c: StageContext) => string): Preconditi
   };
 }
 
-/**
- * Вариант `filled` для входа в разведку: секция «Что придётся тронуть» интента законно
- * пустая на первом проходе — её заполняет сама разведка (см. `countPlaceholdersExceptSections`).
- */
 /** Незакрытые места задачи вне законно пустой на первом проходе «Что придётся тронуть». */
 function intentPlaceholdersOutsideTouch(text: string): number {
   return countPlaceholdersExceptSections(text, ['Что придётся тронуть']);
 }
 
+/**
+ * Вариант `filled` для входа в разведку: секция «Что придётся тронуть» интента законно
+ * пустая на первом проходе — её заполняет сама разведка (см. `countPlaceholdersExceptSections`).
+ */
 function filledExceptTouchSection(describe: string, file: (c: StageContext) => string): Precondition {
   return {
     describe,
@@ -146,6 +146,13 @@ export function intentPlaceholderProblem(c: StageContext): string | null {
   return `в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: ${n} — задача не готова`;
 }
 
+/** Причины «решения нет», за которые отвечает человек, а не модель этапа-производителя. */
+const HUMAN_PENDING_WHY: ReadonlySet<string> = new Set([
+  'поле не заполнено',
+  'решение отложено',
+  'в поле остались оба исхода — человек не вычеркнул лишний',
+]);
+
 function granted(
   describe: string,
   file: (c: StageContext) => string,
@@ -153,12 +160,17 @@ function granted(
 ): Precondition {
   return {
     describe,
-    // Виноват этап-производитель только когда формы нет или в ней нет поля решения: пустое
-    // или отрицательное решение — дело человека, и `ok⚠` у этапа, чья модель ничего не
-    // нарушила, отправил бы разбор отказа не туда.
+    // Виноват этап-производитель, когда формы нет, в ней нет поля решения или значение поля
+    // испорчено (непустое, но не форма решения: «Подтвердил: ✅», «одобрено» без даты) —
+    // человек пишет решение через `setDecision`, а он даёт валидную форму всегда. Пустое,
+    // отложенное или отрицательное решение — дело человека, и `ok⚠` у этапа, чья модель
+    // ничего не нарушила, отправил бы разбор отказа не туда.
     artifact: (c) => {
       const a = readArtifact(file(c));
-      return !a.exists || readDecision(a.text, label).state === 'missing' ? file(c) : null;
+      if (!a.exists) return file(c);
+      const d = readDecision(a.text, label);
+      if (d.state === 'missing') return file(c);
+      return d.state === 'placeholder' && d.why !== undefined && !HUMAN_PENDING_WHY.has(d.why) ? file(c) : null;
     },
     check: (c) => {
       const a = readArtifact(file(c));
@@ -317,7 +329,14 @@ export function explorationPathProblem(c: StageContext): string | null {
       // красный на честном отчёте. Но и требовать оба слова вместе нельзя: модель,
       // переименовавшая заголовок в «## Кодовая база», выводила таблицу сочинённых путей
       // из-под проверки вовсе (code-review-all, 2026-09-14).
-      const mapRanges = h2SectionRanges(report.text, /кодов(ая|ой)\s+баз|карта\s+код/i);
+      // «Кодовая база» — в начале заголовка (после эмодзи и знаков) либо сразу после слова
+      // «карта»: без этого «## Карта кодов ошибок» и «## Что уже есть в кодовой базе»
+      // считались второй картой, и честный отчёт получал красный «несколько секций».
+      // Окончания перечислены явно: `\b` по кириллице не работает.
+      const mapRanges = h2SectionRanges(
+        report.text,
+        /^[^\p{L}]*кодов(ая|ой)\s+баз|карта\s+кодов(ая|ой)\s+баз|(^|[^\p{L}])карта\s+кода(\s|$)/iu,
+      );
       // Несколько таких секций, и хотя бы одна БЕЗ таблицы — модель не заполнила
       // поле-образец, а стёрла структуру и завела свой заголовок с прозой. Построчная
       // проверка ниже смотрит только найденные таблицы, и секция без них проходит её молча.
@@ -823,6 +842,11 @@ export function stageProducing(path: string, before: StageId, c: StageContext): 
 export interface PreconditionOptions {
   /** Оператор объявил обрыв витка: handoff оформляет передачу без зелёного вердикта. */
   abortHandoff?: boolean;
+  /**
+   * Считать ли артефакт каждой причины (`details[].artifact`). У `granted` это второе чтение
+   * файла, а GET-опрос витка виновника не показывает — `false` там экономит чтение.
+   */
+  withArtifacts?: boolean;
 }
 
 export function checkPreconditions(
@@ -839,7 +863,10 @@ export function checkPreconditions(
     const problem = p.check(c);
     if (problem === null) continue;
     problems.push(problem);
-    details.push({ text: problem, artifact: p.artifact === undefined ? null : p.artifact(c) });
+    details.push({
+      text: problem,
+      artifact: p.artifact === undefined || opts.withArtifacts === false ? null : p.artifact(c),
+    });
   }
 
   const skip = problems.length === 0 && stage.skipIf !== null ? stage.skipIf(c) : null;

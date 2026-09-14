@@ -233,13 +233,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     // Старт — со следующего этапа после точки снимка: снимок «после intent» даёт дешёвый
     // замер explore, «после plan» — прежнее поведение (замер chunk). Точка хранится в
     // самом снимке, а не в ключах прогона — прогон не может её переврать.
-    const nextStage = startStageAfter(restored.stoppedAfterStage);
-    if (nextStage === null) {
-      wsDispose();
-      throw new WorkspaceError(
-        `снимок «${opts.fromSnapshot}» сделан после «${restored.stoppedAfterStage}» — этапа после него нет, мерить нечего`,
-      );
-    }
+    // Точку снимка `restoreSnapshot` уже проверил (`readSnapshotMeta` бросает на `null`).
+    const nextStage = startStageAfter(restored.stoppedAfterStage)!;
     startStage = nextStage;
     console.log(`снимок:        ${opts.fromSnapshot} (после ${restored.stoppedAfterStage}, старт с ${nextStage})`);
     console.log(`рабочая копия: ${wsRoot}`);
@@ -306,9 +301,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   approvalBus.onPending((p) => {
     // Событие собирается здесь вручную (как в `server/src/index.ts`), и каждое поле запроса,
     // не перенесённое сюда, коллектор не видит вовсе: без `repaired`/`decisionsLost` починка
-    // стёртого поля решения была бы в отчёте невидима. `decisionsLost` читается опционально —
-    // у версии гейта без поля его просто нет.
-    const extra = p as typeof p & { repaired?: string; decisionsLost?: string[] };
+    // стёртого поля решения была бы в отчёте невидима.
     const event: ToolRequestEvent = {
       type: 'tool_request',
       runId: p.runId,
@@ -321,8 +314,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       preview: p.preview,
       writeTargets: p.writeTargets,
       destructive: p.destructive,
-      ...(extra.repaired === undefined ? {} : { repaired: extra.repaired }),
-      ...(extra.decisionsLost === undefined ? {} : { decisionsLost: extra.decisionsLost }),
+      ...(p.repaired === undefined ? {} : { repaired: p.repaired }),
+      ...(p.decisionsLost === undefined ? {} : { decisionsLost: p.decisionsLost }),
       createdAt: p.createdAt,
     };
     collector.emit(event);
@@ -635,7 +628,9 @@ async function seriesRun(opts: BenchOptions, flags: LiveRunFlags): Promise<numbe
     // и глотать их значило бы готовить и рушить repeat рабочих копий одной и той же
     // ошибкой без заголовка «профиль не собрался» (ревью-2) — пробрасываются в main.
     try {
-      const outcome = await liveRun({ ...opts, slug }, flags);
+      // Окно, проверенное преполётом, верно только для первого сэмпла: LM Studio с JIT за
+      // часы серии может выгрузить модель и поднять её с другим окном.
+      const outcome = await liveRun({ ...opts, slug }, i === 1 ? flags : { ...flags, contextChecked: false });
       outcomes.push({ ...outcome, slug });
     } catch (e) {
       if (
