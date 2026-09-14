@@ -916,8 +916,13 @@ const DUPLICATE_SCAN_LIMIT = 2000;
  * `statSync` сами по себе синхронны, но на большом дереве (до 2000 файлов) обход без единой
  * уступки циклу событий блокирует WebSocket-события и отмену прогона на всё время гейта.
  * Уступка на каждую запись каталога — тот же паттерн, что уже используется там.
+ *
+ * Экспортирована для `FormFillExecutor` (заземление поля «Карта кодовой базы») — тот же
+ * список путей, path-only и без блокировки event loop, вместо синхронного `explore/tree.ts::
+ * readTree` (полное чтение содержимого + разбор символов ради одних лишь путей — code-
+ * review-all, 2026-09-14).
  */
-async function listSourceFiles(
+export async function listSourceFiles(
   root: string,
   limit: number,
   signal?: AbortSignal,

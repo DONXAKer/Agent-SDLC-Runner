@@ -57,6 +57,8 @@ function result(stagesOk: boolean) {
       keepWorkspace: false,
       dryRun: false,
       probe: false,
+      preflightOnly: false,
+      preflight: true,
       snapshotAfter: 'plan',
       makeSnapshot: null,
       fromSnapshot: null,

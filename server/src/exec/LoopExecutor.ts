@@ -39,7 +39,7 @@ import { trimHistory } from './history.ts';
 import { executeTool, type ToolContext } from './tools/index.ts';
 import { isToolName, specsFor } from './toolSpecs.ts';
 import { finalizeRejection } from '../artifacts/finalizeCheck.ts';
-import { marginFor, maxTokensForRemaining } from './contextBudget.ts';
+import { estimateMessageTokens, marginFor, maxTokensForRemaining } from './contextBudget.ts';
 import { applyParams } from '../provider/ChatProvider.ts';
 
 export interface LoopOptions {
@@ -125,6 +125,21 @@ const BASH_STREAK_REMINDERS = 2;
 const READY_STREAK_REMINDERS = 2;
 
 /**
+ * Доля бюджета ходов, после которой нулевой прогресс (`req.progressSignal`, у `chunk` —
+ * принятые правки в `files_to_touch`) получает одно явное напоминание.
+ *
+ * Живой замер серии v4 (`docs/model-runs.md`, `ministral`/`security-bait`, 2026-09-14):
+ * модель довела Phase 0–2 до конца — разведка субагентом `sdlc-locator`, журнал заполнен,
+ * место правки подтверждено через `ExitPlanMode` — и исчерпала бюджет ходов, ни разу не
+ * тронув исходный код. Бумажная работа (журнал, подтверждение) не запрещена и не сигнал
+ * застревания сама по себе (в отличие от серий чтения/Bash выше) — но если она съела больше
+ * половины бюджета БЕЗ единой принятой правки, стоит явно напомнить, а не молчать до
+ * исчерпания. Один раз, не серия: ложных срабатываний на медленный, но идущий по плану ход
+ * не должно быть.
+ */
+const NO_PROGRESS_BUDGET_FRACTION = 0.6;
+
+/**
  * Сколько результатов инструментов, добавленных СВЕРХ прошлого измерения, покрывает
  * запас `max_tokens` (см. `paramsFor`) — кратно потолку одного результата
  * (`LoopOptions.maxResultBytes`), а не фиксированному числу токенов.
@@ -161,6 +176,14 @@ export class LoopExecutor implements StageExecutor {
   }
 
   async run(req: ExecRequest, hooks: ExecHooks): Promise<StageResult> {
+    // Счётчик снаружи цикла: у тела два десятка точек выхода, и дописывать число ходов в
+    // каждую значило бы рано или поздно забыть его в новой.
+    const meter = { turns: 0 };
+    const result = await this.runTurns(req, hooks, meter);
+    return { ...result, turns: meter.turns };
+  }
+
+  private async runTurns(req: ExecRequest, hooks: ExecHooks, meter: { turns: number }): Promise<StageResult> {
     const toolCtx: ToolContext = {
       projectRoot: req.cwd,
       maxResultBytes: this.o.maxResultBytes,
@@ -204,6 +227,8 @@ export class LoopExecutor implements StageExecutor {
     let bashNudges = 0;
     let readyStreak = 0;
     let readyNudges = 0;
+    /** Напоминание про нулевой прогресс — один раз за ход этапа, не серия. */
+    let noProgressNudged = false;
 
     /**
      * Готов ли этап к финализации ПРЯМО СЕЙЧАС — вход детектора «готово, а ход не
@@ -253,32 +278,42 @@ export class LoopExecutor implements StageExecutor {
       if (!stageReady()) return null;
       const note = 'цикл остановлен повтором вызова, но артефакт готов — этап закрыт по диску';
       hooks.onWarn(note);
-      return { ok: true, finalText, usage, note };
+      return { ok: true, finalText, usage, note, closedBy: 'runtime' };
     };
 
     for (let turn = 1; turn <= req.maxTurns; turn++) {
+      meter.turns = turn;
       if (req.signal.aborted) {
         return { ok: false, finalText, usage, note: 'этап отменён' };
       }
 
+      // В запрос уходит ПРЕДСТАВЛЕНИЕ истории со скользящим окном по результатам
+      // инструментов; полная история остаётся у цикла — отпечатки вызовов и анти-цикл
+      // считаются по ней, а не по обрезанной копии.
+      const outgoing =
+        this.o.historyBudgetBytes === undefined
+          ? messages
+          : trimHistory(messages, this.o.historyBudgetBytes, undefined, (total, budget) =>
+              hooks.onWarn(
+                `история хода превышает бюджет даже после сокращения заглушками: ${total} байт ` +
+                  `из ${budget} — ответы человека и последние результаты рантайм не трогает никогда`,
+              ),
+            );
       const answer = await this.o.provider.chat({
         model: req.model,
-        // В запрос уходит ПРЕДСТАВЛЕНИЕ истории со скользящим окном по результатам
-        // инструментов; полная история остаётся у цикла — отпечатки вызовов и анти-цикл
-        // считаются по ней, а не по обрезанной копии.
-        messages:
-          this.o.historyBudgetBytes === undefined
-            ? messages
-            : trimHistory(messages, this.o.historyBudgetBytes, undefined, (total, budget) =>
-                hooks.onWarn(
-                  `история хода превышает бюджет даже после сокращения заглушками: ${total} байт ` +
-                    `из ${budget} — ответы человека и последние результаты рантайм не трогает никогда`,
-                ),
-              ),
+        messages: outgoing,
         tools,
         signal: req.signal,
         temperature: this.o.temperature,
-        params: this.paramsFor(lastPromptTokens, hooks),
+        // Числа от сервера нет на первом ходу (и после ответа без usage) — тогда бюджет
+        // считается по оценке исходящего запроса вместе со схемами инструментов. Оценка по
+        // байтам завышает (~18% по `prompt_tokens` relog серии v5), то есть ошибается в
+        // безопасную сторону; без неё первый ход шёл с константой провайдера ровно там, где
+        // промпт этапа крупнее всего.
+        params: this.paramsFor(
+          lastPromptTokens ?? estimateMessageTokens([{ content: JSON.stringify({ outgoing, tools }) }]),
+          hooks,
+        ),
       });
 
       usage = addUsage(usage, answer.usage);
@@ -287,9 +322,8 @@ export class LoopExecutor implements StageExecutor {
       // окно и правда опустело. Доверять такому `0` в `paramsFor` нельзя: он превратил бы
       // «сервер смолчал» в «контекст свободен» и потребовал бы у модели максимум
       // токенов — самый переполняющий запрос, воспроизводящий ровно то, от чего эта
-      // механика защищает. `null` — тот же безопасный путь, что у первого хода: `paramsFor`
-      // просто не считает `max_tokens` в СЛЕДУЮЩЕМ запросе, вместо того чтобы посчитать
-      // его неверно.
+      // механика защищает. `null` — тот же путь, что у первого хода: СЛЕДУЮЩИЙ запрос
+      // считает бюджет по оценке исходящего запроса, а не по «сервер смолчал».
       lastPromptTokens =
         answer.usage.inputTokens === 0 && lastPromptTokens !== null ? null : answer.usage.inputTokens;
       hooks.onUsage(answer.usage);
@@ -350,6 +384,39 @@ export class LoopExecutor implements StageExecutor {
           }
           if (complaint !== null) {
             return { ok: false, finalText, usage, note: complaint };
+          }
+        }
+
+        // Тот же симптом «сказал → не сделал», что у `done` выше, но оборванный лимитом
+        // длины: модель печатала артефакт текстом и не успела дописать. Обрыв мог
+        // случиться ПОСЛЕ полностью напечатанного блока — `salvageBlocks` (`run/salvage.ts`)
+        // пропускает только НЕЗАКРЫТЫЙ хвостовой блок, уже целые блоки перед ним спасает —
+        // раньше спасение не пробовалось вовсе на этой ветке, и полностью годный текст
+        // терялся вместе со всем этапом (живой разбор серии v5, 2026-09-14: класс «лимит
+        // длины ответа на explore», 5 из 22 прогонов). Без цикла напоминаний — тот же ход
+        // модели больше не продолжить, есть смысл только попробовать спасти то, что уже
+        // напечатано, и честно отчитаться остатком.
+        if (
+          !done &&
+          answer.finishReason === 'max_tokens' &&
+          req.finishGuard !== null &&
+          req.salvageFromText !== null
+        ) {
+          const complaintBefore = req.finishGuard();
+          if (complaintBefore !== null) {
+            const saved = await req.salvageFromText(answer.text);
+            if (saved !== null) {
+              hooks.onWarn(saved);
+              if (req.finishGuard() === null) {
+                return {
+                  ok: true,
+                  finalText,
+                  usage,
+                  closedBy: 'runtime',
+                  note: 'модель упёрлась в лимит длины ответа, но успела напечатать артефакт целиком — рантайм спас его из текста',
+                };
+              }
+            }
           }
         }
 
@@ -604,9 +671,36 @@ export class LoopExecutor implements StageExecutor {
               'цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ход не ' +
               'завершён — этап закрыт по диску';
             hooks.onWarn(note);
-            return { ok: true, finalText, usage, note };
+            return { ok: true, finalText, usage, note, closedBy: 'runtime' };
           }
         }
+      }
+
+      // Больше половины бюджета ушло, а принятых правок (у chunk — в files_to_touch) всё ещё
+      // нет: разведка и журнал — подготовка, не результат этапа (см. NO_PROGRESS_BUDGET_FRACTION).
+      // Одно напоминание, не серия: сигнал НЕ про зацикливание (для него уже есть отдельные
+      // детекторы выше), а про то, что бюджет кончается раньше правки кода. Гейт
+      // `finishGuard !== null` — тем же приёмом, что у серий чтения/Bash/готовности выше:
+      // субагент (`runSubagent` явно обнуляет `finishGuard`, но НЕ `progressSignal` —
+      // наследует родительский счётчик) не тот адресат совета «переходи к Edit», у него
+      // может не быть этого инструмента вовсе (code-review-all, 2026-09-14).
+      if (
+        req.finishGuard !== null &&
+        req.progressSignal !== undefined &&
+        !noProgressNudged &&
+        turn >= Math.ceil(req.maxTurns * NO_PROGRESS_BUDGET_FRACTION) &&
+        req.progressSignal() === 0
+      ) {
+        noProgressNudged = true;
+        hooks.onFriction('reminder');
+        messages.push({
+          role: 'user',
+          content:
+            `Пройдено ${turn} ходов из ${req.maxTurns}, а прогресса этапа всё ещё нет. ` +
+            'Разведка и журнал — подготовка, не результат этапа: ' +
+            (req.progressHint ??
+              'переходи к правке кода инструментом Edit прямо сейчас, бюджет ходов не резиновый.'),
+        });
       }
     }
 
@@ -620,7 +714,8 @@ export class LoopExecutor implements StageExecutor {
 
   /**
    * `params` запроса, с `max_tokens` по остатку окна вместо константы провайдера — когда
-   * `contextWindow` задан конфигом и есть с чем сравнить (не первый ход). `ModelDef.params`
+   * `contextWindow` задан конфигом. `promptTokens` — `prompt_tokens` прошлого ответа либо
+   * оценка исходящего запроса, когда числа от сервера нет. `ModelDef.params`
    * (`this.o.params`), если там назван `max_tokens`, перекрывает вычисленное значение —
    * тем же порядком, что и у `applyParams` в провайдере: оператор, назвавший число явно,
    * знает больше рантайма.
@@ -629,18 +724,13 @@ export class LoopExecutor implements StageExecutor {
    * (`onOverBudget`/`hooks.onWarn` чуть выше): тихий пол выглядел бы как рабочий расчёт,
    * хотя это уже признание, что защититься не вышло, и переполнение всё ещё вероятно.
    */
-  private paramsFor(
-    lastPromptTokens: number | null,
-    hooks: ExecHooks,
-  ): Record<string, unknown> | null {
-    if (this.o.contextWindow === undefined || lastPromptTokens === null) {
-      return this.o.params ?? null;
-    }
+  private paramsFor(promptTokens: number, hooks: ExecHooks): Record<string, unknown> | null {
+    if (this.o.contextWindow === undefined) return this.o.params ?? null;
     const margin = marginFor(this.o.maxResultBytes, TOOL_RESULTS_MARGIN_FACTOR);
-    const budget = maxTokensForRemaining(this.o.contextWindow, lastPromptTokens, margin);
+    const budget = maxTokensForRemaining(this.o.contextWindow, promptTokens, margin);
     if (budget.clamped) {
       hooks.onWarn(
-        `окно контекста (${this.o.contextWindow}) почти исчерпано: занято ~${lastPromptTokens} ` +
+        `окно контекста (${this.o.contextWindow}) почти исчерпано: занято ~${promptTokens} ` +
           `токенов из истории плюс запас ${margin} — max_tokens ограничен полом ${budget.maxTokens}, ` +
           'переполнение всё ещё вероятно',
       );

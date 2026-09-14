@@ -83,6 +83,27 @@ describe('аргументы бенчмарка', () => {
     );
   });
 
+  it('--preflight: самостоятельный режим без витка, режим этапа не обязателен', () => {
+    const o = parseArgs(['--model', 'x', '--preflight']);
+    strictEqual(o.preflightOnly, true);
+    strictEqual(o.mode.kind, 'all');
+    // Совместим с явным режимом: преполёт тогда сверяет измеряемые маршруты именно его.
+    strictEqual(parseArgs(['--model', 'x', '--preflight', '--stage', 'chunk']).mode.kind, 'stage');
+    // С пробой и сухим прогоном не сочетается — три разных «вместо витка».
+    throws(() => parseArgs(['--model', 'x', '--preflight', '--probe']), /взаимоисключает/);
+    throws(() => parseArgs(['--model', 'x', '--preflight', '--dry-run']), /взаимоисключает/);
+    throws(() => parseArgs(['--model', 'x', '--preflight', '--repeat', '3']), /--repeat/);
+  });
+
+  it('автогейт включён по умолчанию, --no-preflight отключает', () => {
+    strictEqual(parseArgs(['--model', 'x', '--all']).preflight, true);
+    strictEqual(parseArgs(['--model', 'x', '--all', '--no-preflight']).preflight, false);
+    // Там, где автогейта нет и без флага, --no-preflight — почти наверняка опечатка.
+    throws(() => parseArgs(['--model', 'x', '--probe', '--no-preflight']), /--no-preflight/);
+    throws(() => parseArgs(['--model', 'x', '--dry-run', '--no-preflight']), /--no-preflight/);
+    throws(() => parseArgs(['--model', 'x', '--preflight', '--no-preflight']), /--no-preflight/);
+  });
+
   it('снимок не задан по умолчанию', () => {
     const o = parseArgs(['--model', 'x', '--all']);
     strictEqual(o.makeSnapshot, null);

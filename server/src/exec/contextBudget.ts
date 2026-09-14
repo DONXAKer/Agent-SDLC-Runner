@@ -61,8 +61,22 @@ export function marginFor(maxResultBytes: number, resultsFactor: number): number
   return Math.ceil(maxResultBytes / BYTES_PER_TOKEN_ESTIMATE) * resultsFactor;
 }
 
-/** Грубая оценка числа токенов в сообщениях чата — сумма длин `content` через `BYTES_PER_TOKEN_ESTIMATE`. */
+/**
+ * Грубая оценка числа токенов в сообщениях чата — сумма БАЙТ `content` (UTF-8) через
+ * `BYTES_PER_TOKEN_ESTIMATE`.
+ *
+ * `Buffer.byteLength(text, 'utf8')`, а не `text.length`: `.length` строки — число UTF-16
+ * code units, то есть для кириллицы это счёт СИМВОЛОВ, а не байт (кириллица — 2 байта на
+ * символ в UTF-8, 1 code unit в UTF-16). Промпты этого проекта по конвенции на русском
+ * (`CLAUDE.md`) — счёт символов вместо байт систематически занижал оценку на живом
+ * прогоне: 3 поля дозаполнения `FormFillExecutor` подряд получили от LM Studio «Context
+ * size has been exceeded» на запросе, который `paramsFor` перед отправкой посчитал ещё
+ * влезающим — `max_tokens` был выдан по заниженной оценке остатка окна (bench-серия v5,
+ * sweep5v5-qwen-refuse-dangerous, 2026-09-14). Тот же класс ошибки, что уже пойман для
+ * `\b` в регулярках (`CLAUDE.md` → «Особенности…») — ASCII-предположение, не работающее
+ * на кириллице.
+ */
 export function estimateMessageTokens(messages: readonly { content: string }[]): number {
-  const chars = messages.reduce((sum, m) => sum + m.content.length, 0);
-  return Math.ceil(chars / BYTES_PER_TOKEN_ESTIMATE);
+  const bytes = messages.reduce((sum, m) => sum + Buffer.byteLength(m.content, 'utf8'), 0);
+  return Math.ceil(bytes / BYTES_PER_TOKEN_ESTIMATE);
 }

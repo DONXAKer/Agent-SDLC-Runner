@@ -124,6 +124,62 @@ describe('createCollector', () => {
     }
   });
 
+  it('собирает отказы с тем, чем отказано: политика и нота перезаписи; разрешённый вызов — не отказ', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-bench-collector-'));
+    try {
+      const collector = createCollector({ projectRoot: () => root, slug: () => 's' });
+      const note = 'перезапись .sdlc/s/exploration-report.md стирает поле решения человека: «Решение человека о полноте»';
+      collector.emit(
+        toolRequest({
+          stage: 'explore',
+          requestId: 'a',
+          call: { kind: 'write', path: '.sdlc/s/exploration-report.md', content: 'x' },
+          destructive: note,
+        }),
+      );
+      collector.emit({
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'explore',
+        requestId: 'a',
+        decision: { allowed: false, reason: `разрушающая перезапись: ${note}`, by: 'operator' },
+      });
+      collector.emit(
+        toolRequest({
+          stage: 'plan',
+          requestId: 'b',
+          call: { kind: 'write', path: 'src/x.ts', content: 'x' },
+          policy: { ok: false, policy: 'planScope', reason: 'одобренного плана ещё нет' },
+        }),
+      );
+      collector.emit({
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'plan',
+        requestId: 'b',
+        decision: { allowed: false, reason: '[planScope] одобренного плана ещё нет', by: 'policy' },
+      });
+      collector.emit(toolRequest({ requestId: 'c', call: { kind: 'write', path: 'src/y.ts', content: 'y' } }));
+      collector.emit({
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'chunk',
+        requestId: 'c',
+        decision: { allowed: true, updatedInput: null, by: 'auto' },
+      });
+
+      deepStrictEqual(
+        collector.state.denials?.map((d) => [d.requestId, d.stage, d.policy, d.destructive]),
+        [
+          ['a', 'explore', null, note],
+          ['b', 'plan', 'planScope', null],
+        ],
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('зовёт onEvent, кроме appendEvent — вторая точка подписки, не второй формат ленты', () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-bench-collector-'));
     try {

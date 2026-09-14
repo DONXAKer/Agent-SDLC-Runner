@@ -612,6 +612,24 @@ function userMessage(i: BuildPromptInput, systemBytes = 0): string {
     parts.push('## Входные артефакты', '', present.join('\n\n'));
   }
 
+  // Тело брифа этой попытки посчитано ЗДЕСЬ, а не на месте `push` ближе к концу функции
+  // (было так раньше): бюджет блока «Индекс проекта» ниже считает остаток окна по
+  // `parts`, собранным НА ЭТОТ МОМЕНТ, а бриф физически добавляется в `parts` намного
+  // позже (после карточки человека — recency, см. комментарий там) — расчёт бюджета не
+  // видел его тело вовсе. `extra` не привязан к конкретному этапу (общий HTTP-параметр
+  // ручного повтора любого этапа), поэтому оценивается тут безусловно, не только для
+  // `stage.id === 'chunk'` (code-review-all, 2026-09-14).
+  const extraText = i.extra !== undefined && i.extra.trim() !== '' ? i.extra.trim() : null;
+  const extraBrief = extraText === null || i.flow !== 'loop' ? null : capBytes(extraText, 2 * LOOP_MAX_ARTIFACT_BYTES);
+  const extraBlockText =
+    extraText === null
+      ? null
+      : extraBrief === null
+        ? extraText
+        : extraBrief.capped
+          ? `${extraBrief.text}\n…[обрезано рантаймом: бриф длиннее потолка]`
+          : extraBrief.text;
+
   // Индекс проекта — только этап 2 и только под ручкой (`BuildPromptInput.exploreIndex`).
   // Три правила рядом с данными, а не в adapter-блоке: они про ЭТОТ список путей, и модель
   // читает их там же, где сам список. Фактичность карты всё равно проверяет страж
@@ -622,7 +640,10 @@ function userMessage(i: BuildPromptInput, systemBytes = 0): string {
     // быть близко к потолку маленькой модели, и плоская константа блока это не видит (см.
     // комментарий у `BuildPromptInput.contextWindow`). Окно не задано (sdk/облако без
     // объявленного потолка) — прежнее поведение, плоская константа.
-    const usedBytes = systemBytes + Buffer.byteLength(parts.join('\n'), 'utf8');
+    const usedBytes =
+      systemBytes +
+      Buffer.byteLength(parts.join('\n'), 'utf8') +
+      (extraBlockText === null ? 0 : Buffer.byteLength(extraBlockText, 'utf8'));
     const budget =
       i.contextWindow === undefined
         ? flatBudget
@@ -730,16 +751,12 @@ function userMessage(i: BuildPromptInput, systemBytes = 0): string {
     if (block !== null) parts.push(block);
   }
 
-  if (i.extra !== undefined && i.extra.trim() !== '') {
+  if (extraBlockText !== null) {
     // Бриф ретрая ограничен константами своего рендера (12 строк хвоста, 8 находок), но
     // потолка по байтам у него не было; на окне 16k локального контура он конкурирует за
-    // то же место, что и план. Режется тем же потолком, что и патч прошлой попытки.
-    const brief = i.flow === 'loop' ? capBytes(i.extra.trim(), 2 * LOOP_MAX_ARTIFACT_BYTES) : null;
-    parts.push(
-      '## Что чинить в этой попытке',
-      '',
-      brief === null ? i.extra.trim() : brief.capped ? `${brief.text}\n…[обрезано рантаймом: бриф длиннее потолка]` : brief.text,
-    );
+    // то же место, что и план. Режется тем же потолком, что и патч прошлой попытки —
+    // тело и обрезка посчитаны выше, до блока «Индекс проекта» (см. комментарий там).
+    parts.push('## Что чинить в этой попытке', '', extraBlockText);
   }
 
   return parts.join('\n\n');

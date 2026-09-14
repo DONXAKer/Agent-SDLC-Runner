@@ -537,10 +537,16 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
     deepStrictEqual(p.seen[1]?.params, { seed: 1 });
   });
 
-  it('первый ход — окну ещё не с чем сравнить, params не тронут', async () => {
+  // Раньше первый ход уходил с константой провайдера («окну ещё не с чем сравнить») —
+  // ровно там, где промпт этапа крупнее всего. Теперь бюджет считается по оценке
+  // исходящего запроса: запас 3750 и небольшой вход дают число чуть меньше 16384 − 3750.
+  it('первый ход — max_tokens по оценке исходящего запроса, а не константа провайдера', async () => {
     const p = provider([{ toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' }]);
-    await executor(p, { contextWindow: 4096 }).run(request({ maxTurns: 1 }), hooks());
-    deepStrictEqual(p.seen[0]?.params, null);
+    await executor(p, { contextWindow: 16384 }).run(request({ maxTurns: 1 }), hooks());
+    const maxTokens = (p.seen[0]?.params as Record<string, unknown> | null)?.['max_tokens'];
+    ok(typeof maxTokens === 'number', JSON.stringify(p.seen[0]?.params));
+    ok(maxTokens < 16384 - 3750, `оценка входа не вычтена: ${maxTokens}`);
+    ok(maxTokens > 16384 - 3750 - 4000, `оценка входа несоразмерно велика: ${maxTokens}`);
   });
 
   it('второй ход — max_tokens посчитан по prompt_tokens первого ответа и запасу', async () => {

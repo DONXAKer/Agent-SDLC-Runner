@@ -58,11 +58,17 @@ import {
   type FormField as SchemaField,
 } from '../artifacts/formSchema.ts';
 import { isSheetError, parseFieldValue } from '../artifacts/sheet.ts';
-import { readTree } from '../explore/tree.ts';
+import { listSourceFiles } from '../gates/builtin/index.ts';
 import { templateNameFor } from '../run/seed.ts';
 import { isSeparatorRow, splitRow } from '../md/table.ts';
-import type { ChatProvider } from '../provider/ChatProvider.ts';
-import { ProviderEnvError } from '../provider/ChatProvider.ts';
+import {
+  applyParams,
+  ENGINE_UNAVAILABLE_SUBSTRINGS,
+  ProviderEnvError,
+  type ChatMessage,
+  type ChatProvider,
+} from '../provider/ChatProvider.ts';
+import { estimateMessageTokens, marginFor, maxTokensForRemaining } from './contextBudget.ts';
 import { writeThroughGate } from './gateWrite.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import type { ToolContext } from './tools/index.ts';
@@ -96,6 +102,9 @@ const CODE_MAP_HEADER = /\|\s*Файл\s*\|\s*Что там сейчас\s*\|\s*
 /** Потолок байт заземляющего списка путей — контекст локальной модели не резиновый. */
 const CODE_MAP_LIST_BYTES = 4000;
 
+/** Потолок файлов обхода дерева для заземления — тот же порядок, что у гейта дублей. */
+const CODE_MAP_SCAN_LIMIT = 4000;
+
 /**
  * Сколько попыток даётся добору приёмочного листа (счёт с первой, не «ремонтов сверх»).
  * Один выстрел без перепроверки один раз засчитал добор успешным, хотя добавленные
@@ -110,6 +119,19 @@ export interface FormFillOptions {
   bashTimeoutMs: number;
   /** Параметры запроса из конфига модели (`ModelDef.params`). */
   params?: Record<string, unknown> | null;
+  /**
+   * Окно контекста этой записи конфига (`ModelDef.contextWindow`) — тот же смысл и та же
+   * формула (`contextBudget.ts`), что у `StepExecutor`/`ExploreExecutor`: каждый полевой
+   * запрос независим (нет растущей истории цикла), его размер известен ДО отправки, и
+   * `max_tokens` считается по остатку `contextWindow − размер запроса − запас`. До этой
+   * правки `FormFillExecutor` это поле не читал вовсе — `contextWindow`, объявленный
+   * маршруту в `config/models.json`, не давал здесь никакой защиты, и явный
+   * `params.max_tokens` был единственным потолком; без него запрос падал на умолчание
+   * провайдера (`DEFAULT_MAX_TOKENS = 8192`) — тот же класс пробела, что нашёлся и
+   * починился у `StepExecutor` раньше (code-review-all, 2026-09-11), теперь и здесь
+   * (code-review-all, 2026-09-14).
+   */
+  contextWindow?: number;
   /** Валюта провайдера маршрута — для честной подписи трат. Умолчание USD. */
   currency?: string;
   /**
@@ -287,9 +309,46 @@ export function cleanRowAnswer(answer: string, header: string): string {
 export class FormFillExecutor implements StageExecutor {
   readonly flow = 'loop' as const;
   private readonly o: FormFillOptions;
+  /**
+   * Оценка входа последнего полевого запроса — число для диагноза «контекст переполнен».
+   * Без него диагноз был гипотезой раннера: ни размера запроса, ни окна в отчёте не было,
+   * а `usage` отказавшего запроса нулевой.
+   */
+  private lastRequestTokens: number | null = null;
 
   constructor(o: FormFillOptions) {
     this.o = o;
+  }
+
+  /** Числа к диагнозу переполнения: оценка входа против окна маршрута. */
+  private contextNumbers(): string {
+    const est = this.lastRequestTokens === null ? 'оценки входа нет' : `вход ≈${this.lastRequestTokens} токенов`;
+    return this.o.contextWindow === undefined
+      ? `${est}, окно маршрута не задано — заполни contextWindow модели в config/models.json`
+      : `${est} при окне ${this.o.contextWindow}`;
+  }
+
+  /**
+   * `params` полевого запроса — `max_tokens` по остатку окна (`contextBudget.ts`), когда
+   * `contextWindow` задан; иначе `this.o.params` как есть. Та же формула и тот же повод,
+   * что у `StepExecutor.paramsFor`/`ExploreExecutor.paramsFor` — см. комментарий у поля
+   * `contextWindow` выше.
+   */
+  private paramsFor(messages: readonly ChatMessage[], hooks: ExecHooks): Record<string, unknown> | null {
+    const estimate = estimateMessageTokens(messages);
+    this.lastRequestTokens = estimate;
+    if (this.o.contextWindow === undefined) return this.o.params ?? null;
+    const margin = marginFor(this.o.maxResultBytes, 1);
+    const budget = maxTokensForRemaining(this.o.contextWindow, estimate, margin);
+    if (budget.clamped) {
+      hooks.onWarn(
+        `окно контекста (${this.o.contextWindow}) почти исчерпано этим полевым запросом — max_tokens ` +
+          `ограничен полом ${budget.maxTokens}, переполнение всё ещё вероятно`,
+      );
+    }
+    const body: Record<string, unknown> = { max_tokens: budget.maxTokens };
+    applyParams(body, this.o.params ?? null);
+    return body;
   }
 
   /** Поля модели в режиме `compact` минус `skipFields` — один источник для прохода и для счёта остатка. */
@@ -316,18 +375,28 @@ export class FormFillExecutor implements StageExecutor {
     // содержимое файлов (`explore/tree.ts` — общий код с индексом разведки), и платить
     // за него, когда дозаполнение спрашивает другой бланк (журнал chunk'а, отчёт приёмки),
     // незачем.
-    let codeMapListing: string | null = null;
-    const codeMapGrounding = (): string => {
+    let codeMapListing: Promise<string> | null = null;
+    const codeMapGrounding = async (): Promise<string> => {
       if (codeMapListing !== null) return codeMapListing;
-      const index = readTree(req.cwd);
-      const lines = index.files.map((f) => `- \`${f.path}\``);
-      let text = lines.join('\n');
-      if (Buffer.byteLength(text, 'utf8') > CODE_MAP_LIST_BYTES) {
-        let cut = text.slice(0, CODE_MAP_LIST_BYTES);
-        cut = cut.slice(0, cut.lastIndexOf('\n'));
-        text = `${cut}\n… обрезано рантаймом, файлов больше`;
-      }
-      codeMapListing = text === '' ? '(дерево проекта пусто или недоступно)' : text;
+      codeMapListing = (async () => {
+        const { files } = await listSourceFiles(req.cwd, CODE_MAP_SCAN_LIMIT, req.signal);
+        const lines = files.map((f) => `- \`${f}\``);
+        let text = lines.join('\n');
+        let truncated = false;
+        // Перепроверка байтовой длины ПОСЛЕ каждого среза, не одноразовый `.slice()` по
+        // UTF-16 code units: тот же класс ошибки, что уже пойман в `sectionAt` выше и
+        // `prompt/bytes.ts` — кириллический путь занимает вдвое больше байт, чем units, и
+        // единственная проверка условия перед срезом молча пропускала перевес (code-review-
+        // all, 2026-09-14).
+        while (Buffer.byteLength(text, 'utf8') > CODE_MAP_LIST_BYTES) {
+          truncated = true;
+          const cut = text.lastIndexOf('\n', Math.floor(text.length * 0.9));
+          text = cut < 0 ? '' : text.slice(0, cut);
+          if (cut < 0) break;
+        }
+        if (truncated) text = `${text}\n… обрезано рантаймом, файлов больше`;
+        return text === '' ? '(дерево проекта пусто или недоступно)' : text;
+      })();
       return codeMapListing;
     };
 
@@ -378,7 +447,16 @@ export class FormFillExecutor implements StageExecutor {
     // VRAM) — `HTTP 400 {"error":"fetch failed"}` и `{"error":"terminated"}` на трёх полях
     // подряд, диагноз «сломанный конфиг» был бы неверным (модель отвечала штатно до и после).
     const CONTEXT_SIZE_RE = /context.{0,20}(size|length).{0,20}(exceed|超|too\s*(large|long))/i;
-    const PROVIDER_UNAVAILABLE_RE = /fetch failed|econnrefused|econnreset|socket hang up|"error":\s*"terminated"/i;
+    // Подстроки падения движка (`terminated`/`fetch failed`) — из общего
+    // `ENGINE_UNAVAILABLE_SUBSTRINGS` (`ChatProvider.ts`), не продублированы здесь вручную:
+    // тот же список, что классифицирует `ProviderEnvError` в `OpenAiCompatProvider`, раньше
+    // расходился при правке одного места без другого (code-review-all, 2026-09-14). Сетевые
+    // признаки (econnrefused/econnreset/socket hang up) — своё, этому потребителю: диагноз
+    // ставится по тексту уже брошенного исключения, а не по полю HTTP-тела.
+    const PROVIDER_UNAVAILABLE_RE = new RegExp(
+      `econnrefused|econnreset|socket hang up|${ENGINE_UNAVAILABLE_SUBSTRINGS.source}`,
+      'i',
+    );
     let lastRejectionReason: string | null = null;
     let rejectionStreak = 0;
     let systematicFailure: string | null = null;
@@ -388,7 +466,7 @@ export class FormFillExecutor implements StageExecutor {
       lastRejectionReason = text;
       if (systematicFailure === null && rejectionStreak >= SYSTEMATIC_FAILURE_STREAK) {
         const diagnosis = CONTEXT_SIZE_RE.test(text)
-          ? 'похоже, базовый промпт этой формы не помещается в окно контекста модели — дело не в бланке и не в конфиге, а в размере запроса'
+          ? `похоже, базовый промпт этой формы не помещается в окно контекста модели — дело не в бланке и не в конфиге, а в размере запроса (${this.contextNumbers()})`
           : PROVIDER_UNAVAILABLE_RE.test(text)
             ? 'похоже, модель недоступна прямо сейчас (не загружена или упал движок провайдера) — не конфиг и не бланк, проверь `lms ps`/`ollama ps` и перезагрузи модель'
             : 'похоже на сломанный конфиг модели, а не на бланк';
@@ -397,6 +475,17 @@ export class FormFillExecutor implements StageExecutor {
           `(${text}) — ${diagnosis}; дальнейшие поля не спрашивались`;
       }
       return systematicFailure;
+    };
+    /**
+     * Успешный ответ поля рвёт серию отказов: без сброса счётчик шёл только по ветке
+     * `rejected` и не видел перемежающиеся успехи — «раз подряд» в диагнозе выше было
+     * неточным (три отказа через один успех тоже считались «подряд»), и часть полей могла
+     * отвечать штатно, пока диагноз уже говорил о сломанном конфиге (code-review-all,
+     * 2026-09-14).
+     */
+    const resetRejectionStreak = (): void => {
+      rejectionStreak = 0;
+      lastRejectionReason = null;
     };
     /**
      * Артефакты, запись которых ОТКЛОНИЛ гейт (политика или оператор): отказ окончательный,
@@ -463,10 +552,10 @@ export class FormFillExecutor implements StageExecutor {
     };
 
     /** Полевой до-запрос модели: промпт этапа + служебная обвязка поля (см. шапку файла). */
-    const askField = (path: string, text: string, range: FormField): ReturnType<ChatProvider['chat']> =>
-      this.o.provider.chat({
-        model: req.model,
-        messages: [
+    const askField = async (path: string, text: string, range: FormField): ReturnType<ChatProvider['chat']> => {
+      const needsCodeMap = range.kind === 'row' && CODE_MAP_HEADER.test(range.header);
+      const codeMapText = needsCodeMap ? await codeMapGrounding() : '';
+      const messages: ChatMessage[] = [
           { role: 'system', content: req.prompt.system },
           {
             role: 'user',
@@ -487,11 +576,11 @@ export class FormFillExecutor implements StageExecutor {
               // файла), и без списка реальных путей это единственное поле бланка, где модель
               // вынуждена либо угадывать пути по памяти, либо честно писать «новый» —
               // измерено живьём, что угадывает (см. комментарий у CODE_MAP_HEADER).
-              ...(range.kind === 'row' && CODE_MAP_HEADER.test(range.header)
+              ...(needsCodeMap
                 ? [
                     '### Реальные файлы проекта (получены рантаймом обходом дерева, не твоей памятью)',
                     '',
-                    codeMapGrounding(),
+                    codeMapText,
                     '',
                     'Называй в карте ТОЛЬКО пути из этого списка. Файл, которого в списке нет и ' +
                       'который предстоит СОЗДАТЬ по плану, помечай словом «новый» рядом с путём — ' +
@@ -523,12 +612,16 @@ export class FormFillExecutor implements StageExecutor {
                   '«требует решения человека: <что именно>» вместо выдуманного ответа.',
             ].join('\n'),
           },
-        ],
+        ];
+      return this.o.provider.chat({
+        model: req.model,
+        messages,
         tools: [],
         signal: req.signal,
         temperature: null,
-        params: this.o.params ?? null,
+        params: this.paramsFor(messages, hooks),
       });
+    };
 
     /**
      * Добор приёмочного листа: ответ поля-образца ниже нормы методологии дополняется
@@ -544,10 +637,8 @@ export class FormFillExecutor implements StageExecutor {
       range: FormField & { kind: 'row' },
       already: string,
       retry: boolean,
-    ): ReturnType<ChatProvider['chat']> =>
-      this.o.provider.chat({
-        model: req.model,
-        messages: [
+    ): ReturnType<ChatProvider['chat']> => {
+      const messages: ChatMessage[] = [
           { role: 'system', content: req.prompt.system },
           {
             role: 'user',
@@ -584,12 +675,16 @@ export class FormFillExecutor implements StageExecutor {
               ...(this.o.edgeExample ?? []),
             ].join('\n'),
           },
-        ],
+        ];
+      return this.o.provider.chat({
+        model: req.model,
+        messages,
         tools: [],
         signal: req.signal,
         temperature: null,
-        params: this.o.params ?? null,
+        params: this.paramsFor(messages, hooks),
       });
+    };
 
     /**
      * Добор `files_to_touch`: пустой список после заполнения — не «оставить как есть»,
@@ -602,10 +697,8 @@ export class FormFillExecutor implements StageExecutor {
       path: string,
       text: string,
       range: FormField & { kind: 'row' },
-    ): ReturnType<ChatProvider['chat']> =>
-      this.o.provider.chat({
-        model: req.model,
-        messages: [
+    ): ReturnType<ChatProvider['chat']> => {
+      const messages: ChatMessage[] = [
           { role: 'system', content: req.prompt.system },
           {
             role: 'user',
@@ -625,12 +718,16 @@ export class FormFillExecutor implements StageExecutor {
                 'же формата — хотя бы один путь, который реально будет затронут.',
             ].join('\n'),
           },
-        ],
+        ];
+      return this.o.provider.chat({
+        model: req.model,
+        messages,
         tools: [],
         signal: req.signal,
         temperature: null,
-        params: this.o.params ?? null,
+        params: this.paramsFor(messages, hooks),
       });
+    };
 
     /**
      * Карточка поля вместо строки/секции бланка (`compact`): id, вид, допустимые
@@ -675,16 +772,17 @@ export class FormFillExecutor implements StageExecutor {
         ...(field.min?.edges !== undefined && field.min.edges > 0 ? (this.o.edgeExample ?? []) : []),
       ].join('\n');
 
-      return this.o.provider.chat({
-        model: req.model,
-        messages: [
+      const messages: ChatMessage[] = [
           { role: 'system', content: req.prompt.system },
           { role: 'user', content: [req.prompt.user, '', card].join('\n') },
-        ],
+        ];
+      return this.o.provider.chat({
+        model: req.model,
+        messages,
         tools: [],
         signal: req.signal,
         temperature: null,
-        params: this.o.params ?? null,
+        params: this.paramsFor(messages, hooks),
       });
     };
 
@@ -693,10 +791,8 @@ export class FormFillExecutor implements StageExecutor {
       field: SchemaField,
       already: string,
       retry: boolean,
-    ): ReturnType<ChatProvider['chat']> =>
-      this.o.provider.chat({
-        model: req.model,
-        messages: [
+    ): ReturnType<ChatProvider['chat']> => {
+      const messages: ChatMessage[] = [
           { role: 'system', content: req.prompt.system },
           {
             role: 'user',
@@ -719,12 +815,16 @@ export class FormFillExecutor implements StageExecutor {
               ...(field.min?.edges !== undefined && field.min.edges > 0 ? (this.o.edgeExample ?? []) : []),
             ].join('\n'),
           },
-        ],
+        ];
+      return this.o.provider.chat({
+        model: req.model,
+        messages,
         tools: [],
         signal: req.signal,
         temperature: null,
-        params: this.o.params ?? null,
+        params: this.paramsFor(messages, hooks),
       });
+    };
 
     /**
      * Бюджет исчерпан — общая проверка для обоих режимов, после каждой пачки.
@@ -779,6 +879,7 @@ export class FormFillExecutor implements StageExecutor {
             notes.push(`поле не спрошено (${relative(req.cwd, path)}, ${field.id}): ${why.slice(0, 160)}`);
             continue;
           }
+          resetRejectionStreak();
 
           let answerText = a.value.text;
 
@@ -950,6 +1051,7 @@ export class FormFillExecutor implements StageExecutor {
               );
               continue;
             }
+            resetRejectionStreak();
             let filled = cleanFieldAnswer(a.value.text);
             if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
             if (
@@ -1105,8 +1207,8 @@ export class FormFillExecutor implements StageExecutor {
     // попытки, но прогон, в котором апстрим отказывал, измерением модели не является.
     const env = envFailure === null ? {} : { envFailure };
     if (complaint !== null) {
-      return { ok: false, finalText: summary, usage, note: complaint, ...env };
+      return { ok: false, finalText: summary, usage, note: complaint, turns: callsSpent, ...env };
     }
-    return { ok: true, finalText: summary, usage, note: summary, ...env };
+    return { ok: true, finalText: summary, usage, note: summary, turns: callsSpent, ...env };
   }
 }

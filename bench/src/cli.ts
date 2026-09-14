@@ -35,9 +35,10 @@ import { TaskError, taskById, taskPaths } from './tasks.ts';
 import type { TaskPaths } from './tasks.ts';
 import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
 import type { SeedProbe } from './seeds.ts';
-import { baseUrlFor, createProvider } from '../../server/src/provider/registry.ts';
+import { createProvider } from '../../server/src/provider/registry.ts';
 import { formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
-import { checkLmStudioContext } from '../../server/src/provider/lmstudioContext.ts';
+import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
+import { formatPreflight, preflightExitCode, runPreflight } from './preflight.ts';
 import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
@@ -107,11 +108,12 @@ function benchConfig(base: LoadedConfig, opts: BenchOptions): LoadedConfig {
       limits: {
         ...base.runner.limits,
         maxIterationsPerStage: opts.maxIterationsPerStage,
-        // Поэтапные потолки конфига здесь СНИМАЮТСЯ: `--max-turns` обязан действовать на
-        // все этапы, включая verify. Иначе флаг молча не действовал бы ровно там, где
-        // ходы и решают (r9: 40 против 60; r28: 100), — а замер «одна ручка за прогон»
-        // держится на том, что названная ручка и есть единственная изменённая.
-        maxIterationsByStage: {},
+        // Явный `--max-turns` СНИМАЕТ поэтапные потолки конфига: флаг обязан действовать на
+        // все этапы, включая verify. Иначе он молча не действовал бы ровно там, где ходы и
+        // решают (r9: 40 против 60; r28: 100), — а замер «одна ручка за прогон» держится на
+        // том, что названная ручка и есть единственная изменённая. Без ключа потолки
+        // остаются штатными: умолчание стенда не должно срезать verify с 60 до общего числа.
+        ...(opts.maxTurnsExplicit === true ? { maxIterationsByStage: {} } : {}),
       },
     },
   };
@@ -189,29 +191,10 @@ async function dryRun(opts: BenchOptions): Promise<number> {
  * (см. `operator.ts`): один поток событий уходит в коллектор (лента на диск + числа
  * рантайма), второй — автоответчику, который отвечает вместо человека.
  */
-/**
- * Проверка окна контекста LM Studio ПЕРЕД тратой прогона — общая для пробы и живого
- * прогона: расхождение между `ModelDef.contextWindow` и фактически загруженным окном
- * обнаруживалось раньше только по факту (`exceed_context_size_error` посреди дорогого
- * прогона), а проверяется одним HTTP-запросом за секунду. Применимо только к провайдеру
- * `lmstudio` и только когда запись назвала своё окно — для остальных `null` (нечего
- * проверять, обычный путь идёт как раньше). `null` — либо проверка не применима, либо
- * прошла; непустая строка — готовое сообщение оператору, почему прогон не стоит начинать.
- */
-async function lmStudioContextProblem(
-  provider: string,
-  modelId: string,
-  contextWindow: number | undefined,
-  providerBaseUrl: string | undefined,
-): Promise<string | null> {
-  if (provider !== 'lmstudio' || contextWindow === undefined) return null;
-  const baseUrl = baseUrlFor(provider) ?? providerBaseUrl;
-  // Пустой/не заданный baseUrl — не наша забота: обычный путь запроса к провайдеру
-  // упадёт своей, более точной ошибкой («не задан baseUrl»), дублировать её здесь незачем.
-  if (baseUrl === undefined || baseUrl === '') return null;
-  const check = await checkLmStudioContext(baseUrl, modelId, contextWindow);
-  return check.ok ? null : check.message;
-}
+// Преполётная проверка окна контекста вынесена в `contextProblemFor`
+// (server/src/provider/contextCheck.ts) — одна функция на прогонку, пробу и
+// `--preflight`; у Ollama своя ловушка окна (голый тег = 4096), и до диспетчера
+// её не проверял никто.
 
 /** Сводка одного живого прогона — вход сводки серии `--repeat`. */
 interface LiveOutcome {
@@ -296,14 +279,15 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     console.log(`  ${measured ? '→' : ' '} ${stage.padEnd(8)} ${built.routes[stage]}${measured ? '   (под измерением)' : ''}`);
   }
 
-  // Окно контекста LM Studio — только у измеряемых маршрутов: контрольные (обычно
-  // claude-sdk) сюда не попадают, и проверять там нечего. Дёшево (один HTTP-запрос на
-  // маршрут) и дороже стоит промолчать — расхождение иначе всплывает посреди прогона.
+  // Окно контекста — только у измеряемых маршрутов: контрольные (обычно claude-sdk)
+  // сюда не попадают, и проверять там нечего. Дёшево (пара HTTP-запросов на маршрут)
+  // и дороже стоит промолчать — расхождение (LM Studio: другое загруженное окно;
+  // Ollama: голый тег с 4096 или мёртвый тег) иначе всплывает посреди прогона.
   for (const stage of built.measured) {
     const route = built.profile.routes[stage];
-    const problem = await lmStudioContextProblem(route.provider, route.model, route.contextWindow, route.providerDef.baseUrl);
+    const problem = await contextProblemFor(route.provider, route.model, route.contextWindow, route.providerDef.baseUrl);
     if (problem !== null) {
-      console.error(`\nокно контекста LM Studio (этап «${stage}»): ${problem}`);
+      console.error(`\nокно контекста (этап «${stage}»): ${problem}`);
       wsDispose();
       return { code: 2, hidden: null, durationMs: 0 };
     }
@@ -560,9 +544,9 @@ async function probeRun(opts: BenchOptions): Promise<number> {
     return 2;
   }
   const { def, providerDef } = target;
-  const contextProblem = await lmStudioContextProblem(def.provider, def.model, def.contextWindow, providerDef.baseUrl);
+  const contextProblem = await contextProblemFor(def.provider, def.model, def.contextWindow, providerDef.baseUrl);
   if (contextProblem !== null) {
-    console.error(`окно контекста LM Studio: ${contextProblem}`);
+    console.error(`окно контекста: ${contextProblem}`);
     return 2;
   }
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
@@ -580,6 +564,18 @@ async function probeRun(opts: BenchOptions): Promise<number> {
   // Средовой сбой — «не измерено» (2), как у всего бенчмарка, а не приговор модели.
   if (report.envBlocked && !report.passed) return 2;
   return report.passed ? 0 : 1;
+}
+
+/**
+ * Преполётный тест (`preflight.ts`): среда + расширенная проба модели, без рабочей
+ * копии и без витка. Используется и режимом `--preflight`, и автогейтом перед живым
+ * прогоном — код возврата в обоих местах считает одна функция, чтобы вердикт не
+ * зависел от того, откуда преполёт запустили.
+ */
+async function preflightRun(opts: BenchOptions): Promise<number> {
+  const report = await runPreflight(opts);
+  console.log(formatPreflight(report));
+  return preflightExitCode(report);
 }
 
 /** Медиана уже отсортированного НЕ обязана быть — сортируем сами. Пусто — null. */
@@ -681,9 +677,29 @@ export async function main(argv: readonly string[]): Promise<number> {
     throw e;
   }
 
+  // Сырой дамп серии включается ДО преполёта: `provider/rawLog.ts` запоминает каталог на
+  // первом же запросе к модели, а первый запрос делает проба преполёта. Без дампа по серии
+  // v4 нельзя было восстановить, что модель написала, упёршись в лимит длины.
+  if (opts.repeat > 1 && opts.rawLog !== false && (process.env['SDLC_RAW_LOG_DIR'] ?? '').trim() === '') {
+    process.env['SDLC_RAW_LOG_DIR'] = join(TRACES_DIR, 'raw');
+    console.log(`сырой дамп запросов серии: ${process.env['SDLC_RAW_LOG_DIR']} (отключить: --no-raw-log)`);
+  }
+
   try {
     if (opts.probe) return await probeRun(opts);
     if (opts.dryRun) return await dryRun(opts);
+    if (opts.preflightOnly) return await preflightRun(opts);
+    // Автогейт: долгий прогон (и серия, и съёмка снимка — она платная) не стартует на
+    // красном преполёте. Один преполёт на серию `--repeat`, не на сэмпл: среда и модель
+    // между сэмплами одни и те же. Отключается осознанным `--no-preflight`.
+    if (opts.preflight) {
+      const gateCode = await preflightRun(opts);
+      if (gateCode !== 0) {
+        console.error(`\nпреполёт красный (код ${gateCode}) — прогон не начат. Осознанный запуск на красном: --no-preflight`);
+        return gateCode;
+      }
+      console.log('');
+    }
     if (opts.repeat > 1) return await seriesRun(opts);
     return (await liveRun(opts)).code;
   } catch (e) {

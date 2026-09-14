@@ -38,7 +38,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 
 | Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
 |---|---|---|---|---|
-| P0: slug, ветка, контур | `branchFactBlock`; `branchMismatchBlocker` на входе plan/chunk/verify/handoff. **→ `autofillIntent`**: «Ветка витка» → `owner: 'runtime'` в `SCHEMA_OVERRIDES`, значение `currentBranch()` той же механикой, что `autofillJournal` | — | `branchFactBlock` | **человек**: контур |
+| P0: slug, ветка, контур | `branchFactBlock`; `branchMismatchBlocker` на входе plan/chunk/verify/handoff; `Run.autofillBranchField` — «Ветка витка» ставит рантайм (`currentBranch()` через `setDecision`, если поле пусто) | — | `branchFactBlock` | **человек**: контур |
 | P1: набор гейтов | минимальная пятёрка на старте каждого этапа (`gatesFile.ts`). **→ `gatesAutofill`**: «Чем реализован» строк «Сборка»/«Тесты» — из `describeBuild` (скилл: «факт из кодовой базы не спрашивают, его читают») | — | блок `ecosystem` | **человек**: да/нет по остальным строкам, владелец, долг |
 | P2: интервью | `formFill`; `askClaimsTopUp`; `edgeExampleLines`. **→ поля `owner: 'human'` рантайм спрашивает у человека сам** (`askGate.ask`), минуя модель | `formFill`; `compactForms: 'fill'` | образец `[edge]`; **→ список существующих тестов и раннер** | **модель**: тройка «наблюдаем + чем + годно», инварианты. **Человек**: лист, «Чего не делаем», «Когда остановиться» |
 | P3: механическая часть (7 пунктов) | пп. 3–4 `claimsMinimum` (предусловием этапа 2, после ухода модели); п. 6 `hasOpenQuestions`; п. 7 `placeholderRanges`; п. 1 `gatesFile`. **→ `readinessAutofill`**: таблица «Прогон 1» рантаймом ДО модели (приём `verifyAutofill`); красный пункт — в страж intent | — | — | — |
@@ -158,7 +158,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 
 | Инструмент | Этап | Класс сбоя | Переиспользует | Ручка | Как измерить |
 |---|---|---|---|---|---|
-| `autofillIntent` (ветка) | 1 | ветка из окружения (4 задачи) | `SCHEMA_OVERRIDES`, `fillMechanicalPlaceholders`, `currentBranch` | нет | клетка plan без «сверка ветки» |
+| ✓ `autofillBranchField` (ветка) | 1 | ветка из окружения (4 задачи) | `setDecision`, `currentBranch` | нет | клетка plan без «сверка ветки» |
 | `readinessAutofill` (прогоны 1, 2) | 1, 4 | intent `ok`, explore не стартует (раунд 2 ×2) | `verifyAutofill`-приём, `countClaims`, `hasOpenQuestions` | нет | readiness без плейсхолдеров в механической части |
 | Поля человека → `askGate` | 1, 3, 7 | «`AskHuman` в `formFill` нет» | `askGate.ask`, `owner === 'human'` | внутри `formFill` | 4 ответа readiness — словами автоответчика |
 | `gatesAutofill` | 1 | 12/14 `Bash` на поиске команд | `describeBuild` | нет | `gates.md` без `‹команда›` |
@@ -179,8 +179,8 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 без ручки поведение модели не меняет, серии не требует — проверяется тестами и щупами
 честности.
 
-- **Волна 0 — механика без ручки, поштучно, в любой момент:** `autofillIntent`,
-  `readinessAutofill`, `autofillPlan/Clarification/Handoff`, `journalOutcomeAutofill`,
+- **Волна 0 — механика без ручки, поштучно, в любой момент:** ✓ ветка витка
+  (`autofillBranchField`), `readinessAutofill`, `autofillPlan/Clarification/Handoff`, `journalOutcomeAutofill`,
   `closeAnsweredQuestions`, гейт публикации на handoff, `planCoverageGate` в наборе фикстуры.
 - **Волна 1 — explore** — ✓ написана (§5), не замерена.
 - **Волна 2 — chunk, тесты (§1.5а).** Единственный этап с воспроизводимым снимко-замером

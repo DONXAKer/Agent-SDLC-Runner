@@ -30,7 +30,7 @@ import type {
   ChatTurn,
   FinishReason,
 } from './ChatProvider.ts';
-import { ProviderEnvError, applyParams } from './ChatProvider.ts';
+import { ENGINE_UNAVAILABLE_SUBSTRINGS, ProviderEnvError, applyParams } from './ChatProvider.ts';
 import { dumpExchange, type TraceLabel } from './rawLog.ts';
 
 interface OpenAiChoice {
@@ -374,8 +374,32 @@ export class OpenAiCompatProvider implements ChatProvider {
       // `compactForms`, которую она измеряла. Модель в этих прогонах не отвечала ни разу.
       // Прочие 4xx (400 — схема инструментов, 404 — неверный id модели) остаются обычной
       // ошибкой: чинятся правкой конфига или кода, а не повтором прогона, и кричать о них
-      // надо громко.
-      const envStatus = status === 429 || status >= 500 || status === 401 || status === 402 || status === 403;
+      // надо громко. Внутри 400 — отдельный подкласс: движок LM Studio падает ПОСЕРЕДИНЕ
+      // генерации и вместо содержательного ответа о вызове отдаёт `{"error":"terminated"}`
+      // или сетевой обрыв `fetch failed` — не «модель прислала кривую схему», а
+      // инфраструктурный обрыв, тот же класс, что у 429/5xx выше. Живой замер серии v3/v4,
+      // 2026-09-13/14 (`docs/model-runs.md`): LM Studio выгружал/ронял модель под давлением
+      // памяти, три поля подряд получали эту же строку, и она красила отказ как ошибку
+      // модели (диагноз fail-fast `FormFillExecutor` поправлен отдельно этим же днём, но
+      // сама классификация здесь была неверной для ЛЮБОГО потребителя, не только formFill).
+      // Матчится по РАЗОБРАННОМУ полю `error` тела, не по всему сырому тексту ответа:
+      // сканирование целиком ловило бы подстроку `fetch failed` и в теле, не имеющем
+      // отношения к падению движка (например, если сама обвязка пробрасывает текст чужой
+      // сетевой ошибки внутрь сообщения о некорректной схеме инструмента) — тот же класс
+      // ложного срабатывания, от которого предостерегает абзац выше про обычные 4xx
+      // (code-review-all, 2026-09-14). Тело живого падения — плоский `{"error": "..."}`,
+      // не вложенный объект с `.message`, как у обычного 200-ответа ниже.
+      const engineCrashText = (): string | null => {
+        try {
+          const parsed = JSON.parse(text) as { error?: unknown };
+          return typeof parsed.error === 'string' ? parsed.error : null;
+        } catch {
+          return null;
+        }
+      };
+      const engineCrash = status === 400 && ENGINE_UNAVAILABLE_SUBSTRINGS.test(engineCrashText() ?? '');
+      const envStatus =
+        status === 429 || status >= 500 || status === 401 || status === 402 || status === 403 || engineCrash;
       throw envStatus ? new ProviderEnvError(message) : new Error(message);
     }
 

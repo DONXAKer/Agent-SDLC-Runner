@@ -235,6 +235,82 @@ describe('заполнение бланка по полям', () => {
     ok(!result.note.includes('поле не спрошено'), result.note);
   });
 
+  it('переполнение контекста: диагноз несёт оценку входа и говорит, что окно не задано (серия v4 — без чисел)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(artifact, ['# Задача', '', '- **Поле 1:** ‹а›', '- **Поле 2:** ‹б›', '- **Поле 3:** ‹в›', ''].join('\n'));
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat() {
+        throw new Error('HTTP 400 {"error":"Context size has been exceeded."}');
+      },
+    } as unknown as ChatProvider;
+
+    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, false);
+    ok(result.note.includes('не помещается в окно'), result.note);
+    ok(/вход ≈\d+ токенов/.test(result.note), result.note);
+    ok(result.note.includes('окно маршрута не задано'), result.note);
+  });
+
+  it('отказы, перемежённые успехом, — не систематическая ошибка: счётчик подряд сбрасывается успешным полем (code-review-all, 2026-09-14)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(
+      artifact,
+      [
+        '# Задача',
+        '',
+        '- **Поле 1:** ‹а›',
+        '- **Поле 2:** ‹б›',
+        '- **Поле 3:** ‹в›',
+        '- **Поле 4:** ‹г›',
+        '- **Поле 5:** ‹д›',
+        '',
+      ].join('\n'),
+    );
+    // Поля 1,3,5 падают с ОДНОЙ и той же ошибкой, 2 и 4 отвечают штатно — та же ошибка
+    // встречается трижды за прогон, но никогда три раза ПОДРЯД (между каждой парой отказов
+    // стоит успех). До фикса счётчик считал только ветку `rejected` и не видел успехи между
+    // ними — те же три одинаковых отказа ложно читались как «подряд» и рано останавливали
+    // этап, хотя половина полей была заполнена штатно. `maxTurns: 5` = ровно число полей:
+    // бюджет исчерпывается за один проход, и второй (штатный) проход дозаполнения
+    // незакрытых мест не стартует — он спрашивал бы ТОЛЬКО оставшиеся (уже заполненные
+    // поля не переспрашиваются) три отказных поля подряд БЕЗ интерливинга успехом, и это
+    // была бы уже настоящая, а не ложная, серия из трёх — отдельный сценарий, не то, что
+    // здесь проверяется.
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        if (/Поле 1:|Поле 3:|Поле 5:/.test(user)) throw new Error("model 'dead-tag' not found");
+        return {
+          text: 'значение поля',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    const result = await exec(provider).run(request(root, artifact, { maxTurns: 5 }), hooks({ writes: [] }, true));
+
+    // Не систематический отказ: этап доходит до конца прохода, а не останавливается рано
+    // (ранняя остановка возвращает диагноз В `note` напрямую, минуя стража завершения).
+    ok(!result.note.includes('одну и ту же ошибку'), result.note);
+    ok(!result.note.includes('сломанный конфиг'), result.note);
+    // Ровно три поля из пяти честно остались незаполненными, а не проглочены остановкой —
+    // подробности в `finalText` (сводка), `note` здесь — жалоба стража («не заполнен»).
+    const seen = (result.finalText.match(/поле не спрошено/g) ?? []).length;
+    strictEqual(seen, 3, result.finalText);
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('- **Поле 2:** значение поля'), text);
+    ok(text.includes('- **Поле 4:** значение поля'), text);
+  });
+
   it('систематическая ошибка «Context size has been exceeded» — диагноз про размер промпта, не про конфиг (замер qwen3-8b/refuse-dangerous, 2026-09-13)', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
     roots.push(root);

@@ -12,9 +12,12 @@
 import { deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { emptyUsage } from '@sdlc-runner/shared';
 import type { Verdict } from '@sdlc-runner/shared';
 
-import { attemptCeiling, decideAfterStageFailure, decideAfterVerify } from '../src/driver.ts';
+import type { Run } from '../../server/src/run/Run.ts';
+import type { StageResult } from '../../server/src/exec/StageExecutor.ts';
+import { attemptCeiling, decideAfterStageFailure, decideAfterVerify, runBench } from '../src/driver.ts';
 
 function verdict(action: Verdict['action'], passed = false): Verdict {
   return { passed, action, reasons: [] };
@@ -55,6 +58,79 @@ describe('decideAfterStageFailure', () => {
       decideAfterStageFailure({ stage: 'verify', envFailure: 'HTTP 500', alreadyRetriedThisStage: false }),
       { kind: 'stop', reason: 'blocked' },
     );
+  });
+});
+
+/**
+ * `runBench` не тестируется здесь целиком по причине из шапки файла (`intent` без единого
+ * блокера зовёт настоящую модель) — но это относится к РЕАЛЬНОМУ `Run`, не к этому тесту:
+ * `run` здесь полностью подставной (`blockers`/`runStage`/`cancel` — стабы, без сети и
+ * модели), и проверяется только бухгалтерия `stages[]` вокруг `retry-stage-env`
+ * (code-review-all, 2026-09-14).
+ */
+describe('runBench: бухгалтерия stages[] при retry-stage-env', () => {
+  it('повтор этапа после envFailure оставляет в stages[] ОДНУ запись — успешную, не обе', async () => {
+    let calls = 0;
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      blockerDetails: () => [],
+      cancel: () => {},
+      runStage: async (): Promise<StageResult> => {
+        calls++;
+        if (calls === 1) {
+          return { ok: false, finalText: '', usage: emptyUsage(), note: 'апстрим не ответил', envFailure: 'HTTP 500' };
+        }
+        return { ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово' };
+      },
+    } as unknown as Run;
+
+    const result = await runBench({
+      run: fakeRun,
+      stageTimeoutMs: 10_000,
+      runTimeoutMs: 60_000,
+      attempts: 3,
+      stopAfterStage: 'intent',
+    });
+
+    strictEqual(calls, 2, 'ожидались ровно попытка + один повтор');
+    strictEqual(result.stopped, 'snapshot-point');
+    const intentRecords = result.stages.filter((s) => s.stage === 'intent');
+    strictEqual(intentRecords.length, 1, JSON.stringify(result.stages));
+    strictEqual(intentRecords[0]?.ok, true, JSON.stringify(intentRecords));
+  });
+});
+
+describe('runBench: запись блокировки и признаки этапа', () => {
+  it('блокировка входа несёт этап-виновника; прошедший этап — ходы и «закрыт рантаймом»', async () => {
+    const blocker = 'в intent.md осталось незаполненных мест: 1 — артефакт не готов';
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      blockerDetails: (stage: string) => (stage === 'explore' ? [{ text: blocker, blamed: 'intent' }] : []),
+      cancel: () => {},
+      runStage: async (): Promise<StageResult> => ({
+        ok: true,
+        finalText: 'готово',
+        usage: emptyUsage(),
+        note: 'готово',
+        turns: 4,
+        closedBy: 'runtime',
+      }),
+    } as unknown as Run;
+
+    const result = await runBench({ run: fakeRun, stageTimeoutMs: 10_000, runTimeoutMs: 60_000, attempts: 3 });
+
+    strictEqual(result.stopped, 'blocked');
+    const [intent, explore] = result.stages;
+    strictEqual(intent?.turns, 4);
+    strictEqual(intent?.closedBy, 'runtime');
+    strictEqual(explore?.blamedStage, 'intent');
+    deepStrictEqual(explore?.blockers, [blocker]);
   });
 });
 

@@ -149,12 +149,14 @@ import {
   checkPreconditions,
   explorationPathProblem,
   filesToTouchProblem,
+  intentPlaceholderProblem,
   hasOpenQuestions,
   relOf,
   stageById,
   type PreconditionReport,
   type StageContext,
   type StageDef,
+  stageProducing,
 } from './stages.ts';
 
 export interface RunOptions {
@@ -245,7 +247,17 @@ export function isFormattingFailure(note: string): boolean {
     // оформлении (длинный `Write`/`Edit` бланка), а не на смысле. Самый частый исход
     // слабой модели С tool-use — и единственный из «лимитов длины», который в список не
     // входил: дозаполнение не запускалось ровно у тех, кому нужнее всего.
-    /обрезан лимитом длины/.test(note)
+    /обрезан лимитом длины/.test(note) ||
+    // Антицикл (`LoopExecutor.ts`, `FINALIZE_STALL_LIMIT`) — модель трижды подряд не
+    // смогла закрыть поле МНОГОСТРОЧНОЙ правкой всего документа, но per-field
+    // дозаполнение (`FormFillExecutor.askField`) — другой механизм: один изолированный
+    // вопрос, без риска промахнуться `old_string` по большой таблице. Рескью УЖЕ
+    // запускался безусловно (`finishFormArtifact` вызывает `fillFormFields`, пока
+    // остаются плейсхолдеры), но успех не засчитывался — паттерн антицикла не входил в
+    // этот список, и честно закрытый дозаполнением этап оставался красным с текстом
+    // застрявшего цикла. Живой замер: серия v4, 2026-09-14, `gemma-4-e4b` — 3 из 5
+    // отказов серии на этой модели были именно антициклом.
+    /этап зациклился/.test(note)
   );
 }
 
@@ -1572,6 +1584,50 @@ export class Run {
   }
 
   /**
+   * Заполняет поле «Ветка витка» в `intent.md` фактом рантайма — тем же приёмом, что
+   * `autofillJournal` у механических полей журнала chunk'а.
+   *
+   * `branchFactBlock` в промпте только СООБЩАЛ модели факт и оставлял заполнение ей —
+   * поле оставалось местом, где модель гадает или выводит имя из путей `.sdlc/…`, хотя
+   * ответ детерминирован и рантайму известен ДО хода (`docs/proposals/
+   * model-flow-improvements.md` §1.7/§2.1 п.3: «прямое нарушение собственного принципа
+   * методологии „механические поля заполняет программа“»). `branchMismatchBlocker`
+   * остаётся на месте без изменений — сверка поля с фактическим деревом на входе
+   * `plan`/`chunk`/`verify`/`handoff` не ослабляется, здесь лишь снимается сам повод
+   * гадать. Молча выходит, если поля нет в шаблоне (не git-репозиторий, поле уже
+   * заполнено моделью, или задача принесла артефакт без этого поля вовсе) — поле по
+   * форме опционально, тем же условием, что уже сторожит `branchMismatchBlocker`.
+   */
+  private async autofillBranchField(seeded: { path: string; snapshot?: string }[]): Promise<void> {
+    const path = this.paths.intent;
+    const artifact = readArtifact(path);
+    if (!artifact.exists) return;
+    if (!(await isRepo(this.project.projectRoot))) return;
+    const branch = await currentBranch(this.project.projectRoot);
+    if (branch === null) return;
+    // Поле уже заполнено (моделью на прошлой попытке, или задачей заранее) — не трогаем:
+    // тот же приём, что у `readField`/`branchMismatchBlocker`, «плейсхолдер или пусто»
+    // не считается заполнением.
+    if (readField(artifact.text, 'Ветка витка') !== null) return;
+    let text: string;
+    try {
+      text = setDecision(artifact.text, 'Ветка витка', branch);
+    } catch (e) {
+      if (e instanceof DecisionFormError) return; // поля нет в этом шаблоне — законно
+      throw e;
+    }
+    writeArtifact(path, text);
+    const seed = seeded.find((s) => s.path === path);
+    if (seed !== undefined) seed.snapshot = text;
+    this.emit({
+      type: 'warning',
+      runId: this.id,
+      stage: 'intent',
+      message: `рантайм заполнил поле «Ветка витка» фактом дерева (\`${branch}\`) — модели гадать не о чем`,
+    });
+  }
+
+  /**
    * Заполняет отчёт приёмки фактами рантайма — см. `verifyAutofill.ts`.
    *
    * Результат ревью сюда не передаётся намеренно: на момент автозаполнения рецензент ещё
@@ -2002,7 +2058,7 @@ export class Run {
         'этап закрыт: код и содержание — работа модели, оформление добрано рантаймом ' +
         '(исполнитель упал только на лимите/оформлении при полных артефактах)';
       this.emit({ type: 'warning', runId: this.id, stage, message: note });
-      return { ...result, ok: true, note };
+      return { ...result, ok: true, note, closedBy: 'runtime' };
     }
     return result;
   }
@@ -2036,6 +2092,7 @@ export class Run {
       readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
       bashTimeoutMs: limits.gateTimeoutMs,
       params: route.params,
+      ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
       currency: route.providerDef.currency ?? 'USD',
       compact: route.compactForms === 'fill' || route.compactForms === 'all',
       // Образец граничного пункта — из примера эталона, читается в рантайме:
@@ -2855,6 +2912,11 @@ export class Run {
         readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
         bashTimeoutMs: limits.gateTimeoutMs,
         params: route.params,
+        // Расчёт `max_tokens` по остатку окна (`FormFillExecutor.paramsFor`) — тот же приём,
+        // что у `StepExecutor`/`ExploreExecutor`; до этой правки маршруты `compactForms`
+        // с объявленным `contextWindow` не получали от него никакой защиты здесь
+        // (code-review-all, 2026-09-14).
+        ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
         currency: route.providerDef.currency ?? 'USD',
         // Схема формы вместо сплошного текста — см. `ModelDef.compactForms`.
         compact: route.compactForms === 'fill' || route.compactForms === 'all',
@@ -3087,15 +3149,33 @@ export class Run {
     opts: { abortHandoff?: boolean } = {},
     precomputed?: PreconditionReport,
   ): string[] {
+    return this.blockerDetails(stage, opts, precomputed).map((b) => b.text);
+  }
+
+  /**
+   * Те же причины, что `blockers`, с этапом-виновником каждой: чей артефакт завалил вход.
+   * `null` — причина не про артефакт прошлого этапа (проба среды песочницы).
+   */
+  blockerDetails(
+    stage: StageId,
+    opts: { abortHandoff?: boolean } = {},
+    precomputed?: PreconditionReport,
+  ): { text: string; blamed: StageId | null }[] {
     const report = precomputed ?? checkPreconditions(stageById(stage), this.ctx, opts);
-    const problems = [...report.problems];
+    const problems: { text: string; blamed: StageId | null }[] = report.details.map((d) => ({
+      text: d.text,
+      blamed: d.artifact === null ? null : stageProducing(d.artifact, stage, this.ctx),
+    }));
+    const by = (blamed: StageId | null) => (text: string) => ({ text, blamed });
 
     if (PLAN_SCOPED_STAGES.includes(stage)) {
       const files = this.planFilesFor(stage);
       if (files !== null && files.length === 0) {
         problems.push(
-          `план ${this.paths.plan} есть, но files_to_touch пуст: PlanScope выключился бы молча, ` +
-            `и запись перестала бы быть ограниченной планом. Заполни секцию files_to_touch.`,
+          by('plan')(
+            `план ${this.paths.plan} есть, но files_to_touch пуст: PlanScope выключился бы молча, ` +
+              `и запись перестала бы быть ограниченной планом. Заполни секцию files_to_touch.`,
+          ),
         );
       }
     }
@@ -3111,17 +3191,21 @@ export class Run {
       const gates = this.gatesFile;
       if (gates === null) {
         problems.push(
-          `нет набора гейтов ${this.paths.gates}. Без него не определены ни «сделано», ни ` +
-            `условия вердикта — виток не стартует.`,
+          by('intent')(
+            `нет набора гейтов ${this.paths.gates}. Без него не определены ни «сделано», ни ` +
+              `условия вердикта — виток не стартует.`,
+          ),
         );
       } else {
-        problems.push(...configProblems(gates));
+        problems.push(...configProblems(gates).map(by('intent')));
         // `REVIEW_GATE` не в BUILTIN и не в кавычках, но НЕ является дырой в наборе: он
         // получает статус не скриптом gates/run.ts, а `externalGateStatuses()` ниже — тем
         // же путём, каким и реально считается на прогоне (см. `runGates({ externalStatuses:
         // this.externalGateStatuses() })`). Без этого исключения витки с обычным для
         // минимума набором никогда бы не проходили дальше intent.
-        problems.push(...unimplementedGates(gates, (name) => builtinFor(name) !== null, [REVIEW_GATE]));
+        problems.push(
+          ...unimplementedGates(gates, (name) => builtinFor(name) !== null, [REVIEW_GATE]).map(by('intent')),
+        );
       }
     }
 
@@ -3134,7 +3218,7 @@ export class Run {
     // на каждый опрос списка витков, и дёргать Docker на каждый такой опрос было бы дороже
     // самой проблемы, которую чинит.
     if (stage === 'verify') {
-      problems.push(...this.lastPreflightBlockers);
+      problems.push(...this.lastPreflightBlockers.map(by(null)));
     }
 
     return problems;
@@ -3268,7 +3352,17 @@ export class Run {
    * первая «Сборка» после шага при старте с chunk шла на хосте — «нет tsc» читалось как
    * ⏭ и зелёный шаг, а иная версия инструмента давала ложный красный.
    */
-  private async runNamedGate(name: string): Promise<GateRunResult | null> {
+  /**
+   * `ctx` — переиспользовать уже построенный `GateContext` вызывающего (`recordEvidence`),
+   * а не строить свой. Раньше строился всегда свой: два новых вызова для улики
+   * (`Scope: файлы вне плана`/`Scope: пути плана без правок`) получали контекст с ДРУГОЙ
+   * идентичностью объекта, чем `gateCtx` соседних `recordAttemptEvidence`/`runTests` — а
+   * WeakMap-кэши гейтов (`gates/builtin/index.ts`: `modulesCache`, `diffCache`,
+   * `rawDiffCache`) ключуются именно по идентичности `ctx`, так что кэш никогда не
+   * подхватывался, вопреки соседнему комментарию, который это утверждал (code-review-all,
+   * 2026-09-14).
+   */
+  private async runNamedGate(name: string, ctx?: GateContext): Promise<GateRunResult | null> {
     const gates = this.gatesFile;
     if (gates === null) return null;
     try {
@@ -3282,27 +3376,28 @@ export class Run {
       });
     }
     const signal = this.aborter?.signal;
-    const ctx: GateContext = {
-      projectRoot: this.project.projectRoot,
-      planFiles: this.planFilesFor('chunk') ?? [],
-      baseline: this.readBaseline(),
-      timeoutMs: this.config.runner.limits.gateTimeoutMs,
-      ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
-      ...(signal === undefined ? {} : { signal }),
-    };
+    const gateCtx: GateContext =
+      ctx ?? {
+        projectRoot: this.project.projectRoot,
+        planFiles: this.planFilesFor('chunk') ?? [],
+        baseline: this.readBaseline(),
+        timeoutMs: this.config.runner.limits.gateTimeoutMs,
+        ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
+        ...(signal === undefined ? {} : { signal }),
+      };
     return runGateByName(
       name,
       {
         gates,
         projectRoot: this.project.projectRoot,
         projectName: this.project.name,
-        planFiles: ctx.planFiles,
-        baseline: ctx.baseline,
-        timeoutMs: ctx.timeoutMs,
+        planFiles: gateCtx.planFiles,
+        baseline: gateCtx.baseline,
+        timeoutMs: gateCtx.timeoutMs,
         ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
         ...(signal === undefined ? {} : { signal }),
       },
-      ctx,
+      gateCtx,
     );
   }
 
@@ -3419,8 +3514,8 @@ export class Run {
       // «Серия 5×5») нашёл: рантайм уже знал «Тесты ❌»/scope-нарушение ДО старта verify,
       // но это оставалось только текстом в ленте, не структурой.
       const [scopeOutside, scopeUntouched] = await Promise.all([
-        this.runNamedGate('Scope: файлы вне плана'),
-        this.runNamedGate('Scope: пути плана без правок'),
+        this.runNamedGate('Scope: файлы вне плана', gateCtx),
+        this.runNamedGate('Scope: пути плана без правок', gateCtx),
       ]);
       this.chunkEvidenceAgg.set(`${this.chunk}:${this.attempt}`, {
         chunk: this.chunk,
@@ -3981,6 +4076,10 @@ export class Run {
     // `SeededArtifact.snapshot` — страж «бланк байт-в-байт» сравнивает с ним, и этап,
     // не сделавший ничего, по-прежнему виден.
     if (stage === 'chunk') await this.autofillJournal(seeded);
+    // «Ветка витка» — та же логика: рантайм знает ответ детерминированно (git-дерево),
+    // модели гадать не о чем. Только на intent — это единственный этап, где поле ещё не
+    // заполнено (`branchMismatchBlocker` сверяет его на входе plan/chunk/verify/handoff).
+    if (stage === 'intent') await this.autofillBranchField(seeded);
 
     // Отчёт приёмки: механику шапки и таблицу «Гейты» заполняет рантайм фактами только
     // что прогнанных гейтов — рецензенту остаются выводы и ревью. Замер r9: все
@@ -4282,6 +4381,18 @@ export class Run {
                 `открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.`
               );
             }
+            // Полнота intent.md — здесь, а не только предусловием этапа 2. `notDone()`
+            // выше видит только «файл тронут vs пустой бланк»: дозаполнение, тронувшее
+            // intent.md и оставившее хотя бы одно место (вне законно пустой «Что придётся
+            // тронуть»), уходило зелёным — до входа в `explore` СЛЕДУЮЩЕГО цикла, где
+            // чинить уже некому (тот же класс потери, что карта разведки ниже; живой
+            // разбор серии v5, 2026-09-14: 4 из 22 прогонов упёрлись ровно в это).
+            if (stage === 'intent') {
+              const problem = intentPlaceholderProblem(this.ctx);
+              if (problem !== null) {
+                return `${problem}. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`;
+              }
+            }
             // Фактичность карты кодовой базы — здесь, а не только предусловием этапа 3.
             // Пока она стояла лишь там, отчёт с сочинённым путём закрывал этап 2 «успешно»,
             // а виток умирал на входе в этап 3 — модель уже ушла, и чинить было некому
@@ -4336,7 +4447,15 @@ export class Run {
           // На этапе 5 прогресс — принятые записи в дерево: модель, повторившая вызов
           // рядом с делом, не должна терять уже записанный код.
           ...(stage === 'verify'
-            ? { progressSignal: () => this.claimRecords.size + this.findingRecords.length }
+            ? {
+                progressSignal: () => this.claimRecords.size + this.findingRecords.length,
+                // Совет по умолчанию в LoopExecutor зовёт Edit — на verify прогресс это
+                // RecordClaim/RecordFinding, а Edit противоречит независимости ревью
+                // (`CLAUDE.md` → «Этап 6…»; code-review-all, 2026-09-14).
+                progressHint:
+                  'переходи к записи находок инструментами RecordClaim/RecordFinding прямо ' +
+                  'сейчас, бюджет ходов не резиновый.',
+              }
             : stage === 'chunk'
               ? { progressSignal: () => acceptedWrites }
               : {}),

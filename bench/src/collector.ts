@@ -33,14 +33,34 @@ export interface CollectedQuestion {
   text: string;
 }
 
+/**
+ * Отклонённый вызов — с тем, ЧЕМ он отклонён. В `OperatorDecisionLog.notMine` оседал
+ * только признак «политика», и отчёт склеивал в «отказ политики» пять несовместимых
+ * диагнозов серии v4: стирание поля человека, битый путь, запись до одобрения плана,
+ * необъявленный субагент и вызов без разобранных аргументов.
+ */
+export interface CollectedDenial {
+  stage: StageId;
+  requestId: string;
+  toolName: string;
+  kind: string;
+  /** Политика, отклонившая вызов; `null` — отказал оператор, а не политика. */
+  policy: string | null;
+  /** Нота гейта о перезаписи с потерей содержимого (`destructiveOverwrite`), если была. */
+  destructive: string | null;
+  reason: string;
+}
+
 export interface CollectorState {
   toolCalls: CollectedToolCall[];
   promptSizes: CollectedPromptSize[];
   questions: CollectedQuestion[];
+  /** Необязательно только для чтения результатов, записанных до появления поля. */
+  denials?: CollectedDenial[];
 }
 
 export function emptyCollectorState(): CollectorState {
-  return { toolCalls: [], promptSizes: [], questions: [] };
+  return { toolCalls: [], promptSizes: [], questions: [], denials: [] };
 }
 
 export interface Collector {
@@ -60,12 +80,31 @@ export function createCollector(args: {
   onEvent?: (e: RunEvent) => void;
 }): Collector {
   const state = emptyCollectorState();
+  const denials: CollectedDenial[] = [];
+  state.denials = denials;
+  /** Запрос ждёт решения: отказ приходит отдельным `tool_resolved` без имени и политики. */
+  const pending = new Map<string, Omit<CollectedDenial, 'reason'>>();
 
   const emit: EventSink = (e) => {
     appendEvent(args.projectRoot(), args.slug(), e);
     args.onEvent?.(e);
 
+    if (e.type === 'tool_resolved') {
+      const req = pending.get(e.requestId);
+      pending.delete(e.requestId);
+      if (req !== undefined && !e.decision.allowed) denials.push({ ...req, reason: e.decision.reason });
+      return;
+    }
+
     if (e.type === 'tool_request') {
+      pending.set(e.requestId, {
+        stage: e.stage,
+        requestId: e.requestId,
+        toolName: e.toolName,
+        kind: e.call.kind,
+        policy: e.policy.ok ? null : e.policy.policy,
+        destructive: e.destructive,
+      });
       state.toolCalls.push({ stage: e.stage, toolName: e.toolName, kind: e.call.kind });
       if (e.call.kind === 'ask_human') {
         for (const q of e.call.questions) {

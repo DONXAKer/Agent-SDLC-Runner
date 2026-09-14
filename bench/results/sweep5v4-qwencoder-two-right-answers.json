@@ -1,0 +1,571 @@
+{
+  "run": {
+    "slug": "sweep5v4-qwencoder-two-right-answers",
+    "model": "lmstudio:qwen3-coder-30b-stepfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:qwen3-coder-30b-stepfill",
+      "explore": "lmstudio:qwen3-coder-30b-stepfill",
+      "ask": "lmstudio:qwen3-coder-30b-stepfill",
+      "plan": "lmstudio:qwen3-coder-30b-stepfill",
+      "chunk": "lmstudio:qwen3-coder-30b-stepfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "lmstudio:qwen3-coder-30b-stepfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-14T00:39:07.522Z",
+    "finishedAt": "2026-09-14T00:53:48.352Z"
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 20, осталось на диске 18; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ход не завершён — этап закрыт по диску",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ход не завершён — этап закрыт по диску",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "провайдер вернул одну и ту же ошибку 3 раз подряд на разных полях (lmstudio: HTTP 400 от http://localhost:1434/v1 — {\"error\":\"Engine protocol predict stream returned an error: {\\\"code\\\":500,\\\"message\\\":\\\"Context size has been exceeded.\\\",\\\"type\\\":\\\"server_error\\\"}\"}) — похоже, базовый промпт этой формы не помещается в окно контекста модели — дело не в бланке и не в конфиге, а в размере запроса; дальнейшие поля не спрашивались",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 135686,
+          "outputTokens": 14153,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 454266
+        },
+        "durationMs": 342945
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 424193,
+          "outputTokens": 13552,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 416483
+        },
+        "durationMs": 416650
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 289465,
+          "outputTokens": 2726,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 78953
+        },
+        "durationMs": 79033
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 0,
+          "durationMs": 0
+        },
+        "durationMs": 42072
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 2,
+        "toolCalls": 36,
+        "reminders": 4
+      },
+      {
+        "stage": "ask",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 2,
+        "truncated": 2,
+        "toolCalls": 18,
+        "reminders": 3
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 12
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 6,
+        "waitMs": 20
+      },
+      {
+        "stage": "ask",
+        "questions": 2,
+        "approvals": 4,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 30
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 38
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:9682edfd-4133-4318-832b-d48a2871a21b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\sweep5v4-qwencoder-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:98586b40-ddca-4a1c-9871-a2dbf749fcbe",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\sweep5v4-qwencoder-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7bad949d-6626-4628-a330-ffdeab1a5b27",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f61de1ab-a99e-4f96-ab96-f85a77a9c604",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/sweep5v4-qwencoder-two-right-answers/exploration-report.md"
+        ],
+        "destructive": "перезапись .sdlc/sweep5v4-qwencoder-two-right-answers/exploration-report.md стирает поле решения человека: «Решение человека о полноте». Это поле заполняет человек, а не модель: верни его в текст (правь фрагмент через Edit, а не переписывай файл целиком)",
+        "outcome": "denied",
+        "why": "destructiveOverwrite → deny (перезапись .sdlc/sweep5v4-qwencoder-two-right-answers/exploration-report.md стирает поле решения человека: «Решение человека о полноте». Это поле заполняет человек, а не модель: верни его в текст (правь фрагмент через Edit, а не переписывай файл целиком))",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:496cf6ac-b402-45ae-84ba-ab257148d7b6",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v4-qwencoder-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9945f45d-fa6b-4ca9-bc67-7f328c4912fc",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/sweep5v4-qwencoder-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:db825580-a6f6-44bf-a32f-9a2adc28e563",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v4-qwencoder-two-right-answers/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:97e5eafb-bd94-47f0-82cd-5db9154b7666",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:30c07d0c-2c76-488d-9bcc-5c8f67363a3d",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:98b106a2-e668-4119-af2f-375af188c29c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v4-qwencoder-two-right-answers/clarification-report.md\n<parameter=old_string>\n# Вопросы и ответы: ‹название витка›"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:c7527c49-aaca-4387-8486-54d452a99bb2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/sweep5v4-qwencoder-two-right-answers/clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:d9b7bdd2-3095-4734-bd8a-b462abe995eb",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:add8f29b-3d48-464d-87bd-fbeacc15db7f",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      }
+    ],
+    "asks": [
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Нужно ли реализовать функцию moveHold в коде, которая переносит бронь на другой слот с сохранением id и expiresIso?"
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.contract"
+      },
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Вопрос для человека: нужно ли реализовать функцию moveHold в коде, которая переносит бронь на другой слот с сохранением id и expiresIso?"
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.contract"
+      }
+    ],
+    "notMine": [
+      {
+        "stage": "ask",
+        "requestId": "loop:80dd580c-cd46-4f5f-9a76-440a04fe6432",
+        "reason": "policy"
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:bf38e774-4ab4-4e8b-a7b4-f037fe352b73",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10197,
+        "userChars": 4192,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10498,
+        "userChars": 12451,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 6173,
+        "userChars": 14673,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 14480,
+        "userChars": 18939,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "ask",
+        "requestId": "ask-fa18e196-7f89-46d4-b23e-934040b11156-1",
+        "questionId": "q1",
+        "text": "Нужно ли реализовать функцию moveHold в коде, которая переносит бронь на другой слот с сохранением id и expiresIso?"
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-fa18e196-7f89-46d4-b23e-934040b11156-2",
+        "questionId": "q1",
+        "text": "Вопрос для человека: нужно ли реализовать функцию moveHold в коде, которая переносит бронь на другой слот с сохранением id и expiresIso?"
+      }
+    ]
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 1, отказов политики: 2"
+    }
+  ]
+}

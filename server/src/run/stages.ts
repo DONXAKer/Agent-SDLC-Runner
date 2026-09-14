@@ -32,6 +32,12 @@ export interface Precondition {
   describe: string;
   /** `null` — выполнено; строка — причина, по которой этап не начинается. */
   check: (c: StageContext) => string | null;
+  /**
+   * Артефакт, который проверяет условие, — по нему называется этап-виновник
+   * (`stageProducing`). Без него «этап не стартовал» читался провалом этого этапа, хотя
+   * завалил его артефакт ПРЕДЫДУЩЕГО, помеченного `ok` (8 из 25 прогонов серии v4).
+   */
+  artifact?: (c: StageContext) => string;
 }
 
 export interface StageDef {
@@ -66,6 +72,7 @@ export interface StageDef {
 function exists(describe: string, file: (c: StageContext) => string): Precondition {
   return {
     describe,
+    artifact: file,
     check: (c) => {
       const p = file(c);
       // Существование проверяем stat'ом, а не чтением: раньше сюда уходило по 400 КБ
@@ -78,6 +85,7 @@ function exists(describe: string, file: (c: StageContext) => string): Preconditi
 function filled(describe: string, file: (c: StageContext) => string): Precondition {
   return {
     describe,
+    artifact: file,
     check: (c) => {
       const a = readArtifact(file(c));
       if (!a.exists) {
@@ -100,6 +108,7 @@ function filled(describe: string, file: (c: StageContext) => string): Preconditi
 function filledExceptTouchSection(describe: string, file: (c: StageContext) => string): Precondition {
   return {
     describe,
+    artifact: file,
     check: (c) => {
       const a = readArtifact(file(c));
       if (!a.exists) return `нет файла ${a.path}`;
@@ -110,6 +119,26 @@ function filledExceptTouchSection(describe: string, file: (c: StageContext) => s
   };
 }
 
+/**
+ * Та же проверка, что `filledExceptTouchSection` выше (предусловие входа в разведку), но
+ * вызванная СВОИМ ходом модели на этапе `intent`, а не чужим предусловием следующего
+ * этапа. Общий страж завершения хода (`notDone()`, `Run.ts`) видит только «файл тронут
+ * vs пустой бланк», а не «плейсхолдеры закрыты» — `FormFillExecutor` считает точное число
+ * оставшихся мест (`fieldsLeftOnDisk`), но кладёт его только в текст сводки, не в решение
+ * о готовности, и дозаполнение, тронувшее intent.md и оставившее хотя бы одно место (вне
+ * законно пустой «Что придётся тронуть»), уходило зелёным — до входа в `explore` СЛЕДУЮЩЕГО
+ * цикла, где чинить уже некому (тот же класс потери, что `explorationPathProblem`/
+ * `filesToTouchProblem`, r32; живой разбор серии v5, 2026-09-14: 4 из 22 прогонов упёрлись
+ * ровно в это на входе в `explore`).
+ */
+export function intentPlaceholderProblem(c: StageContext): string | null {
+  const a = readArtifact(c.paths.intent);
+  if (!a.exists) return null;
+  const n = countPlaceholdersExceptSections(a.text, ['Что придётся тронуть']);
+  if (n === 0) return null;
+  return `в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: ${n} — задача не готова`;
+}
+
 function granted(
   describe: string,
   file: (c: StageContext) => string,
@@ -117,6 +146,7 @@ function granted(
 ): Precondition {
   return {
     describe,
+    artifact: file,
     check: (c) => {
       const a = readArtifact(file(c));
       if (!a.exists) return `нет файла ${a.path}`;
@@ -165,6 +195,7 @@ export function isSmallContour(c: StageContext): boolean {
 function claimsMinimum(): Precondition {
   return {
     describe: 'приёмочный лист не короче минимума этапа 1',
+    artifact: (c) => c.paths.intent,
     check: (c) => {
       const intent = readArtifact(c.paths.intent);
       if (!intent.exists) return `нет файла ${c.paths.intent}`;
@@ -268,7 +299,27 @@ export function explorationPathProblem(c: StageContext): string | null {
       // сбрасывает секцию на заголовке любого уровня, и «### Ключевые файлы» внутри карты
       // выводил бы свои таблицы из-под проверки (fail-open, пойман ревью-3); старый
       // построчный код `/^##\s/` подзаголовки h3 сквозь себя пропускал — это сохранено.
-      for (const range of h2SectionRanges(report.text, /кодов(ая|ой) база|карта/i)) {
+      // Оба слова, не «карта» ИЛИ «кодовая база» по отдельности: разделённая по `|`
+      // альтернация без общей группировки матчила любой посторонний заголовок со словом
+      // «карта» («## Карта рисков», «## Дорожная карта») как секцию карты кодовой базы —
+      // ложный красный на честном отчёте (code-review-all, 2026-09-14).
+      const mapRanges = h2SectionRanges(report.text, /карта\s+кодов(ая|ой)\s+баз/i);
+      // Больше одной секции с этим заголовком — модель не заполнила поле-образец, а
+      // стёрла структуру и завела СВОЙ заголовок рядом (обычно с прозой вместо таблицы).
+      // Построчная проверка ниже смотрит только НАЙДЕННЫЕ таблицы — пустая секция без
+      // единой таблицы её проходит молча (нечего проверять). Живой замер серии v4,
+      // `qwencoder`/`silent-contract`, 2026-09-14: дозаполнение оставило исходный
+      // «## Карта кодовой базы» с одной легендой и добавило «## 🗺️ Карта кодовой базы
+      // (Что сейчас / Что меняем)» с прозой — оба заголовка проходят этот же regex, и
+      // именно дубликат — точный признак подмены структуры.
+      if (mapRanges.length > 1) {
+        return (
+          'в отчёте разведки несколько секций «Карта кодовой базы» — похоже, структура ' +
+          'бланка подменена (заголовок продублирован, а исходная таблица брошена). Верни ' +
+          'ОДНУ секцию с этим заголовком и заполни именно её таблицу, не пиши текст рядом'
+        );
+      }
+      for (const range of mapRanges) {
         for (const table of parseTables(report.text.slice(range.start, range.end))) {
           // Шапка проверяется наравне со строками: карта без строки-шапки (пишет модель)
           // иначе теряла бы первую строку данных — parseTables объявил бы её шапкой.
@@ -348,6 +399,7 @@ export function explorationPathProblem(c: StageContext): string | null {
 function explorationPathsExist(): Precondition {
   return {
     describe: 'пути из карты кодовой базы существуют в дереве',
+    artifact: (c) => c.paths.explorationReport,
     check: explorationPathProblem,
   };
 }
@@ -463,6 +515,7 @@ export const STAGES: readonly StageDef[] = [
       // этапе 4.
       {
         describe: 'отчёт разведки на месте (либо мелкий контур)',
+        artifact: (c) => c.paths.explorationReport,
         check: (c) =>
           isSmallContour(c) || artifactExists(c.paths.explorationReport)
             ? null
@@ -497,6 +550,7 @@ export const STAGES: readonly StageDef[] = [
     requires: [
       {
         describe: 'отчёт разведки на месте (или мелкий контур)',
+        artifact: (c) => c.paths.explorationReport,
         check: (c) =>
           isSmallContour(c) || artifactExists(c.paths.explorationReport)
             ? null
@@ -617,6 +671,7 @@ export const STAGES: readonly StageDef[] = [
       // разрешается явным флагом, а по умолчанию нужен зелёный отчёт приёмки.
       {
         describe: 'отчёт приёмки с passed=true (или явно объявленный обрыв витка)',
+        artifact: (c) => c.paths.verificationReport(c.chunk, c.attempt),
         check: (c) => {
           if (verificationPassed(c)) return null;
           const report = c.paths.verificationReport(c.chunk, c.attempt);
@@ -714,12 +769,39 @@ export function stageInputs(id: StageId, c: StageContext): StageInput[] {
   }
 }
 
+export interface PreconditionProblem {
+  text: string;
+  /** Путь артефакта, завалившего условие; `null` — условие не привязано к артефакту. */
+  artifact: string | null;
+}
+
 export interface PreconditionReport {
   ok: boolean;
   /** Причины, по которым этап не начинается. Собираются все сразу. */
   problems: string[];
+  /** Те же причины с артефактом каждой — для называния этапа-виновника. */
+  details: PreconditionProblem[];
   /** Причина пропустить этап, если он условный. */
   skip: string | null;
+}
+
+/**
+ * Этап-виновник: ПОСЛЕДНИЙ до `before`, чей артефакт — `path`.
+ *
+ * Последний, а не первый: `readiness.md` производят и intent, и plan, и вход в chunk
+ * заваливает уже план. Патч попытки в `produces` chunk'а не значится (его пишет рантайм
+ * по дереву), но отвечает за него всё равно chunk.
+ */
+export function stageProducing(path: string, before: StageId, c: StageContext): StageId | null {
+  const norm = (p: string): string => p.replace(/\\/g, '/');
+  const target = norm(path);
+  const limit = STAGES.findIndex((s) => s.id === before);
+  for (let i = (limit < 0 ? STAGES.length : limit) - 1; i >= 0; i--) {
+    const s = STAGES[i]!;
+    const produced = s.id === 'chunk' ? [...s.produces(c), c.paths.chunkDiff(c.chunk, c.attempt)] : s.produces(c);
+    if (produced.some((p) => norm(p) === target)) return s.id;
+  }
+  return null;
 }
 
 export interface PreconditionOptions {
@@ -733,14 +815,17 @@ export function checkPreconditions(
   opts: PreconditionOptions = {},
 ): PreconditionReport {
   const problems: string[] = [];
+  const details: PreconditionProblem[] = [];
 
   const skipVerdictCheck = stage.id === 'handoff' && opts.abortHandoff === true;
   for (const p of stage.requires) {
     if (skipVerdictCheck) continue;
     const problem = p.check(c);
-    if (problem !== null) problems.push(problem);
+    if (problem === null) continue;
+    problems.push(problem);
+    details.push({ text: problem, artifact: p.artifact === undefined ? null : p.artifact(c) });
   }
 
   const skip = problems.length === 0 && stage.skipIf !== null ? stage.skipIf(c) : null;
-  return { ok: problems.length === 0, problems, skip };
+  return { ok: problems.length === 0, problems, details, skip };
 }

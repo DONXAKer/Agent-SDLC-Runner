@@ -79,6 +79,18 @@ const chat = (c: CaseCtx, messages: ChatMessage[], toolNames: ('Read' | 'Write' 
 type CaseOutcome = { ok: boolean; detail: string };
 
 /**
+ * Точное содержимое «файла» для кейса многострочного Edit. Перевод строки внутри
+ * template-литерала — ровно та форма, на которой слабые модели дали 44 промаха Edit
+ * на 5 копий (CLAUDE.md): old_string, набранный по памяти, не совпадает с оригиналом
+ * побайтово, и каждый промах — потерянный ход этапа.
+ */
+const MULTILINE_FILE =
+  "export const TEMPLATE = `Привет,\n" +
+  '${name}!\n' +
+  'Срок: ${days} дн.`;\n' +
+  "export const LOCALE = 'ru';\n";
+
+/**
  * Кейс 1: прямой вызов Write. Порог «позвать инструмент вообще» — тот, на котором
  * qwen2.5-coder:7b не сделала ни одного вызова за 892 секунды.
  */
@@ -188,10 +200,244 @@ async function caseReadThenWrite(c: CaseCtx): Promise<CaseOutcome> {
   };
 }
 
-const CASES: { name: string; run: (c: CaseCtx) => Promise<CaseOutcome> }[] = [
+/**
+ * Кейс 4 (преполёт): точный Edit многострочного блока. Содержимое файла дано в
+ * промпте целиком; модель обязана набрать old_string как ТОЧНУЮ подстроку этого
+ * содержимого. Класс отказа — «некорректная запись»: old_string по памяти не совпал
+ * побайтово (44 промаха на 5 копий из-за перевода строки в template-поле).
+ */
+async function caseEditExactMultiline(c: CaseCtx): Promise<CaseOutcome> {
+  const turn = await chat(
+    c,
+    [
+      { role: 'system', content: SYSTEM },
+      {
+        role: 'user',
+        content:
+          'Файл src/template.ts имеет ровно такое содержимое (между маркерами — побайтово):\n' +
+          '===\n' +
+          MULTILINE_FILE +
+          '===\n' +
+          'Замени в нём слово «Срок:» на «Дедлайн:» — инструментом Edit. ' +
+          'old_string обязан совпадать с куском файла выше побайтово, включая переводы строк.',
+      },
+    ],
+    ['Edit', 'Read'],
+  );
+  const call = turn.toolCalls[0];
+  if (call === undefined) {
+    return { ok: false, detail: `вызова нет, текст: «${turn.text.slice(0, 120)}»` };
+  }
+  const oldStr = str(call.arguments, 'old_string');
+  const newStr = str(call.arguments, 'new_string');
+  const ok =
+    call.name === 'Edit' &&
+    oldStr !== '' &&
+    MULTILINE_FILE.includes(oldStr) &&
+    oldStr.includes('Срок:') &&
+    newStr.includes('Дедлайн:') &&
+    !newStr.includes('Срок:');
+  return {
+    ok,
+    detail: ok
+      ? 'Edit с точным многострочным old_string'
+      : call.name !== 'Edit'
+        ? `вызван ${call.name} вместо Edit`
+        : !MULTILINE_FILE.includes(oldStr)
+          ? `old_string не совпал с файлом побайтово: «${oldStr.slice(0, 120)}»`
+          : 'замена не про «Срок:» → «Дедлайн:»',
+  };
+}
+
+/**
+ * Кейс 5 (преполёт): честность путей. Замкнутый мир — объявлен ровно один файл;
+ * модель обязана править его и никакой другой. Класс отказа — «выдумывание»:
+ * вымышленные пути в карте проекта (`src/loyalty.ts` и т.п., model-task-matrix.md:54-55)
+ * и вымышленные имена инструментов (`edit_file`).
+ */
+async function caseHonestPaths(c: CaseCtx): Promise<CaseOutcome> {
+  const names: ('Read' | 'Write' | 'Edit')[] = ['Edit', 'Read'];
+  const messages: ChatMessage[] = [
+    { role: 'system', content: SYSTEM },
+    {
+      role: 'user',
+      content:
+        'В проекте существует ровно один файл — src/a.ts, других файлов нет. ' +
+        'В нём есть строка «const LIMIT = 100». Замени 100 на 200 — инструментом Edit.',
+    },
+  ];
+  const first = await chat(c, messages, names);
+  const firstCall = first.toolCalls[0];
+  if (firstCall === undefined) {
+    return { ok: false, detail: `вызова нет, текст: «${first.text.slice(0, 120)}»` };
+  }
+  const firstPath = str(firstCall.arguments, 'file_path');
+  // Чтение ДО правки — законная осторожность, не галлюцинация: важно, что читается
+  // объявленный файл, а не вымышленный. После содержимого модель обязана править.
+  if (firstCall.name === 'Read' && firstPath === 'src/a.ts') {
+    messages.push({ role: 'assistant', content: first.text, toolCalls: first.toolCalls });
+    messages.push({ role: 'tool', toolCallId: firstCall.id, name: 'Read', content: '     1\tconst LIMIT = 100' });
+    const second = await chat(c, messages, names);
+    const call = second.toolCalls[0];
+    if (call === undefined) {
+      return { ok: false, detail: `после чтения правки нет, текст: «${second.text.slice(0, 120)}»` };
+    }
+    const path = str(call.arguments, 'file_path');
+    const ok = call.name === 'Edit' && path === 'src/a.ts' && str(call.arguments, 'new_string').includes('200');
+    return {
+      ok,
+      detail: ok
+        ? 'Read src/a.ts, затем Edit по нему же'
+        : call.name !== 'Edit'
+          ? `после чтения вызван ${call.name} вместо Edit`
+          : path !== 'src/a.ts'
+            ? `вымышленный путь: «${path}» (объявлен только src/a.ts)`
+            : 'new_string не содержит замену на 200',
+    };
+  }
+  const ok =
+    firstCall.name === 'Edit' && firstPath === 'src/a.ts' && str(firstCall.arguments, 'new_string').includes('200');
+  return {
+    ok,
+    detail: ok
+      ? 'Edit строго по объявленному файлу src/a.ts'
+      : firstCall.name !== 'Edit'
+        ? `вызван ${firstCall.name} — не из предложенного набора либо не по объявленному файлу («${firstPath}»)`
+        : firstPath !== 'src/a.ts'
+          ? `вымышленный путь: «${firstPath}» (объявлен только src/a.ts)`
+          : 'new_string не содержит замену на 200',
+  };
+}
+
+/**
+ * Кейс 6 (преполёт): длинная запись без усечения. Класс отказа — «нехватка токенов
+ * на ответ»: `finish_reason: "length"` обрезал content посередине (model-runs.md:
+ * «упёрлась в лимит длины ответа» — подтверждения у 6+ моделей). Маркер последней
+ * строки обязан доехать целиком: усечённый JSON аргументов не разбирается вовсе,
+ * а усечённый по длине ответ не содержит маркера.
+ */
+async function caseLongWrite(c: CaseCtx): Promise<CaseOutcome> {
+  const turn = await chat(
+    c,
+    [
+      { role: 'system', content: SYSTEM },
+      {
+        role: 'user',
+        content:
+          'Создай файл notes/lines.txt инструментом Write. Содержимое — ровно 60 строк: ' +
+          '«строка 1», «строка 2», …, «строка 59», а последняя (60-я) строка — «строка 60 — КОНЕЦ».',
+      },
+    ],
+    ['Write'],
+  );
+  const call = turn.toolCalls[0];
+  if (call === undefined) {
+    return { ok: false, detail: `вызова нет (усечение? разбор JSON аргументов не удался), текст: «${turn.text.slice(0, 120)}»` };
+  }
+  const content = str(call.arguments, 'content');
+  const ok = call.name === 'Write' && content.includes('строка 60 — КОНЕЦ');
+  return {
+    ok,
+    detail: ok
+      ? 'Write с маркером 60-й строки — ответ не усечён'
+      : call.name !== 'Write'
+        ? `вызван ${call.name} вместо Write`
+        : `маркер последней строки не доехал — ответ усечён (${content.length} символов)`,
+  };
+}
+
+/** Бланк с полем решения человека — содержимое «файла» кейса точечной правки. */
+const DECISION_FORM =
+  '# Отчёт разведки\n\n' +
+  '## Карта кодовой базы\n\n' +
+  '| Путь | Что там сейчас |\n' +
+  '|---|---|\n' +
+  '| ‹путь› | ‹что там сейчас› |\n\n' +
+  '## Полнота\n\n' +
+  '- **Решение человека о полноте:** ‹заполняет человек›\n';
+
+/**
+ * Кейс 7 (преполёт): правка одного поля бланка, не трогая поле решения человека.
+ * Класс отказа — «деструктивная перезапись»: модель переписывает весь отчёт `Write`'ом
+ * и стирает поле, которое заполняет человек (серия v4: 21 отказ в 11 прогонах из 25).
+ * Этого класса не видел ни один кейс пробы: `Edit` с плейсхолдером проверялся, а выбор
+ * между точечной правкой и перезаписью файла целиком — нет.
+ */
+async function caseEditOneFieldKeepDecision(c: CaseCtx): Promise<CaseOutcome> {
+  const turn = await chat(
+    c,
+    [
+      { role: 'system', content: SYSTEM },
+      {
+        role: 'user',
+        content:
+          'Файл .sdlc/probe/exploration-report.md имеет ровно такое содержимое (между маркерами — побайтово):\n' +
+          '===\n' +
+          DECISION_FORM +
+          '===\n' +
+          'Заполни строку карты: путь «src/a.ts», что там сейчас — «функция priceFor». ' +
+          'Поле «Решение человека о полноте» заполняет человек — его не трогай.',
+      },
+    ],
+    ['Edit', 'Write', 'Read'],
+  );
+  const call = turn.toolCalls[0];
+  if (call === undefined) {
+    return { ok: false, detail: `вызова нет, текст: «${turn.text.slice(0, 120)}»` };
+  }
+  if (call.name === 'Write') {
+    const kept = str(call.arguments, 'content').includes('‹заполняет человек›');
+    return {
+      ok: false,
+      detail: `файл переписан целиком Write вместо точечного Edit${kept ? '' : ' — и поле решения человека стёрто'}`,
+    };
+  }
+  const oldStr = str(call.arguments, 'old_string');
+  const newStr = str(call.arguments, 'new_string');
+  const ok =
+    call.name === 'Edit' &&
+    oldStr !== '' &&
+    DECISION_FORM.includes(oldStr) &&
+    oldStr.includes('‹путь›') &&
+    newStr.includes('src/a.ts') &&
+    !oldStr.includes('Решение человека');
+  return {
+    ok,
+    detail: ok
+      ? 'Edit строки карты, поле решения человека не тронуто'
+      : call.name !== 'Edit'
+        ? `вызван ${call.name} вместо Edit`
+        : !DECISION_FORM.includes(oldStr)
+          ? `old_string не совпал с файлом побайтово: «${oldStr.slice(0, 120)}»`
+          : oldStr.includes('Решение человека')
+            ? 'правка задела поле решения человека'
+            : 'замена не про строку карты',
+  };
+}
+
+export interface ProbeCase {
+  name: string;
+  run: (c: CaseCtx) => Promise<CaseOutcome>;
+}
+
+const CASES: ProbeCase[] = [
   { name: 'вызов Write', run: caseWrite },
   { name: 'заполнение поля через Edit', run: caseEdit },
   { name: 'чтение → запись', run: caseReadThenWrite },
+];
+
+/**
+ * Расширенный набор преполёта (`--preflight`): три базовых микро-кейса плюс три
+ * проверки классов отказов, сжигавших прогоны, — точность многострочной записи,
+ * честность путей, длинный ответ без усечения. В `--probe` НЕ входит намеренно:
+ * проба обещает секунды, а длинная запись на медленной модели — минута.
+ */
+export const PREFLIGHT_CASES: readonly ProbeCase[] = [
+  ...CASES,
+  { name: 'точный Edit многострочного блока', run: caseEditExactMultiline },
+  { name: 'честность путей', run: caseHonestPaths },
+  { name: 'длинная запись без усечения', run: caseLongWrite },
+  { name: 'правка поля без перезаписи файла', run: caseEditOneFieldKeepDecision },
 ];
 
 /**
@@ -247,9 +493,11 @@ export async function probeModel(args: {
   params?: Record<string, unknown> | null;
   /** Потолок стенных часов на ОДИН кейс. */
   caseTimeoutMs: number;
+  /** Набор кейсов; умолчание — базовые три (`--probe`), преполёт передаёт PREFLIGHT_CASES. */
+  cases?: readonly ProbeCase[];
 }): Promise<ProbeReport> {
   const cases: ProbeCaseResult[] = [];
-  for (const { name, run } of CASES) {
+  for (const { name, run } of args.cases ?? CASES) {
     const started = Date.now();
     const ctx: CaseCtx = {
       provider: args.provider,

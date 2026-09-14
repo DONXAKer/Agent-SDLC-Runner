@@ -24,6 +24,12 @@ export interface TaskDef {
   taskFile: string;
   /** Имя банка ответов человека внутри каталога фикстуры. */
   humanFile: string;
+  /**
+   * Фикстура намеренно красная (битый тест/флаки — сам предмет задачи): преполётный
+   * самопроверка инвертируется — зелёная фикстура значит, что задача потеряла смысл
+   * (чинить нечего). Умолчание — фикстура обязана быть зелёной.
+   */
+  expectFixtureRed?: boolean;
 }
 
 /**
@@ -77,9 +83,9 @@ export const TASK_DEFS = [
   familyTask('already-done', 'feature-present'),
   familyTask('undo-feature', 'feature-present'),
 
-  familyTask('broken-test', 'broken-assert'),
+  { ...familyTask('broken-test', 'broken-assert'), expectFixtureRed: true },
 
-  familyTask('flaky-by-design', 'flaky-test'),
+  { ...familyTask('flaky-by-design', 'flaky-test'), expectFixtureRed: true },
 
   familyTask('bug-by-symptom', 'billing-bug'),
   familyTask('wrong-diagnosis', 'billing-bug'),

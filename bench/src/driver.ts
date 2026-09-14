@@ -31,6 +31,15 @@ export interface DriverStageRecord {
    * Такой прогон моделью не измерен — по нему считается код возврата 2, см. `report.ts`.
    */
   envFailure?: string;
+  /**
+   * Чей артефакт завалил предусловие — только у записи блокировки (`blockers` непуст).
+   * Отличает «этот этап не начался» от «этот этап провалился»: виновник помечен `ok`.
+   */
+  blamedStage?: StageId;
+  /** Ходов модели на этапе — `StageResult.turns`. */
+  turns?: number;
+  /** `runtime` — этап закрыл рантайм, а не заявка модели (`StageResult.closedBy`). */
+  closedBy?: 'model' | 'runtime';
 }
 
 export type DriverStopReason =
@@ -219,8 +228,10 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       return { stages, finalVerdict: run.lastVerdict, stopped: 'run-timeout' };
     }
 
-    const blockers = run.blockers(stage);
+    const details = run.blockerDetails(stage);
+    const blockers = details.map((d) => d.text);
     if (blockers.length > 0) {
+      const blamed = details.find((d) => d.blamed !== null && d.blamed !== stage)?.blamed ?? null;
       stages.push({
         stage,
         chunk: run.chunk,
@@ -230,6 +241,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
         blockers,
         timedOut: false,
         skipped: false,
+        ...(blamed === null ? {} : { blamedStage: blamed }),
       });
       return { stages, finalVerdict: run.lastVerdict, stopped: 'blocked' };
     }
@@ -254,6 +266,8 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       timedOut,
       skipped,
       ...(result.envFailure === undefined ? {} : { envFailure: result.envFailure }),
+      ...(result.turns === undefined ? {} : { turns: result.turns }),
+      ...(result.closedBy === undefined ? {} : { closedBy: result.closedBy }),
     });
 
     if (timedOut) {
@@ -267,6 +281,12 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       });
       if (decision.kind === 'retry-stage-env') {
         envRetriedStage = stage;
+        // Повтор — тот же `stage`/`chunk`/`attempt`, и цикл вернётся к нему без инкремента
+        // `i`: сам этап один, а не два, и провальная запись здесь — промежуточный шум, не
+        // отдельный факт истории. Не выбрасывать её значило бы оставить дубль пары
+        // `{stage, chunk, attempt}` в `stages[]` — `report.ts` берёт ПЕРВОЕ совпадение и
+        // рисовал бы успешно переигранный этап красным (code-review-all, 2026-09-14).
+        stages.pop();
         continue;
       }
       return { stages, finalVerdict: run.lastVerdict, stopped: decision.reason };

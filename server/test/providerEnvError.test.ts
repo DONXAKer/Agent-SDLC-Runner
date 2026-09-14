@@ -121,6 +121,61 @@ describe('OpenAiCompatProvider: среда против модели', () => {
     }
   });
 
+  it('400 «terminated» — движок LM Studio упал посреди генерации, это среда (серия v3/v4, 2026-09-13/14)', async () => {
+    const s = await stub(400, JSON.stringify({ error: 'terminated' }));
+    try {
+      await rejects(
+        () => chatWith(s.url),
+        (e: Error) => {
+          ok(e instanceof ProviderEnvError, `ожидался ProviderEnvError, пришёл ${e.name}`);
+          return true;
+        },
+      );
+    } finally {
+      s.server.close();
+    }
+  });
+
+  it('400 «fetch failed» — тот же подкласс среды (модель выгружена/недоступна)', async () => {
+    const s = await stub(
+      400,
+      JSON.stringify({ error: 'Engine protocol predict request failed: fetch failed' }),
+    );
+    try {
+      await rejects(
+        () => chatWith(s.url),
+        (e: Error) => e instanceof ProviderEnvError,
+      );
+    } finally {
+      s.server.close();
+    }
+  });
+
+  it('400 с «fetch failed» ВНУТРИ структурированного `error.message`, а не в плоском `error` — обычная ошибка, не среда (code-review-all, 2026-09-14)', async () => {
+    // Живое тело падения движка — плоский `{"error": "..."}` (см. тест выше); здесь —
+    // структурированная ошибка схемы инструмента, которая по совпадению пересказывает
+    // текст чужой сетевой ошибки внутри `.message`. Матч по всему сырому телу читал бы
+    // это как падение движка; матч по разобранному полю `error` (строка ожидается, а не
+    // объект) — нет.
+    const s = await stub(
+      400,
+      JSON.stringify({
+        error: { message: 'схема инструмента не принята: вложенный вызов вернул fetch failed' },
+      }),
+    );
+    try {
+      await rejects(
+        () => chatWith(s.url),
+        (e: Error) => {
+          ok(!(e instanceof ProviderEnvError), `не должен читаться как отказ среды, пришёл ${e.name}`);
+          return true;
+        },
+      );
+    } finally {
+      s.server.close();
+    }
+  });
+
   it('адрес, где никто не слушает, — тоже отказ среды: до модели запрос не дошёл', async () => {
     await rejects(
       () =>

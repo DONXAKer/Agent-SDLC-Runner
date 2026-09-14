@@ -223,6 +223,7 @@ export class SdkExecutor implements StageExecutor {
     let finalText = '';
     let note = 'этап завершён';
     let ok = true;
+    let turns: number | undefined;
 
     // Имена встроенных инструментов Claude Code + наши MCP-инструменты + отобранный набор
     // внешних. `McpRead`/`McpWrite` — права, а не инструменты: за ними стоят имена, которые
@@ -372,6 +373,7 @@ export class SdkExecutor implements StageExecutor {
 
           case 'result': {
             latestUsage = usageFromResult(m);
+            turns = m.num_turns;
             if (m.subtype !== 'success') {
               ok = false;
               note = `этап оборван: ${m.subtype}`;
@@ -475,12 +477,13 @@ export class SdkExecutor implements StageExecutor {
     // цена их вычисления платилась. Дать модели ещё один ход здесь нельзя: цикл крутит
     // харнесс, и вмешаться в середину невозможно, — поэтому исход честно красный с
     // причиной, а не тихо зелёный.
+    const turnsField = turns === undefined ? {} : { turns };
     if (complaint !== null) {
       hooks.onWarn(complaint);
-      return { ok: false, finalText, usage: latestUsage, note: complaint };
+      return { ok: false, finalText, usage: latestUsage, note: complaint, ...turnsField };
     }
 
-    return { ok, finalText, usage: latestUsage, note };
+    return { ok, finalText, usage: latestUsage, note, ...turnsField };
   }
 }
 

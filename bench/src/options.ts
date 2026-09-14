@@ -43,6 +43,16 @@ export interface BenchOptions {
   runTimeoutMs: number;
   maxIterationsPerStage: number;
   /**
+   * `--max-turns` задан явно. Только тогда снимаются поэтапные потолки конфига: иначе
+   * умолчание стенда молча срезало бы verify с штатных 60 до общего числа.
+   */
+  maxTurnsExplicit?: boolean;
+  /**
+   * Сырой дамп запросов серии (`SDLC_RAW_LOG_DIR` → `bench/traces/raw`), умолчание — да.
+   * Без дампа по серии v4 нельзя было восстановить, что модель написала, упёршись в лимит.
+   */
+  rawLog?: boolean;
+  /**
    * Потолок стоимости витка.
    *
    * Ноль сюда попасть не может, и это не придирка: проверка исполнителя написана как
@@ -61,6 +71,17 @@ export interface BenchOptions {
    * копии. Скрининг перед дорогим замером — см. `probe.ts`.
    */
   probe: boolean;
+  /**
+   * Только преполётный тест (`--preflight`): среда + расширенная проба модели,
+   * виток не запускается. См. `preflight.ts`.
+   */
+  preflightOnly: boolean;
+  /**
+   * Автогейт: прогнать преполёт перед живым прогоном и не стартовать на красном.
+   * Умолчание включено; `--no-preflight` отключает (осознанный повтор на красной
+   * среде — право оператора, но явное).
+   */
+  preflight: boolean;
   /**
    * Имя снимка (шаг 6 ROADMAP.md), который сделать сразу после успешного `plan` этого
    * прогона, вместо того чтобы идти дальше к `chunk`. Прогон останавливается на снимке —
@@ -102,8 +123,9 @@ export class OptionsError extends Error {}
 const DEFAULTS = {
   stageTimeoutMs: 30 * 60_000,
   runTimeoutMs: 3 * 60 * 60_000,
-  // Ниже штатных 40: застрявшая модель сжигает бюджет попыток по целому этапу каждая.
-  maxIterationsPerStage: 25,
+  // Штатные 40 (`config/runner.json`). При 25 три клетки серии v4 мерили потолок стенда,
+  // а не модель — журнал ещё в раунде 2 назвал его ложной причиной у половины отказов.
+  maxIterationsPerStage: 40,
   // Виток целиком с рецензентом на opus. Ноль запрещён — см. BenchOptions.maxBudgetUsd.
   maxBudgetUsd: 5,
   attempts: 3,
@@ -133,13 +155,18 @@ ${taskListForUsage()}
   --control-<этап> <id> заменить контрольный маршрут этапа
   --stage-timeout <мин> потолок стенных часов на этап (умолчание 30)
   --run-timeout <мин>   потолок на весь виток (умолчание 180)
-  --max-turns <n>       ходов на этап (умолчание 25)
+  --max-turns <n>       ходов на этап (умолчание 40, как штатный профиль); явный ключ
+                        снимает и поэтапные потолки конфига, включая verify
   --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
   --repeat <n>          серия из n одинаковых прогонов (слаги <slug>-s1…-sn, сводка с медианой)
+  --no-raw-log          серия (--repeat) без сырого дампа запросов в bench/traces/raw
   --keep-workspace      не удалять рабочую копию в tmp
   --dry-run             подготовить копию и напечатать блокеры, модель не вызывать
   --probe               преполётная проба tool-calling: 3 микро-кейса за секунды, без витка
+  --preflight           преполётный тест вместо прогона: среда (фикстура/снимок/конфиг) +
+                        расширенная проба модели (точность записи, честность путей, длина ответа)
+  --no-preflight        не гонять преполёт автоматически перед живым прогоном (по умолчанию гоняется)
   --make-snapshot <имя> остановиться после точки снимка и сохранить снимок под этим именем
   --snapshot-after <этап> точка снимка для --make-snapshot (умолчание plan)
   --from-snapshot <имя> начать с этого снимка — со следующего этапа после его точки
@@ -170,12 +197,16 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let stageTimeoutMs = DEFAULTS.stageTimeoutMs;
   let runTimeoutMs = DEFAULTS.runTimeoutMs;
   let maxIterationsPerStage = DEFAULTS.maxIterationsPerStage;
+  let maxTurnsExplicit = false;
+  let rawLog = true;
   let maxBudgetUsd = DEFAULTS.maxBudgetUsd;
   let attempts = DEFAULTS.attempts;
   let repeat = 1;
   let keepWorkspace = false;
   let dryRun = false;
   let probe = false;
+  let preflightOnly = false;
+  let preflight = true;
   let makeSnapshot: string | null = null;
   let fromSnapshot: string | null = null;
   // `null` — ключ не задан; умолчание `plan` подставляется на выходе. Один факт в одной
@@ -245,7 +276,11 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         break;
       case '--max-turns':
         maxIterationsPerStage = positiveNumber(next(i, key), key);
+        maxTurnsExplicit = true;
         i++;
+        break;
+      case '--no-raw-log':
+        rawLog = false;
         break;
       case '--budget':
         maxBudgetUsd = positiveNumber(next(i, key), key);
@@ -274,6 +309,12 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         break;
       case '--probe':
         probe = true;
+        break;
+      case '--preflight':
+        preflightOnly = true;
+        break;
+      case '--no-preflight':
+        preflight = false;
         break;
       case '--make-snapshot':
         makeSnapshot = next(i, key);
@@ -312,11 +353,15 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   // На сухом прогоне модель не вызывается ни разу, и требовать её значило бы просить назвать
   // то, что не будет использовано.
   if (model === null && !dryRun) throw new OptionsError('не задана измеряемая модель: --model <id>');
-  // Пробе не нужен режим: она вообще не запускает виток.
-  if (mode === null && !dryRun && !probe) throw new OptionsError('не задан режим: --stage <этап> либо --all');
+  // Пробе не нужен режим: она вообще не запускает виток. Преполёту тоже.
+  if (mode === null && !dryRun && !probe && !preflightOnly) throw new OptionsError('не задан режим: --stage <этап> либо --all');
   // Комбинация режимов — почти наверняка опечатка: молча выигравшая проба выглядела бы
   // как «сухой прогон ничего не нашёл».
   if (probe && dryRun) throw new OptionsError('--probe и --dry-run взаимоисключающие');
+  if (preflightOnly && (probe || dryRun)) throw new OptionsError('--preflight взаимоисключает --probe и --dry-run');
+  if (!preflight && (preflightOnly || probe || dryRun)) {
+    throw new OptionsError('--no-preflight бессмыслен с --preflight/--probe/--dry-run: там автогейта нет и без флага');
+  }
   // Читать один снимок и писать ДРУГОЙ — законно и полезно: «снимок после chunk» дешевле
   // всего снимается от уже существующего «после plan», без повторной оплаты этапов 1–4
   // (живой прогон --all ради этого сгорел на условном ask — модель решила «спрашивать
@@ -326,7 +371,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   }
   // Серия — про измерение дисперсии; проба и сухой прогон детерминированы по нашей
   // стороне, а n одинаковых снимков затирали бы друг друга одним именем.
-  if (repeat > 1 && (probe || dryRun || makeSnapshot !== null)) {
+  if (repeat > 1 && (probe || dryRun || preflightOnly || makeSnapshot !== null)) {
     throw new OptionsError('--repeat совместим только с живым измерением (--stage/--all без --make-snapshot)');
   }
   // Посев вносится в рабочую копию ПОСЛЕ этапа 5 и меряет этап 6. Прогон, который сам
@@ -370,12 +415,16 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     stageTimeoutMs,
     runTimeoutMs,
     maxIterationsPerStage,
+    maxTurnsExplicit,
+    rawLog,
     maxBudgetUsd,
     attempts,
     repeat,
     keepWorkspace,
     dryRun,
     probe,
+    preflightOnly,
+    preflight,
     makeSnapshot,
     fromSnapshot,
     snapshotAfter: snapshotAfter ?? 'plan',

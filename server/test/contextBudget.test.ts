@@ -44,12 +44,24 @@ describe('marginFor', () => {
 });
 
 describe('estimateMessageTokens', () => {
-  it('сумма длин content, делённая на BYTES_PER_TOKEN_ESTIMATE', () => {
+  it('сумма длин content, делённая на BYTES_PER_TOKEN_ESTIMATE (ASCII: символы = байты)', () => {
     const messages = [{ content: 'a'.repeat(400) }, { content: 'b'.repeat(400) }];
     strictEqual(estimateMessageTokens(messages), 200);
   });
 
   it('пустой список — ноль', () => {
     strictEqual(estimateMessageTokens([]), 0);
+  });
+
+  it('кириллица считается по БАЙТАМ UTF-8, не по символам (live-найдено, 2026-09-14)', () => {
+    // Кириллица — 2 байта на символ в UTF-8, 1 code unit в `.length`: счёт по `.length`
+    // (как раньше) занижал бы оценку вдвое на промптах этого проекта (конвенция — русский,
+    // CLAUDE.md). 100 кириллических символов = 200 байт = 50 токенов при делителе 4, а не
+    // 25, как дал бы счёт по `.length`.
+    const messages = [{ content: 'привет'.repeat(100) }]; // 600 символов, 1200 байт UTF-8
+    const bySymbols = Math.ceil(600 / 4);
+    const byBytes = Math.ceil(1200 / 4);
+    strictEqual(estimateMessageTokens(messages), byBytes);
+    strictEqual(estimateMessageTokens(messages) > bySymbols, true, 'оценка обязана расти вместе с реальным размером в байтах');
   });
 });

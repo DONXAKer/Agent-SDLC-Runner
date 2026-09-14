@@ -60,7 +60,13 @@ function view(treeSize = 3): ExploreIndexView {
   };
 }
 
-function build(stage: 'explore' | 'plan', flow: 'loop' | 'sdk', v?: ExploreIndexView, contextWindow?: number) {
+function build(
+  stage: 'explore' | 'plan',
+  flow: 'loop' | 'sdk',
+  v?: ExploreIndexView,
+  contextWindow?: number,
+  extra?: string,
+) {
   return buildPrompt({
     runner,
     stage: stageById(stage),
@@ -70,6 +76,7 @@ function build(stage: 'explore' | 'plan', flow: 'loop' | 'sdk', v?: ExploreIndex
     now: new Date('2026-01-01T00:00:00Z'),
     ...(v === undefined ? {} : { exploreIndex: v }),
     ...(contextWindow === undefined ? {} : { contextWindow }),
+    ...(extra === undefined ? {} : { extra }),
   });
 }
 
@@ -120,6 +127,23 @@ describe('блок индекса проекта в промпте', () => {
     const generous = build('explore', 'loop', view(50), 200_000);
     ok(generous.user.includes('## Индекс проекта (собран рантаймом)'));
     ok(!generous.user.includes('Пропущен рантаймом'));
+  });
+
+  it('бриф ретрая (`extra`) занимает окно ДО расчёта бюджета индекса, а не после (code-review-all, 2026-09-14)', () => {
+    // `extra` физически попадает в промпт ПОСЛЕ блока индекса (recency для карточки
+    // человека), но бюджет индекса обязан увидеть его тело заранее — иначе на маленьком
+    // окне общий промпт переполняется тем же классом регресса, что тест выше ловит для
+    // одних лишь входных артефактов. Окно (6000 токенов) подобрано так, что БЕЗ брифа
+    // индекс умещается целиком, а С брифом (6000 байт текста) бюджета уже не хватает даже
+    // под минимальный блок — до фикса расчёт не видел бриф вовсе и рисовал бы блок целиком
+    // в обоих случаях, переполняя запрос.
+    const window = 6000;
+    const withoutExtra = build('explore', 'loop', view(50), window);
+    const withExtra = build('explore', 'loop', view(50), window, 'x'.repeat(6000));
+
+    ok(withExtra.user.includes('## Что чинить в этой попытке'), 'бриф не попал в промпт');
+    ok(withoutExtra.user.includes('Дерево, символы и кандидаты'), 'без брифа индекс обязан поместиться целиком');
+    ok(withExtra.user.includes('Пропущен рантаймом'), 'с брифом индексу не должно хватить места');
   });
 
   it('окна не хватает даже под минимальный блок — явное предупреждение, а не тихий обрыв', () => {
