@@ -17,7 +17,7 @@
 import { readFileSync, statSync } from 'node:fs';
 
 import { applyFill } from '../artifacts/applyFill.ts';
-import { decisionLabelsIn } from '../artifacts/artifact.ts';
+import { decisionLabelsIn, isDecisionLine } from '../artifacts/artifact.ts';
 import { deriveSchema, findField } from '../artifacts/formSchema.ts';
 import { resolveUserPath } from '../policy/paths.ts';
 import { templateNameFor } from '../run/seed.ts';
@@ -183,6 +183,96 @@ export function destructiveOverwrite(
   if (linesLost / linesBefore < LOSS_RATIO) return null;
 
   return { path: call.path, linesBefore, linesAfter, linesLost };
+}
+
+/**
+ * Потеря по строкам сама по себе разрушительна — вне зависимости от полей решений.
+ * Тогда новая версия может оказаться мусором, и чинить её вставкой поля нельзя.
+ */
+export function isMassLoss(d: DestructiveOverwrite): boolean {
+  if (d.linesBefore < 0) return true;
+  return d.linesBefore >= MIN_LINES && d.linesLost > 0 && d.linesLost / d.linesBefore >= LOSS_RATIO;
+}
+
+const HEADING = /^#{1,6}\s/;
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Возвращает в новое содержимое поля решений человека, стёртые перезаписью.
+ *
+ * Блок поля (строка метки и её строки-продолжения) переносится из прежнего текста дословно
+ * — в конец той же секции, если её заголовок уцелел, иначе в конец документа: поле ищется
+ * по метке (`readDecision`), место в документе машине не важно. `null` — вернуть нельзя
+ * безопасно: метка не нашлась построчно или после вставки поле всё ещё не читается.
+ */
+export function restoreLostDecisions(before: string, content: string): { content: string; restored: string[] } | null {
+  const have = new Set<string>(decisionLabelsIn(content));
+  const lost = decisionLabelsIn(before).filter((label) => !have.has(label));
+  if (lost.length === 0) return null;
+
+  const src = before.split('\n');
+  const out = content.split('\n');
+  for (const label of lost) {
+    const re = new RegExp(`\\*\\*\\s*${escapeRe(label)}`, 'i');
+    const at = src.findIndex((l) => re.test(l) && isDecisionLine(l));
+    if (at < 0) return null;
+    let end = at + 1;
+    while (end < src.length && /^\s+\S/.test(src[end]!)) end++;
+    const block = src.slice(at, end);
+
+    let h = at - 1;
+    while (h >= 0 && !HEADING.test(src[h]!)) h--;
+    const heading = h >= 0 ? src[h]!.trim() : null;
+    const hIdx = heading === null ? -1 : out.findIndex((l) => l.trim() === heading);
+
+    let insertAt: number;
+    if (hIdx < 0) {
+      insertAt = out.length;
+    } else {
+      insertAt = hIdx + 1;
+      while (insertAt < out.length && !HEADING.test(out[insertAt]!)) insertAt++;
+    }
+    const floor = hIdx < 0 ? 0 : hIdx + 1;
+    while (insertAt > floor && out[insertAt - 1]!.trim() === '') insertAt--;
+    const prev = insertAt > 0 ? out[insertAt - 1]! : '';
+    const lead = prev.trim() !== '' && !/^\s*[-*+]\s/.test(prev) ? [''] : [];
+    const tail = insertAt < out.length && out[insertAt]!.trim() !== '' ? [''] : [];
+    out.splice(insertAt, 0, ...lead, ...block, ...tail);
+  }
+
+  const repaired = out.join('\n');
+  const after = new Set<string>(decisionLabelsIn(repaired));
+  if (!lost.every((label) => after.has(label))) return null;
+  return { content: repaired, restored: lost };
+}
+
+/**
+ * Перезапись, стёршая поле решения человека, — с возвращённым полем вместо отказа.
+ *
+ * Серия v4: 21 такой отказ в 11 прогонах из 25 — модель переписывает отчёт разведки `Write`
+ * целиком и теряет «Решение человека о полноте», которое заполнять и не должна была. Отказ
+ * стоил хода и не учил ничему; поле, которое модели не принадлежит, возвращает механика.
+ * Только когда больше ничего не теряется: при массовой потере строк новая версия может быть
+ * мусором, и решать остаётся человеку прежним путём. `null` — чинить нечего или нельзя.
+ */
+export function repairErasedDecisions(
+  call: NormalizedCall,
+  projectRoot: string,
+): { content: string; restored: string[] } | null {
+  if (call.kind !== 'write') return null;
+  const loss = destructiveOverwrite(call, projectRoot);
+  if (loss === null || loss.decisionsLost === undefined || loss.decisionsLost.length === 0) return null;
+  if (isMassLoss(loss)) return null;
+  let before: string;
+  try {
+    before = readFileSync(resolveUserPath(projectRoot, call.path), 'utf8');
+  } catch {
+    return null;
+  }
+  return restoreLostDecisions(before, call.content);
 }
 
 /** Строка для оператора и для журнала событий. Числа, а не оценка: «−1233 строки». */

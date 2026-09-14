@@ -52,6 +52,12 @@ export interface RunnerLimits {
    * порог не включает — он только называет факт оператору.
    */
   progressClosenessWarn: number;
+  /**
+   * Возвращать стёртое поле решения человека в перезапись вместо отказа
+   * (`approval/destructive.ts::repairErasedDecisions`). Выключено до замера: серия v4 дала
+   * 21 такой отказ, но что починка не прячет от оператора другой вред, живьём не проверено.
+   */
+  restoreErasedDecisions?: boolean;
 }
 
 export interface RunnerConfig {

@@ -41,7 +41,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 | P0: slug, ветка, контур | `branchFactBlock`; `branchMismatchBlocker` на входе plan/chunk/verify/handoff; `Run.autofillBranchField` — «Ветка витка» ставит рантайм (`currentBranch()` через `setDecision`, если поле пусто) | — | `branchFactBlock` | **человек**: контур |
 | P1: набор гейтов | минимальная пятёрка на старте каждого этапа (`gatesFile.ts`). **→ `gatesAutofill`**: «Чем реализован» строк «Сборка»/«Тесты» — из `describeBuild` (скилл: «факт из кодовой базы не спрашивают, его читают») | — | блок `ecosystem` | **человек**: да/нет по остальным строкам, владелец, долг |
 | P2: интервью | `formFill`; `askClaimsTopUp`; `edgeExampleLines`. **→ поля `owner: 'human'` рантайм спрашивает у человека сам** (`askGate.ask`), минуя модель | `formFill`; `compactForms: 'fill'` | образец `[edge]`; **→ список существующих тестов и раннер** | **модель**: тройка «наблюдаем + чем + годно», инварианты. **Человек**: лист, «Чего не делаем», «Когда остановиться» |
-| P3: механическая часть (7 пунктов) | пп. 3–4 `claimsMinimum` (предусловием этапа 2, после ухода модели); п. 6 `hasOpenQuestions`; п. 7 `placeholderRanges`; п. 1 `gatesFile`. **→ `readinessAutofill`**: таблица «Прогон 1» рантаймом ДО модели (приём `verifyAutofill`); красный пункт — в страж intent | — | — | — |
+| P3: механическая часть (7 пунктов) | пп. 3–4 `claimsMinimum` (предусловием этапа 2, после ухода модели); п. 6 `hasOpenQuestions`; п. 7 `placeholderRanges`; п. 1 `gatesFile`. Название и дата прогона — рантаймом (`run/formAutofill.ts::autofillReadiness`), модели не отдаются (`modelGroupFields`). **→** таблица «Прогон 1» рантаймом ДО модели (приём `verifyAutofill`); красный пункт — в страж intent | — | — | — |
 | P3: человеческая часть + пересчёт | **→ 4 вопроса задаёт рантайм человеку напрямую**; **→** литералы «Как проверить» — `literalsOf` (`humanFacts.ts`). Исполнение примера — не механика (`Bash` снят у этапа) | — | — | **модель**: пересчёт без оболочки; **человек**: признать, 4 ответа |
 | Выход | `closeOnFinalizeReady`; `salvageFromText` | — | — | — |
 
@@ -80,7 +80,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 | P1: фильтр | **→ `openQuestions()`**: кандидаты собирает рантайм (`- [ ]` из intent и отчёта) | **→ `askFill`** (ручка, тип `claimFill`): на кандидата один вопрос — `ответ из кода: путь:символ + ответ` / `спросить человека: блокирующий, рекомендация, цена ошибки` | кандидат + `путь:символ` из карты разведки; индекс волны 1 | **модель**: доказать «есть в коде» адресом |
 | P2: спросить | **→ рантайм задаёт человеку сам** через `askGate.ask`, ≤4, блокирующие первыми | — | — | **человек**: ответ |
 | P3: закрыть в задаче | **→ `closeAnsweredQuestions`**: `- [ ] → - [x] … — ответ` в `intent.md` по таблице отчёта (`extractHumanFacts`), приём `setDecision`/`replaceAfterLabel` | — | — | **модель**: правка секции — с одобрения |
-| P4: отчёт | таблица из записей `askFill` (как `renderRecords`); «Отложено»; **→ `autofillClarification`** («Разведка») | поле «Уточнённое требование» — `formFill` | — | **модель**: переформулировка; «scope vs уточнение» |
+| P4: отчёт | название витка рантаймом (`autofillTitle`); **→** таблица из записей `askFill` (как `renderRecords`); «Отложено» | поле «Уточнённое требование» — `formFill` | — | **модель**: переформулировка; «scope vs уточнение» |
 
 ### Этап 4 — plan
 
@@ -94,7 +94,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 | P2: `files_to_touch` | `extractFilesToTouch`; пустой список блокирует chunk; добор в `formFill`. **→ `planDiffVsExploration`**: сравнение с «Что придётся тронуть», кандидаты «Добавлено/Исключено» — модели остаётся причина | **→ `callersFill`**: на вызывающего вне списка — «добавить / совместим без правок — почему» | **→ `callersBlock`**: вызывающие символов шагов (`callersOf` индекса волны 1) готовой таблицей | **модель**: меняется ли контракт |
 | P3: чем закрывается | **→** ожидаемый набор `claim-id`; страж: пункт без строки и без «уходит chunk'у» | **→ `claimCoverageFill`** (симметрично `claimFill`): «тест / место / следующий chunk»; адресат сверяется с `files_to_touch` | тексты пунктов | **модель**: чем именно |
 | P3.6: оси | `axisProblems()`; `axesGateRow`; **→ страж** «риск на оси с „Затронута = нет“» | `planAxisFill` | «Опоры осей», id, гейты | **модель**: исход; **человек**: риск полем «Одобрение» |
-| P5 | `SCHEMA_OVERRIDES` объявляет «База», «Вход» механическими — автозаполнения нет → **→ `autofillPlan`**; `humanGate` «Одобрение» | — | — | **человек**: одобрение |
+| P5 | `autofillPlan` (`run/formAutofill.ts`): название, «Вход», «База» — HEAD либо «н/п — причина»; эти поля модель не спрашивается (`modelGroupFields`; relog v5 выдумал `base_sha`); дата прогона 2 готовности; `humanGate` «Одобрение» | — | — | **человек**: одобрение |
 
 ### Этап 5 — chunk
 
@@ -167,7 +167,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 | `callersBlock` + `callersFill` | 4 | Grep вызывающих не делается; `silent-contract` | `callersOf`, `planSteps` | `callersFill` | `silent-contract`: секция непуста, совпадает с `sdlc-locator` |
 | `claimCoverageFill` | 4 | пункты без строки | `claimFill`-конвейер, `countClaims` | `claimCoverageFill` (или под `planAxisFill`) | снимок `oversize-ask` |
 | `planStepsProblem`, `planDiffVsExploration`, страж риска | 4 | «карта разошлась», пустой список, риск на 6 осей | `planSteps`, `planFiles`, `planAxes` | нет | снимок `oversize-ask` |
-| `autofillPlan/Clarification/Handoff`, `journalOutcomeAutofill` | 4, 3, 7, 6 | объявлено `runtime`, не заполняется | `journalAutofill.ts` | нет | 0 плейсхолдеров в механических полях; `Edit` снять из verify |
+| ✓ `autofillPlan`, `autofillReadiness`, `autofillTitle` (отчёты 2–3); → `autofillHandoff`, `journalOutcomeAutofill` | 4, 1, 2, 3; → 7, 6 | объявлено `runtime`, не заполнялось — модель писала сама | `journalAutofill.ts` | нет | 0 плейсхолдеров в механических полях (скрепа `formAutofill.test.ts` по реальным шаблонам); `Edit` снять из verify |
 | `testScaffold`, гейты «Сверка тестов с claims», «Литерал в ассерте», `testExampleBlock` | 5 | §1.5а | §1.5а | `testScaffold` под `stepFill`; гейты — строки набора | снимок `oversize-plan`, серия ≥3, щуп «тест-разрыв» |
 | `planMapCheck` | 5 | локатора нет в `stepFill` | `planSteps`, `declaredSymbols` | нет | доля возвратов на план до первого запроса |
 | `lineFix`, кап `reviewFill`, регрессия между попытками, классификатор | 6 | адрес врёт; effort-high таймаут; эскалация по своим тестам | `anchorFound`, `collect.ts`, `classify.ts` | нет | посевы + `none` |
@@ -180,7 +180,9 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 честности.
 
 - **Волна 0 — механика без ручки, поштучно, в любой момент:** ✓ ветка витка
-  (`autofillBranchField`), `readinessAutofill`, `autofillPlan/Clarification/Handoff`, `journalOutcomeAutofill`,
+  (`autofillBranchField`), ✓ механика плана, дат готовности и названий отчётов 2–3
+  (`formAutofill.ts`, поля рантайма модели не отдаются — `modelGroupFields`), таблица
+  готовности рантаймом, `autofillHandoff`, `journalOutcomeAutofill`,
   `closeAnsweredQuestions`, гейт публикации на handoff, `planCoverageGate` в наборе фикстуры.
 - **Волна 1 — explore** — ✓ написана (§5), не замерена.
 - **Волна 2 — chunk, тесты (§1.5а).** Единственный этап с воспроизводимым снимко-замером

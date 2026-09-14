@@ -94,6 +94,7 @@ const gate = new ApprovalGate({
       preview: p.preview,
       writeTargets: p.writeTargets,
       destructive: p.destructive,
+      ...(p.repaired === undefined ? {} : { repaired: p.repaired }),
       createdAt: p.createdAt,
     }),
   onResolved: (info, decision) => {

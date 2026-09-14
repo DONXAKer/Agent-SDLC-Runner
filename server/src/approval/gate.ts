@@ -30,7 +30,7 @@ import type {
   StageId,
 } from '@sdlc-runner/shared';
 import { buildPreview } from './preview.ts';
-import { destructiveNote, destructiveOverwrite } from './destructive.ts';
+import { destructiveNote, destructiveOverwrite, repairErasedDecisions } from './destructive.ts';
 import { symlinkEscape } from './symlink.ts';
 
 export interface PendingApproval {
@@ -57,6 +57,8 @@ export interface PendingApproval {
    * показать его до того, как он дочитает диф. См. `destructive.ts`.
    */
   destructive: string | null;
+  /** Рантайм вернул стёртое поле решения человека — вход уже исправлен. См. `repairErasedDecisions`. */
+  repaired?: string;
   createdAt: number;
 }
 
@@ -64,6 +66,8 @@ interface Waiting extends PendingApproval {
   /** Контекст политики этого вызова. Наружу не отдаётся — см. `visible()`. */
   ctx: PolicyContext;
   resolve: (d: Decision) => void;
+  /** Исправленный вход — уходит исполнителем, если оператор одобрил без своей правки. */
+  repairedInput?: Record<string, unknown>;
 }
 
 /**
@@ -74,7 +78,7 @@ interface Waiting extends PendingApproval {
  * контракте этих полей нет, читать их некому, а весить в буфере событий они продолжали.
  */
 function visible(w: Waiting): PendingApproval {
-  const { ctx: _ctx, resolve: _resolve, ...rest } = w;
+  const { ctx: _ctx, resolve: _resolve, repairedInput: _repaired, ...rest } = w;
   return rest;
 }
 
@@ -301,23 +305,50 @@ export class ApprovalGate {
       return { allowed: true, updatedInput: null, by: 'auto' };
     }
 
-    const preview = buildPreview(args.call, args.ctx.projectRoot, args.ctx.stageArtifacts ?? []);
+    // Стёртое поле решения человека возвращает механика, а не отказ (ручка витка). Всё
+    // дальше — превью, нота потери, автоправила, очередь — считается уже по исправленному
+    // вызову: оператор решает по тому, что будет записано на самом деле. Политика здесь не
+    // пересчитывается: путь и вид вызова те же, меняется только содержимое.
+    const repair = args.ctx.restoreErasedDecisions === true ? repairErasedDecisions(args.call, args.ctx.projectRoot) : null;
+    const repairedInput =
+      repair !== null && typeof args.rawInput['content'] === 'string' ? { ...args.rawInput, content: repair.content } : null;
+    const repairedCall: NormalizedCall =
+      repairedInput !== null && args.call.kind === 'write' ? { ...args.call, content: repair!.content } : args.call;
+    const repaired =
+      repairedInput === null
+        ? {}
+        : {
+            repaired:
+              `рантайм вернул стёртое поле решения человека: ${repair!.restored.map((l) => `«${l}»`).join(', ')} — ` +
+              'файл переписан целиком вместо точечной правки',
+          };
+    const effectiveBase = repairedInput === null ? base : { ...base, call: repairedCall, rawInput: repairedInput };
+
+    const preview = buildPreview(repairedCall, args.ctx.projectRoot, args.ctx.stageArtifacts ?? []);
 
     // Предупреждение о потере содержимого считается здесь, а не в панели: оператор
     // принимает решение по тому, что ему показали, и «−1233 строки» обязано быть в самом
     // запросе, а не выводиться клиентом заново из превью.
-    const loss = destructiveOverwrite(args.call, args.ctx.projectRoot, args.ctx.stageArtifacts ?? []);
+    const loss = destructiveOverwrite(repairedCall, args.ctx.projectRoot, args.ctx.stageArtifacts ?? []);
     const destructive = loss === null ? null : destructiveNote(loss);
 
-    if (this.matchesRule(args.call, args.ctx, this.autoApproveRules(args.runId, args.stage))) {
-      const decision: Decision = { allowed: true, updatedInput: null, by: 'auto' };
-      this.events.onPending(visible({ ...base, policy, preview, destructive, resolve: () => {} }));
+    if (this.matchesRule(repairedCall, args.ctx, this.autoApproveRules(args.runId, args.stage))) {
+      const decision: Decision = { allowed: true, updatedInput: repairedInput, by: 'auto' };
+      this.events.onPending(visible({ ...effectiveBase, ...repaired, policy, preview, destructive, resolve: () => {} }));
       this.events.onResolved({ ...info, cancelled: false }, decision);
       return decision;
     }
 
     return new Promise<Decision>((resolve) => {
-      const pending: Waiting = { ...base, policy, preview, destructive, resolve };
+      const pending: Waiting = {
+        ...effectiveBase,
+        ...repaired,
+        ...(repairedInput === null ? {} : { repairedInput }),
+        policy,
+        preview,
+        destructive,
+        resolve,
+      };
       this.waiting.set(this.key(args.runId, args.requestId), pending);
       this.events.onPending(visible(pending));
     });
@@ -363,7 +394,13 @@ export class ApprovalGate {
     const w = this.waiting.get(k);
     if (w === undefined) return false;
 
-    const effective = this.revalidate(w, decision);
+    // Одобрение без своей правки обязано унести исправленный вход: иначе исполнитель
+    // записал бы исходное содержимое — то самое, что стирает поле решения человека.
+    const withRepair =
+      decision.allowed && decision.updatedInput === null && w.repairedInput !== undefined
+        ? { ...decision, updatedInput: w.repairedInput }
+        : decision;
+    const effective = this.revalidate(w, withRepair);
 
     this.waiting.delete(k);
     this.events.onResolved(

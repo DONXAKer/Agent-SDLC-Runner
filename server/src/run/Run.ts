@@ -100,6 +100,7 @@ import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName, runGates } from '../gates/run.ts';
 import { git, hasCommits, stageNewPlanFiles, workingDiff } from '../gates/git.ts';
 import { autofillChunkJournal } from './journalAutofill.ts';
+import { autofillPlan, autofillReadiness, autofillTitle } from './formAutofill.ts';
 import { autofillVerificationReport } from './verifyAutofill.ts';
 import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } from './verifyReport.ts';
 import { claimIdOf } from '../artifacts/claims.ts';
@@ -1462,6 +1463,7 @@ export class Run {
       mcpTools: rulesForStage(this.mcpSetup, stage),
       readDenied: this.readDeniedFor(stage),
       stageArtifacts: this.stageArtifacts(stage),
+      ...(this.config.runner.limits.restoreErasedDecisions === true ? { restoreErasedDecisions: true } : {}),
     };
   }
 
@@ -1624,6 +1626,63 @@ export class Run {
       runId: this.id,
       stage: 'intent',
       message: `рантайм заполнил поле «Ветка витка» фактом дерева (\`${branch}\`) — модели гадать не о чем`,
+    });
+  }
+
+  /** HEAD проекта либо причина его отсутствия — строкой, для поля «База» плана. */
+  private async baseLine(): Promise<string> {
+    const root = this.project.projectRoot;
+    if (!(await isRepo(root))) return 'н/п — не git-репозиторий';
+    if (!(await hasCommits(root))) return 'н/п — в репозитории нет коммитов';
+    const r = await git(['rev-parse', 'HEAD'], root);
+    return r.code === 0 ? r.stdout.trim() : 'н/п — HEAD не прочитался';
+  }
+
+  /**
+   * Механические поля плана, готовности и отчётов этапов 2–3 — см. `formAutofill.ts`.
+   * Снимок после подстановки уходит в `SeededArtifact.snapshot` по той же причине, что у
+   * `autofillJournal`: страж «бланк байт-в-байт» не должен ослепнуть от нашей записи.
+   */
+  private async autofillMechanicalFields(
+    stage: StageId,
+    seeded: { path: string; snapshot?: string }[],
+  ): Promise<void> {
+    const title = this.slug;
+    const date = new Date().toISOString().slice(0, 10);
+    const jobs: { path: string; fill: (text: string) => { text: string; filled: number } }[] = [];
+    if (stage === 'intent') {
+      jobs.push({ path: this.paths.readiness, fill: (t) => autofillReadiness(t, { title, date, run: 1 }) });
+    }
+    if (stage === 'explore') jobs.push({ path: this.paths.explorationReport, fill: (t) => autofillTitle(t, title) });
+    if (stage === 'ask') jobs.push({ path: this.paths.clarificationReport, fill: (t) => autofillTitle(t, title) });
+    if (stage === 'plan') {
+      const facts = {
+        title,
+        explorationDone: readArtifact(this.paths.explorationReport).exists,
+        clarificationDone: readArtifact(this.paths.clarificationReport).exists,
+        base: await this.baseLine(),
+      };
+      jobs.push({ path: this.paths.plan, fill: (t) => autofillPlan(t, facts) });
+      jobs.push({ path: this.paths.readiness, fill: (t) => autofillReadiness(t, { title, date, run: 2 }) });
+    }
+
+    let total = 0;
+    for (const job of jobs) {
+      const artifact = readArtifact(job.path);
+      if (!artifact.exists || artifact.placeholders === 0) continue;
+      const { text, filled } = job.fill(artifact.text);
+      if (filled === 0) continue;
+      writeArtifact(job.path, text);
+      const seed = seeded.find((s) => s.path === job.path);
+      if (seed !== undefined) seed.snapshot = text;
+      total += filled;
+    }
+    if (total === 0) return;
+    this.emit({
+      type: 'warning',
+      runId: this.id,
+      stage,
+      message: `рантайм заполнил механические поля (${total}): название витка, даты, вход и база плана — модели остались содержательные`,
     });
   }
 
@@ -4085,6 +4144,11 @@ export class Run {
     // что прогнанных гейтов — рецензенту остаются выводы и ревью. Замер r9: все
     // расхождения «отчёт/факт» дешёвого рецензента были в переписанной от себя таблице.
     if (stage === 'verify') this.autofillVerification(seeded);
+    // План, готовность и названия отчётов этапов 2–3 — тот же приём (`formAutofill.ts`).
+    // Поля объявлены за рантаймом и модели больше не отдаются, поэтому закрываются здесь.
+    if (stage === 'intent' || stage === 'explore' || stage === 'ask' || stage === 'plan') {
+      await this.autofillMechanicalFields(stage, seeded);
+    }
 
     // Что считается «этап ничего не произвёл»: файла нет ИЛИ он остался бланком байт в
     // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.

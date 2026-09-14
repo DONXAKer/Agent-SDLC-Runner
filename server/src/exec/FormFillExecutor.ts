@@ -196,6 +196,35 @@ export type FormField =
       header: string;
     };
 
+/**
+ * Шаблоны, у которых ВСЕ поля рантайма закрывает автозаполнение до модели
+ * (`run/formAutofill.ts`). Только у них поля рантайма исключаются из вопросов модели: у
+ * остальных исключённое поле осталось бы плейсхолдером, закрыть который уже некому (журнал
+ * chunk'а — дата одобрения плана извлекается не всегда; handoff — автозаполнения нет).
+ */
+const RUNTIME_FIELDS_COVERED = new Set([
+  'plan.template.md',
+  'readiness.template.md',
+  'clarification-report.template.md',
+  'exploration-report.template.md',
+]);
+
+/**
+ * Поля бланка, которые спрашиваются у модели: `groupFields` минус поля рантайма схемы.
+ *
+ * Карточный режим (`compact`) отсекал их всегда (`modelFields`), а основной путь шёл по
+ * плейсхолдерам и про `SCHEMA_OVERRIDES` не знал — модель заполняла «Базу» плана и даты
+ * готовности, хотя это факты рантайма (relog серии v5: `base_sha` выдуман).
+ */
+export function modelGroupFields(text: string, path: string): FormField[] {
+  const groups = groupFields(text);
+  const templateName = templateNameFor(path);
+  if (templateName === undefined || !RUNTIME_FIELDS_COVERED.has(templateName)) return groups;
+  const runtime = deriveSchema(text, templateName).fields.filter((f) => f.owner === 'runtime' || f.kind === 'mechanical');
+  if (runtime.length === 0) return groups;
+  return groups.filter((g) => !runtime.some((f) => g.start >= f.range.start && g.start < f.range.end));
+}
+
 /** Шапка таблицы, которой принадлежит строка с позиции `lineStart`: верхняя `|`-строка блока. */
 function tableHeaderOf(text: string, lineStart: number): string {
   let start = lineStart;
@@ -520,7 +549,7 @@ export class FormFillExecutor implements StageExecutor {
           n +
           (this.o.compact
             ? this.compactFields(a.text, p).length
-            : groupFields(a.text).length)
+            : modelGroupFields(a.text, p).length)
         );
       }, 0);
 
@@ -1007,7 +1036,7 @@ export class FormFillExecutor implements StageExecutor {
         // Строка таблицы с плейсхолдерами — поле-ОБРАЗЕЦ, одно на весь будущий список
         // (пункты приёмки, вопросы): спрошенная «по одному полю» она давала список из
         // одного пункта. Заполняется целиком, ответ может быть несколькими строками.
-        const ranges = groupFields(text).reverse();
+        const ranges = modelGroupFields(text, path).reverse();
         let changed = false;
 
         // Поля независимы и идут пачками: последовательное дозаполнение журнала занимало
