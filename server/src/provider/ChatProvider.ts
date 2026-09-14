@@ -118,5 +118,11 @@ export class ProviderEnvError extends Error {
  * найдено и объединено этим же приёмом, что `applyParams` выше (code-review-all,
  * 2026-09-14). Каждый потребитель по-прежнему добавляет СВОИ дополнительные признаки
  * (сетевые коды, `econnrefused`) — общая часть только эта.
+ *
+ * Слова привязаны к границам: без них «Unterminated string in JSON at position 812» —
+ * обычный отказ разбора, то есть про МОДЕЛЬ — совпадал с `terminated` и уходил в
+ * средовой класс, а `FormFillExecutor` ставил диагноз «модель недоступна» (code-review,
+ * 2026-09-14). `\b` здесь честен: оба слова латиница. Регулярка без флагов и групп
+ * захвата намеренно — `FormFillExecutor` вклеивает её `.source` в свою через `|`.
  */
-export const ENGINE_UNAVAILABLE_SUBSTRINGS = /terminated|fetch failed/i;
+export const ENGINE_UNAVAILABLE_SUBSTRINGS = /\bterminated\b|\bfetch failed\b/i;

@@ -921,13 +921,24 @@ const DUPLICATE_SCAN_LIMIT = 2000;
  * список путей, path-only и без блокировки event loop, вместо синхронного `explore/tree.ts::
  * readTree` (полное чтение содержимого + разбор символов ради одних лишь путей — code-
  * review-all, 2026-09-14).
+ *
+ * `includeDotDirs` — не отбрасывать всё, что начинается с точки, а пропускать только SKIP и
+ * известные каталоги кэшей/зависимостей. Гейту дублей точечные каталоги не нужны (там не
+ * пишут хелперы), а заземлению карты кода нужны: без них существующий `.storybook/main.ts`
+ * модель честно помечала «новым», потому что в списке реальных файлов его не было.
  */
 export async function listSourceFiles(
   root: string,
   limit: number,
   signal?: AbortSignal,
+  opts: { includeDotDirs?: boolean } = {},
 ): Promise<{ files: string[]; truncated: boolean }> {
   const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'target', 'vendor', '.sdlc', 'venv', '__pycache__']);
+  // Точечные каталоги, которые в режиме `includeDotDirs` всё равно не исходники: кэши
+  // сборщиков и локальные зависимости — тот же класс, что `node_modules` в SKIP.
+  const DOT_SKIP = new Set(['.venv', '.next', '.nuxt', '.cache', '.turbo', '.yarn', '.pnpm-store', '.gradle', '.idea', '.vscode']);
+  const skipped = (name: string): boolean =>
+    SKIP.has(name) || (opts.includeDotDirs === true ? DOT_SKIP.has(name) : name.startsWith('.'));
   const out: string[] = [];
   let truncated = false;
 
@@ -958,7 +969,7 @@ export async function listSourceFiles(
       // отмена прогона и ответы по сокету ждали бы конца всего обхода.
       await new Promise((r) => setImmediate(r));
       if (cancelled()) return;
-      if (SKIP.has(name) || name.startsWith('.')) continue;
+      if (skipped(name)) continue;
       const child = rel === '' ? name : `${rel}/${name}`;
       let isDir = false;
       try {

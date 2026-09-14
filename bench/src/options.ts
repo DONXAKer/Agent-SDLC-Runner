@@ -41,6 +41,10 @@ export interface BenchOptions {
   controlOverrides: Partial<Record<StageId, string>>;
   stageTimeoutMs: number;
   runTimeoutMs: number;
+  /**
+   * Значение `--max-turns`. Действует ТОЛЬКО при `maxTurnsExplicit`: без ключа лимит —
+   * штатный из загруженного конфига (`resolveTurnLimits`), а здесь лежит заглушка разбора.
+   */
   maxIterationsPerStage: number;
   /**
    * `--max-turns` задан явно. Только тогда снимаются поэтапные потолки конфига: иначе
@@ -48,8 +52,8 @@ export interface BenchOptions {
    */
   maxTurnsExplicit?: boolean;
   /**
-   * Сырой дамп запросов серии (`SDLC_RAW_LOG_DIR` → `bench/traces/raw`), умолчание — да.
-   * Без дампа по серии v4 нельзя было восстановить, что модель написала, упёршись в лимит.
+   * Сырой дамп запросов живого прогона (`SDLC_RAW_LOG_DIR` → `bench/traces/raw`), умолчание —
+   * да. Без дампа по серии v4 нельзя было восстановить, что модель написала, упёршись в лимит.
    */
   rawLog?: boolean;
   /**
@@ -120,11 +124,56 @@ export interface BenchOptions {
 
 export class OptionsError extends Error {}
 
+/** Лимиты ходов, фактически ушедшие в конфиг витка, — они же пишутся в паспорт результата. */
+export interface TurnLimits {
+  maxTurns: number;
+  /** Задан ли `--max-turns` явно; без него `maxTurns` — штатный из конфига. */
+  maxTurnsExplicit: boolean;
+  maxIterationsByStage: Partial<Record<StageId, number>>;
+}
+
+/**
+ * Эффективные лимиты ходов по штатным лимитам конфига и ключам прогона. Одна функция на
+ * конфиг витка (`cli.ts`), преполёт и паспорт результата: три места, считающие это
+ * по-своему, разошлись бы при первой правке.
+ *
+ * Явный `--max-turns` СНИМАЕТ поэтапные потолки конфига: флаг обязан действовать на все
+ * этапы, включая verify. Иначе он молча не действовал бы ровно там, где ходы и решают
+ * (r9: 40 против 60; r28: 100), — а замер «одна ручка за прогон» держится на том, что
+ * названная ручка и есть единственная изменённая. Без ключа потолки остаются штатными.
+ */
+export function resolveTurnLimits(
+  base: { maxIterationsPerStage: number; maxIterationsByStage?: Partial<Record<StageId, number>> },
+  opts: Pick<BenchOptions, 'maxIterationsPerStage' | 'maxTurnsExplicit'>,
+): TurnLimits {
+  const explicit = opts.maxTurnsExplicit === true;
+  return {
+    maxTurns: explicit ? opts.maxIterationsPerStage : base.maxIterationsPerStage,
+    maxTurnsExplicit: explicit,
+    maxIterationsByStage: explicit ? {} : { ...(base.maxIterationsByStage ?? {}) },
+  };
+}
+
+/**
+ * Включать ли сырой дамп запросов (`SDLC_RAW_LOG_DIR`) для этого запуска.
+ *
+ * Любой живой прогон — не только серия: одиночный прогон без дампа оставлял провал без
+ * корпуса ровно тогда, когда его и хотелось разобрать. Проба, преполёт и сухой прогон дамп
+ * не пишут (там нет витка), уже заданная переменная окружения — выбор оператора.
+ */
+export function rawLogWanted(opts: BenchOptions, envValue: string | undefined): boolean {
+  if (opts.probe || opts.dryRun || opts.preflightOnly) return false;
+  if (opts.rawLog === false) return false;
+  return (envValue ?? '').trim() === '';
+}
+
 const DEFAULTS = {
   stageTimeoutMs: 30 * 60_000,
   runTimeoutMs: 3 * 60 * 60_000,
-  // Штатные 40 (`config/runner.json`). При 25 три клетки серии v4 мерили потолок стенда,
-  // а не модель — журнал ещё в раунде 2 назвал его ложной причиной у половины отказов.
+  // Значение поля без `--max-turns` — только заглушка разбора, в конфиг витка оно НЕ уходит:
+  // без явного ключа лимит берётся штатный из загруженного конфига (`resolveTurnLimits`).
+  // Константа здесь прежде и была лимитом — и смена `runner.json` давала вечное
+  // «⚠ ниже штатного» в преполёте при прогоне, где никто лимит не трогал.
   maxIterationsPerStage: 40,
   // Виток целиком с рецензентом на opus. Ноль запрещён — см. BenchOptions.maxBudgetUsd.
   maxBudgetUsd: 5,
@@ -155,12 +204,12 @@ ${taskListForUsage()}
   --control-<этап> <id> заменить контрольный маршрут этапа
   --stage-timeout <мин> потолок стенных часов на этап (умолчание 30)
   --run-timeout <мин>   потолок на весь виток (умолчание 180)
-  --max-turns <n>       ходов на этап (умолчание 40, как штатный профиль); явный ключ
-                        снимает и поэтапные потолки конфига, включая verify
+  --max-turns <n>       ходов на этап (умолчание — штатный лимит config/runner.json); явный
+                        ключ снимает и поэтапные потолки конфига, включая verify
   --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
   --repeat <n>          серия из n одинаковых прогонов (слаги <slug>-s1…-sn, сводка с медианой)
-  --no-raw-log          серия (--repeat) без сырого дампа запросов в bench/traces/raw
+  --no-raw-log          живой прогон без сырого дампа запросов в bench/traces/raw
   --keep-workspace      не удалять рабочую копию в tmp
   --dry-run             подготовить копию и напечатать блокеры, модель не вызывать
   --probe               преполётная проба tool-calling: 3 микро-кейса за секунды, без витка

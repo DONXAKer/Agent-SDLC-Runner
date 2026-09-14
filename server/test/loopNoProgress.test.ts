@@ -172,6 +172,71 @@ describe('напоминание о нулевом прогрессе (NO_PROGRE
     ok(!seenUserMessages.some((m) => m.includes('Пройдено')), 'напоминание сработало без finishGuard');
   });
 
+  // Проверка стояла в хвосте цикла и срабатывала после ПОСЛЕДНЕГО хода: maxTurns=2 →
+  // ceil(1.2)=2, напоминание дописывалось в историю, которую никто уже не отправлял.
+  it('малый maxTurns — напоминание не тратится на ход, после которого ходов не остаётся', async () => {
+    const seenUserMessages: string[] = [];
+    const frictions: string[] = [];
+    let call = 0;
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        call++;
+        seenUserMessages.push(req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '');
+        return {
+          text: '',
+          toolCalls: [{ ...readCall(`r${call}`, call), rawArguments: JSON.stringify(readCall(`r${call}`, call).arguments) }],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const executor = new LoopExecutor({ provider, maxResultBytes: 1000, readRangeRequiredAboveBytes: 1000, bashTimeoutMs: 1000, temperature: null });
+
+    await executor.run(request({ maxTurns: 2 }), { ...hooks(), onFriction: (k) => frictions.push(k) });
+
+    strictEqual(call, 2);
+    ok(!seenUserMessages.some((m) => m.includes('Пройдено')), seenUserMessages.join('\n---\n'));
+    ok(!frictions.includes('reminder'), 'невидимое модели напоминание не должно считаться трением');
+  });
+
+  // Ходы, закончившиеся `continue` (напоминание стража о незаписанном артефакте), хвост
+  // цикла обходили — и проверка нулевого прогресса на них не выполнялась вовсе.
+  it('ходы с напоминанием стража (continue) не обходят проверку нулевого прогресса', async () => {
+    const seenLastUser: string[] = [];
+    let call = 0;
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        call++;
+        seenLastUser.push(req.messages.at(-1)?.role === 'user' ? (req.messages.at(-1)?.content ?? '') : '');
+        const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, durationMs: 1, envBlocked: false };
+        // Ходы 1–3 — чтение, 4 и далее — «готово» текстом без записи артефакта.
+        if (call <= 3) {
+          return {
+            text: '',
+            toolCalls: [{ ...readCall(`r${call}`, call), rawArguments: JSON.stringify(readCall(`r${call}`, call).arguments) }],
+            usage,
+            finishReason: 'tool_use' as const,
+          };
+        }
+        return { text: 'готово', toolCalls: [], usage, finishReason: 'end_turn' as const };
+      },
+    } as unknown as ChatProvider;
+    const executor = new LoopExecutor({ provider, maxResultBytes: 1000, readRangeRequiredAboveBytes: 1000, bashTimeoutMs: 1000, temperature: null });
+
+    // maxTurns=6 → ceil(3.6)=4. Ходы 4 и 5 заканчиваются `continue` напоминания стража;
+    // прежде проверка стояла за ними и до хода 6 (третий отказ стража) не доходила.
+    await executor.run(request({ maxTurns: 6 }), hooks());
+
+    strictEqual(call, 6);
+    // Запрос 5: после 4 ходов — напоминание, дописанное в то же user-сообщение, что и
+    // замечание стража (два user подряд часть чат-шаблонов не принимает).
+    ok(seenLastUser[4]!.includes('Пройдено 4 ходов из 6'), seenLastUser[4]);
+    ok(seenLastUser[4]!.includes('артефакт не готов'), seenLastUser[4]);
+    ok(!seenLastUser.slice(0, 4).some((m) => m.includes('Пройдено')), seenLastUser.join('\n---\n'));
+  });
+
   it('progressHint подменяет совет по умолчанию (verify: находки, а не Edit)', async () => {
     const seenUserMessages: string[] = [];
     let call = 0;

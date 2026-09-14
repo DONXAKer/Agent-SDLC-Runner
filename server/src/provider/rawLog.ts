@@ -67,6 +67,8 @@ function targetDir(): string | null {
 /** Подряд идущие отказы записи. Успех обнуляет счётчик. */
 let failures = 0;
 const MAX_FAILURES = 3;
+/** Почему дамп выключен отказами записи; `null` — не выключался. */
+let disabledReason: string | null = null;
 
 /**
  * Отказ дампа не роняет оплаченный прогон — но и не молчит, и не выключает корпус с
@@ -84,6 +86,7 @@ function noteFailure(e: unknown): void {
   if (failures >= MAX_FAILURES) {
     process.emitWarning(`SDLC_RAW_LOG_DIR: дамп запросов выключен после ${MAX_FAILURES} отказов подряд — ${reason}`);
     dir = null;
+    disabledReason = `выключен после ${MAX_FAILURES} отказов записи подряд — ${reason}`;
     return;
   }
   process.emitWarning(`SDLC_RAW_LOG_DIR: пара не записана (${failures} из ${MAX_FAILURES}) — ${reason}`);
@@ -139,9 +142,27 @@ export function dumpExchange(label: TraceLabel, x: RawExchange): string | null {
   }
 }
 
+/**
+ * Забыть решение о каталоге и отказы записи — перед каждым сэмплом серии бенчмарка.
+ *
+ * Выключение после трёх отказов действует на ПРОЦЕСС, а серия `--repeat` гонит все сэмплы в
+ * одном процессе: сетевая икота в первом сэмпле гасила дамп всех оставшихся, и сводка серии
+ * об этом молчала. Сквозной номер запроса не сбрасывается — порядок пар в корпусе остаётся
+ * сквозным.
+ */
+export function resetRawLog(): void {
+  dir = undefined;
+  failures = 0;
+  disabledReason = null;
+}
+
+/** Почему дамп выключен отказами записи с последнего `resetRawLog`; `null` — не выключался. */
+export function rawLogDisabledReason(): string | null {
+  return disabledReason;
+}
+
 /** Только для тестов: забыть решение о каталоге и обнулить счётчик. */
 export function resetRawLogForTests(): void {
-  dir = undefined;
+  resetRawLog();
   seq = 0;
-  failures = 0;
 }

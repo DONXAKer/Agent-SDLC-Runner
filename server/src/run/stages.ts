@@ -36,8 +36,10 @@ export interface Precondition {
    * Артефакт, который проверяет условие, — по нему называется этап-виновник
    * (`stageProducing`). Без него «этап не стартовал» читался провалом этого этапа, хотя
    * завалил его артефакт ПРЕДЫДУЩЕГО, помеченного `ok` (8 из 25 прогонов серии v4).
+   * Зовётся только для проваленного условия; `null` — вину не несёт этап-производитель
+   * (например, недостаёт решения человека, а форма цела).
    */
-  artifact?: (c: StageContext) => string;
+  artifact?: (c: StageContext) => string | null;
 }
 
 export interface StageDef {
@@ -105,6 +107,11 @@ function filled(describe: string, file: (c: StageContext) => string): Preconditi
  * Вариант `filled` для входа в разведку: секция «Что придётся тронуть» интента законно
  * пустая на первом проходе — её заполняет сама разведка (см. `countPlaceholdersExceptSections`).
  */
+/** Незакрытые места задачи вне законно пустой на первом проходе «Что придётся тронуть». */
+function intentPlaceholdersOutsideTouch(text: string): number {
+  return countPlaceholdersExceptSections(text, ['Что придётся тронуть']);
+}
+
 function filledExceptTouchSection(describe: string, file: (c: StageContext) => string): Precondition {
   return {
     describe,
@@ -112,7 +119,7 @@ function filledExceptTouchSection(describe: string, file: (c: StageContext) => s
     check: (c) => {
       const a = readArtifact(file(c));
       if (!a.exists) return `нет файла ${a.path}`;
-      const n = countPlaceholdersExceptSections(a.text, ['Что придётся тронуть']);
+      const n = intentPlaceholdersOutsideTouch(a.text);
       if (n > 0) return `в ${a.path} осталось незаполненных мест: ${n} — артефакт не готов`;
       return null;
     },
@@ -134,7 +141,7 @@ function filledExceptTouchSection(describe: string, file: (c: StageContext) => s
 export function intentPlaceholderProblem(c: StageContext): string | null {
   const a = readArtifact(c.paths.intent);
   if (!a.exists) return null;
-  const n = countPlaceholdersExceptSections(a.text, ['Что придётся тронуть']);
+  const n = intentPlaceholdersOutsideTouch(a.text);
   if (n === 0) return null;
   return `в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: ${n} — задача не готова`;
 }
@@ -146,7 +153,13 @@ function granted(
 ): Precondition {
   return {
     describe,
-    artifact: file,
+    // Виноват этап-производитель только когда формы нет или в ней нет поля решения: пустое
+    // или отрицательное решение — дело человека, и `ok⚠` у этапа, чья модель ничего не
+    // нарушила, отправил бы разбор отказа не туда.
+    artifact: (c) => {
+      const a = readArtifact(file(c));
+      return !a.exists || readDecision(a.text, label).state === 'missing' ? file(c) : null;
+    },
     check: (c) => {
       const a = readArtifact(file(c));
       if (!a.exists) return `нет файла ${a.path}`;
@@ -299,20 +312,23 @@ export function explorationPathProblem(c: StageContext): string | null {
       // сбрасывает секцию на заголовке любого уровня, и «### Ключевые файлы» внутри карты
       // выводил бы свои таблицы из-под проверки (fail-open, пойман ревью-3); старый
       // построчный код `/^##\s/` подзаголовки h3 сквозь себя пропускал — это сохранено.
-      // Оба слова, не «карта» ИЛИ «кодовая база» по отдельности: разделённая по `|`
-      // альтернация без общей группировки матчила любой посторонний заголовок со словом
-      // «карта» («## Карта рисков», «## Дорожная карта») как секцию карты кодовой базы —
-      // ложный красный на честном отчёте (code-review-all, 2026-09-14).
-      const mapRanges = h2SectionRanges(report.text, /карта\s+кодов(ая|ой)\s+баз/i);
-      // Больше одной секции с этим заголовком — модель не заполнила поле-образец, а
-      // стёрла структуру и завела СВОЙ заголовок рядом (обычно с прозой вместо таблицы).
-      // Построчная проверка ниже смотрит только НАЙДЕННЫЕ таблицы — пустая секция без
-      // единой таблицы её проходит молча (нечего проверять). Живой замер серии v4,
-      // `qwencoder`/`silent-contract`, 2026-09-14: дозаполнение оставило исходный
-      // «## Карта кодовой базы» с одной легендой и добавило «## 🗺️ Карта кодовой базы
-      // (Что сейчас / Что меняем)» с прозой — оба заголовка проходят этот же regex, и
-      // именно дубликат — точный признак подмены структуры.
-      if (mapRanges.length > 1) {
+      // Признак секции — «кодовая база» или «карта кода», а не голое «карта»: одно слово
+      // матчило «## Карта рисков» и «## Дорожная карта» как карту кодовой базы — ложный
+      // красный на честном отчёте. Но и требовать оба слова вместе нельзя: модель,
+      // переименовавшая заголовок в «## Кодовая база», выводила таблицу сочинённых путей
+      // из-под проверки вовсе (code-review-all, 2026-09-14).
+      const mapRanges = h2SectionRanges(report.text, /кодов(ая|ой)\s+баз|карта\s+код/i);
+      // Несколько таких секций, и хотя бы одна БЕЗ таблицы — модель не заполнила
+      // поле-образец, а стёрла структуру и завела свой заголовок с прозой. Построчная
+      // проверка ниже смотрит только найденные таблицы, и секция без них проходит её молча.
+      // Живой замер серии v4, `qwencoder`/`silent-contract`, 2026-09-14: исходный «## Карта
+      // кодовой базы» с одной легендой и рядом «## 🗺️ Карта кодовой базы (Что сейчас / Что
+      // меняем)» с прозой. Две секции, обе с таблицами («… — ключевые файлы»), — честная
+      // разбивка, и она проверяется построчно, а не краснит целиком.
+      if (
+        mapRanges.length > 1 &&
+        mapRanges.some((r) => parseTables(report.text.slice(r.start, r.end)).length === 0)
+      ) {
         return (
           'в отчёте разведки несколько секций «Карта кодовой базы» — похоже, структура ' +
           'бланка подменена (заголовок продублирован, а исходная таблица брошена). Верни ' +

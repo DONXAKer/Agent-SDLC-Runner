@@ -6,7 +6,7 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -35,6 +35,32 @@ describe('stageProducing', () => {
 
   it('разделители пути не влияют: Windows-путь находит тот же этап', () => {
     strictEqual(stageProducing(c.paths.intent.replace(/\//g, '\\'), 'explore', c), 'intent');
+  });
+});
+
+describe('виновник у решения человека', () => {
+  function chunkDetails(planText: string) {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-granted-'));
+    const c = { paths: new WitokPaths(root, 'demo'), chunk: 1, attempt: 1 };
+    mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
+    writeFileSync(c.paths.plan, planText);
+    try {
+      return { details: checkPreconditions(stageById('chunk'), c).details, plan: c.paths.plan };
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  it('поле «Одобрение» есть, но пусто — вина не этапа plan, виновника нет', () => {
+    const { details } = chunkDetails('# План: demo\n\n- **Одобрение:** ‹имя› · ‹дата›\n');
+    strictEqual(details.length, 1);
+    strictEqual(details[0]!.artifact, null);
+  });
+
+  it('поля «Одобрение» в форме нет — форму сломал этап plan, он и виновник', () => {
+    const { details, plan } = chunkDetails('# План: demo\n\n## Подход\n\nтекст\n');
+    strictEqual(details.length, 1);
+    strictEqual(details[0]!.artifact, plan);
   });
 });
 

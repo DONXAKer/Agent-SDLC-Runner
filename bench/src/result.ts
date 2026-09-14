@@ -12,14 +12,14 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import type { RunMetrics, Verdict } from '@sdlc-runner/shared';
+import type { RunMetrics, StageId, Verdict } from '@sdlc-runner/shared';
 
 import type { DriverResult } from './driver.ts';
 import type { OperatorDecisionLog } from './operator.ts';
 import type { CollectorState } from './collector.ts';
 import type { HiddenTestsSummary } from './hiddenTests.ts';
 import type { HonestyCheck } from './honesty.ts';
-import type { BenchOptions } from './options.ts';
+import type { BenchOptions, TurnLimits } from './options.ts';
 import type { BuiltProfile } from './profile.ts';
 import type { SeedProbe } from './seeds.ts';
 import { taskById } from './tasks.ts';
@@ -40,6 +40,15 @@ export interface BenchResult {
     measured: BuiltProfile['measured'];
     startedAt: string;
     finishedAt: string;
+    /**
+     * Условия прогона, ушедшие в конфиг витка: общий лимит ходов, явность `--max-turns` и
+     * поэтапные потолки. Без них «исчерпан лимит ходов» в двух результатах нельзя было
+     * сравнить — один мерил штатные 40/60, другой срезанные `--max-turns`, а JSON молчал.
+     * Необязательны только для результатов, записанных до появления полей.
+     */
+    maxTurns?: number;
+    maxTurnsExplicit?: boolean;
+    maxIterationsByStage?: Partial<Record<StageId, number>>;
   };
   driver: DriverResult;
   metrics: RunMetrics;
@@ -74,8 +83,11 @@ export function buildResult(args: {
   seed?: SeedProbe | null;
   hidden?: HiddenTestsSummary | null;
   honesty?: HonestyCheck[];
+  /** Эффективные лимиты ходов (`resolveTurnLimits`) — те, что ушли в конфиг витка. */
+  turnLimits?: TurnLimits;
 }): BenchResult {
   const { opts, built } = args;
+  const limits = args.turnLimits;
   return {
     run: {
       slug: opts.slug,
@@ -89,6 +101,13 @@ export function buildResult(args: {
       measured: built.measured,
       startedAt: args.startedAt.toISOString(),
       finishedAt: args.finishedAt.toISOString(),
+      ...(limits === undefined
+        ? {}
+        : {
+            maxTurns: limits.maxTurns,
+            maxTurnsExplicit: limits.maxTurnsExplicit,
+            maxIterationsByStage: { ...limits.maxIterationsByStage },
+          }),
     },
     driver: args.driver,
     metrics: args.metrics,

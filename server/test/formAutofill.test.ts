@@ -13,7 +13,13 @@ import { describe, it } from 'node:test';
 import { deriveSchema } from '../src/artifacts/formSchema.ts';
 import { loadConfig } from '../src/config/load.ts';
 import { groupFields, modelGroupFields } from '../src/exec/FormFillExecutor.ts';
-import { autofillPlan, autofillReadiness, autofillTitle } from '../src/run/formAutofill.ts';
+import {
+  RUNTIME_AUTOFILLED_TEMPLATES,
+  autofillClarification,
+  autofillPlan,
+  autofillReadiness,
+  autofillTitle,
+} from '../src/run/formAutofill.ts';
 
 const PLAN = [
   '# План: ‹название витка›',
@@ -83,6 +89,60 @@ describe('autofillReadiness', () => {
   });
 });
 
+describe('autofillClarification', () => {
+  const CLARIFICATION = [
+    '# Отчёт по вопросам: ‹название витка›',
+    '',
+    '- **Задача:** `intent.md`',
+    '- **Разведка:** `exploration-report.md` / шага не было — мелкий контур',
+    '',
+    '## Вопросы',
+    '',
+    '‹вопрос›',
+    '',
+  ].join('\n');
+
+  it('разведка была — ветка «exploration-report.md», название витка закрыто, содержательное не тронуто', () => {
+    const { text, filled } = autofillClarification(CLARIFICATION, { title: 'demo', explorationDone: true });
+    strictEqual(filled, 2);
+    ok(text.includes('# Отчёт по вопросам: demo'), text);
+    ok(text.includes('- **Разведка:** `exploration-report.md`\n'), text);
+    ok(!text.includes('шага не было'), text);
+    ok(text.includes('‹вопрос›'), 'содержательное поле — модели');
+  });
+
+  it('разведки не было — ветка «шага не было»', () => {
+    const { text } = autofillClarification(CLARIFICATION, { title: 'demo', explorationDone: false });
+    ok(text.includes('- **Разведка:** шага не было — мелкий контур\n'), text);
+    ok(!text.includes('exploration-report.md'), text);
+  });
+
+  it('идемпотентно: выбранная ветка повторным вызовом не перетирается, даже с другим фактом', () => {
+    const once = autofillClarification(CLARIFICATION, { title: 'demo', explorationDone: true }).text;
+    deepStrictEqual(autofillClarification(once, { title: 'demo', explorationDone: true }), { text: once, filled: 0 });
+    deepStrictEqual(autofillClarification(once, { title: 'demo', explorationDone: false }), { text: once, filled: 0 });
+  });
+
+  it('поля «Разведка» нет — только название витка', () => {
+    const { text, filled } = autofillClarification('# Отчёт по вопросам: ‹название витка›\n', {
+      title: 'demo',
+      explorationDone: true,
+    });
+    deepStrictEqual({ text, filled }, { text: '# Отчёт по вопросам: demo\n', filled: 1 });
+  });
+});
+
+describe('RUNTIME_AUTOFILLED_TEMPLATES', () => {
+  it('набор покрытых шаблонов — ровно четыре формы с автозаполнением этого файла', () => {
+    deepStrictEqual([...RUNTIME_AUTOFILLED_TEMPLATES].sort(), [
+      'clarification-report.template.md',
+      'exploration-report.template.md',
+      'plan.template.md',
+      'readiness.template.md',
+    ]);
+  });
+});
+
 describe('modelGroupFields', () => {
   it('поля рантайма плана модели не отдаются; содержательные и решения — как прежде', () => {
     const path = '/p/.sdlc/demo/plan.md';
@@ -112,9 +172,26 @@ describe('скрепа: поля рантайма реальных шаблон�
         date: '2026-09-14',
         run: 2,
       }).text,
-    'clarification-report.template.md': (t) => autofillTitle(t, 'demo').text,
+    'clarification-report.template.md': (t) => autofillClarification(t, { title: 'demo', explorationDone: true }).text,
     'exploration-report.template.md': (t) => autofillTitle(t, 'demo').text,
   };
+
+  it('набор скрепы совпадает с RUNTIME_AUTOFILLED_TEMPLATES — непроверенный шаблон в наборе не живёт', () => {
+    deepStrictEqual(Object.keys(fill).sort(), [...RUNTIME_AUTOFILLED_TEMPLATES].sort());
+  });
+
+  // «Разведка» — меню без плейсхолдера: проверка «никакого ‹…›» ниже его не видит, поэтому
+  // отдельно — после автозаполнения в поле ровно одна ветка.
+  for (const explorationDone of [true, false]) {
+    it(`clarification-report.template.md: «Разведка» закрыта одной веткой (разведка ${explorationDone ? 'была' : 'не была'})`, () => {
+      const template = readFileSync(join(templatesDir, 'clarification-report.template.md'), 'utf8');
+      const filled = autofillClarification(template, { title: 'demo', explorationDone }).text;
+      const line = filled.split('\n').find((l) => l.includes('**Разведка:**')) ?? '';
+      ok(line !== '', 'поле «Разведка» пропало из шаблона эталона');
+      strictEqual(line.includes('exploration-report.md'), explorationDone, line);
+      strictEqual(line.includes('шага не было'), !explorationDone, line);
+    });
+  }
 
   for (const [name, apply] of Object.entries(fill)) {
     it(`${name}: после автозаполнения ни одно поле рантайма не держит плейсхолдер`, () => {

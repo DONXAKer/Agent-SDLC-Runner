@@ -276,6 +276,71 @@ describe('преполётные кейсы пробы', () => {
     ok(bad.cases[0]!.detail.includes('стёрто'), bad.cases[0]!.detail);
   });
 
+  it('честность путей: ./src/a.ts и src\\a.ts — тот же объявленный файл, зелёный (code-review, 2026-09-14)', async () => {
+    for (const path of ['./src/a.ts', 'src\\a.ts']) {
+      const provider = scripted(() => ({
+        text: '',
+        toolCalls: [{ name: 'Edit', arguments: { file_path: path, old_string: 'const LIMIT = 100', new_string: 'const LIMIT = 200' } }],
+      }));
+      const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 5000, cases: PREFLIGHT_CASES.slice(4, 5) });
+      strictEqual(report.cases[0]!.ok, true, `${path}: ${report.cases[0]!.detail}`);
+    }
+  });
+
+  it('честность путей: Read ./src/a.ts, затем Edit src/a.ts — зелёный', async () => {
+    const provider = scripted((req) => {
+      const afterTool = req.messages.some((m) => m.role === 'tool');
+      if (!afterTool) return { text: '', toolCalls: [{ name: 'Read', arguments: { file_path: './src/a.ts' } }] };
+      return {
+        text: '',
+        toolCalls: [{ name: 'Edit', arguments: { file_path: 'src/a.ts', old_string: '100', new_string: '200' } }],
+      };
+    });
+    const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 5000, cases: PREFLIGHT_CASES.slice(4, 5) });
+    strictEqual(report.cases[0]!.ok, true, report.cases[0]!.detail);
+  });
+
+  it('длинная запись: маркер с дефисом/коротким тире вместо «—» — зелёный (кейс мерит усечение, не глиф)', async () => {
+    for (const marker of ['строка 60 - КОНЕЦ', 'строка 60 – КОНЕЦ', 'строка 60 − КОНЕЦ', 'строка 60 -- КОНЕЦ']) {
+      const provider = scripted(() => ({
+        text: '',
+        toolCalls: [
+          {
+            name: 'Write',
+            arguments: {
+              file_path: 'notes/lines.txt',
+              content: Array.from({ length: 59 }, (_, i) => `строка ${i + 1}`).join('\n') + `\n${marker}\n`,
+            },
+          },
+        ],
+      }));
+      const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 5000, cases: PREFLIGHT_CASES.slice(5, 6) });
+      strictEqual(report.cases[0]!.ok, true, `${marker}: ${report.cases[0]!.detail}`);
+    }
+  });
+
+  it('точный многострочный Edit остаётся строгим: ./-нормализация сюда не распространяется', async () => {
+    const provider = scripted(() => ({
+      text: '',
+      toolCalls: [
+        { name: 'Edit', arguments: { file_path: 'src/template.ts', old_string: 'Срок:  ${days} дн.`;', new_string: 'Дедлайн: ${days} дн.`;' } },
+      ],
+    }));
+    const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 5000, cases: PREFLIGHT_CASES.slice(3, 4) });
+    strictEqual(report.cases[0]!.ok, false);
+    ok(report.cases[0]!.detail.includes('побайтово'), report.cases[0]!.detail);
+  });
+
+  it('detail называет первую проваленную проверку: Edit верного файла без 200 — про замену, не про путь', async () => {
+    const provider = scripted(() => ({
+      text: '',
+      toolCalls: [{ name: 'Edit', arguments: { file_path: 'src/a.ts', old_string: '100', new_string: '300' } }],
+    }));
+    const report = await probeModel({ provider, model: 'm', caseTimeoutMs: 5000, cases: PREFLIGHT_CASES.slice(4, 5) });
+    strictEqual(report.cases[0]!.ok, false);
+    ok(report.cases[0]!.detail.includes('200'), report.cases[0]!.detail);
+  });
+
   it('полный преполётный набор — семь кейсов', async () => {
     strictEqual(PREFLIGHT_CASES.length, 7);
   });

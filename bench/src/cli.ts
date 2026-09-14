@@ -24,15 +24,17 @@ import type { LoadedConfig } from '../../server/src/config/load.ts';
 import { Run } from '../../server/src/run/Run.ts';
 import { ApprovalBus, AskBus, HumanScriptError, attachOperator, emptyOperatorLog, readHumanScript } from './operator.ts';
 import { createCollector } from './collector.ts';
+import type { ToolRequestEvent, ToolResolvedEvent } from './collector.ts';
 import { runBench } from './driver.ts';
 import { buildResult, writeResult } from './result.ts';
-import { OptionsError, USAGE, parseArgs } from './options.ts';
+import { OptionsError, USAGE, parseArgs, rawLogWanted, resolveTurnLimits } from './options.ts';
 import type { BenchOptions } from './options.ts';
 import { ControlError, buildProfile, readControl } from './profile.ts';
 import { WorkspaceError, prepareWorkspace } from './workspace.ts';
-import { SnapshotError, makeSnapshot, restoreSnapshot, verifyRestoredBranch } from './snapshot.ts';
-import { TaskError, taskById, taskPaths } from './tasks.ts';
+import { SnapshotError, makeSnapshot, restoreSnapshot, startStageAfter, verifyRestoredBranch } from './snapshot.ts';
+import { TaskError, requireTaskFiles } from './tasks.ts';
 import type { TaskPaths } from './tasks.ts';
+import { rawLogDisabledReason, resetRawLog } from '../../server/src/provider/rawLog.ts';
 import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
 import type { SeedProbe } from './seeds.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
@@ -63,23 +65,11 @@ const HIDDEN_TESTS_TIMEOUT_MS = 30 * 60_000;
  * не выходит. Каждая задача несёт СВОЙ банк ответов человека: `denyWritesTo` одной задачи
  * может быть ровно тем файлом, который вторая обязана тронуть (обнаружено при заведении
  * `freeship` — `discounts.ts` был запрещён для `oversize` и нужен для `freeship`), общий
- * банк на все задачи здесь в принципе не годится.
+ * банк на все задачи здесь в принципе не годится. Проверка файлов — общая с преполётом
+ * (`taskFilesProblem` в tasks.ts): отказ здесь — код 2 и причина, а не сырой ENOENT с кодом 1.
  */
 function taskFiles(task: BenchOptions['task']): TaskPaths {
-  const def = taskById(task);
-  const files = taskPaths(BENCH_DIR, def);
-  // Реестр описывает задачи наперёд, каталоги семейств появляются постепенно. Без этой
-  // проверки задача без фикстуры валилась сырым ENOENT из readFileSync с кодом 1 — «модель
-  // не прошла», хотя измерение не начиналось; здесь это код 2 и понятная причина. Эталон и
-  // скрытый тест проверяются здесь же: их отсутствие давало бы после ПЛАТНОГО прогона отчёт
-  // «скрытые тесты не запускались» — измерение без щупов, неотличимое от честного.
-  if (!existsSync(files.fixtureDir)) {
-    throw new TaskError(`задача «${def.id}» есть в реестре, но каталога фикстуры ${def.fixtureDir} на диске ещё нет`);
-  }
-  for (const f of [files.taskFile, files.humanFile, files.expectedFile, files.hiddenFile]) {
-    if (!existsSync(f)) throw new TaskError(`задача «${def.id}»: нет файла ${f}`);
-  }
-  return files;
+  return requireTaskFiles(BENCH_DIR, task);
 }
 
 /**
@@ -98,6 +88,9 @@ function branchFromTask(taskPath: string): string {
 
 /** Конфиг машины с наложением того, что бенчмарк обязан задать сам. */
 function benchConfig(base: LoadedConfig, opts: BenchOptions): LoadedConfig {
+  // Лимиты ходов — `resolveTurnLimits`: без `--max-turns` штатные из загруженного конфига,
+  // с ним — значение ключа без поэтапных потолков. Та же функция пишет их в паспорт результата.
+  const limits = resolveTurnLimits(base.runner.limits, opts);
   return {
     ...base,
     runner: {
@@ -107,13 +100,8 @@ function benchConfig(base: LoadedConfig, opts: BenchOptions): LoadedConfig {
       operator: 'Бенчмарк',
       limits: {
         ...base.runner.limits,
-        maxIterationsPerStage: opts.maxIterationsPerStage,
-        // Явный `--max-turns` СНИМАЕТ поэтапные потолки конфига: флаг обязан действовать на
-        // все этапы, включая verify. Иначе он молча не действовал бы ровно там, где ходы и
-        // решают (r9: 40 против 60; r28: 100), — а замер «одна ручка за прогон» держится на
-        // том, что названная ручка и есть единственная изменённая. Без ключа потолки
-        // остаются штатными: умолчание стенда не должно срезать verify с 60 до общего числа.
-        ...(opts.maxTurnsExplicit === true ? { maxIterationsByStage: {} } : {}),
+        maxIterationsPerStage: limits.maxTurns,
+        maxIterationsByStage: limits.maxIterationsByStage,
       },
     },
   };
@@ -202,9 +190,20 @@ interface LiveOutcome {
   /** Счёт скрытых тестов; `null` — до них не дошло (снимок, обрыв до chunk'а). */
   hidden: { pass: number; total: number } | null;
   durationMs: number;
+  /** Сырой дамп выключился отказами записи посреди прогона — причина; `null` — не выключался. */
+  rawLogDisabled: string | null;
 }
 
-async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
+interface LiveRunFlags {
+  /**
+   * Преполёт этого запуска прошёл — окна измеряемых маршрутов он уже сверил той же
+   * `contextProblemFor`, и повторять пару HTTP-запросов на маршрут перед каждым сэмплом
+   * незачем. С `--no-preflight` проверка остаётся здесь: иначе её не сделал бы никто.
+   */
+  contextChecked: boolean;
+}
+
+async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOutcome> {
   const base = loadConfig();
   const config = benchConfig(base, opts);
   const control = readControl(CONTROL_FILE);
@@ -234,9 +233,8 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     // Старт — со следующего этапа после точки снимка: снимок «после intent» даёт дешёвый
     // замер explore, «после plan» — прежнее поведение (замер chunk). Точка хранится в
     // самом снимке, а не в ключах прогона — прогон не может её переврать.
-    const after = STAGE_ORDER.indexOf(restored.stoppedAfterStage);
-    const nextStage = STAGE_ORDER[after + 1];
-    if (after < 0 || nextStage === undefined) {
+    const nextStage = startStageAfter(restored.stoppedAfterStage);
+    if (nextStage === null) {
       wsDispose();
       throw new WorkspaceError(
         `снимок «${opts.fromSnapshot}» сделан после «${restored.stoppedAfterStage}» — этапа после него нет, мерить нечего`,
@@ -283,13 +281,13 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
   // сюда не попадают, и проверять там нечего. Дёшево (пара HTTP-запросов на маршрут)
   // и дороже стоит промолчать — расхождение (LM Studio: другое загруженное окно;
   // Ollama: голый тег с 4096 или мёртвый тег) иначе всплывает посреди прогона.
-  for (const stage of built.measured) {
+  for (const stage of flags.contextChecked ? [] : built.measured) {
     const route = built.profile.routes[stage];
     const problem = await contextProblemFor(route.provider, route.model, route.contextWindow, route.providerDef.baseUrl);
     if (problem !== null) {
       console.error(`\nокно контекста (этап «${stage}»): ${problem}`);
       wsDispose();
-      return { code: 2, hidden: null, durationMs: 0 };
+      return { code: 2, hidden: null, durationMs: 0, rawLogDisabled: null };
     }
   }
 
@@ -305,8 +303,13 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
 
   // Коллектор и автоответчик — два независимых подписчика ОДНОГО и того же потока
   // событий гейта; ни один не подменяет собой другого.
-  approvalBus.onPending((p) =>
-    collector.emit({
+  approvalBus.onPending((p) => {
+    // Событие собирается здесь вручную (как в `server/src/index.ts`), и каждое поле запроса,
+    // не перенесённое сюда, коллектор не видит вовсе: без `repaired`/`decisionsLost` починка
+    // стёртого поля решения была бы в отчёте невидима. `decisionsLost` читается опционально —
+    // у версии гейта без поля его просто нет.
+    const extra = p as typeof p & { repaired?: string; decisionsLost?: string[] };
+    const event: ToolRequestEvent = {
       type: 'tool_request',
       runId: p.runId,
       stage: p.stage,
@@ -318,12 +321,25 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       preview: p.preview,
       writeTargets: p.writeTargets,
       destructive: p.destructive,
+      ...(extra.repaired === undefined ? {} : { repaired: extra.repaired }),
+      ...(extra.decisionsLost === undefined ? {} : { decisionsLost: extra.decisionsLost }),
       createdAt: p.createdAt,
-    }),
-  );
-  approvalBus.onResolved((info, decision) =>
-    collector.emit({ type: 'tool_resolved', runId: info.runId, stage: info.stage, requestId: info.requestId, decision }),
-  );
+    };
+    collector.emit(event);
+  });
+  approvalBus.onResolved((info, decision) => {
+    // Признак отмены обязан дойти до коллектора: `cancelRun` резолвит запрос решением
+    // `by: 'operator'`, и без него обрыв этапа считался «отказом оператора».
+    const event: ToolResolvedEvent = {
+      type: 'tool_resolved',
+      runId: info.runId,
+      stage: info.stage,
+      requestId: info.requestId,
+      decision,
+      ...(info.cancelled ? { cancelled: true as const } : {}),
+    };
+    collector.emit(event);
+  });
   askBus.onPending((p) =>
     collector.emit({
       type: 'tool_request',
@@ -413,7 +429,12 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
         task: opts.task,
       });
       console.log(`\nснимок сохранён: ${opts.makeSnapshot} (после ${opts.snapshotAfter})`);
-      return { code: 0, hidden: null, durationMs: finishedAt.getTime() - startedAt.getTime() };
+      return {
+        code: 0,
+        hidden: null,
+        durationMs: finishedAt.getTime() - startedAt.getTime(),
+        rawLogDisabled: rawLogDisabledReason(),
+      };
     }
 
     // Щуп посева считается по уже готовым фактам прогона: красный гейт фактического
@@ -482,6 +503,7 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
       ...(seedProbe === null ? {} : { seed: seedProbe }),
       hidden,
       honesty,
+      turnLimits: resolveTurnLimits(base.runner.limits, opts),
     });
 
     const resultPath = join(RESULTS_DIR, `${opts.slug}.json`);
@@ -516,10 +538,14 @@ async function liveRun(opts: BenchOptions): Promise<LiveOutcome> {
     console.log('\n--- черновик docs/model-runs.md (вклеить руками) ---\n');
     console.log(draftJournalEntry({ result, report }));
 
+    const rawLogDisabled = rawLogDisabledReason();
+    if (rawLogDisabled !== null) console.log(`\nсырой дамп: ${rawLogDisabled} — корпус этого прогона неполный`);
+
     return {
       code: report.exitCode,
       hidden: hidden === null ? null : { pass: hidden.pass, total: hidden.total },
       durationMs: finishedAt.getTime() - startedAt.getTime(),
+      rawLogDisabled,
     };
   } finally {
     operatorHandle.detach();
@@ -593,20 +619,23 @@ function median(values: readonly number[]): number | null {
 /** Сэмпл серии: измеренный исход ЛИБО ошибка — без фиктивных нулей в полях метрик. */
 type SeriesSample =
   | (LiveOutcome & { slug: string; error?: undefined })
-  | { slug: string; error: string };
+  | { slug: string; error: string; rawLogDisabled: string | null };
 
-async function seriesRun(opts: BenchOptions): Promise<number> {
+async function seriesRun(opts: BenchOptions, flags: LiveRunFlags): Promise<number> {
   const outcomes: SeriesSample[] = [];
   for (let i = 1; i <= opts.repeat; i++) {
     const slug = `${opts.slug}-s${i}`;
     console.log(`\n===== серия: сэмпл ${i} из ${opts.repeat} (${slug}) =====\n`);
+    // Выключение дампа после трёх отказов записи действует на процесс, а сэмплы серии идут в
+    // одном процессе: без сброса икота первого сэмпла молча гасила корпус всех остальных.
+    resetRawLog();
     // Исключение одного сэмпла не выбрасывает уже отгонянные платные сэмплы: сводка
     // серии обязана напечататься по измеренному, а упавший — лечь строкой «не измерен».
     // КОНФИГУРАЦИОННЫЕ ошибки — исключение из исключения: они одинаковы для всех сэмплов,
     // и глотать их значило бы готовить и рушить repeat рабочих копий одной и той же
     // ошибкой без заголовка «профиль не собрался» (ревью-2) — пробрасываются в main.
     try {
-      const outcome = await liveRun({ ...opts, slug });
+      const outcome = await liveRun({ ...opts, slug }, flags);
       outcomes.push({ ...outcome, slug });
     } catch (e) {
       if (
@@ -621,19 +650,20 @@ async function seriesRun(opts: BenchOptions): Promise<number> {
       }
       const msg = (e as Error).message;
       console.error(`сэмпл ${slug} не измерен: ${msg}`);
-      outcomes.push({ slug, error: msg });
+      outcomes.push({ slug, error: msg, rawLogDisabled: rawLogDisabledReason() });
     }
   }
 
   console.log(`\n===== сводка серии (${opts.repeat} сэмплов) =====`);
   for (const o of outcomes) {
+    const rawLog = o.rawLogDisabled === null ? '' : ` · сырой дамп ${o.rawLogDisabled}`;
     if (o.error !== undefined) {
-      console.log(`  ${o.slug}: НЕ ИЗМЕРЕН — ${o.error}`);
+      console.log(`  ${o.slug}: НЕ ИЗМЕРЕН — ${o.error}${rawLog}`);
       continue;
     }
     const mins = (o.durationMs / 60_000).toFixed(1);
     const probes = o.hidden === null ? 'щупы не гонялись' : `щупы ${o.hidden.pass}/${o.hidden.total}`;
-    console.log(`  ${o.slug}: код ${o.code} · ${probes} · ${mins} мин`);
+    console.log(`  ${o.slug}: код ${o.code} · ${probes} · ${mins} мин${rawLog}`);
   }
   const measuredSamples = outcomes.filter((o): o is LiveOutcome & { slug: string } => o.error === undefined);
   const withHidden = measuredSamples.filter((o) => o.hidden !== null);
@@ -677,12 +707,14 @@ export async function main(argv: readonly string[]): Promise<number> {
     throw e;
   }
 
-  // Сырой дамп серии включается ДО преполёта: `provider/rawLog.ts` запоминает каталог на
-  // первом же запросе к модели, а первый запрос делает проба преполёта. Без дампа по серии
-  // v4 нельзя было восстановить, что модель написала, упёршись в лимит длины.
-  if (opts.repeat > 1 && opts.rawLog !== false && (process.env['SDLC_RAW_LOG_DIR'] ?? '').trim() === '') {
+  // Сырой дамп — для ЛЮБОГО живого прогона, не только серии: одиночный прогон без него
+  // оставлял провал без корпуса ровно тогда, когда его хотелось разобрать (по серии v4 нельзя
+  // было восстановить, что модель написала, упёршись в лимит длины). `provider/rawLog.ts`
+  // читает переменную при первой записанной паре; проба преполёта идёт без метки `trace` и
+  // пар не пишет, поэтому важен лишь порядок «до первого этапа витка» — он здесь соблюдён.
+  if (rawLogWanted(opts, process.env['SDLC_RAW_LOG_DIR'])) {
     process.env['SDLC_RAW_LOG_DIR'] = join(TRACES_DIR, 'raw');
-    console.log(`сырой дамп запросов серии: ${process.env['SDLC_RAW_LOG_DIR']} (отключить: --no-raw-log)`);
+    console.log(`сырой дамп запросов: ${process.env['SDLC_RAW_LOG_DIR']} (отключить: --no-raw-log)`);
   }
 
   try {
@@ -692,16 +724,18 @@ export async function main(argv: readonly string[]): Promise<number> {
     // Автогейт: долгий прогон (и серия, и съёмка снимка — она платная) не стартует на
     // красном преполёте. Один преполёт на серию `--repeat`, не на сэмпл: среда и модель
     // между сэмплами одни и те же. Отключается осознанным `--no-preflight`.
+    let contextChecked = false;
     if (opts.preflight) {
       const gateCode = await preflightRun(opts);
       if (gateCode !== 0) {
         console.error(`\nпреполёт красный (код ${gateCode}) — прогон не начат. Осознанный запуск на красном: --no-preflight`);
         return gateCode;
       }
+      contextChecked = true;
       console.log('');
     }
-    if (opts.repeat > 1) return await seriesRun(opts);
-    return (await liveRun(opts)).code;
+    if (opts.repeat > 1) return await seriesRun(opts, { contextChecked });
+    return (await liveRun(opts, { contextChecked })).code;
   } catch (e) {
     // Три причины «измерение не состоялось» называются отдельно: у каждой свой способ
     // починки, и слив их в один текст стоил бы времени на следующем прогоне.

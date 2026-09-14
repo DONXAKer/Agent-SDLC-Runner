@@ -228,6 +228,9 @@ describe('исполнение по шагам', () => {
     const r = await exec(provider, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
     ok(r.ok, r.note);
     strictEqual(provider.asked.length, 2);
+    // Ремонтный запрос — тоже обращение к модели; ходов цикла у исполнителя по шагам нет.
+    strictEqual(r.modelRequests, 2);
+    strictEqual(r.turns, undefined);
     ok(provider.asked[1]!.includes('фрагмент не найден'), provider.asked[1]);
     ok(readFileSync(join(root, 'src/a.ts'), 'utf8').includes('return 0;'));
   });

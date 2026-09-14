@@ -63,11 +63,10 @@ import { symlinkEscape } from '../approval/symlink.ts';
 import { git } from '../gates/git.ts';
 import { isAbsolute, relativizeWithin, resolveUserPath, toPosix } from '../policy/paths.ts';
 import type { ChatMessage, ChatProvider, FinishReason } from '../provider/ChatProvider.ts';
-import { applyParams } from '../provider/ChatProvider.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { cap, executeTool, type ToolContext } from './tools/index.ts';
-import { estimateMessageTokens, marginFor, maxTokensForRemaining } from './contextBudget.ts';
+import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './contextBudget.ts';
 
 /**
  * Исход проверки после шага. `skipped` — проверка не состоялась (строки гейта нет, среда
@@ -384,17 +383,18 @@ export class StepExecutor implements StageExecutor {
    */
   private paramsFor(messages: readonly ChatMessage[], hooks: ExecHooks): Record<string, unknown> | null {
     if (this.o.contextWindow === undefined) return this.o.params ?? null;
-    const margin = marginFor(this.o.maxResultBytes, 1);
-    const budget = maxTokensForRemaining(this.o.contextWindow, estimateMessageTokens(messages), margin);
-    if (budget.clamped) {
-      hooks.onWarn(
-        `окно контекста (${this.o.contextWindow}) почти исчерпано этим запросом шага — max_tokens ` +
-          `ограничен полом ${budget.maxTokens}, переполнение всё ещё вероятно`,
-      );
-    }
-    const body: Record<string, unknown> = { max_tokens: budget.maxTokens };
-    applyParams(body, this.o.params ?? null);
-    return body;
+    const window = this.o.contextWindow;
+    return budgetParams({
+      contextWindow: window,
+      params: this.o.params,
+      promptTokens: estimateMessageTokens(messages),
+      marginTokens: ESTIMATE_MARGIN_TOKENS,
+      onClamped: (maxTokens) =>
+        hooks.onWarn(
+          `окно контекста (${window}) почти исчерпано этим запросом шага — max_tokens ` +
+            `ограничен полом ${maxTokens}, переполнение всё ещё вероятно`,
+        ),
+    });
   }
 
   async run(req: ExecRequest, hooks: ExecHooks): Promise<StageResult> {
@@ -429,6 +429,7 @@ export class StepExecutor implements StageExecutor {
       finalText: renderStepReport(outcomes, checkName),
       usage,
       note,
+      modelRequests: callsTotal,
     });
 
     const budgetHit = (): string | null => {
@@ -753,6 +754,7 @@ export class StepExecutor implements StageExecutor {
       ok: done > 0,
       finalText: report,
       usage,
+      modelRequests: callsTotal,
       note: done === 0 ? `${summary} — ни один шаг не дал правки` : bad === 0 ? summary : `${summary} — красные шаги на суд этапа 6`,
     };
   }

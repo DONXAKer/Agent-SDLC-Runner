@@ -18,14 +18,12 @@
  * (`preflightExitCode`), чтобы режим `--preflight` и автогейт не разъехались.
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { STAGE_ORDER } from '@sdlc-runner/shared';
-
 import { loadConfig } from '../../server/src/config/load.ts';
+import type { LoadedConfig } from '../../server/src/config/load.ts';
 import { estimateMessageTokens } from '../../server/src/exec/contextBudget.ts';
 import { readSkillBody } from '../../server/src/prompt/build.ts';
 import { stageById } from '../../server/src/run/stages.ts';
@@ -33,11 +31,14 @@ import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, probeModel, resolveProbeTarget 
 import type { ProbeReport } from '../../server/src/probe.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
-import { spawnNodeTest } from './nodeTest.ts';
+import { spawnNode, spawnNodeTest } from './nodeTest.ts';
 import type { NodeTestOutput } from './nodeTest.ts';
 import { readHumanScript } from './operator.ts';
 import { buildProfile, measuredStages, readControl } from './profile.ts';
-import { taskById, taskPaths } from './tasks.ts';
+import type { BuiltProfile, ControlFile } from './profile.ts';
+import { SnapshotError, firstMeasuredFrom, readSnapshotMeta, startStageAfter } from './snapshot.ts';
+import { fixtureColorOf, taskById, taskFilesProblem, taskPaths } from './tasks.ts';
+import { resolveTurnLimits } from './options.ts';
 import type { BenchOptions } from './options.ts';
 
 const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -81,12 +82,13 @@ export function formatPreflight(report: PreflightReport): string {
   return lines.join('\n');
 }
 
-/** Точка подмены для тестов: сеть и дочерние процессы не поднимаются вовсе. */
+/** Точка подмены для тестов: сеть, дочерние процессы и конфиг машины подменяются. */
 export interface PreflightDeps {
   probe: typeof probeModel;
   contextProblem: typeof contextProblemFor;
   spawnTest: typeof spawnNodeTest;
   spawnScript: (args: { script: string; cwd: string; timeoutMs: number }) => Promise<NodeTestOutput>;
+  loadConfig: () => LoadedConfig;
   benchDir: string;
   snapshotsDir: string;
   controlFile: string;
@@ -97,42 +99,28 @@ function defaultDeps(): PreflightDeps {
     probe: probeModel,
     contextProblem: contextProblemFor,
     spawnTest: spawnNodeTest,
-    spawnScript: spawnNodeScript,
+    // Общий спавн `nodeTest.ts`: своя копия здесь не сбрасывала NODE_TEST_CONTEXT, и
+    // `build-check.mjs` фикстуры из-под тестового прогона вёл себя иначе, чем в бою.
+    spawnScript: ({ script, cwd, timeoutMs }) => spawnNode({ args: [script], cwd, timeoutMs }),
+    loadConfig,
     benchDir: BENCH_DIR,
     snapshotsDir: join(BENCH_DIR, 'snapshots'),
     controlFile: join(BENCH_DIR, 'control.json'),
   };
 }
 
-const FIXTURE_CHECK_TIMEOUT_MS = 120_000;
-
-/** Дочерний `node <script>` — для `scripts/build-check.mjs` фикстур (без --test). */
-function spawnNodeScript(args: { script: string; cwd: string; timeoutMs: number }): Promise<NodeTestOutput> {
-  return new Promise((resolvePromise) => {
-    const child = spawn(process.execPath, [args.script], {
-      cwd: args.cwd,
-      env: process.env,
-      windowsHide: true,
-    });
-    const out: string[] = [];
-    const err: string[] = [];
-    let timedOut = false;
-    child.stdout.on('data', (d: Buffer) => out.push(d.toString('utf8')));
-    child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill();
-    }, args.timeoutMs);
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolvePromise({ exitCode: code, stdout: out.join(''), stderr: err.join(''), timedOut });
-    });
-    child.on('error', (e) => {
-      clearTimeout(timer);
-      resolvePromise({ exitCode: null, stdout: '', stderr: e.message, timedOut });
-    });
-  });
+/**
+ * Конфиг, контрольный маршрут и профиль — загружаются ОДИН раз на преполёт и отдаются
+ * проверкам. Прежде каждая проверка грузила их сама (конфиг пять раз, профиль трижды):
+ * лишняя работа и, хуже, пять возможностей увидеть разный конфиг в одном отчёте.
+ */
+interface PreflightContext {
+  config: LoadedConfig;
+  control: ControlFile;
+  built: BuiltProfile;
 }
+
+const FIXTURE_CHECK_TIMEOUT_MS = 120_000;
 
 const ok = (name: string, env: boolean, detail: string, durationMs = 0): PreflightCheck => ({
   name,
@@ -149,24 +137,15 @@ const bad = (name: string, env: boolean, detail: string, durationMs = 0): Prefli
   durationMs,
 });
 
-/** Файлы задачи и эталон скрытых тестов — то, что `taskFiles` в cli.ts проверяет броском. */
+/** Файлы задачи и эталон скрытых тестов — та же проверка, что бросает CLI (`requireTaskFiles`). */
 function checkTaskFiles(deps: PreflightDeps, task: string): PreflightCheck {
   const started = Date.now();
   const name = 'задача: файлы фикстуры';
-  const def = taskById(task as BenchOptions['task']);
-  const files = taskPaths(deps.benchDir, def);
-  if (!existsSync(files.fixtureDir)) {
-    return bad(name, true, `каталога фикстуры ${def.fixtureDir} нет на диске`, Date.now() - started);
-  }
-  for (const f of [files.taskFile, files.humanFile, files.expectedFile, files.hiddenFile]) {
-    if (!existsSync(f)) return bad(name, true, `нет файла ${f}`, Date.now() - started);
-  }
-  try {
-    JSON.parse(readFileSync(files.expectedFile, 'utf8'));
-  } catch (e) {
-    return bad(name, true, `эталон ${files.expectedFile} не парсится: ${(e as Error).message}`, Date.now() - started);
-  }
-  return ok(name, true, 'задача, банк ответов, эталон и скрытый тест на месте', Date.now() - started);
+  const def = taskById(task);
+  const problem = taskFilesProblem(taskPaths(deps.benchDir, def), def);
+  return problem === null
+    ? ok(name, true, 'задача, банк ответов, эталон и скрытый тест на месте', Date.now() - started)
+    : bad(name, true, problem, Date.now() - started);
 }
 
 /**
@@ -177,7 +156,7 @@ function checkTaskFiles(deps: PreflightDeps, task: string): PreflightCheck {
 function checkAnswerBank(deps: PreflightDeps, task: string): PreflightCheck {
   const started = Date.now();
   const name = 'задача: банк ответов человека';
-  const files = taskPaths(deps.benchDir, taskById(task as BenchOptions['task']));
+  const files = taskPaths(deps.benchDir, taskById(task));
   try {
     const script = readHumanScript(files.humanFile);
     const rules = script.answers.rules.length;
@@ -199,17 +178,35 @@ function checkAnswerBank(deps: PreflightDeps, task: string): PreflightCheck {
  * Лимит ходов стенда против штатного. Не красный: `--max-turns` ниже штатного — право
  * оператора. Но отказ «исчерпан лимит ходов» в такой серии мерит стенд, а не модель
  * (серия v4: три клетки из 25 при бенч-умолчании 25), и это должно быть написано ДО прогона.
+ *
+ * Предупреждение — только при ЯВНОМ `--max-turns`: без ключа виток получает штатный лимит
+ * конфига (`resolveTurnLimits`), и сравнивать с ним константу разбора значило бы вечное «⚠»
+ * после любой правки `runner.json`. Явный ключ снимает и поэтапные потолки — поэтому ниже
+ * штатного он может оказаться и на одном этапе (verify: 60).
  */
-function checkTurnLimit(opts: BenchOptions): PreflightCheck {
+function checkTurnLimit(config: LoadedConfig, opts: BenchOptions): PreflightCheck {
   const name = 'стенд: лимит ходов';
-  const prod = loadConfig().runner.limits.maxIterationsPerStage;
-  return opts.maxIterationsPerStage >= prod
-    ? ok(name, true, `ходов на этап ${opts.maxIterationsPerStage} (штатно ${prod})`)
-    : ok(
-        name,
-        true,
-        `⚠ ходов на этап ${opts.maxIterationsPerStage} НИЖЕ штатных ${prod}: отказ «исчерпан лимит ходов» в этой серии мерит стенд, а не модель`,
-      );
+  const prod = config.runner.limits;
+  const limits = resolveTurnLimits(prod, opts);
+  if (!limits.maxTurnsExplicit) {
+    const byStage = Object.entries(limits.maxIterationsByStage).map(([s, n]) => `${s} ${n}`).join(', ');
+    return ok(name, true, `ходов на этап ${limits.maxTurns} — штатный лимит конфига${byStage === '' ? '' : `, поэтапно: ${byStage}`}`);
+  }
+  const lowered = Object.entries(prod.maxIterationsByStage ?? {})
+    .filter(([, n]) => n !== undefined && n > limits.maxTurns)
+    .map(([s, n]) => `${s} ${n}`);
+  if (limits.maxTurns >= prod.maxIterationsPerStage && lowered.length === 0) {
+    return ok(name, true, `ходов на этап ${limits.maxTurns} (явный --max-turns; штатно ${prod.maxIterationsPerStage})`);
+  }
+  const where = [
+    ...(limits.maxTurns < prod.maxIterationsPerStage ? [`штатных ${prod.maxIterationsPerStage}`] : []),
+    ...(lowered.length === 0 ? [] : [`поэтапных потолков (${lowered.join(', ')})`]),
+  ].join(' и ');
+  return ok(
+    name,
+    true,
+    `⚠ ходов на этап ${limits.maxTurns} НИЖЕ ${where}: отказ «исчерпан лимит ходов» в этой серии мерит стенд, а не модель`,
+  );
 }
 
 /**
@@ -220,17 +217,14 @@ function checkTurnLimit(opts: BenchOptions): PreflightCheck {
  * предупреждение. Переполнение на plan (серии v4 и v5) до сих пор становилось видно
  * красной клеткой после прогона, а не за секунды до него.
  */
-function checkPlanPromptFits(deps: PreflightDeps, opts: BenchOptions): PreflightCheck | null {
+function checkPlanPromptFits(ctx: PreflightContext, opts: BenchOptions): PreflightCheck | null {
   if (!measuredStages(opts.mode).includes('plan')) return null;
   const started = Date.now();
   const name = 'модель: промпт plan против окна';
-  const config = loadConfig();
-  const control = readControl(deps.controlFile);
-  const built = buildProfile({ projectRoot: deps.benchDir, models: config.models, control, opts });
-  const window = built.profile.routes.plan.contextWindow;
+  const window = ctx.built.profile.routes.plan.contextWindow;
   let body: string;
   try {
-    body = readSkillBody(config.runner.skillsDir, stageById('plan').skill);
+    body = readSkillBody(ctx.config.runner.skillsDir, stageById('plan').skill);
   } catch {
     return ok(name, true, 'эталон скиллов не найден — оценка пропущена (прогон упадёт на сборке промпта раньше модели)');
   }
@@ -248,17 +242,20 @@ function checkPlanPromptFits(deps: PreflightDeps, opts: BenchOptions): Preflight
   return ok(name, true, `системная часть plan ≈${tokens} токенов при окне ${window}`, ms);
 }
 
-/** Контрольный маршрут и профиль: сборка до рабочей копии, а не посреди неё. */
-function checkProfile(deps: PreflightDeps, opts: BenchOptions): PreflightCheck {
+/**
+ * Контрольный маршрут и профиль: сборка до рабочей копии, а не посреди неё. Заодно это и
+ * единственная загрузка контекста преполёта — остальные проверки получают его готовым.
+ */
+function loadContext(deps: PreflightDeps, opts: BenchOptions): { check: PreflightCheck; ctx: PreflightContext | null } {
   const started = Date.now();
   const name = 'конфиг: контрольный маршрут';
   try {
-    const config = loadConfig();
+    const config = deps.loadConfig();
     const control = readControl(deps.controlFile);
-    buildProfile({ projectRoot: deps.benchDir, models: config.models, control, opts });
-    return ok(name, true, `маршрут «${control.label}» собирается`, Date.now() - started);
+    const built = buildProfile({ projectRoot: deps.benchDir, models: config.models, control, opts });
+    return { check: ok(name, true, `маршрут «${control.label}» собирается`, Date.now() - started), ctx: { config, control, built } };
   } catch (e) {
-    return bad(name, true, (e as Error).message, Date.now() - started);
+    return { check: bad(name, true, (e as Error).message, Date.now() - started), ctx: null };
   }
 }
 
@@ -280,15 +277,16 @@ function collectFixtureTests(fixtureDir: string): string[] {
 }
 
 /**
- * Зелёность фикстуры: `scripts/build-check.mjs` (если есть) и тесты фикстуры.
- * Намеренно красные семейства (`expectFixtureRed` в tasks.ts: broken-assert, flaky-test)
- * инвертируют проверку тестов: зелёная фикстура там значит, что задача потеряла предмет.
+ * Зелёность фикстуры: `scripts/build-check.mjs` (если есть) и тесты фикстуры. Ожидаемый цвет
+ * набора — `fixtureColorOf` (tasks.ts): намеренно красная (`broken-assert`) инвертирует
+ * проверку — зелёная там значит, что задача потеряла предмет; мигающая (`flaky-test`) цвет
+ * не проверяет вовсе — один прогон мигающего набора не говорит ничего.
  */
 async function checkFixture(deps: PreflightDeps, opts: BenchOptions): Promise<PreflightCheck[]> {
   const name = 'фикстура';
   const def = taskById(opts.task);
   const fixtureDir = join(deps.benchDir, def.fixtureDir);
-  const expectRed = def.expectFixtureRed === true;
+  const color = fixtureColorOf(def);
 
   const checks: PreflightCheck[] = [];
   const buildCheck = join(fixtureDir, 'scripts', 'build-check.mjs');
@@ -303,6 +301,12 @@ async function checkFixture(deps: PreflightDeps, opts: BenchOptions): Promise<Pr
     checks.push(ok(`${name}: сборка`, true, 'build-check.mjs зелёный', ms));
   }
 
+  // Мигающий набор не гоняется: зелёный прогон читался как «задача потеряла предмет», и
+  // автогейт давал код 2 примерно в 60 % запусков законного прогона (выборка 3 из 5).
+  if (color === 'flaky') {
+    return [...checks, ok(`${name}: тесты`, true, 'набор фикстуры мигает по дизайну — цвет одного прогона ничего не говорит, не проверяется')];
+  }
+
   const tests = collectFixtureTests(fixtureDir);
   if (tests.length === 0) {
     return [...checks, ok(`${name}: тесты`, true, 'тестов у фикстуры нет — проверять нечего')];
@@ -312,9 +316,9 @@ async function checkFixture(deps: PreflightDeps, opts: BenchOptions): Promise<Pr
   const ms = Date.now() - started;
   if (r.timedOut) return [...checks, bad(`${name}: тесты`, true, `сняты по таймауту ${FIXTURE_CHECK_TIMEOUT_MS} мс`, ms)];
   const green = r.exitCode === 0;
-  if (expectRed) {
+  if (color === 'red') {
     return green
-      ? [...checks, bad(`${name}: тесты`, true, 'фикстура ЗЕЛЁНАЯ, а задача ждёт намеренно красную — чинить/флапать больше нечему', ms)]
+      ? [...checks, bad(`${name}: тесты`, true, 'фикстура ЗЕЛЁНАЯ, а задача ждёт намеренно красную — чинить больше нечего', ms)]
       : [...checks, ok(`${name}: тесты`, true, 'намеренно красная фикстура подтверждена красной', ms)];
   }
   return green
@@ -322,47 +326,51 @@ async function checkFixture(deps: PreflightDeps, opts: BenchOptions): Promise<Pr
     : [...checks, bad(`${name}: тесты`, true, `нетронутая фикстура КРАСНАЯ (код ${r.exitCode}) — прогон измерит битую среду, а не модель`, ms)];
 }
 
-/** Снимок `--from-snapshot`: существование, мета, принадлежность задаче, точка снимка. */
+/**
+ * Снимок `--from-snapshot`: существование, мета и принадлежность задаче — той же проверкой,
+ * что у восстановления (`readSnapshotMeta`), — и есть ли что мерить ПОСЛЕ точки снимка.
+ *
+ * Первый измеряемый этап считается от этапа старта драйвера (`startStageAfter`), а не с
+ * начала витка: при `--all` первым измеряемым был бы intent, и любой снимок давал «нечего
+ * мерить» и код 2 на законном `--all --from-snapshot`.
+ */
 function checkSnapshot(deps: PreflightDeps, opts: BenchOptions): PreflightCheck | null {
   if (opts.fromSnapshot === null) return null;
   const started = Date.now();
   const name = 'снимок';
-  const dir = join(deps.snapshotsDir, opts.fromSnapshot);
-  if (!existsSync(dir)) return bad(name, true, `снимка «${opts.fromSnapshot}» нет в ${deps.snapshotsDir}`, Date.now() - started);
-  const metaFile = join(dir, 'snapshot.json');
-  if (!existsSync(metaFile)) return bad(name, true, `${dir}: нет snapshot.json — это не снимок бенчмарка`, Date.now() - started);
-  let meta: { task?: unknown; stoppedAfterStage?: unknown };
+  let point: string;
   try {
-    meta = JSON.parse(readFileSync(metaFile, 'utf8')) as typeof meta;
+    point = readSnapshotMeta({ snapshotsDir: deps.snapshotsDir, name: opts.fromSnapshot, expectedTask: opts.task }).stoppedAfterStage;
   } catch (e) {
-    return bad(name, true, `snapshot.json не парсится: ${(e as Error).message}`, Date.now() - started);
+    if (e instanceof SnapshotError) return bad(name, true, e.message, Date.now() - started);
+    throw e;
   }
-  if (meta.task !== opts.task) {
-    return bad(name, true, `снимок снят для задачи «${String(meta.task)}», прогон — для «${opts.task}»`, Date.now() - started);
-  }
-  const first = measuredStages(opts.mode)[0];
-  const point = STAGE_ORDER.indexOf(meta.stoppedAfterStage as (typeof STAGE_ORDER)[number]);
-  if (first !== undefined && (point === -1 || point >= STAGE_ORDER.indexOf(first))) {
+  const start = startStageAfter(point);
+  const measured = measuredStages(opts.mode);
+  const first = start === null ? null : firstMeasuredFrom(start, measured);
+  if (start === null || first === null) {
     return bad(
       name,
       true,
-      `точка снимка «${String(meta.stoppedAfterStage)}» не раньше первого измеряемого этапа «${first}» — прогону нечего мерить`,
+      `точка снимка «${point}»: все измеряемые этапы (${measured.join(', ')}) снимок уже прошёл — прогону нечего мерить`,
       Date.now() - started,
     );
   }
-  return ok(name, true, `снимок «${opts.fromSnapshot}» на месте, задача совпадает`, Date.now() - started);
+  return ok(
+    name,
+    true,
+    `снимок «${opts.fromSnapshot}» на месте, задача совпадает; старт с «${start}», первый измеряемый — «${first}»`,
+    Date.now() - started,
+  );
 }
 
 /** Окно контекста измеряемых маршрутов (LM Studio — фактическое, Ollama — зашитое/4096). */
-async function checkContextWindows(deps: PreflightDeps, opts: BenchOptions): Promise<PreflightCheck[]> {
+async function checkContextWindows(deps: PreflightDeps, ctx: PreflightContext): Promise<PreflightCheck[]> {
   const name = 'модель: окно контекста';
-  const config = loadConfig();
-  const control = readControl(deps.controlFile);
-  const built = buildProfile({ projectRoot: deps.benchDir, models: config.models, control, opts });
   const seen = new Set<string>();
   const out: PreflightCheck[] = [];
-  for (const stage of built.measured) {
-    const route = built.profile.routes[stage];
+  for (const stage of ctx.built.measured) {
+    const route = ctx.built.profile.routes[stage];
     const key = `${route.provider}/${route.model}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -376,8 +384,7 @@ async function checkContextWindows(deps: PreflightDeps, opts: BenchOptions): Pro
 }
 
 /** Модельные кейсы пробы — только флоу loop; sdk-флоу проба не меряет (resolveProbeTarget). */
-async function checkModel(deps: PreflightDeps, opts: BenchOptions): Promise<PreflightCheck[]> {
-  const config = loadConfig();
+async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: BenchOptions): Promise<PreflightCheck[]> {
   const target = resolveProbeTarget(config.models, opts.model);
   if ('error' in target) {
     // «Флоу sdk» — проба неприменима, это не красное; остальные ошибки (модель не
@@ -413,19 +420,20 @@ async function checkModel(deps: PreflightDeps, opts: BenchOptions): Promise<Pref
 export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDeps> = {}): Promise<PreflightReport> {
   const d: PreflightDeps = { ...defaultDeps(), ...deps };
   const taskCheck = checkTaskFiles(d, opts.task);
-  const checks: PreflightCheck[] = [taskCheck, ...(taskCheck.ok ? [checkAnswerBank(d, opts.task)] : []), checkProfile(d, opts)];
+  const loaded = loadContext(d, opts);
+  const checks: PreflightCheck[] = [taskCheck, ...(taskCheck.ok ? [checkAnswerBank(d, opts.task)] : []), loaded.check];
   checks.push(...(await checkFixture(d, opts)));
   const snap = checkSnapshot(d, opts);
   if (snap !== null) checks.push(snap);
 
-  const envOkSoFar = checks.every((c) => c.ok);
-  if (envOkSoFar) {
-    checks.push(checkTurnLimit(opts));
-    const planFit = checkPlanPromptFits(d, opts);
+  const ctx = loaded.ctx;
+  if (ctx !== null && checks.every((c) => c.ok)) {
+    checks.push(checkTurnLimit(ctx.config, opts));
+    const planFit = checkPlanPromptFits(ctx, opts);
     if (planFit !== null) checks.push(planFit);
-    checks.push(...(await checkContextWindows(d, opts)));
+    checks.push(...(await checkContextWindows(d, ctx)));
     if (checks.every((c) => c.ok)) {
-      checks.push(...(await checkModel(d, opts)));
+      checks.push(...(await checkModel(d, ctx.config, opts)));
     }
   }
 

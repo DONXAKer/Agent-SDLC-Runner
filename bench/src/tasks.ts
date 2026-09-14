@@ -12,9 +12,21 @@
  * четыре файла (`taskPaths`); для задачи без каталога `--task` отвечает кодом 2 и причиной.
  */
 
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export class TaskError extends Error {}
+
+/**
+ * Каким обязан быть набор тестов нетронутой фикстуры.
+ *
+ * `red` — падает детерминированно (битый тест — сам предмет задачи): зелёная фикстура значит,
+ * что задача потеряла смысл. `flaky` — падает СЛУЧАЙНО (`Math.random`, выборка 3 из 5):
+ * цвет одного прогона не говорит ничего, и проверять его нельзя вовсе. Пока мигающая фикстура
+ * числилась «красной», зелёный прогон её набора (≈60 % запусков) давал преполёту средовой
+ * отказ и код 2 — автогейт рубил законный прогон через раз.
+ */
+export type FixtureColor = 'green' | 'red' | 'flaky';
 
 export interface TaskDef {
   id: string;
@@ -24,12 +36,19 @@ export interface TaskDef {
   taskFile: string;
   /** Имя банка ответов человека внутри каталога фикстуры. */
   humanFile: string;
+  /** Цвет нетронутой фикстуры, если он не зелёный. См. `FixtureColor`, `fixtureColorOf`. */
+  fixtureColor?: Exclude<FixtureColor, 'green'>;
   /**
-   * Фикстура намеренно красная (битый тест/флаки — сам предмет задачи): преполётный
-   * самопроверка инвертируется — зелёная фикстура значит, что задача потеряла смысл
-   * (чинить нечего). Умолчание — фикстура обязана быть зелёной.
+   * Прежняя пометка намеренно красной фикстуры. Оставлена для совместимости записей;
+   * реестр пользуется `fixtureColor`, читать цвет — только через `fixtureColorOf`.
    */
   expectFixtureRed?: boolean;
+}
+
+/** Единственное место, где из записи задачи выводится ожидаемый цвет фикстуры. */
+export function fixtureColorOf(def: TaskDef): FixtureColor {
+  if (def.fixtureColor !== undefined) return def.fixtureColor;
+  return def.expectFixtureRed === true ? 'red' : 'green';
 }
 
 /**
@@ -83,9 +102,9 @@ export const TASK_DEFS = [
   familyTask('already-done', 'feature-present'),
   familyTask('undo-feature', 'feature-present'),
 
-  { ...familyTask('broken-test', 'broken-assert'), expectFixtureRed: true },
+  { ...familyTask('broken-test', 'broken-assert'), fixtureColor: 'red' },
 
-  { ...familyTask('flaky-by-design', 'flaky-test'), expectFixtureRed: true },
+  { ...familyTask('flaky-by-design', 'flaky-test'), fixtureColor: 'flaky' },
 
   familyTask('bug-by-symptom', 'billing-bug'),
   familyTask('wrong-diagnosis', 'billing-bug'),
@@ -129,4 +148,38 @@ export function taskPaths(benchDir: string, def: TaskDef): TaskPaths {
     expectedFile: join(benchDir, 'expected', `${def.id}.json`),
     hiddenFile: join(benchDir, 'checks', 'hidden', `${def.id}.hidden.mjs`),
   };
+}
+
+/**
+ * Файлы задачи на диске — причина отказа строкой, `null` — всё на месте.
+ *
+ * Одна проверка на CLI (бросок перед прогоном) и преполёт (строка отчёта): две копии уже
+ * разошлись формулировками, а следующая правка разнесла бы и сами условия. Реестр описывает
+ * задачи наперёд, каталоги семейств появляются постепенно — без проверки задача без фикстуры
+ * валилась сырым ENOENT с кодом 1, «модель не прошла», хотя измерение не начиналось. Эталон и
+ * скрытый тест проверяются здесь же: их отсутствие давало бы после ПЛАТНОГО прогона отчёт
+ * «скрытые тесты не запускались» — измерение без щупов, неотличимое от честного.
+ */
+export function taskFilesProblem(files: TaskPaths, def: TaskDef): string | null {
+  if (!existsSync(files.fixtureDir)) {
+    return `задача «${def.id}» есть в реестре, но каталога фикстуры ${def.fixtureDir} на диске ещё нет`;
+  }
+  for (const f of [files.taskFile, files.humanFile, files.expectedFile, files.hiddenFile]) {
+    if (!existsSync(f)) return `задача «${def.id}»: нет файла ${f}`;
+  }
+  try {
+    JSON.parse(readFileSync(files.expectedFile, 'utf8'));
+  } catch (e) {
+    return `задача «${def.id}»: эталон ${files.expectedFile} не парсится: ${(e as Error).message}`;
+  }
+  return null;
+}
+
+/** Пути задачи с проверкой файлов — бросает `TaskError` с причиной из `taskFilesProblem`. */
+export function requireTaskFiles(benchDir: string, id: string): TaskPaths {
+  const def = taskById(id);
+  const files = taskPaths(benchDir, def);
+  const problem = taskFilesProblem(files, def);
+  if (problem !== null) throw new TaskError(problem);
+  return files;
 }

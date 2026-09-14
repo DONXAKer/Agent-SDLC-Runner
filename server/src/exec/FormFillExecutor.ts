@@ -61,14 +61,14 @@ import { isSheetError, parseFieldValue } from '../artifacts/sheet.ts';
 import { listSourceFiles } from '../gates/builtin/index.ts';
 import { templateNameFor } from '../run/seed.ts';
 import { isSeparatorRow, splitRow } from '../md/table.ts';
+import { RUNTIME_AUTOFILLED_TEMPLATES } from '../run/formAutofill.ts';
 import {
-  applyParams,
   ENGINE_UNAVAILABLE_SUBSTRINGS,
   ProviderEnvError,
   type ChatMessage,
   type ChatProvider,
 } from '../provider/ChatProvider.ts';
-import { estimateMessageTokens, marginFor, maxTokensForRemaining } from './contextBudget.ts';
+import { budgetParams, ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from './contextBudget.ts';
 import { writeThroughGate } from './gateWrite.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import type { ToolContext } from './tools/index.ts';
@@ -92,8 +92,9 @@ const FILES_TO_TOUCH_HEADER = /\|\s*Путь\s*\|\s*Что делаем\s*\|/;
  * заземления модель сочиняет правдоподобные, но несуществующие пути — измерено живьём
  * пять раз за один прогон (серия v3, 2026-09-13, `docs/model-runs.md` → «Серия 5×5, повтор
  * v3»), и находка ловится только ПОСТФАКТУМ, гейтом честности (`explorationPathProblem`),
- * не предотвращается. Список путей ниже — тот же безопасный обход, что у индекса разведки
- * (`explore/tree.ts`, symlink-safe, `.`-каталоги и `node_modules` исключены), не полноценный
+ * не предотвращается. Список путей ниже — безопасный обход `listSourceFiles` (symlink-safe,
+ * `node_modules`/`.git`/`.sdlc` и кэши исключены, а прочие `.`-каталоги — нет: без них
+ * существующий `.storybook/main.ts` честно назывался «новым»), не полноценный
  * индекс с кандидатами по ключевым словам — тот конвейер (`ExploreExecutor`) требует задачи
  * и структуры, которых у голого дозаполнения одного поля нет.
  */
@@ -197,29 +198,23 @@ export type FormField =
     };
 
 /**
- * Шаблоны, у которых ВСЕ поля рантайма закрывает автозаполнение до модели
- * (`run/formAutofill.ts`). Только у них поля рантайма исключаются из вопросов модели: у
- * остальных исключённое поле осталось бы плейсхолдером, закрыть который уже некому (журнал
- * chunk'а — дата одобрения плана извлекается не всегда; handoff — автозаполнения нет).
- */
-const RUNTIME_FIELDS_COVERED = new Set([
-  'plan.template.md',
-  'readiness.template.md',
-  'clarification-report.template.md',
-  'exploration-report.template.md',
-]);
-
-/**
  * Поля бланка, которые спрашиваются у модели: `groupFields` минус поля рантайма схемы.
  *
  * Карточный режим (`compact`) отсекал их всегда (`modelFields`), а основной путь шёл по
  * плейсхолдерам и про `SCHEMA_OVERRIDES` не знал — модель заполняла «Базу» плана и даты
  * готовности, хотя это факты рантайма (relog серии v5: `base_sha` выдуман).
+ *
+ * Фильтр намеренно уже, чем у `modelFields`: снимаются только поля `runtime`/`mechanical`,
+ * и только у шаблонов, которые целиком закрывает автозаполнение
+ * (`RUNTIME_AUTOFILLED_TEMPLATES`). Поля `subagent` (лист `sdlc-claims`) основной путь
+ * по-прежнему спрашивает: у карточного режима их закрывает конвейер разведки, а здесь,
+ * без `sdlc-claims`, их некому закрыть, кроме модели — снятые, они остались бы
+ * плейсхолдерами навсегда.
  */
 export function modelGroupFields(text: string, path: string): FormField[] {
   const groups = groupFields(text);
   const templateName = templateNameFor(path);
-  if (templateName === undefined || !RUNTIME_FIELDS_COVERED.has(templateName)) return groups;
+  if (templateName === undefined || !RUNTIME_AUTOFILLED_TEMPLATES.has(templateName)) return groups;
   const runtime = deriveSchema(text, templateName).fields.filter((f) => f.owner === 'runtime' || f.kind === 'mechanical');
   if (runtime.length === 0) return groups;
   return groups.filter((g) => !runtime.some((f) => g.start >= f.range.start && g.start < f.range.end));
@@ -339,11 +334,15 @@ export class FormFillExecutor implements StageExecutor {
   readonly flow = 'loop' as const;
   private readonly o: FormFillOptions;
   /**
-   * Оценка входа последнего полевого запроса — число для диагноза «контекст переполнен».
-   * Без него диагноз был гипотезой раннера: ни размера запроса, ни окна в отчёте не было,
-   * а `usage` отказавшего запроса нулевой.
+   * Наибольшая оценка входа полевого запроса за текущий `run()` — число для диагноза
+   * «контекст переполнен». Без него диагноз был гипотезой раннера: ни размера запроса, ни
+   * окна в отчёте не было, а `usage` отказавшего запроса нулевой.
+   *
+   * Наибольшая, а не последняя: поля идут параллельными пачками, и «последний» запрос —
+   * это тот, чей `paramsFor` случайно выполнился позже, то есть диагноз называл чужой
+   * размер. Переполняет окно именно крупнейший. Сбрасывается в начале `run()`.
    */
-  private lastRequestTokens: number | null = null;
+  private maxRequestTokens: number | null = null;
 
   constructor(o: FormFillOptions) {
     this.o = o;
@@ -351,7 +350,8 @@ export class FormFillExecutor implements StageExecutor {
 
   /** Числа к диагнозу переполнения: оценка входа против окна маршрута. */
   private contextNumbers(): string {
-    const est = this.lastRequestTokens === null ? 'оценки входа нет' : `вход ≈${this.lastRequestTokens} токенов`;
+    const est =
+      this.maxRequestTokens === null ? 'оценки входа нет' : `наибольший вход ≈${this.maxRequestTokens} токенов`;
     return this.o.contextWindow === undefined
       ? `${est}, окно маршрута не задано — заполни contextWindow модели в config/models.json`
       : `${est} при окне ${this.o.contextWindow}`;
@@ -359,25 +359,40 @@ export class FormFillExecutor implements StageExecutor {
 
   /**
    * `params` полевого запроса — `max_tokens` по остатку окна (`contextBudget.ts`), когда
-   * `contextWindow` задан; иначе `this.o.params` как есть. Та же формула и тот же повод,
-   * что у `StepExecutor.paramsFor`/`ExploreExecutor.paramsFor` — см. комментарий у поля
+   * `contextWindow` задан; иначе `this.o.params` как есть — см. комментарий у поля
    * `contextWindow` выше.
+   *
+   * Запас — `ESTIMATE_MARGIN_TOKENS`, а не `marginFor(maxResultBytes)`: у полевого запроса
+   * нет инструментов (`tools: []`), результатов, приходящих после оценки, не бывает, и
+   * запас в целый результат (~3000 токенов) сажал ответ поля на пол 256 на окне 16K.
    */
   private paramsFor(messages: readonly ChatMessage[], hooks: ExecHooks): Record<string, unknown> | null {
     const estimate = estimateMessageTokens(messages);
-    this.lastRequestTokens = estimate;
-    if (this.o.contextWindow === undefined) return this.o.params ?? null;
-    const margin = marginFor(this.o.maxResultBytes, 1);
-    const budget = maxTokensForRemaining(this.o.contextWindow, estimate, margin);
-    if (budget.clamped) {
-      hooks.onWarn(
-        `окно контекста (${this.o.contextWindow}) почти исчерпано этим полевым запросом — max_tokens ` +
-          `ограничен полом ${budget.maxTokens}, переполнение всё ещё вероятно`,
-      );
-    }
-    const body: Record<string, unknown> = { max_tokens: budget.maxTokens };
-    applyParams(body, this.o.params ?? null);
-    return body;
+    this.maxRequestTokens = Math.max(this.maxRequestTokens ?? 0, estimate);
+    const window = this.o.contextWindow;
+    return budgetParams({
+      contextWindow: window,
+      params: this.o.params,
+      promptTokens: estimate,
+      marginTokens: ESTIMATE_MARGIN_TOKENS,
+      onClamped: (maxTokens) =>
+        hooks.onWarn(
+          `окно контекста (${window ?? '—'}) почти исчерпано этим полевым запросом — max_tokens ` +
+            `ограничен полом ${maxTokens}, переполнение всё ещё вероятно`,
+        ),
+    });
+  }
+
+  /** Полевой запрос без инструментов — одна форма на все виды вопросов режима. */
+  private ask(req: ExecRequest, messages: ChatMessage[], hooks: ExecHooks): ReturnType<ChatProvider['chat']> {
+    return this.o.provider.chat({
+      model: req.model,
+      messages,
+      tools: [],
+      signal: req.signal,
+      temperature: null,
+      params: this.paramsFor(messages, hooks),
+    });
   }
 
   /** Поля модели в режиме `compact` минус `skipFields` — один источник для прохода и для счёта остатка. */
@@ -389,6 +404,7 @@ export class FormFillExecutor implements StageExecutor {
   }
 
   async run(req: ExecRequest, hooks: ExecHooks): Promise<StageResult> {
+    this.maxRequestTokens = null;
     const artifacts = req.formArtifacts ?? [];
     if (artifacts.length === 0) {
       return {
@@ -408,7 +424,7 @@ export class FormFillExecutor implements StageExecutor {
     const codeMapGrounding = async (): Promise<string> => {
       if (codeMapListing !== null) return codeMapListing;
       codeMapListing = (async () => {
-        const { files } = await listSourceFiles(req.cwd, CODE_MAP_SCAN_LIMIT, req.signal);
+        const { files } = await listSourceFiles(req.cwd, CODE_MAP_SCAN_LIMIT, req.signal, { includeDotDirs: true });
         const lines = files.map((f) => `- \`${f}\``);
         let text = lines.join('\n');
         let truncated = false;
@@ -642,14 +658,7 @@ export class FormFillExecutor implements StageExecutor {
             ].join('\n'),
           },
         ];
-      return this.o.provider.chat({
-        model: req.model,
-        messages,
-        tools: [],
-        signal: req.signal,
-        temperature: null,
-        params: this.paramsFor(messages, hooks),
-      });
+      return this.ask(req, messages, hooks);
     };
 
     /**
@@ -705,14 +714,7 @@ export class FormFillExecutor implements StageExecutor {
             ].join('\n'),
           },
         ];
-      return this.o.provider.chat({
-        model: req.model,
-        messages,
-        tools: [],
-        signal: req.signal,
-        temperature: null,
-        params: this.paramsFor(messages, hooks),
-      });
+      return this.ask(req, messages, hooks);
     };
 
     /**
@@ -748,14 +750,7 @@ export class FormFillExecutor implements StageExecutor {
             ].join('\n'),
           },
         ];
-      return this.o.provider.chat({
-        model: req.model,
-        messages,
-        tools: [],
-        signal: req.signal,
-        temperature: null,
-        params: this.paramsFor(messages, hooks),
-      });
+      return this.ask(req, messages, hooks);
     };
 
     /**
@@ -805,14 +800,7 @@ export class FormFillExecutor implements StageExecutor {
           { role: 'system', content: req.prompt.system },
           { role: 'user', content: [req.prompt.user, '', card].join('\n') },
         ];
-      return this.o.provider.chat({
-        model: req.model,
-        messages,
-        tools: [],
-        signal: req.signal,
-        temperature: null,
-        params: this.paramsFor(messages, hooks),
-      });
+      return this.ask(req, messages, hooks);
     };
 
     /** Добор записи ниже минимума (`compact`) — та же идея, что `askClaimsTopUp`, через `applyFill('add')`. */
@@ -845,14 +833,7 @@ export class FormFillExecutor implements StageExecutor {
             ].join('\n'),
           },
         ];
-      return this.o.provider.chat({
-        model: req.model,
-        messages,
-        tools: [],
-        signal: req.signal,
-        temperature: null,
-        params: this.paramsFor(messages, hooks),
-      });
+      return this.ask(req, messages, hooks);
     };
 
     /**
@@ -1212,13 +1193,18 @@ export class FormFillExecutor implements StageExecutor {
     // (эти стоят ходов модели — нужен запас лимита) либо недоехавшая запись (перезапись
     // БЕСПЛАТНА и лимитом ходов не запирается — иначе оплаченный текст, ради спасения
     // которого pendingText заведён, терялся бы ровно на исчерпанном лимите, ревью-4).
-    const retriable =
-      (fieldsLeftOnDisk(true) > 0 && callsSpent < req.maxTurns) || pendingText.size > 0;
+    const leftRetriable = fieldsLeftOnDisk(true);
+    const retriable = (leftRetriable > 0 && callsSpent < req.maxTurns) || pendingText.size > 0;
+    let secondSweep = false;
     if (retriable && !req.signal.aborted) {
+      secondSweep = true;
       const stopped2 = await sweep();
       if (stopped2 !== null) return stopped2;
     }
-    const fieldsLeft = fieldsLeftOnDisk();
+    // Каждый пересчёт — чтение всех бланков и `deriveSchema`. Без отказов гейта «только
+    // пересчитываемые» и «все» — одно и то же число, а без второго прохода диск с тех пор
+    // не менялся: перечитывать незачем.
+    const fieldsLeft = secondSweep || writeDenied.size > 0 ? fieldsLeftOnDisk() : leftRetriable;
 
     // «Заполнено в тексте» — не «записано на диск»: отклонённая гейтом запись оставляет
     // бланк нетронутым, и сводка обязана это различать, а не отчитываться сделанным.
@@ -1236,8 +1222,8 @@ export class FormFillExecutor implements StageExecutor {
     // попытки, но прогон, в котором апстрим отказывал, измерением модели не является.
     const env = envFailure === null ? {} : { envFailure };
     if (complaint !== null) {
-      return { ok: false, finalText: summary, usage, note: complaint, turns: callsSpent, ...env };
+      return { ok: false, finalText: summary, usage, note: complaint, modelRequests: callsSpent, ...env };
     }
-    return { ok: true, finalText: summary, usage, note: summary, turns: callsSpent, ...env };
+    return { ok: true, finalText: summary, usage, note: summary, modelRequests: callsSpent, ...env };
   }
 }

@@ -78,6 +78,38 @@ const chat = (c: CaseCtx, messages: ChatMessage[], toolNames: ('Read' | 'Write' 
 
 type CaseOutcome = { ok: boolean; detail: string };
 
+/** Проверка кейса: условие и текст отказа, если оно не выполнено. */
+type Check = readonly [pass: boolean, failure: string];
+
+/**
+ * Итог кейса по списку проверок: `detail` — текст ПЕРВОЙ проваленной, `ok` — прошли все.
+ *
+ * Раньше условия `ok` жили дважды — в конъюнкции и в тернарной цепочке `detail`, — и
+ * добавленное в одно место условие делало второе враньём: кейс красный, а причина
+ * называет проверку, которая прошла (code-review, 2026-09-14). Порядок проверок значим —
+ * как в политике, отказ называет самую раннюю причину.
+ */
+function verdict(okDetail: string, checks: readonly Check[]): CaseOutcome {
+  const failed = checks.find(([pass]) => !pass);
+  return failed === undefined ? { ok: true, detail: okDetail } : { ok: false, detail: failed[1] };
+}
+
+const noCall = (text: string, prefix = 'вызова нет'): CaseOutcome => ({
+  ok: false,
+  detail: `${prefix}, текст: «${text.slice(0, 120)}»`,
+});
+
+/**
+ * Путь в той записи, которую модель законно может выбрать для объявленного файла:
+ * `./src/a.ts` и `src\a.ts` — тот же файл, и красить их «вымышленным путём» значило бы
+ * мерить набор символов, а не честность (code-review, 2026-09-14). Абсолютный путь и
+ * другое имя по-прежнему не совпадут.
+ */
+function samePath(path: string, declared: string): boolean {
+  const norm = (p: string): string => p.replace(/\\/g, '/').replace(/^(\.\/)+/, '');
+  return norm(path) === norm(declared);
+}
+
 /**
  * Точное содержимое «файла» для кейса многострочного Edit. Перевод строки внутри
  * template-литерала — ровно та форма, на которой слабые модели дали 44 промаха Edit
@@ -104,17 +136,12 @@ async function caseWrite(c: CaseCtx): Promise<CaseOutcome> {
     ['Write', 'Read'],
   );
   const call = turn.toolCalls[0];
-  const ok =
-    call !== undefined && call.name === 'Write' && str(call.arguments, 'file_path') !== '' && str(call.arguments, 'content') !== '';
-  return {
-    ok,
-    detail:
-      call === undefined
-        ? `вызова нет, текст: «${turn.text.slice(0, 120)}»`
-        : ok
-          ? `Write(${str(call.arguments, 'file_path')})`
-          : `вызван ${call.name}, аргументы неполны или не разобрались`,
-  };
+  if (call === undefined) return noCall(turn.text);
+  const path = str(call.arguments, 'file_path');
+  return verdict(`Write(${path})`, [
+    [call.name === 'Write', `вызван ${call.name} вместо Write`],
+    [path !== '' && str(call.arguments, 'content') !== '', `вызван ${call.name}, аргументы неполны или не разобрались`],
+  ]);
 }
 
 /**
@@ -136,21 +163,15 @@ async function caseEdit(c: CaseCtx): Promise<CaseOutcome> {
     ['Edit', 'Read'],
   );
   const call = turn.toolCalls[0];
-  const ok =
-    call !== undefined &&
-    call.name === 'Edit' &&
-    str(call.arguments, 'old_string').includes('‹') &&
-    str(call.arguments, 'new_string') !== '' &&
-    !str(call.arguments, 'new_string').includes('‹');
-  return {
-    ok,
-    detail:
-      call === undefined
-        ? `вызова нет, текст: «${turn.text.slice(0, 120)}»`
-        : ok
-          ? 'Edit с плейсхолдером в old_string'
-          : `вызван ${call.name}, old_string/new_string не про плейсхолдер`,
-  };
+  if (call === undefined) return noCall(turn.text);
+  const oldStr = str(call.arguments, 'old_string');
+  const newStr = str(call.arguments, 'new_string');
+  const notAboutPlaceholder = `вызван ${call.name}, old_string/new_string не про плейсхолдер`;
+  return verdict('Edit с плейсхолдером в old_string', [
+    [call.name === 'Edit', `вызван ${call.name} вместо Edit`],
+    [oldStr.includes('‹'), notAboutPlaceholder],
+    [newStr !== '' && !newStr.includes('‹'), notAboutPlaceholder],
+  ]);
 }
 
 /**
@@ -171,9 +192,7 @@ async function caseReadThenWrite(c: CaseCtx): Promise<CaseOutcome> {
   ];
   const first = await chat(c, messages, names);
   const firstCall: ChatToolCall | undefined = first.toolCalls[0];
-  if (firstCall === undefined) {
-    return { ok: false, detail: `первый ход без вызова, текст: «${first.text.slice(0, 120)}»` };
-  }
+  if (firstCall === undefined) return noCall(first.text, 'первый ход без вызова');
   // Модель, сразу позвавшая запись, порог «перейти к записи» уже взяла — засчитываем.
   if (firstCall.name === 'Edit' || firstCall.name === 'Write') {
     return { ok: true, detail: `сразу ${firstCall.name}` };
@@ -188,23 +207,18 @@ async function caseReadThenWrite(c: CaseCtx): Promise<CaseOutcome> {
   });
   const second = await chat(c, messages, names);
   const call = second.toolCalls[0];
-  const ok = call !== undefined && (call.name === 'Edit' || call.name === 'Write');
-  return {
-    ok,
-    detail:
-      call === undefined
-        ? `после чтения записи нет, текст: «${second.text.slice(0, 120)}»`
-        : ok
-          ? `Read, затем ${call.name}`
-          : `после чтения снова ${call.name}`,
-  };
+  if (call === undefined) return noCall(second.text, 'после чтения записи нет');
+  return verdict(`Read, затем ${call.name}`, [
+    [call.name === 'Edit' || call.name === 'Write', `после чтения снова ${call.name}`],
+  ]);
 }
 
 /**
  * Кейс 4 (преполёт): точный Edit многострочного блока. Содержимое файла дано в
  * промпте целиком; модель обязана набрать old_string как ТОЧНУЮ подстроку этого
  * содержимого. Класс отказа — «некорректная запись»: old_string по памяти не совпал
- * побайтово (44 промаха на 5 копий из-за перевода строки в template-поле).
+ * побайтово (44 промаха на 5 копий из-за перевода строки в template-поле). Сверка
+ * строгая намеренно: побайтовость old_string и есть измеряемое свойство.
  */
 async function caseEditExactMultiline(c: CaseCtx): Promise<CaseOutcome> {
   const turn = await chat(
@@ -225,28 +239,16 @@ async function caseEditExactMultiline(c: CaseCtx): Promise<CaseOutcome> {
     ['Edit', 'Read'],
   );
   const call = turn.toolCalls[0];
-  if (call === undefined) {
-    return { ok: false, detail: `вызова нет, текст: «${turn.text.slice(0, 120)}»` };
-  }
+  if (call === undefined) return noCall(turn.text);
   const oldStr = str(call.arguments, 'old_string');
   const newStr = str(call.arguments, 'new_string');
-  const ok =
-    call.name === 'Edit' &&
-    oldStr !== '' &&
-    MULTILINE_FILE.includes(oldStr) &&
-    oldStr.includes('Срок:') &&
-    newStr.includes('Дедлайн:') &&
-    !newStr.includes('Срок:');
-  return {
-    ok,
-    detail: ok
-      ? 'Edit с точным многострочным old_string'
-      : call.name !== 'Edit'
-        ? `вызван ${call.name} вместо Edit`
-        : !MULTILINE_FILE.includes(oldStr)
-          ? `old_string не совпал с файлом побайтово: «${oldStr.slice(0, 120)}»`
-          : 'замена не про «Срок:» → «Дедлайн:»',
-  };
+  const wrongReplacement = 'замена не про «Срок:» → «Дедлайн:»';
+  return verdict('Edit с точным многострочным old_string', [
+    [call.name === 'Edit', `вызван ${call.name} вместо Edit`],
+    [oldStr !== '' && MULTILINE_FILE.includes(oldStr), `old_string не совпал с файлом побайтово: «${oldStr.slice(0, 120)}»`],
+    [oldStr.includes('Срок:'), wrongReplacement],
+    [newStr.includes('Дедлайн:') && !newStr.includes('Срок:'), wrongReplacement],
+  ]);
 }
 
 /**
@@ -256,6 +258,7 @@ async function caseEditExactMultiline(c: CaseCtx): Promise<CaseOutcome> {
  * и вымышленные имена инструментов (`edit_file`).
  */
 async function caseHonestPaths(c: CaseCtx): Promise<CaseOutcome> {
+  const DECLARED = 'src/a.ts';
   const names: ('Read' | 'Write' | 'Edit')[] = ['Edit', 'Read'];
   const messages: ChatMessage[] = [
     { role: 'system', content: SYSTEM },
@@ -268,46 +271,39 @@ async function caseHonestPaths(c: CaseCtx): Promise<CaseOutcome> {
   ];
   const first = await chat(c, messages, names);
   const firstCall = first.toolCalls[0];
-  if (firstCall === undefined) {
-    return { ok: false, detail: `вызова нет, текст: «${first.text.slice(0, 120)}»` };
-  }
+  if (firstCall === undefined) return noCall(first.text);
   const firstPath = str(firstCall.arguments, 'file_path');
   // Чтение ДО правки — законная осторожность, не галлюцинация: важно, что читается
   // объявленный файл, а не вымышленный. После содержимого модель обязана править.
-  if (firstCall.name === 'Read' && firstPath === 'src/a.ts') {
+  if (firstCall.name === 'Read' && samePath(firstPath, DECLARED)) {
     messages.push({ role: 'assistant', content: first.text, toolCalls: first.toolCalls });
     messages.push({ role: 'tool', toolCallId: firstCall.id, name: 'Read', content: '     1\tconst LIMIT = 100' });
     const second = await chat(c, messages, names);
     const call = second.toolCalls[0];
-    if (call === undefined) {
-      return { ok: false, detail: `после чтения правки нет, текст: «${second.text.slice(0, 120)}»` };
-    }
+    if (call === undefined) return noCall(second.text, 'после чтения правки нет');
     const path = str(call.arguments, 'file_path');
-    const ok = call.name === 'Edit' && path === 'src/a.ts' && str(call.arguments, 'new_string').includes('200');
-    return {
-      ok,
-      detail: ok
-        ? 'Read src/a.ts, затем Edit по нему же'
-        : call.name !== 'Edit'
-          ? `после чтения вызван ${call.name} вместо Edit`
-          : path !== 'src/a.ts'
-            ? `вымышленный путь: «${path}» (объявлен только src/a.ts)`
-            : 'new_string не содержит замену на 200',
-    };
+    return verdict('Read src/a.ts, затем Edit по нему же', [
+      [call.name === 'Edit', `после чтения вызван ${call.name} вместо Edit`],
+      [samePath(path, DECLARED), `вымышленный путь: «${path}» (объявлен только src/a.ts)`],
+      [str(call.arguments, 'new_string').includes('200'), 'new_string не содержит замену на 200'],
+    ]);
   }
-  const ok =
-    firstCall.name === 'Edit' && firstPath === 'src/a.ts' && str(firstCall.arguments, 'new_string').includes('200');
-  return {
-    ok,
-    detail: ok
-      ? 'Edit строго по объявленному файлу src/a.ts'
-      : firstCall.name !== 'Edit'
-        ? `вызван ${firstCall.name} — не из предложенного набора либо не по объявленному файлу («${firstPath}»)`
-        : firstPath !== 'src/a.ts'
-          ? `вымышленный путь: «${firstPath}» (объявлен только src/a.ts)`
-          : 'new_string не содержит замену на 200',
-  };
+  return verdict('Edit строго по объявленному файлу src/a.ts', [
+    [
+      firstCall.name === 'Edit',
+      `вызван ${firstCall.name} — не из предложенного набора либо не по объявленному файлу («${firstPath}»)`,
+    ],
+    [samePath(firstPath, DECLARED), `вымышленный путь: «${firstPath}» (объявлен только src/a.ts)`],
+    [str(firstCall.arguments, 'new_string').includes('200'), 'new_string не содержит замену на 200'],
+  ]);
 }
+
+/**
+ * Маркер последней строки кейса длинной записи. Тире принимается любое — длинное,
+ * короткое, дефис, минус (одно или сдвоенное), с пробелами или без: модель, заменившая
+ * «—» на «-», не усекла ответ, а кейс мерит именно усечение (code-review, 2026-09-14).
+ */
+const LONG_WRITE_MARKER = /строка 60\s*[-‐‑‒–—―−]+\s*КОНЕЦ/;
 
 /**
  * Кейс 6 (преполёт): длинная запись без усечения. Класс отказа — «нехватка токенов
@@ -331,19 +327,12 @@ async function caseLongWrite(c: CaseCtx): Promise<CaseOutcome> {
     ['Write'],
   );
   const call = turn.toolCalls[0];
-  if (call === undefined) {
-    return { ok: false, detail: `вызова нет (усечение? разбор JSON аргументов не удался), текст: «${turn.text.slice(0, 120)}»` };
-  }
+  if (call === undefined) return noCall(turn.text, 'вызова нет (усечение? разбор JSON аргументов не удался)');
   const content = str(call.arguments, 'content');
-  const ok = call.name === 'Write' && content.includes('строка 60 — КОНЕЦ');
-  return {
-    ok,
-    detail: ok
-      ? 'Write с маркером 60-й строки — ответ не усечён'
-      : call.name !== 'Write'
-        ? `вызван ${call.name} вместо Write`
-        : `маркер последней строки не доехал — ответ усечён (${content.length} символов)`,
-  };
+  return verdict('Write с маркером 60-й строки — ответ не усечён', [
+    [call.name === 'Write', `вызван ${call.name} вместо Write`],
+    [LONG_WRITE_MARKER.test(content), `маркер последней строки не доехал — ответ усечён (${content.length} символов)`],
+  ]);
 }
 
 /** Бланк с полем решения человека — содержимое «файла» кейса точечной правки. */
@@ -361,7 +350,8 @@ const DECISION_FORM =
  * Класс отказа — «деструктивная перезапись»: модель переписывает весь отчёт `Write`'ом
  * и стирает поле, которое заполняет человек (серия v4: 21 отказ в 11 прогонах из 25).
  * Этого класса не видел ни один кейс пробы: `Edit` с плейсхолдером проверялся, а выбор
- * между точечной правкой и перезаписью файла целиком — нет.
+ * между точечной правкой и перезаписью файла целиком — нет. Сверка old_string строгая
+ * намеренно — как в кейсе 4.
  */
 async function caseEditOneFieldKeepDecision(c: CaseCtx): Promise<CaseOutcome> {
   const turn = await chat(
@@ -382,9 +372,7 @@ async function caseEditOneFieldKeepDecision(c: CaseCtx): Promise<CaseOutcome> {
     ['Edit', 'Write', 'Read'],
   );
   const call = turn.toolCalls[0];
-  if (call === undefined) {
-    return { ok: false, detail: `вызова нет, текст: «${turn.text.slice(0, 120)}»` };
-  }
+  if (call === undefined) return noCall(turn.text);
   if (call.name === 'Write') {
     const kept = str(call.arguments, 'content').includes('‹заполняет человек›');
     return {
@@ -394,25 +382,12 @@ async function caseEditOneFieldKeepDecision(c: CaseCtx): Promise<CaseOutcome> {
   }
   const oldStr = str(call.arguments, 'old_string');
   const newStr = str(call.arguments, 'new_string');
-  const ok =
-    call.name === 'Edit' &&
-    oldStr !== '' &&
-    DECISION_FORM.includes(oldStr) &&
-    oldStr.includes('‹путь›') &&
-    newStr.includes('src/a.ts') &&
-    !oldStr.includes('Решение человека');
-  return {
-    ok,
-    detail: ok
-      ? 'Edit строки карты, поле решения человека не тронуто'
-      : call.name !== 'Edit'
-        ? `вызван ${call.name} вместо Edit`
-        : !DECISION_FORM.includes(oldStr)
-          ? `old_string не совпал с файлом побайтово: «${oldStr.slice(0, 120)}»`
-          : oldStr.includes('Решение человека')
-            ? 'правка задела поле решения человека'
-            : 'замена не про строку карты',
-  };
+  return verdict('Edit строки карты, поле решения человека не тронуто', [
+    [call.name === 'Edit', `вызван ${call.name} вместо Edit`],
+    [oldStr !== '' && DECISION_FORM.includes(oldStr), `old_string не совпал с файлом побайтово: «${oldStr.slice(0, 120)}»`],
+    [!oldStr.includes('Решение человека'), 'правка задела поле решения человека'],
+    [oldStr.includes('‹путь›') && newStr.includes('src/a.ts'), 'замена не про строку карты'],
+  ]);
 }
 
 export interface ProbeCase {

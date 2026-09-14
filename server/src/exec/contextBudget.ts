@@ -12,6 +12,8 @@
  * code-review-all, 2026-09-11).
  */
 
+import { applyParams } from '../provider/ChatProvider.ts';
+
 /** Пол: почти заполненное окно не должно давать вырожденный «ответ из воздуха». */
 export const MIN_MAX_TOKENS = 256;
 
@@ -59,6 +61,52 @@ export function maxTokensForRemaining(
  */
 export function marginFor(maxResultBytes: number, resultsFactor: number): number {
   return Math.ceil(maxResultBytes / BYTES_PER_TOKEN_ESTIMATE) * resultsFactor;
+}
+
+/**
+ * Запас на неточность самой оценки — для запросов БЕЗ инструментов (полевые запросы
+ * `FormFillExecutor`), где между оценкой и отправкой ничего не прирастает.
+ *
+ * Не кратен `maxResultBytes`: результатов инструментов в таком запросе нет по построению, а
+ * запас в целый результат (~3000 токенов у `localMaxToolResultBytes`) на окне 16K съедал
+ * пятую часть окна и сажал `max_tokens` на пол — ответ поля обрезался. Сама оценка по байтам
+ * ЗАВЫШАЕТ (~18% по `prompt_tokens` relog серии v5), поэтому поправка вверх ей не нужна;
+ * запас покрывает то, чего в `content` нет вовсе, — обёртку чат-шаблона (маркеры ролей,
+ * BOS, приглашение к генерации): десятки токенов на сообщение, а сообщений у полевого
+ * запроса два. Равен `MIN_MAX_TOKENS`, чтобы порядок величины был один на весь расчёт.
+ */
+export const ESTIMATE_MARGIN_TOKENS = MIN_MAX_TOKENS;
+
+export interface BudgetParamsInput {
+  /** `ModelDef.contextWindow`; не задано — расчёта нет, `params` уходят как есть. */
+  contextWindow: number | undefined;
+  /** `ModelDef.params`: явный `max_tokens` оператора перекрывает вычисленный. */
+  params: Record<string, unknown> | null | undefined;
+  /** Занято окна — измерение сервера либо оценка запроса. */
+  promptTokens: number;
+  marginTokens: number;
+  /**
+   * Остаток ушёл ниже пола. Текст предупреждения у каждого исполнителя свой («полевым
+   * запросом», «вопросом разведки», «из истории»), поэтому колбэк, а не строка здесь.
+   */
+  onClamped: (maxTokens: number) => void;
+}
+
+/**
+ * `params` запроса с `max_tokens` по остатку окна — общая обвязка четырёх исполнителей флоу
+ * `loop`. До выноса она жила копией в каждом, и правка одной копии (порядок `applyParams`,
+ * предупреждение о поле) не доезжала до остальных.
+ *
+ * `applyParams` после вычисленного значения — тем же порядком, что у провайдера: оператор,
+ * назвавший число явно, знает больше рантайма.
+ */
+export function budgetParams(o: BudgetParamsInput): Record<string, unknown> | null {
+  if (o.contextWindow === undefined) return o.params ?? null;
+  const budget = maxTokensForRemaining(o.contextWindow, o.promptTokens, o.marginTokens);
+  if (budget.clamped) o.onClamped(budget.maxTokens);
+  const body: Record<string, unknown> = { max_tokens: budget.maxTokens };
+  applyParams(body, o.params ?? null);
+  return body;
 }
 
 /**

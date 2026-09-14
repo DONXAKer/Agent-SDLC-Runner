@@ -723,6 +723,13 @@ export type RunEvent =
        */
       repaired?: string;
       /**
+       * Метки полей решений человека, которые стирал ИСХОДНЫЙ вызов — до починки. Не задано —
+       * не стирал. Отдельно от `destructive`: при включённой починке нота считается по
+       * исправленному вызову и о стёртом поле молчит, а стенд классифицировал этот класс по
+       * тексту ноты — и терял его ровно тогда, когда ручка включена.
+       */
+      decisionsLost?: string[];
+      /**
        * Когда запрос встал в очередь (epoch ms сервера). По той же причине, что и
        * `destructive` выше: пока поле жило только в ответе `GET /api/runs/:id`, карточка
        * из живой ленты не имела возраста ВСЁ время ожидания — `refresh()` по событиям,
@@ -730,7 +737,18 @@ export type RunEvent =
        */
       createdAt: number;
     }
-  | { type: 'tool_resolved'; runId: string; stage: StageId; requestId: string; decision: Decision }
+  | {
+      type: 'tool_resolved';
+      runId: string;
+      stage: StageId;
+      requestId: string;
+      decision: Decision;
+      /**
+       * Запрос снят обрывом витка (`ApprovalGate.cancelRun`), а не решён человеком. Решение
+       * такой отмены — `by: 'operator'`, и без признака лента читала её отказом оператора.
+       */
+      cancelled?: true;
+    }
   | {
       type: 'tool_result';
       runId: string;

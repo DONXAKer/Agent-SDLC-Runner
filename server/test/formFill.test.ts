@@ -18,6 +18,7 @@ import type { NormalizedCall, ToolName } from '@sdlc-runner/shared';
 import { FormFillExecutor, cleanFieldAnswer, cleanRowAnswer, groupFields } from '../src/exec/FormFillExecutor.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
+import { ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from '../src/exec/contextBudget.ts';
 
 const roots: string[] = [];
 after(() => {
@@ -251,8 +252,73 @@ describe('заполнение бланка по полям', () => {
 
     strictEqual(result.ok, false);
     ok(result.note.includes('не помещается в окно'), result.note);
-    ok(/вход ≈\d+ токенов/.test(result.note), result.note);
+    ok(/наибольший вход ≈\d+ токенов/.test(result.note), result.note);
     ok(result.note.includes('окно маршрута не задано'), result.note);
+  });
+
+  // Поля пачки идут параллельно, и прежнее поле экземпляра «последний запрос» перезаписывал
+  // тот, чей paramsFor выполнился позже: пачка спрашивается с конца бланка, поэтому крупное
+  // поле в КОНЦЕ уходило первым, а диагноз называл размер мелкого соседа.
+  it('диагноз переполнения называет наибольший вход пачки, а не последний', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    const huge = 'x'.repeat(40_000);
+    writeFileSync(artifact, ['# Задача', '', '- **Поле 1:** ‹а›', '- **Поле 2:** ‹б›', `- **Поле 3:** ‹в› ${huge}`, ''].join('\n'));
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat() {
+        throw new Error('HTTP 400 {"error":"Context size has been exceeded."}');
+      },
+    } as unknown as ChatProvider;
+
+    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    const n = Number(/наибольший вход ≈(\d+) токенов/.exec(result.note)?.[1] ?? 0);
+    ok(n >= 10_000, `назван не наибольший вход: ${result.note}`);
+  });
+
+  it('счёт обращений к модели — в modelRequests, а не в turns (другая единица)', async () => {
+    const { root, artifact } = setup();
+    const result = await exec(fieldProvider({ 'что должно стать правдой': 'демо работает', 'почему сейчас': 'нужно' })).run(
+      request(root, artifact),
+      hooks({ writes: [] }, true),
+    );
+    strictEqual(result.modelRequests, 2);
+    strictEqual(result.turns, undefined);
+  });
+
+  // Запас в целый результат инструмента (marginFor(maxResultBytes)) у запроса без
+  // инструментов сажал ответ поля на пол: окно 4096, maxResultBytes 10 000 → запас 2500.
+  it('contextWindow: запас полевого запроса — только на неточность оценки, не на результаты инструментов', async () => {
+    const { root, artifact } = setup();
+    const seen: ChatRequest[] = [];
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        seen.push(req);
+        return {
+          text: 'значение',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const executor = new FormFillExecutor({
+      provider,
+      maxResultBytes: 10_000,
+      readRangeRequiredAboveBytes: 10_000,
+      bashTimeoutMs: 1000,
+      contextWindow: 4096,
+    });
+    await executor.run(request(root, artifact), hooks({ writes: [] }, true));
+    ok(seen.length > 0);
+    for (const r of seen) {
+      const expected = 4096 - estimateMessageTokens(r.messages) - ESTIMATE_MARGIN_TOKENS;
+      ok(expected > 256, `тест потерял смысл: остаток ${expected}`);
+      strictEqual((r.params as Record<string, unknown>)['max_tokens'], expected);
+    }
   });
 
   it('отказы, перемежённые успехом, — не систематическая ошибка: счётчик подряд сбрасывается успешным полем (code-review-all, 2026-09-14)', async () => {

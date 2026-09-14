@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import { ok, strictEqual, throws } from 'node:assert/strict';
 
 import { TASKS } from '../src/options.ts';
-import { TASK_DEFS, TaskError, taskById, taskPaths } from '../src/tasks.ts';
+import { TASK_DEFS, TaskError, fixtureColorOf, requireTaskFiles, taskById, taskFilesProblem, taskPaths } from '../src/tasks.ts';
 
 const BENCH_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -48,6 +48,22 @@ describe('реестр задач', () => {
         ok(existsSync(f), `${def.id}: нет ${f}`);
       }
     }
+  });
+
+  it('цвет фикстуры: мигающая отдельно от намеренно красной; прежняя пометка читается как red', () => {
+    strictEqual(fixtureColorOf(taskById('flaky-by-design')), 'flaky');
+    strictEqual(fixtureColorOf(taskById('broken-test')), 'red');
+    strictEqual(fixtureColorOf(taskById('oversize')), 'green');
+    strictEqual(fixtureColorOf({ ...taskById('oversize'), expectFixtureRed: true }), 'red');
+  });
+
+  it('проверка файлов задачи — одна на CLI и преполёт, с причиной', () => {
+    const ghost = { ...taskById('oversize'), id: 'ghost', fixtureDir: 'fixtures/нет-такого-семейства' };
+    const problem = taskFilesProblem(taskPaths(BENCH_DIR, ghost), ghost);
+    ok(problem !== null && problem.includes('каталога фикстуры fixtures/нет-такого-семейства'), String(problem));
+    strictEqual(taskFilesProblem(taskPaths(BENCH_DIR, taskById('oversize')), taskById('oversize')), null);
+    strictEqual(requireTaskFiles(BENCH_DIR, 'oversize').taskFile, taskPaths(BENCH_DIR, taskById('oversize')).taskFile);
+    throws(() => requireTaskFiles(join(BENCH_DIR, 'нет-такого-каталога'), 'oversize'), TaskError);
   });
 
   it('задачи `fixtures/<family>` несут имена файлов, выведенные из id', () => {

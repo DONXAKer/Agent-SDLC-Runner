@@ -381,12 +381,25 @@ export function isDecisionLine(line: string): boolean {
  */
 export function decisionLabelsIn(text: string): DecisionLabel[] {
   const lines = text.split('\n');
-  return DECISION_LABELS.filter((label) => {
-    // Метка ищется по всему набору, но подтверждается ПОСТРОЧНО тем же предикатом:
-    // `DECISION_LINE` знает две формы записи поля, и повторять их здесь нельзя.
-    const re = new RegExp(`\\*\\*\\s*${escapeRe(label)}`, 'i');
-    return lines.some((line) => re.test(line) && isDecisionLine(line));
+  return DECISION_LABELS.filter((label) => decisionLineIndexes(lines, label).length > 0);
+}
+
+/**
+ * Номера строк, несущих поле решения с этой меткой, — ВСЕ, а не первая.
+ *
+ * Метка ищется по всему набору, но подтверждается ПОСТРОЧНО тем же предикатом:
+ * `DECISION_LINE` знает две формы записи поля, и повторять их у потребителя нельзя. Все
+ * вхождения, потому что одна метка бывает у нескольких полей: в handoff каждая запись о
+ * дефекте несёт свою «Кто утвердил», и сравнение по множеству меток не видело потери одной
+ * из двух.
+ */
+export function decisionLineIndexes(lines: readonly string[], label: string): number[] {
+  const re = new RegExp(`\\*\\*\\s*${escapeRe(label)}`, 'i');
+  const out: number[] = [];
+  lines.forEach((line, i) => {
+    if (re.test(line) && isDecisionLine(line)) out.push(i);
   });
+  return out;
 }
 
 /**

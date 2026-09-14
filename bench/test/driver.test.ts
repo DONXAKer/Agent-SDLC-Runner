@@ -134,6 +134,26 @@ describe('runBench: запись блокировки и признаки эта
   });
 });
 
+describe('runBench: обращения к модели у исполнителей без цикла ходов', () => {
+  it('modelRequests из StageResult переносится в запись этапа, turns при этом не выдумывается', async () => {
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      blockerDetails: () => [],
+      cancel: () => {},
+      runStage: async (): Promise<StageResult> =>
+        ({ ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово', modelRequests: 12, closedBy: 'runtime' }) as StageResult,
+    } as unknown as Run;
+
+    const result = await runBench({ run: fakeRun, stageTimeoutMs: 10_000, runTimeoutMs: 60_000, attempts: 3, stopAfterStage: 'intent' });
+
+    strictEqual(result.stages[0]?.modelRequests, 12);
+    strictEqual(result.stages[0]?.turns, undefined);
+  });
+});
+
 describe('decideAfterVerify', () => {
   it('continue — виток идёт дальше к handoff', () => {
     const d = decideAfterVerify({ verdict: verdict('continue', true), attempt: 1, attemptCeiling: 3, blockedEnvStreak: 0 });

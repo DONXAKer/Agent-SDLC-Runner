@@ -94,4 +94,39 @@ describe('explorationPathProblem: дублированная секция «Ка
   it('посторонний заголовок со словом «карта» («Карта рисков») — не ложный дубль', () => {
     strictEqual(explorationPathProblem(ctx(UNRELATED_MAP_HEADING_REPORT)), null);
   });
+
+  it('две секции карты, обе с таблицами реальных путей, — честная разбивка, не дубль', () => {
+    const report = [
+      '# Отчёт разведки',
+      '',
+      '## Карта кодовой базы',
+      '',
+      '| Файл | Что там сейчас | Что меняем |',
+      '|---|---|---|',
+      '| `src/tariffs.ts` | функция priceFor | добавить surcharge |',
+      '',
+      '## Карта кодовой базы — ключевые файлы',
+      '',
+      '| Файл | Роль |',
+      '|---|---|',
+      '| `src/tariffs.ts` | тарифы |',
+      '',
+    ].join('\n');
+    strictEqual(explorationPathProblem(ctx(report)), null);
+  });
+
+  it('переименованный заголовок «## Кодовая база» с выдуманным путём — проверка не отключается', () => {
+    const report = [
+      '# Отчёт разведки',
+      '',
+      '## Кодовая база',
+      '',
+      '| Файл | Что там сейчас |',
+      '|---|---|',
+      '| `src/loyalty.ts` | скидки лояльности |',
+      '',
+    ].join('\n');
+    const problem = explorationPathProblem(ctx(report));
+    ok(problem !== null && problem.includes('src/loyalty.ts'), problem ?? 'проверка молчит');
+  });
 });

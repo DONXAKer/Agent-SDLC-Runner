@@ -36,8 +36,14 @@ export interface DriverStageRecord {
    * Отличает «этот этап не начался» от «этот этап провалился»: виновник помечен `ok`.
    */
   blamedStage?: StageId;
-  /** Ходов модели на этапе — `StageResult.turns`. */
+  /** Ходов модели на этапе — `StageResult.turns`; есть только у исполнителей с циклом ходов. */
   turns?: number;
+  /**
+   * Обращений к модели у исполнителей без цикла ходов (формы, конвейер разведки, шаги плана) —
+   * `StageResult.modelRequests`. Отдельно от `turns`: запрос поля бланка ходом не является, и
+   * одно число на оба смысла делало «лимит ходов» неотличимым от «пачки узких вопросов».
+   */
+  modelRequests?: number;
   /** `runtime` — этап закрыл рантайм, а не заявка модели (`StageResult.closedBy`). */
   closedBy?: 'model' | 'runtime';
 }
@@ -256,6 +262,8 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     // отличает их только то, что пропуск не тратит ни ход, ни время: пустой `finalText`
     // и нулевая длительность видны лишь при пропуске, реальный ход всегда что-то стоит.
     const skipped = result.ok && result.finalText === '' && result.usage.durationMs === 0;
+    // Поле может ещё не быть в типе `StageResult` у этой версии рантайма — читаем опционально.
+    const modelRequests = (result as StageResult & { modelRequests?: number }).modelRequests;
     stages.push({
       stage,
       chunk: run.chunk,
@@ -267,6 +275,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       skipped,
       ...(result.envFailure === undefined ? {} : { envFailure: result.envFailure }),
       ...(result.turns === undefined ? {} : { turns: result.turns }),
+      ...(modelRequests === undefined ? {} : { modelRequests }),
       ...(result.closedBy === undefined ? {} : { closedBy: result.closedBy }),
     });
 

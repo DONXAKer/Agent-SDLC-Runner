@@ -112,8 +112,14 @@ function parseArguments(raw: unknown): { args: Record<string, unknown> | null; t
  * `length` не затирается наличием вызовов: обрезанный по лимиту токенов ход отдаёт
  * вызов с оборванной строкой аргументов, и пока `hasCalls` побеждал безусловно, цикл
  * диагностировал «сломанный JSON» и «прогресса нет» вместо настоящей причины.
+ *
+ * Исключение — вызовы, извлечённые из ТЕКСТА: `toolCallsFromText` берёт только закрытый
+ * и разобранный объект, то есть обрыв по длине пришёлся уже после вызова (обычно на
+ * хвостовой прозе). Отдавать здесь `max_tokens` значило бы, что цикл выбросит целый
+ * вызов как «обрезан на середине вызова инструмента» (code-review, 2026-09-14).
  */
-function mapFinish(reason: string | undefined, hasCalls: boolean): FinishReason {
+export function mapFinish(reason: string | undefined, hasCalls: boolean, callsFromText = false): FinishReason {
+  if (hasCalls && callsFromText) return 'tool_use';
   if (reason === 'length') return 'max_tokens';
   if (hasCalls) return 'tool_use';
   switch (reason) {
@@ -133,32 +139,83 @@ function mapFinish(reason: string | undefined, hasCalls: boolean): FinishReason 
  * поля) и родную форму Mistral `Имя[ARGS]{...}`. Угадывать дальше нельзя: свободный JSON в
  * ответе — это чаще кусок артефакта, чем вызов, и приняв его за вызов, мы бы исполнили то,
  * чего модель не просила.
+ *
+ * Первый элемент `toolCallsFromText` — оставлено для потребителей, которым нужен один вызов.
  */
 export function toolCallFromText(text: string, known: ReadonlySet<string>): ChatToolCall | null {
-  // Форма Mistral: `[TOOL_CALLS]Имя[ARGS]{…}`. Служебный токен шаблон движка съедает, и до
-  // нас доходит `Write[ARGS]{"file_path": …}` обычным текстом. Преполёт 2026-09-14
-  // (`ministral3-14b`): пять кейсов пробы из семи — «вызова нет» при однозначно выраженном
-  // вызове, то есть раннер мерил разбор ответа, а не модель. Планка та же, что у JSON-формы:
-  // имя объявлено и стоит вплотную к `[ARGS]`, за маркером — разбираемый объект.
-  for (let at = text.indexOf('[ARGS]'); at >= 0; at = text.indexOf('[ARGS]', at + 1)) {
-    const name = /([A-Za-z_][\w-]*)$/.exec(text.slice(Math.max(0, at - 128), at))?.[1];
-    if (name === undefined || !known.has(name)) continue;
-    let start = at + '[ARGS]'.length;
+  return toolCallsFromText(text, known)[0] ?? null;
+}
+
+/**
+ * Все вызовы, написанные текстом. Форма Mistral умеет несколько вызовов подряд — их
+ * отдаём все; JSON-форма, как и раньше, даёт не больше одного.
+ */
+export function toolCallsFromText(text: string, known: ReadonlySet<string>): ChatToolCall[] {
+  const mistral = mistralCallsFromText(text, known);
+  if (mistral.length > 0) return mistral;
+  const json = jsonCallFromText(text, known);
+  return json === null ? [] : [json];
+}
+
+const TOOL_CALLS_TOKEN = '[TOOL_CALLS]';
+
+/**
+ * Форма Mistral: `[TOOL_CALLS]Имя[ARGS]{…}`. Служебный токен шаблон движка съедает, и до
+ * нас доходит `Write[ARGS]{"file_path": …}` обычным текстом. Преполёт 2026-09-14
+ * (`ministral3-14b`): пять кейсов пробы из семи — «вызова нет» при однозначно выраженном
+ * вызове, то есть раннер мерил разбор ответа, а не модель. Планка та же, что у JSON-формы:
+ * имя объявлено и стоит вплотную к `[ARGS]`, за маркером — разбираемый объект.
+ *
+ * Принимается только ответ, который С ВЫЗОВА НАЧИНАЕТСЯ (после пробелов и необязательного
+ * `[TOOL_CALLS]`). Поиск маркера в любом месте текста исполнял процитированный пример —
+ * из прозы, из артефакта, который модель пересказывает, — а это ровно «исполнили то, чего
+ * модель не просила». Родной вывод движка идёт вызовами подряд, без прозы перед ними, и
+ * последовательность разбирается целиком: прежде второй и следующие вызовы
+ * `Read[ARGS]{…}Read[ARGS]{…}` терялись молча (code-review, 2026-09-14). Неразобранный
+ * элемент последовательность обрывает; хвост после неё не читается.
+ */
+function mistralCallsFromText(text: string, known: ReadonlySet<string>): ChatToolCall[] {
+  const calls: ChatToolCall[] = [];
+  let pos = 0;
+  const skipSpace = (): void => {
+    while (pos < text.length && /\s/.test(text[pos]!)) pos++;
+  };
+  for (;;) {
+    skipSpace();
+    if (text.startsWith(TOOL_CALLS_TOKEN, pos)) {
+      pos += TOOL_CALLS_TOKEN.length;
+      skipSpace();
+    }
+    const head = /^([A-Za-z_][\w-]*)\[ARGS\]/.exec(text.slice(pos, pos + 256));
+    const name = head?.[1];
+    if (head === null || name === undefined || !known.has(name)) break;
+    let start = pos + head[0].length;
     while (start < text.length && /\s/.test(text[start]!)) start++;
-    if (text[start] !== '{') continue;
+    if (text[start] !== '{') break;
     const end = objectEnd(text, start);
-    if (end < 0) continue;
+    if (end < 0) break;
     const raw = text.slice(start, end + 1);
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch {
-      continue;
+      break;
     }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue;
-    return { id: `text-${name}`, name, arguments: parsed as Record<string, unknown>, rawArguments: raw };
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) break;
+    // id уникален в пределах ответа: цикл сопоставляет результат вызову по id, и два
+    // `text-Read` склеили бы результаты двух чтений в одно.
+    calls.push({
+      id: `text-${name}-${calls.length}`,
+      name,
+      arguments: parsed as Record<string, unknown>,
+      rawArguments: raw,
+    });
+    pos = end + 1;
   }
+  return calls;
+}
 
+function jsonCallFromText(text: string, known: ReadonlySet<string>): ChatToolCall | null {
   // Кандидаты ищем по КАЖДОЙ открывающей скобке, а не только по первой: модель часто
   // пишет вызов после прозы, в которой фигурная скобка уже встретилась (пример формата,
   // фрагмент кода), и с фиксированным началом ни одна нарезка не разбиралась.
@@ -184,7 +241,7 @@ export function toolCallFromText(text: string, known: ReadonlySet<string>): Chat
     if (name === undefined || !known.has(name)) continue;
     const args = r['arguments'] ?? r['parameters'] ?? r['input'] ?? r['args'];
     return {
-      id: `text-${name}`,
+      id: `text-${name}-0`,
       name,
       arguments: typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {},
       rawArguments: JSON.stringify(args ?? {}),
@@ -446,10 +503,12 @@ export class OpenAiCompatProvider implements ChatProvider {
       return [{ id: c.id ?? `call-${i}`, name, arguments: args, rawArguments: raw }];
     });
 
+    let callsFromText = false;
     if (toolCalls.length === 0 && content !== '') {
       const known = new Set(req.tools.map((t) => t.name));
-      const fromText = toolCallFromText(content, known);
-      if (fromText !== null) toolCalls.push(fromText);
+      const fromText = toolCallsFromText(content, known);
+      toolCalls.push(...fromText);
+      callsFromText = fromText.length > 0;
     }
 
     const usage: Usage = {
@@ -466,7 +525,7 @@ export class OpenAiCompatProvider implements ChatProvider {
     return {
       text: content,
       toolCalls,
-      finishReason: mapFinish(choice?.finish_reason, toolCalls.length > 0),
+      finishReason: mapFinish(choice?.finish_reason, toolCalls.length > 0, callsFromText),
       usage,
     };
   }

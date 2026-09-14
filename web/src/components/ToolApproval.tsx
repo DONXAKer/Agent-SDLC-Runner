@@ -113,6 +113,15 @@ export function ToolApproval({
         </div>
       ) : null}
 
+      {/* Починка рядом с нотой потери и тоже над диффом: дифф показывает уже исправленное
+          содержимое, и без пометки оператор не узнал бы, что часть текста вписал рантайм,
+          а не модель. Текст пометки собирает сервер («рантайм вернул стёртое поле…»). */}
+      {pending.repaired !== undefined ? (
+        <div className="mb-3 rounded border border-sky-700 bg-sky-950/40 p-2 text-xs text-sky-200">
+          {pending.repaired}
+        </div>
+      ) : null}
+
       {pending.preview !== null ? (
         <div className="mb-3">
           <div className="mb-1 font-mono text-xs text-neutral-400">{pending.preview.path}</div>

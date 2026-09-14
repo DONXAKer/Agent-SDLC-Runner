@@ -17,6 +17,7 @@ import { emptyUsage } from '@sdlc-runner/shared';
 
 import { LoopExecutor } from '../src/exec/LoopExecutor.ts';
 import type { LoopOptions } from '../src/exec/LoopExecutor.ts';
+import { estimateMessageTokens } from '../src/exec/contextBudget.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import { executeTool, type ToolContext } from '../src/exec/tools/index.ts';
 import type { ChatProvider, ChatRequest, ChatTurn } from '../src/provider/ChatProvider.ts';
@@ -270,6 +271,12 @@ describe('вызов, написанный текстом', () => {
     strictEqual(toolCallFromText('Delete[ARGS]{"file_path": "a.ts"}', known), null);
     strictEqual(toolCallFromText('в описании встречается Read[ARGS] без аргументов', known), null);
     strictEqual(toolCallFromText('Write[ARGS]{"file_path": "a.ts", "content": ', known), null);
+  });
+
+  // code-review 2026-09-14: маркер искался в любом месте текста, и процитированный пример
+  // исполнялся. Форма Mistral принимается, только если ответ с вызова начинается.
+  it('форма Mistral, процитированная посреди прозы, — не вызов', () => {
+    strictEqual(toolCallFromText('Например: Read[ARGS]{"file_path": "a.ts"} — так выглядит вызов', known), null);
   });
 });
 
@@ -554,14 +561,46 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
 
   // Раньше первый ход уходил с константой провайдера («окну ещё не с чем сравнить») —
   // ровно там, где промпт этапа крупнее всего. Теперь бюджет считается по оценке
-  // исходящего запроса: запас 3750 и небольшой вход дают число чуть меньше 16384 − 3750.
-  it('первый ход — max_tokens по оценке исходящего запроса, а не константа провайдера', async () => {
+  // исходящего запроса. Запас — ОДИН результат (ceil(5000/4) = 1250), а не три: оценка уже
+  // содержит всю историю, результатов инструментов сверх неё нет — запас в три вычитал
+  // несуществующие результаты и на окне 16K сажал первый ход на пол.
+  it('первый ход — max_tokens по оценке исходящего запроса с запасом в один результат', async () => {
     const p = provider([{ toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' }]);
     await executor(p, { contextWindow: 16384 }).run(request({ maxTurns: 1 }), hooks());
-    const maxTokens = (p.seen[0]?.params as Record<string, unknown> | null)?.['max_tokens'];
-    ok(typeof maxTokens === 'number', JSON.stringify(p.seen[0]?.params));
-    ok(maxTokens < 16384 - 3750, `оценка входа не вычтена: ${maxTokens}`);
-    ok(maxTokens > 16384 - 3750 - 4000, `оценка входа несоразмерно велика: ${maxTokens}`);
+    const sent = p.seen[0]!;
+    // Массив истории цикл дописывает после запроса (без окна истории `outgoing` — он сам),
+    // поэтому оценка — по двум сообщениям, ушедшим в первый запрос.
+    const outgoing = sent.messages.slice(0, 2);
+    const estimate = estimateMessageTokens([{ content: JSON.stringify({ outgoing, tools: sent.tools }) }]);
+    deepStrictEqual(sent.params, { max_tokens: 16384 - estimate - 1250 });
+  });
+
+  // `inputTokens: 0` на первом ответе раньше записывался измерением, и `?? оценка`
+  // пропускала 0: второй ход считал бюджет по «пустому» контексту — 16384 − 0 − 3750.
+  it('первый ответ без usage (inputTokens 0) — второй ход по оценке, а не по пустому окну', async () => {
+    const p = provider([
+      { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    await executor(p, { contextWindow: 16384 }).run(request(), hooks());
+    const sent = p.seen[1]!;
+    const estimate = estimateMessageTokens([{ content: JSON.stringify({ outgoing: sent.messages, tools: sent.tools }) }]);
+    ok(estimate > 0);
+    deepStrictEqual(sent.params, { max_tokens: 16384 - estimate - 1250 });
+  });
+
+  it('второй ход — к prompt_tokens прошлого ответа прибавлен его completion_tokens', async () => {
+    const p = provider([
+      {
+        toolCalls: [readCall('src/deep/A.ts')],
+        finishReason: 'tool_use',
+        usage: { ...emptyUsage(), inputTokens: 3000, outputTokens: 500 },
+      },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    // Сам ответ (500 токенов) уже в истории второго запроса: 16384 − (3000 + 500) − 3750.
+    await executor(p, { contextWindow: 16384 }).run(request(), hooks());
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 9134 });
   });
 
   it('второй ход — max_tokens посчитан по prompt_tokens первого ответа и запасу', async () => {

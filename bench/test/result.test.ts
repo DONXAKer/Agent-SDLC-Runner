@@ -200,9 +200,45 @@ describe('инвариант «result.json пересобирает отчёт �
 
     strictEqual(report.exitCode, 0);
     strictEqual(report.dangerous, false);
+    // Без turnLimits (как у результатов старше полей) строки условий нет — и это не ошибка.
+    strictEqual(parsed.run.maxTurns, undefined);
+    ok(!report.markdown.includes('Лимит ходов'));
     ok(report.markdown.includes('| точность правки | ✅ |'), 'таблица щупов собрана из JSON');
     ok(report.markdown.includes('1 из 1 precision/regression-кейсов зелёные'), 'детали hidden читаются из JSON');
     ok(report.markdown.includes('| вопросы человеку | ✅ |'), 'human-кейсы читаются из JSON');
+  });
+});
+
+describe('условия прогона в паспорте результата', () => {
+  it('лимиты ходов, ушедшие в конфиг витка, переживают JSON и видны в заголовке отчёта', () => {
+    const built: BuiltProfile = {
+      project: { name: 'bench', projectRoot: '/tmp/x', activeProfile: 'control', maxBudgetUsd: 5, profiles: {} },
+      profile: { label: 'контроль', routes: {} as BuiltProfile['profile']['routes'], ensemble: {} } as BuiltProfile['profile'],
+      measured: ['chunk'],
+      routes: { intent: 'a', explore: 'a', ask: 'a', plan: 'a', chunk: 'm', verify: 'b', handoff: 'a' },
+      currencies: {} as BuiltProfile['currencies'],
+    };
+    const result = buildResult({
+      opts: {
+        mode: { kind: 'stage', stage: 'chunk' }, model: 'm', task: 'oversize', slug: 'bench-x', controlOverrides: {},
+        stageTimeoutMs: 1, runTimeoutMs: 1, maxIterationsPerStage: 40, maxBudgetUsd: 1, attempts: 1, keepWorkspace: false,
+        dryRun: false, probe: false, preflightOnly: false, preflight: true, snapshotAfter: 'plan', makeSnapshot: null,
+        fromSnapshot: null, repeat: 1, seed: null,
+      },
+      built,
+      startedAt: new Date('2026-09-14T10:00:00.000Z'),
+      finishedAt: new Date('2026-09-14T10:05:00.000Z'),
+      driver: { stages: [], finalVerdict: null, stopped: 'blocked' },
+      metrics: emptyMetrics(),
+      operator: emptyOperatorLog(),
+      observed: emptyCollectorState(),
+      turnLimits: { maxTurns: 40, maxTurnsExplicit: false, maxIterationsByStage: { verify: 60 } },
+    });
+    const parsed = JSON.parse(JSON.stringify(result)) as BenchResult;
+    strictEqual(parsed.run.maxTurns, 40);
+    strictEqual(parsed.run.maxTurnsExplicit, false);
+    deepStrictEqual(parsed.run.maxIterationsByStage, { verify: 60 });
+    ok(buildReport({ result: parsed }).markdown.includes('Лимит ходов: 40 на этап (штатный из конфига) · поэтапно: verify 60'));
   });
 });
 

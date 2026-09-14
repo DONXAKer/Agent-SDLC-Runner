@@ -314,6 +314,10 @@ describe('конвейер разведки на копии бланка', () =>
   it('карта из индекса, новый файл помечен, вопросы видны этапу 3, записи только через гейт', async () => {
     const { seen, result, report, intent, paths } = await scenario(BLANK);
     ok(result.ok, result.note);
+    // Колонка «ходов» у конвейера была пустой: число обращений к модели (вопросы конвейера
+    // плюс вложенное дозаполнение) — в modelRequests, `turns` — только у циклов ходов.
+    ok(typeof result.modelRequests === 'number' && result.modelRequests > 0, String(result.modelRequests));
+    strictEqual(result.turns, undefined);
     ok(seen.calls.length >= 3, 'ожидались записи отчёта (×2) и задачи');
     ok(seen.calls.every((c) => c.kind === 'write'), 'не-Write вызов');
     ok(report.includes('| src/tariffs.ts | тарифная таблица и priceFor | добавить вызов правила льготы |'), report);

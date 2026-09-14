@@ -59,8 +59,8 @@ import { AXIS_HINTS } from '../run/planAxisFill.ts';
 import { AFFIRMATIVE_HEAD } from '../run/reviewFill.ts';
 import type { BlindClaimsResult } from '../run/claimsBlind.ts';
 import { autofillExplorationReport, type ExplorationFacts } from '../run/exploreAutofill.ts';
-import { ProviderEnvError, applyParams, type ChatMessage, type ChatProvider } from '../provider/ChatProvider.ts';
-import { estimateMessageTokens, marginFor, maxTokensForRemaining } from './contextBudget.ts';
+import { ProviderEnvError, type ChatMessage, type ChatProvider } from '../provider/ChatProvider.ts';
+import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './contextBudget.ts';
 import { FormFillExecutor } from './FormFillExecutor.ts';
 import { writeThroughGate } from './gateWrite.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
@@ -192,17 +192,20 @@ export class ExploreExecutor implements StageExecutor {
 
   private paramsFor(messages: readonly ChatMessage[], hooks: ExecHooks): Record<string, unknown> | null {
     if (this.o.contextWindow === undefined) return this.o.params ?? null;
-    const margin = marginFor(this.o.maxResultBytes, 1);
-    const budget = maxTokensForRemaining(this.o.contextWindow, estimateMessageTokens(messages), margin);
-    if (budget.clamped) {
-      hooks.onWarn(
-        `окно контекста (${this.o.contextWindow}) почти исчерпано этим вопросом разведки — max_tokens ` +
-          `ограничен полом ${budget.maxTokens}, переполнение всё ещё вероятно`,
-      );
-    }
-    const body: Record<string, unknown> = { max_tokens: budget.maxTokens };
-    applyParams(body, this.o.params ?? null);
-    return body;
+    const window = this.o.contextWindow;
+    return budgetParams({
+      contextWindow: window,
+      params: this.o.params,
+      promptTokens: estimateMessageTokens(messages),
+      // Вопросы разведки идут без инструментов — запас только на неточность оценки, как у
+      // полевых запросов (`ESTIMATE_MARGIN_TOKENS`), а не в целый результат инструмента.
+      marginTokens: ESTIMATE_MARGIN_TOKENS,
+      onClamped: (maxTokens) =>
+        hooks.onWarn(
+          `окно контекста (${window}) почти исчерпано этим вопросом разведки — max_tokens ` +
+            `ограничен полом ${maxTokens}, переполнение всё ещё вероятно`,
+        ),
+    });
   }
 
   private fileByPath(path: string): IndexedFile | undefined {
@@ -220,6 +223,8 @@ export class ExploreExecutor implements StageExecutor {
     };
     let usage: Usage = emptyUsage();
     let calls = 0;
+    /** Обращения к модели вложенного дозаполнения свободных полей — своим счётчиком у него. */
+    let nestedRequests = 0;
     const notes: string[] = [];
     let envFailure: string | null = null;
     const rel = (p: string): string => relative(req.cwd, p).replace(/\\/g, '/');
@@ -229,6 +234,7 @@ export class ExploreExecutor implements StageExecutor {
       finalText: notes.join('\n'),
       usage,
       note,
+      modelRequests: calls + nestedRequests,
       ...(envFailure === null ? {} : { envFailure }),
     });
 
@@ -573,6 +579,9 @@ export class ExploreExecutor implements StageExecutor {
       readRangeRequiredAboveBytes: this.o.readRangeRequiredAboveBytes,
       bashTimeoutMs: this.o.bashTimeoutMs,
       params: this.o.params ?? null,
+      // Без окна дозаполнение свободных полей разведки шло без расчёта `max_tokens` по
+      // остатку — ровно там, где промпт этапа крупнее всего.
+      ...(this.o.contextWindow === undefined ? {} : { contextWindow: this.o.contextWindow }),
       ...(this.o.currency === undefined ? {} : { currency: this.o.currency }),
       compact: true,
       stage: 'explore',
@@ -589,6 +598,7 @@ export class ExploreExecutor implements StageExecutor {
       hooks,
     );
     usage = addUsage(usage, nested.usage);
+    nestedRequests = nested.modelRequests ?? 0;
     notes.push(`свободные поля: ${nested.note}`);
     if (nested.envFailure !== undefined && envFailure === null) envFailure = nested.envFailure;
     // `nested.ok` игнорировался: отмена и исчерпание бюджета ходов внутри вложенного
@@ -657,8 +667,9 @@ export class ExploreExecutor implements StageExecutor {
       ...notes,
     ].join('\n');
     hooks.onText(summary);
-    if (complaint !== null) return { ok: false, finalText: summary, usage, note: complaint, ...(envFailure === null ? {} : { envFailure }) };
-    if (nestedFailed) return { ok: false, finalText: summary, usage, note: `дозаполнение свободных полей не завершено: ${nested.note}`, ...(envFailure === null ? {} : { envFailure }) };
-    return { ok: true, finalText: summary, usage, note: 'разведка проведена конвейером рантайма', ...(envFailure === null ? {} : { envFailure }) };
+    const tail = { modelRequests: calls + nestedRequests, ...(envFailure === null ? {} : { envFailure }) };
+    if (complaint !== null) return { ok: false, finalText: summary, usage, note: complaint, ...tail };
+    if (nestedFailed) return { ok: false, finalText: summary, usage, note: `дозаполнение свободных полей не завершено: ${nested.note}`, ...tail };
+    return { ok: true, finalText: summary, usage, note: 'разведка проведена конвейером рантайма', ...tail };
   }
 }

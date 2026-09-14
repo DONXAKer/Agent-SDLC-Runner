@@ -13,6 +13,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { StageId } from '@sdlc-runner/shared';
 
 import { git } from '../../server/src/gates/git.ts';
@@ -76,6 +77,69 @@ function metaPath(dir: string): string {
 }
 
 /**
+ * Мета снимка с проверкой принадлежности задаче — бросает `SnapshotError` с причиной.
+ *
+ * Одна проверка на восстановление (`restoreSnapshot`) и преполёт: копия в преполёте уже
+ * разошлась — снимок без поля `task` там читался как «снят для задачи „undefined“», а здесь
+ * получал подсказку, как его починить.
+ */
+export function readSnapshotMeta(args: { snapshotsDir: string; name: string; expectedTask: string }): SnapshotMeta {
+  const src = join(args.snapshotsDir, args.name);
+  if (!existsSync(src)) {
+    throw new SnapshotError(`снимка «${args.name}» нет в ${args.snapshotsDir}`);
+  }
+  const metaFile = metaPath(src);
+  if (!existsSync(metaFile)) {
+    throw new SnapshotError(`${src}: нет snapshot.json — это не снимок бенчмарка`);
+  }
+  let meta: Partial<SnapshotMeta>;
+  try {
+    meta = JSON.parse(readFileSync(metaFile, 'utf8')) as Partial<SnapshotMeta>;
+  } catch (e) {
+    throw new SnapshotError(`${metaFile} не парсится: ${(e as Error).message}`);
+  }
+  if (typeof meta.task !== 'string' || meta.task === '') {
+    throw new SnapshotError(
+      `снимок «${args.name}» снят до появления поля task, принадлежность задаче сверить нечем — ` +
+        `допиши в ${metaFile} строку "task": "<id задачи, для которой снимался>" и повтори`,
+    );
+  }
+  if (meta.task !== args.expectedTask) {
+    throw new SnapshotError(
+      `снимок «${args.name}» снят для задачи «${meta.task}», прогон запрошен для «${args.expectedTask}» — ` +
+        'банк ответов и скрытые тесты не совпали бы с деревом; укажи --task ' + meta.task,
+    );
+  }
+  const point = startStageAfter(meta.stoppedAfterStage);
+  if (point === null) {
+    throw new SnapshotError(
+      `снимок «${args.name}» сделан после «${String(meta.stoppedAfterStage)}» — этапа после него нет, мерить нечего`,
+    );
+  }
+  return meta as SnapshotMeta;
+}
+
+/**
+ * Этап, с которого стартует прогон со снимка, — следующий за точкой снимка; `null` — точка
+ * не этап витка либо этапа после неё нет. Одна функция на драйвер (`cli.ts`) и преполёт:
+ * преполёт считал «первый измеряемый» без учёта точки и рубил законный `--all --from-snapshot`.
+ */
+export function startStageAfter(point: unknown): StageId | null {
+  const after = STAGE_ORDER.indexOf(point as StageId);
+  if (after < 0) return null;
+  return STAGE_ORDER[after + 1] ?? null;
+}
+
+/**
+ * Первый измеряемый этап прогона со снимка: первый из `measured`, не раньше этапа старта.
+ * `null` — измеряемые этапы все уже пройдены снимком, и прогону нечего мерить.
+ */
+export function firstMeasuredFrom(start: StageId, measured: readonly StageId[]): StageId | null {
+  const from = STAGE_ORDER.indexOf(start);
+  return STAGE_ORDER.find((s, i) => i >= from && measured.includes(s)) ?? null;
+}
+
+/**
  * Снимает рабочую копию целиком в `<snapshotsDir>/<name>/`. Прежний снимок под тем же
  * именем стирается — имя это слот, а не история версий: история — дело git, не бенчмарка.
  */
@@ -135,26 +199,7 @@ export function restoreSnapshot(args: {
   expectedTask: string;
 }): RestoredSnapshot {
   const src = join(args.snapshotsDir, args.name);
-  if (!existsSync(src)) {
-    throw new SnapshotError(`снимка «${args.name}» нет в ${args.snapshotsDir}`);
-  }
-  const metaFile = metaPath(src);
-  if (!existsSync(metaFile)) {
-    throw new SnapshotError(`${src}: нет snapshot.json — это не снимок бенчмарка`);
-  }
-  const meta = JSON.parse(readFileSync(metaFile, 'utf8')) as Partial<SnapshotMeta> & SnapshotMeta;
-  if (typeof meta.task !== 'string' || meta.task === '') {
-    throw new SnapshotError(
-      `снимок «${args.name}» снят до появления поля task, принадлежность задаче сверить нечем — ` +
-        `допиши в ${metaFile} строку "task": "<id задачи, для которой снимался>" и повтори`,
-    );
-  }
-  if (meta.task !== args.expectedTask) {
-    throw new SnapshotError(
-      `снимок «${args.name}» снят для задачи «${meta.task}», прогон запрошен для «${args.expectedTask}» — ` +
-        'банк ответов и скрытые тесты не совпали бы с деревом; укажи --task ' + meta.task,
-    );
-  }
+  const meta = readSnapshotMeta({ snapshotsDir: args.snapshotsDir, name: args.name, expectedTask: args.expectedTask });
 
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-snap-')));
   try {

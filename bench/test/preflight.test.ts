@@ -4,9 +4,14 @@
  */
 
 import { ok, strictEqual } from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
 
+import { loadConfig } from '../../server/src/config/load.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
+import { spawnNode } from '../src/nodeTest.ts';
 import { parseArgs } from '../src/options.ts';
 import type { BenchOptions } from '../src/options.ts';
 import { formatPreflight, preflightExitCode, runPreflight } from '../src/preflight.ts';
@@ -188,5 +193,110 @@ describe('runPreflight', () => {
     const report = await runPreflight(opts(['--model', 'ollama:takoy-net', '--stage', 'chunk']), greenDeps());
     strictEqual(report.envBlocked, true);
     ok(report.checks.some((c) => !c.ok), JSON.stringify(report.checks));
+  });
+});
+
+describe('runPreflight: мигающая фикстура', () => {
+  it('flaky-by-design не проверяет цвет набора: ни зелёный, ни красный прогон не дают отказ среды', async () => {
+    let spawned = 0;
+    for (const exitCode of [0, 1]) {
+      const report = await runPreflight(
+        opts(['--model', MODEL, '--task', 'flaky-by-design', '--stage', 'chunk']),
+        greenDeps({
+          spawnTest: async () => {
+            spawned += 1;
+            return { exitCode, stdout: '', stderr: '', timedOut: false };
+          },
+        }),
+      );
+      const fixture = report.checks.find((c) => c.name === 'фикстура: тесты');
+      strictEqual(fixture?.ok, true, fixture?.detail);
+      ok(fixture?.detail.includes('мигает'), fixture?.detail);
+      strictEqual(report.envBlocked, false, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    }
+    strictEqual(spawned, 0, 'мигающий набор гонять незачем — цвет одного прогона ничего не говорит');
+  });
+});
+
+describe('runPreflight: снимок', () => {
+  const dirs: string[] = [];
+  after(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+  function snapshots(meta: Record<string, unknown>): string {
+    const dir = mkdtempSync(join(tmpdir(), 'sdlc-bench-preflight-snap-'));
+    dirs.push(dir);
+    mkdirSync(join(dir, 'snap'), { recursive: true });
+    writeFileSync(join(dir, 'snap', 'snapshot.json'), JSON.stringify(meta), 'utf8');
+    return dir;
+  }
+  const META = { slug: 's', branch: 'sdlc/x', stoppedAfterStage: 'plan', createdAt: '2026-09-14T00:00:00.000Z', task: 'oversize' };
+
+  it('--all со снимка после plan — законно: первый измеряемый считается после точки снимка', async () => {
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--all', '--from-snapshot', 'snap']),
+      greenDeps({ snapshotsDir: snapshots(META) }),
+    );
+    const snap = report.checks.find((c) => c.name === 'снимок');
+    strictEqual(snap?.ok, true, snap?.detail);
+    ok(snap?.detail.includes('«chunk»'), snap?.detail);
+  });
+
+  it('измеряемый этап уже пройден снимком — «нечего мерить»', async () => {
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'explore', '--from-snapshot', 'snap']),
+      greenDeps({ snapshotsDir: snapshots(META) }),
+    );
+    const snap = report.checks.find((c) => c.name === 'снимок');
+    strictEqual(snap?.ok, false);
+    ok(snap?.detail.includes('нечего мерить'), snap?.detail);
+    strictEqual(report.envBlocked, true);
+  });
+
+  it('снимок без поля task — та же подсказка, что у восстановления, а не «задача undefined»', async () => {
+    const { task: _task, ...noTask } = META;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--from-snapshot', 'snap']),
+      greenDeps({ snapshotsDir: snapshots(noTask) }),
+    );
+    const snap = report.checks.find((c) => c.name === 'снимок');
+    strictEqual(snap?.ok, false);
+    ok(snap?.detail.includes('"task"') && !snap.detail.includes('undefined'), snap?.detail);
+  });
+});
+
+describe('runPreflight: лимит ходов против штатного', () => {
+  const withLimits = (maxIterationsPerStage: number, maxIterationsByStage: Record<string, number>) => () => {
+    const c = loadConfig();
+    return { ...c, runner: { ...c.runner, limits: { ...c.runner.limits, maxIterationsPerStage, maxIterationsByStage } } };
+  };
+
+  it('без --max-turns сверять нечего: лимит штатный из конфига, какой бы он ни был', async () => {
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({ loadConfig: withLimits(100, { verify: 120 }) }),
+    );
+    const turns = report.checks.find((c) => c.name === 'стенд: лимит ходов');
+    ok(turns !== undefined && !turns.detail.includes('⚠'), turns?.detail);
+    ok(turns?.detail.includes('100'), turns?.detail);
+  });
+
+  it('явный --max-turns выше общего, но ниже поэтапного потолка — предупреждение с этапом', async () => {
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--max-turns', '50']),
+      greenDeps({ loadConfig: withLimits(40, { verify: 60 }) }),
+    );
+    const turns = report.checks.find((c) => c.name === 'стенд: лимит ходов');
+    strictEqual(turns?.ok, true);
+    ok(turns?.detail.includes('⚠') && turns.detail.includes('verify 60'), turns?.detail);
+  });
+});
+
+describe('spawnNode', () => {
+  it('гасит NODE_TEST_CONTEXT: дочерний узел не считает себя частью идущего прогона', async () => {
+    // Этот файл сам идёт под `node --test` — переменная у процесса есть.
+    const r = await spawnNode({ args: ['-e', 'process.stdout.write(process.env.NODE_TEST_CONTEXT ?? "нет")'], timeoutMs: 30_000 });
+    strictEqual(r.exitCode, 0, r.stderr);
+    strictEqual(r.stdout, 'нет');
   });
 });

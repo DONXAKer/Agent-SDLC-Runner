@@ -31,6 +31,7 @@ import type {
 } from '@sdlc-runner/shared';
 import { buildPreview } from './preview.ts';
 import { destructiveNote, destructiveOverwrite, repairErasedDecisions } from './destructive.ts';
+import type { DestructiveOverwrite } from './destructive.ts';
 import { symlinkEscape } from './symlink.ts';
 
 export interface PendingApproval {
@@ -59,6 +60,12 @@ export interface PendingApproval {
   destructive: string | null;
   /** Рантайм вернул стёртое поле решения человека — вход уже исправлен. См. `repairErasedDecisions`. */
   repaired?: string;
+  /**
+   * Метки полей решений человека, которые стирал ИСХОДНЫЙ вызов — до починки. Структурно,
+   * а не текстом ноты: при включённой починке нота считается по исправленному вызову и
+   * о стёртом поле молчит, и класс «стирание поля решения» пропадал из метрики стенда.
+   */
+  decisionsLost?: string[];
   createdAt: number;
 }
 
@@ -188,6 +195,8 @@ export class ApprovalGate {
     call: NormalizedCall,
     ctx: PolicyContext,
     rules: AutoApproveRules,
+    /** Уже посчитанная потеря этого вызова — чтобы не читать файл второй раз. Не задано — считается здесь. */
+    loss?: DestructiveOverwrite | null,
   ): boolean {
     if (call.kind === 'bash') return rules.bash;
 
@@ -206,7 +215,8 @@ export class ApprovalGate {
     // «правки внутри плана»: файл из плана — это разрешение писать в него, а не разрешение
     // стереть его целиком. Замер поймал ровно этот случай — 1235 строк заменены заглушкой,
     // и все проверки отработали как написаны (см. `destructive.ts`).
-    if (destructiveOverwrite(call, ctx.projectRoot, ctx.stageArtifacts ?? []) !== null) return false;
+    const destroys = loss === undefined ? destructiveOverwrite(call, ctx.projectRoot, ctx.stageArtifacts ?? []) : loss;
+    if (destroys !== null) return false;
 
     // `writeTargetPaths` возвращает `null` для вызовов, которые вообще не пишут: такой
     // вызов «внутри плана» не бывает, и правило про правки к нему не относится.
@@ -306,20 +316,32 @@ export class ApprovalGate {
     }
 
     // Стёртое поле решения человека возвращает механика, а не отказ (ручка витка). Всё
-    // дальше — превью, нота потери, автоправила, очередь — считается уже по исправленному
-    // вызову: оператор решает по тому, что будет записано на самом деле. Политика здесь не
-    // пересчитывается: путь и вид вызова те же, меняется только содержимое.
-    const repair = args.ctx.restoreErasedDecisions === true ? repairErasedDecisions(args.call, args.ctx.projectRoot) : null;
-    const repairedInput =
-      repair !== null && typeof args.rawInput['content'] === 'string' ? { ...args.rawInput, content: repair.content } : null;
-    const repairedCall: NormalizedCall =
-      repairedInput !== null && args.call.kind === 'write' ? { ...args.call, content: repair!.content } : args.call;
+    // дальше — превью, нота потери, очередь — считается уже по исправленному вызову:
+    // оператор решает по тому, что будет записано на самом деле.
+    const erased =
+      args.ctx.restoreErasedDecisions === true && args.call.kind === 'write'
+        ? repairErasedDecisions(args.call, args.ctx.projectRoot)
+        : null;
+    let repair = erased?.repair ?? null;
+    let repairedCall: NormalizedCall = args.call;
+    if (repair !== null && args.call.kind === 'write' && typeof args.rawInput['content'] === 'string') {
+      // Политика ПЕРЕСЧИТЫВАЕТСЯ по исправленному вызову: починка меняет то, что уйдёт
+      // исполнителю, после того как `checkAll` уже сказал «можно». Сегодня политика по
+      // содержимому не судит и вердикт совпадёт — но вход, прошедший гейт не проверенным,
+      // стал бы дырой при первом же правиле, которое судит.
+      const candidate: NormalizedCall = { ...args.call, content: repair.content };
+      if (this.checkAll(candidate, args.ctx).ok) repairedCall = candidate;
+      else repair = null;
+    } else {
+      repair = null;
+    }
+    const repairedInput = repair === null ? null : { ...args.rawInput, content: repair.content };
     const repaired =
-      repairedInput === null
+      repair === null
         ? {}
         : {
             repaired:
-              `рантайм вернул стёртое поле решения человека: ${repair!.restored.map((l) => `«${l}»`).join(', ')} — ` +
+              `рантайм вернул стёртое поле решения человека: ${repair.restored.map((l) => `«${l}»`).join(', ')} — ` +
               'файл переписан целиком вместо точечной правки',
           };
     const effectiveBase = repairedInput === null ? base : { ...base, call: repairedCall, rawInput: repairedInput };
@@ -328,13 +350,25 @@ export class ApprovalGate {
 
     // Предупреждение о потере содержимого считается здесь, а не в панели: оператор
     // принимает решение по тому, что ему показали, и «−1233 строки» обязано быть в самом
-    // запросе, а не выводиться клиентом заново из превью.
-    const loss = destructiveOverwrite(repairedCall, args.ctx.projectRoot, args.ctx.stageArtifacts ?? []);
+    // запросе, а не выводиться клиентом заново из превью. Потеря исходного вызова уже
+    // посчитана починкой по прочитанному ею тексту — второй раз файл не читается.
+    const originalLoss =
+      erased !== null ? erased.loss : destructiveOverwrite(args.call, args.ctx.projectRoot, args.ctx.stageArtifacts ?? []);
+    const loss = repair === null ? originalLoss : repair.residual;
     const destructive = loss === null ? null : destructiveNote(loss);
+    const lost = originalLoss?.decisionsLost;
+    const decisionsLost = lost === undefined || lost.length === 0 ? {} : { decisionsLost: [...lost] };
 
-    if (this.matchesRule(repairedCall, args.ctx, this.autoApproveRules(args.runId, args.stage))) {
-      const decision: Decision = { allowed: true, updatedInput: repairedInput, by: 'auto' };
-      this.events.onPending(visible({ ...effectiveBase, ...repaired, policy, preview, destructive, resolve: () => {} }));
+    // Починка состоялась — автоправила не применяются вовсе. Исправленный вызов потерю уже
+    // не показывает (`loss` по нему `null`), и запрет «разрушающая перезапись выходит из-под
+    // ЛЮБОГО автоодобрения» молча переставал действовать: `Write`, стёрший поле решения
+    // человека, автоприменялся с подставленным рантаймом содержимым, которого не видел никто.
+    if (
+      repair === null &&
+      this.matchesRule(repairedCall, args.ctx, this.autoApproveRules(args.runId, args.stage), loss)
+    ) {
+      const decision: Decision = { allowed: true, updatedInput: null, by: 'auto' };
+      this.events.onPending(visible({ ...effectiveBase, ...decisionsLost, policy, preview, destructive, resolve: () => {} }));
       this.events.onResolved({ ...info, cancelled: false }, decision);
       return decision;
     }
@@ -343,6 +377,7 @@ export class ApprovalGate {
       const pending: Waiting = {
         ...effectiveBase,
         ...repaired,
+        ...decisionsLost,
         ...(repairedInput === null ? {} : { repairedInput }),
         policy,
         preview,

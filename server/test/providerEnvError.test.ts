@@ -12,7 +12,7 @@ import { ok, rejects, strictEqual } from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { describe, it } from 'node:test';
 
-import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
+import { ENGINE_UNAVAILABLE_SUBSTRINGS, ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
 import { OpenAiCompatProvider } from '../src/provider/OpenAiCompatProvider.ts';
 
 /** Сервер, отвечающий одним и тем же статусом. Повторы провайдера тоже придут сюда. */
@@ -174,6 +174,35 @@ describe('OpenAiCompatProvider: среда против модели', () => {
     } finally {
       s.server.close();
     }
+  });
+
+  it('400 «Unterminated string in JSON» — ошибка разбора, не падение движка (code-review, 2026-09-14)', async () => {
+    // Подстрока `terminated` без границ слова совпадала с `Unterminated` и красила
+    // отказ разбора — про модель — средовым.
+    const s = await stub(400, JSON.stringify({ error: 'Unterminated string in JSON at position 812' }));
+    try {
+      await rejects(
+        () => chatWith(s.url),
+        (e: Error) => {
+          ok(!(e instanceof ProviderEnvError), `не должен читаться как отказ среды, пришёл ${e.name}`);
+          return true;
+        },
+      );
+    } finally {
+      s.server.close();
+    }
+  });
+
+  it('ENGINE_UNAVAILABLE_SUBSTRINGS: границы слова и совместимость .source с вклейкой через |', () => {
+    ok(ENGINE_UNAVAILABLE_SUBSTRINGS.test('terminated'));
+    ok(ENGINE_UNAVAILABLE_SUBSTRINGS.test('HTTP 400 — {"error":"terminated"}'));
+    ok(ENGINE_UNAVAILABLE_SUBSTRINGS.test('Engine protocol predict request failed: fetch failed'));
+    ok(!ENGINE_UNAVAILABLE_SUBSTRINGS.test('Unterminated string in JSON at position 812'));
+    // Тот же приём, что у `FormFillExecutor`: `.source` вклеивается в чужую регулярку.
+    const combined = new RegExp(`econnrefused|socket hang up|${ENGINE_UNAVAILABLE_SUBSTRINGS.source}`, 'i');
+    ok(combined.test('HTTP 400 {"error":"Terminated"}'));
+    ok(combined.test('ECONNREFUSED 127.0.0.1'));
+    ok(!combined.test('Unterminated string in JSON'));
   });
 
   it('адрес, где никто не слушает, — тоже отказ среды: до модели запрос не дошёл', async () => {

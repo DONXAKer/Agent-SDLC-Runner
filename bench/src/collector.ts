@@ -9,9 +9,25 @@
  * размеры промптов и тексты заданных вопросов — три вещи, о которых числа ничего не говорят.
  */
 
-import type { EventSink, RunEvent, StageId } from '@sdlc-runner/shared';
+import type { EventSink, PolicyName, RunEvent, StageId } from '@sdlc-runner/shared';
 
 import { appendEvent } from '../../server/src/eventLog.ts';
+
+/**
+ * Поля событий, которые рантайм может ещё не нести в типе: старые ленты и версии сервера
+ * без них должны читаться, а не падать. Локальное расширение, а не правка контракта: контракт
+ * событий — `shared`, и коллектор его не расширяет.
+ */
+export type ToolRequestEvent = Extract<RunEvent, { type: 'tool_request' }> & {
+  /** Рантайм вернул в содержимое стёртое поле решения человека (`restoreErasedDecisions`). */
+  repaired?: string;
+  /** Метки полей решений человека, стёртых ИСХОДНЫМ вызовом. */
+  decisionsLost?: string[];
+};
+export type ToolResolvedEvent = Extract<RunEvent, { type: 'tool_resolved' }> & {
+  /** Запрос снят обрывом прогона (`cancelRun`), а не решён. */
+  cancelled?: true;
+};
 
 export interface CollectedToolCall {
   stage: StageId;
@@ -44,11 +60,35 @@ export interface CollectedDenial {
   requestId: string;
   toolName: string;
   kind: string;
-  /** Политика, отклонившая вызов; `null` — отказал оператор, а не политика. */
-  policy: string | null;
+  /**
+   * Политика, отклонившая вызов на входе в гейт; `null` — вход политику прошёл. Тип —
+   * контрактный `PolicyName`, а не строка: новая политика обязана всплыть в `classifyDenial`
+   * ошибкой компиляции, а не молча упасть в «отказ оператора». Результаты, записанные до
+   * появления политики, могут нести и неизвестное имя — отчёт это переживает.
+   */
+  policy: PolicyName | null;
   /** Нота гейта о перезаписи с потерей содержимого (`destructiveOverwrite`), если была. */
   destructive: string | null;
+  /** Метки стёртых полей решений человека — из события; нет у результатов старше поля. */
+  decisionsLost?: string[];
+  /**
+   * Кто вынес отказ (`Decision.by`). `policy` при прошедшем политику входе — это правка
+   * аргументов оператором, не прошедшая повторную проверку (`ApprovalGate.revalidate`), а не
+   * отказ оператора. Нет у результатов старше поля.
+   */
+  by?: 'policy' | 'operator';
   reason: string;
+}
+
+/**
+ * Починка рантаймом: вызов стёр поле решения человека, рантайм вернул его в содержимое
+ * (`restoreErasedDecisions`), и отказа не было. Без отдельного счёта ручка стирала класс
+ * «стирание поля решения» из отчёта целиком — ошибка модели осталась, а видно её не было.
+ */
+export interface CollectedRepair {
+  stage: StageId;
+  requestId: string;
+  decisionsLost?: string[];
 }
 
 export interface CollectorState {
@@ -57,10 +97,12 @@ export interface CollectorState {
   questions: CollectedQuestion[];
   /** Необязательно только для чтения результатов, записанных до появления поля. */
   denials?: CollectedDenial[];
+  /** Необязательно только для чтения результатов, записанных до появления поля. */
+  repairs?: CollectedRepair[];
 }
 
 export function emptyCollectorState(): CollectorState {
-  return { toolCalls: [], promptSizes: [], questions: [], denials: [] };
+  return { toolCalls: [], promptSizes: [], questions: [], denials: [], repairs: [] };
 }
 
 export interface Collector {
@@ -81,34 +123,53 @@ export function createCollector(args: {
 }): Collector {
   const state = emptyCollectorState();
   const denials: CollectedDenial[] = [];
+  const repairs: CollectedRepair[] = [];
   state.denials = denials;
+  state.repairs = repairs;
   /** Запрос ждёт решения: отказ приходит отдельным `tool_resolved` без имени и политики. */
-  const pending = new Map<string, Omit<CollectedDenial, 'reason'>>();
+  const pending = new Map<string, Omit<CollectedDenial, 'reason' | 'by'>>();
 
   const emit: EventSink = (e) => {
     appendEvent(args.projectRoot(), args.slug(), e);
     args.onEvent?.(e);
 
     if (e.type === 'tool_resolved') {
-      const req = pending.get(e.requestId);
-      pending.delete(e.requestId);
-      if (req !== undefined && !e.decision.allowed) denials.push({ ...req, reason: e.decision.reason });
+      const resolved: ToolResolvedEvent = e;
+      const req = pending.get(resolved.requestId);
+      pending.delete(resolved.requestId);
+      // Отмена ожидающего запроса (`cancelRun`) приходит решением `by: 'operator'`, но это
+      // обрыв прогона, а не отказ: без фильтра каждый снятый таймаутом этап добавлял модели
+      // «отказ оператора», которого не было.
+      if (resolved.cancelled === true) return;
+      if (req !== undefined && !resolved.decision.allowed) {
+        denials.push({ ...req, by: resolved.decision.by, reason: resolved.decision.reason });
+      }
       return;
     }
 
     if (e.type === 'tool_request') {
-      pending.set(e.requestId, {
-        stage: e.stage,
-        requestId: e.requestId,
-        toolName: e.toolName,
-        kind: e.call.kind,
-        policy: e.policy.ok ? null : e.policy.policy,
-        destructive: e.destructive,
+      const request: ToolRequestEvent = e;
+      const lost = request.decisionsLost;
+      pending.set(request.requestId, {
+        stage: request.stage,
+        requestId: request.requestId,
+        toolName: request.toolName,
+        kind: request.call.kind,
+        policy: request.policy.ok ? null : request.policy.policy,
+        destructive: request.destructive,
+        ...(lost === undefined ? {} : { decisionsLost: [...lost] }),
       });
-      state.toolCalls.push({ stage: e.stage, toolName: e.toolName, kind: e.call.kind });
-      if (e.call.kind === 'ask_human') {
-        for (const q of e.call.questions) {
-          state.questions.push({ stage: e.stage, requestId: e.requestId, questionId: q.id, text: q.question });
+      if (request.repaired !== undefined) {
+        repairs.push({
+          stage: request.stage,
+          requestId: request.requestId,
+          ...(lost === undefined ? {} : { decisionsLost: [...lost] }),
+        });
+      }
+      state.toolCalls.push({ stage: request.stage, toolName: request.toolName, kind: request.call.kind });
+      if (request.call.kind === 'ask_human') {
+        for (const q of request.call.questions) {
+          state.questions.push({ stage: request.stage, requestId: request.requestId, questionId: q.id, text: q.question });
         }
       }
       return;

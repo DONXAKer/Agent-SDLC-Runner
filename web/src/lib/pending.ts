@@ -22,6 +22,10 @@ export interface PendingCall {
   preview: DiffPreview | null;
   /** Предупреждение о перезаписи с потерей содержимого. `null` — потери нет. */
   destructive: string | null;
+  /** Рантайм вернул стёртое поле решения человека — исполнитель получит исправленный вход. */
+  repaired?: string;
+  /** Метки полей решений, которые стирал исходный вызов до починки. */
+  decisionsLost?: string[];
   /**
    * Когда запрос встал в очередь (epoch ms сервера). `null` возможен только у события из
    * старой ленты на диске, записанной до появления поля, — живые источники (ответ сервера
@@ -35,6 +39,17 @@ export interface PendingAsk {
   questions: Question[];
   /** То же, что у одобрений. */
   createdAt: number | null;
+}
+
+/**
+ * Поля починки — одной функцией для обоих источников: поля копируются поимённо, и забытое в
+ * одном из двух мест пропадало молча (так и было с `repaired` — карточка его не получала).
+ */
+function repairFields(src: { repaired?: string; decisionsLost?: string[] }): Pick<PendingCall, 'repaired' | 'decisionsLost'> {
+  return {
+    ...(src.repaired === undefined ? {} : { repaired: src.repaired }),
+    ...(src.decisionsLost === undefined ? {} : { decisionsLost: src.decisionsLost }),
+  };
 }
 
 /**
@@ -69,6 +84,7 @@ export function mergePending(
       policy: p.policy,
       preview: p.preview,
       destructive: p.destructive,
+      ...repairFields(p),
       createdAt: p.createdAt,
     });
   }
@@ -99,6 +115,7 @@ export function mergePending(
         policy: e.policy,
         preview: e.preview,
         destructive: e.destructive,
+        ...repairFields(e),
         createdAt: e.createdAt ?? null,
       });
     }

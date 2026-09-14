@@ -8,8 +8,45 @@
 import { deepStrictEqual, strictEqual, throws } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { OptionsError, parseArgs } from '../src/options.ts';
+import { OptionsError, parseArgs, rawLogWanted, resolveTurnLimits } from '../src/options.ts';
 import { measuredStages } from '../src/profile.ts';
+
+describe('лимиты ходов (resolveTurnLimits)', () => {
+  const prod = { maxIterationsPerStage: 55, maxIterationsByStage: { verify: 70 } };
+
+  it('без --max-turns — штатные лимиты конфига, а не константа разбора', () => {
+    const o = parseArgs(['--model', 'x', '--all']);
+    strictEqual(o.maxTurnsExplicit, false);
+    deepStrictEqual(resolveTurnLimits(prod, o), { maxTurns: 55, maxTurnsExplicit: false, maxIterationsByStage: { verify: 70 } });
+  });
+
+  it('явный --max-turns действует на все этапы и снимает поэтапные потолки', () => {
+    const o = parseArgs(['--model', 'x', '--all', '--max-turns', '25']);
+    deepStrictEqual(resolveTurnLimits(prod, o), { maxTurns: 25, maxTurnsExplicit: true, maxIterationsByStage: {} });
+  });
+
+  it('литерал опций без maxTurnsExplicit (старые тесты) читается как «ключа не было»', () => {
+    strictEqual(resolveTurnLimits(prod, { maxIterationsPerStage: 1 }).maxTurns, 55);
+  });
+});
+
+describe('сырой дамп (rawLogWanted)', () => {
+  it('включается для любого живого прогона, не только серии', () => {
+    strictEqual(rawLogWanted(parseArgs(['--model', 'x', '--stage', 'chunk']), undefined), true);
+    strictEqual(rawLogWanted(parseArgs(['--model', 'x', '--all', '--repeat', '3']), ''), true);
+    strictEqual(rawLogWanted(parseArgs(['--model', 'x', '--all', '--make-snapshot', 'a']), undefined), true);
+  });
+
+  it('--no-raw-log, заданная переменная окружения и режимы без витка — не включают', () => {
+    const noRaw = parseArgs(['--model', 'x', '--stage', 'chunk', '--no-raw-log']);
+    strictEqual(noRaw.rawLog, false);
+    strictEqual(rawLogWanted(noRaw, undefined), false);
+    strictEqual(rawLogWanted(parseArgs(['--model', 'x', '--all']), 'D:/свой/каталог'), false);
+    strictEqual(rawLogWanted(parseArgs(['--model', 'x', '--probe']), undefined), false);
+    strictEqual(rawLogWanted(parseArgs(['--model', 'x', '--preflight']), undefined), false);
+    strictEqual(rawLogWanted(parseArgs(['--dry-run']), undefined), false);
+  });
+});
 
 describe('аргументы бенчмарка', () => {
   it('режим одного этапа разбирается', () => {

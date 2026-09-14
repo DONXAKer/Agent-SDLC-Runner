@@ -95,6 +95,7 @@ const gate = new ApprovalGate({
       writeTargets: p.writeTargets,
       destructive: p.destructive,
       ...(p.repaired === undefined ? {} : { repaired: p.repaired }),
+      ...(p.decisionsLost === undefined ? {} : { decisionsLost: p.decisionsLost }),
       createdAt: p.createdAt,
     }),
   onResolved: (info, decision) => {
@@ -104,6 +105,7 @@ const gate = new ApprovalGate({
       stage: info.stage,
       requestId: info.requestId,
       decision,
+      ...(info.cancelled ? { cancelled: true as const } : {}),
     });
     // Что считается трением о человека, решает сам виток (`Run.noteApprovalDecision`):
     // здесь только доставка события. Второе место классификации давало стенду пустую

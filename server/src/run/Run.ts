@@ -100,7 +100,7 @@ import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName, runGates } from '../gates/run.ts';
 import { git, hasCommits, stageNewPlanFiles, workingDiff } from '../gates/git.ts';
 import { autofillChunkJournal } from './journalAutofill.ts';
-import { autofillPlan, autofillReadiness, autofillTitle } from './formAutofill.ts';
+import { autofillClarification, autofillPlan, autofillReadiness, autofillTitle } from './formAutofill.ts';
 import { autofillVerificationReport } from './verifyAutofill.ts';
 import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } from './verifyReport.ts';
 import { claimIdOf } from '../artifacts/claims.ts';
@@ -239,7 +239,11 @@ async function branchFactBlock(root: string): Promise<string | null> {
  * дозаполнение закрыло бы этап, который обязан остаться красным. Само по себе попадание
  * в этот список исхода не переворачивает — решает `notDone().length === 0` на месте вызова.
  */
-export function isFormattingFailure(note: string): boolean {
+export function isFormattingFailure(note: string, stage?: StageId): boolean {
+  // На chunk антицикл — это повтор ПРАВКИ КОДА, а не оформления: страж переворота там
+  // смотрит только журнал (`notDone`), и заполненный журнал закрыл бы этап с недописанным
+  // кодом зелёным. Остальные три причины на chunk по-прежнему про бюджет.
+  if (stage === 'chunk' && /этап зациклился/.test(note)) return false;
   return (
     /исчерпан лимит ходов/.test(note) ||
     /артефакт этапа не заполнен/.test(note) ||
@@ -1539,14 +1543,7 @@ export class Run {
     const journal = readArtifact(path);
     if (!journal.exists || journal.placeholders === 0) return;
 
-    const root = this.project.projectRoot;
-    let baseSha: string | null = null;
-    if (await isRepo(root)) {
-      if (await hasCommits(root)) {
-        const r = await git(['rev-parse', 'HEAD'], root);
-        baseSha = r.code === 0 ? r.stdout.trim() : null;
-      }
-    }
+    const baseSha = (await this.head()).sha;
 
     // Дата одобрения плана — только из фактического решения в plan.md: сочинять дату
     // решения человека нельзя, не извлеклась — поле остаётся плейсхолдером.
@@ -1572,9 +1569,7 @@ export class Run {
     });
     if (filled === 0) return;
 
-    writeArtifact(path, text);
-    const seed = seeded.find((s) => s.path === path);
-    if (seed !== undefined) seed.snapshot = text;
+    this.writeAutofilled(path, text, seeded);
     this.emit({
       type: 'warning',
       runId: this.id,
@@ -1618,9 +1613,7 @@ export class Run {
       if (e instanceof DecisionFormError) return; // поля нет в этом шаблоне — законно
       throw e;
     }
-    writeArtifact(path, text);
-    const seed = seeded.find((s) => s.path === path);
-    if (seed !== undefined) seed.snapshot = text;
+    this.writeAutofilled(path, text, seeded);
     this.emit({
       type: 'warning',
       runId: this.id,
@@ -1629,19 +1622,36 @@ export class Run {
     });
   }
 
-  /** HEAD проекта либо причина его отсутствия — строкой, для поля «База» плана. */
-  private async baseLine(): Promise<string> {
+  /**
+   * HEAD проекта: sha либо причина его отсутствия. Одна цепочка на журнал chunk'а и план —
+   * две копии разошлись бы при первой же правке (worktree, другой способ чтения HEAD), и
+   * база одного витка читалась бы в двух артефактах по-разному.
+   */
+  private async head(): Promise<{ sha: string | null; why: string }> {
     const root = this.project.projectRoot;
-    if (!(await isRepo(root))) return 'н/п — не git-репозиторий';
-    if (!(await hasCommits(root))) return 'н/п — в репозитории нет коммитов';
+    if (!(await isRepo(root))) return { sha: null, why: 'н/п — не git-репозиторий' };
+    if (!(await hasCommits(root))) return { sha: null, why: 'н/п — в репозитории нет коммитов' };
     const r = await git(['rev-parse', 'HEAD'], root);
-    return r.code === 0 ? r.stdout.trim() : 'н/п — HEAD не прочитался';
+    return r.code === 0 ? { sha: r.stdout.trim(), why: '' } : { sha: null, why: 'н/п — HEAD не прочитался' };
+  }
+
+  /**
+   * Запись автозаполнения с обновлением снимка бланка: без снимка страж «бланк байт-в-байт»
+   * ослеп бы от нашей же записи, и этап, не сделавший ничего, выглядел бы поработавшим.
+   */
+  private writeAutofilled(path: string, text: string, seeded: { path: string; snapshot?: string }[]): void {
+    writeArtifact(path, text);
+    const seed = seeded.find((s) => s.path === path);
+    if (seed !== undefined) seed.snapshot = text;
   }
 
   /**
    * Механические поля плана, готовности и отчётов этапов 2–3 — см. `formAutofill.ts`.
-   * Снимок после подстановки уходит в `SeededArtifact.snapshot` по той же причине, что у
-   * `autofillJournal`: страж «бланк байт-в-байт» не должен ослепнуть от нашей записи.
+   *
+   * Зовётся на входе в этап и повторно перед дозаполнением: модель могла переписать артефакт
+   * копией бланка, вернув плейсхолдеры рантайма, а у модели эти поля больше не спрашиваются.
+   * Факты (git, существование отчётов) считаются лениво — только когда в артефакте есть что
+   * закрывать: повторный вход в этап не должен платить спавнами git за пустую работу.
    */
   private async autofillMechanicalFields(
     stage: StageId,
@@ -1649,32 +1659,42 @@ export class Run {
   ): Promise<void> {
     const title = this.slug;
     const date = new Date().toISOString().slice(0, 10);
-    const jobs: { path: string; fill: (text: string) => { text: string; filled: number } }[] = [];
+    const jobs: { path: string; fill: (text: string) => Promise<{ text: string; filled: number }> }[] = [];
     if (stage === 'intent') {
-      jobs.push({ path: this.paths.readiness, fill: (t) => autofillReadiness(t, { title, date, run: 1 }) });
+      jobs.push({ path: this.paths.readiness, fill: async (t) => autofillReadiness(t, { title, date, run: 1 }) });
     }
-    if (stage === 'explore') jobs.push({ path: this.paths.explorationReport, fill: (t) => autofillTitle(t, title) });
-    if (stage === 'ask') jobs.push({ path: this.paths.clarificationReport, fill: (t) => autofillTitle(t, title) });
+    if (stage === 'explore') {
+      jobs.push({ path: this.paths.explorationReport, fill: async (t) => autofillTitle(t, title) });
+    }
+    if (stage === 'ask') {
+      jobs.push({
+        path: this.paths.clarificationReport,
+        fill: async (t) => autofillClarification(t, { title, explorationDone: artifactExists(this.paths.explorationReport) }),
+      });
+    }
     if (stage === 'plan') {
-      const facts = {
-        title,
-        explorationDone: readArtifact(this.paths.explorationReport).exists,
-        clarificationDone: readArtifact(this.paths.clarificationReport).exists,
-        base: await this.baseLine(),
-      };
-      jobs.push({ path: this.paths.plan, fill: (t) => autofillPlan(t, facts) });
-      jobs.push({ path: this.paths.readiness, fill: (t) => autofillReadiness(t, { title, date, run: 2 }) });
+      jobs.push({
+        path: this.paths.plan,
+        fill: async (t) => {
+          const head = await this.head();
+          return autofillPlan(t, {
+            title,
+            explorationDone: artifactExists(this.paths.explorationReport),
+            clarificationDone: artifactExists(this.paths.clarificationReport),
+            base: head.sha ?? head.why,
+          });
+        },
+      });
+      jobs.push({ path: this.paths.readiness, fill: async (t) => autofillReadiness(t, { title, date, run: 2 }) });
     }
 
     let total = 0;
     for (const job of jobs) {
       const artifact = readArtifact(job.path);
       if (!artifact.exists || artifact.placeholders === 0) continue;
-      const { text, filled } = job.fill(artifact.text);
+      const { text, filled } = await job.fill(artifact.text);
       if (filled === 0) continue;
-      writeArtifact(job.path, text);
-      const seed = seeded.find((s) => s.path === job.path);
-      if (seed !== undefined) seed.snapshot = text;
+      this.writeAutofilled(job.path, text, seeded);
       total += filled;
     }
     if (total === 0) return;
@@ -2031,9 +2051,7 @@ export class Run {
     this.verifyPrefill = filled > 0 ? text : report.text;
     if (filled === 0) return;
 
-    writeArtifact(path, text);
-    const seed = seeded.find((s) => s.path === path);
-    if (seed !== undefined) seed.snapshot = text;
+    this.writeAutofilled(path, text, seeded);
     this.emit({
       type: 'warning',
       runId: this.id,
@@ -2086,10 +2104,17 @@ export class Run {
     // Полный журнал — не повод выйти до переворота исхода: живой прогон (r6/ff1) показал
     // сэмпл, где модель добила журнал САМА, но сожгла лимит, не успев завершить ход, —
     // ранний return здесь оставлял этап красным при полностью выполненном контракте.
+    // Поля рантайма закрываются заново ДО подсчёта: модель могла переписать артефакт копией
+    // бланка, а дозаполнение эти поля у модели не спрашивает — без повтора плейсхолдер
+    // рантайма оставался навсегда и держал этап красным.
+    await this.autofillMechanicalFields(stage, []);
+    let requests = result.modelRequests ?? 0;
     const remaining = countPlaceholdersExceptDecisions(readArtifact(path).text);
     if (remaining > 0) {
-      const filled = await this.fillFormFields(stage, path, prompt, hooks, signal, remaining);
-      if (!filled) return result;
+      const fill = await this.fillFormFields(stage, path, prompt, hooks, signal, remaining);
+      requests += fill.modelRequests;
+      result = { ...result, ...(requests === 0 ? {} : { modelRequests: requests }) };
+      if (!fill.ok) return result;
       const dishonest = explorationHonestyProblem();
       if (dishonest !== null) return dishonest;
     }
@@ -2106,7 +2131,7 @@ export class Run {
     //
     // Переворот исхода по-прежнему сторожит `notDone().length === 0`: пустых обязательных
     // полей быть не должно, иначе красное станет зелёным на недоделанном артефакте.
-    const closableFailure = !result.ok && isFormattingFailure(result.note);
+    const closableFailure = !result.ok && isFormattingFailure(result.note, stage);
     if (closableFailure && notDone().length === 0) {
       // Рескью нужен своя проверка честности: `remaining` мог быть 0 уже на входе (ход
       // упал не по счётчику плейсхолдеров, а, например, по лимиту длины ответа) — тогда
@@ -2123,7 +2148,8 @@ export class Run {
   }
 
   /**
-   * Дозаполнение полей артефакта per-field completion'ами. `false` — поля не закрылись.
+   * Дозаполнение полей артефакта per-field completion'ами. `ok: false` — поля не закрылись;
+   * `modelRequests` — сколько обращений к модели оно стоило (идёт в итог этапа).
    *
    * `remainingPlaceholders` — сколько мест не закрыто ПЕРЕД добором: потолок ходов
    * (`fillTurnsFor`) считается от него, не плоской константой (см. комментарий там).
@@ -2135,7 +2161,7 @@ export class Run {
     hooks: ExecHooks,
     signal: AbortSignal,
     remainingPlaceholders: number,
-  ): Promise<boolean> {
+  ): Promise<{ ok: boolean; modelRequests: number }> {
     const route = this.profile.routes[stage];
     const limits = this.config.runner.limits;
     this.emit({
@@ -2194,7 +2220,7 @@ export class Run {
         message: `дозаполнение артефакта не закрыло поля: ${fill.note}`,
       });
     }
-    return fill.ok;
+    return { ok: fill.ok, modelRequests: fill.modelRequests ?? 0 };
   }
 
   private toolsFor(stage: StageId): readonly ToolName[] {
@@ -3208,22 +3234,29 @@ export class Run {
     opts: { abortHandoff?: boolean } = {},
     precomputed?: PreconditionReport,
   ): string[] {
-    return this.blockerDetails(stage, opts, precomputed).map((b) => b.text);
+    // Виновник здесь не считается: `blockers()` зовут GET-ручки на каждый опрос витка, а
+    // виновник нужен только отчёту стенда.
+    return this.blockerDetails(stage, opts, precomputed, false).map((b) => b.text);
   }
 
   /**
    * Те же причины, что `blockers`, с этапом-виновником каждой: чей артефакт завалил вход.
-   * `null` — причина не про артефакт прошлого этапа (проба среды песочницы).
+   * `null` — причина не про артефакт прошлого этапа (проба среды песочницы, недостающее
+   * решение человека). Виновник всегда выводится `stageProducing` из пути артефакта — второе
+   * место решения «кто виноват» разошлось бы с `produces` этапов при первой их правке.
    */
   blockerDetails(
     stage: StageId,
     opts: { abortHandoff?: boolean } = {},
     precomputed?: PreconditionReport,
+    withBlame = true,
   ): { text: string; blamed: StageId | null }[] {
     const report = precomputed ?? checkPreconditions(stageById(stage), this.ctx, opts);
+    const blame = (path: string | null): StageId | null =>
+      withBlame && path !== null ? stageProducing(path, stage, this.ctx) : null;
     const problems: { text: string; blamed: StageId | null }[] = report.details.map((d) => ({
       text: d.text,
-      blamed: d.artifact === null ? null : stageProducing(d.artifact, stage, this.ctx),
+      blamed: blame(d.artifact),
     }));
     const by = (blamed: StageId | null) => (text: string) => ({ text, blamed });
 
@@ -3231,7 +3264,7 @@ export class Run {
       const files = this.planFilesFor(stage);
       if (files !== null && files.length === 0) {
         problems.push(
-          by('plan')(
+          by(blame(this.paths.plan))(
             `план ${this.paths.plan} есть, но files_to_touch пуст: PlanScope выключился бы молча, ` +
               `и запись перестала бы быть ограниченной планом. Заполни секцию files_to_touch.`,
           ),
@@ -3248,22 +3281,23 @@ export class Run {
     // тем же несобранным набором значило бы лишить виток последнего легального выхода.
     if (stage !== 'intent' && !(stage === 'handoff' && opts.abortHandoff === true)) {
       const gates = this.gatesFile;
+      const gatesBlame = blame(this.paths.gates);
       if (gates === null) {
         problems.push(
-          by('intent')(
+          by(gatesBlame)(
             `нет набора гейтов ${this.paths.gates}. Без него не определены ни «сделано», ни ` +
               `условия вердикта — виток не стартует.`,
           ),
         );
       } else {
-        problems.push(...configProblems(gates).map(by('intent')));
+        problems.push(...configProblems(gates).map(by(gatesBlame)));
         // `REVIEW_GATE` не в BUILTIN и не в кавычках, но НЕ является дырой в наборе: он
         // получает статус не скриптом gates/run.ts, а `externalGateStatuses()` ниже — тем
         // же путём, каким и реально считается на прогоне (см. `runGates({ externalStatuses:
         // this.externalGateStatuses() })`). Без этого исключения витки с обычным для
         // минимума набором никогда бы не проходили дальше intent.
         problems.push(
-          ...unimplementedGates(gates, (name) => builtinFor(name) !== null, [REVIEW_GATE]).map(by('intent')),
+          ...unimplementedGates(gates, (name) => builtinFor(name) !== null, [REVIEW_GATE]).map(by(gatesBlame)),
         );
       }
     }
@@ -4249,7 +4283,14 @@ export class Run {
           if (decision.allowed && call.kind === 'subagent' && reviewerNames.has(call.agent)) {
             pendingReviewer.add(meta.requestId);
           }
-          if (decision.allowed && (call.kind === 'write' || call.kind === 'edit')) {
+          // Прогресс — правка вне артефактов витка: правка журнала chunk'а в `.sdlc`
+          // гасила напоминание о нулевом прогрессе ровно в том случае, под который оно
+          // заведено (журнал заполнен, код не тронут — серия v4, `ministral`/`security-bait`).
+          if (
+            decision.allowed &&
+            (call.kind === 'write' || call.kind === 'edit') &&
+            !relOf(this.ctx, call.path).replace(/\\/g, '/').replace(/^\.\//, '').startsWith('.sdlc/')
+          ) {
             pendingWrites.add(meta.requestId);
           }
           if (decision.allowed && call.kind === 'bash') {

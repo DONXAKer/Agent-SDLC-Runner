@@ -16,6 +16,7 @@ import type { NormalizedCall, RunEvent } from '@sdlc-runner/shared';
 
 import { readPersistedEvents } from '../../server/src/eventLog.ts';
 import { createCollector } from '../src/collector.ts';
+import type { ToolRequestEvent, ToolResolvedEvent } from '../src/collector.ts';
 
 function toolRequest(over: Partial<Extract<RunEvent, { type: 'tool_request' }>> & { call: NormalizedCall }): RunEvent {
   return {
@@ -175,6 +176,78 @@ describe('createCollector', () => {
           ['b', 'plan', 'planScope', null],
         ],
       );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('отмена ожидающего запроса (cancelRun) — не отказ; revalidate помечен автором решения', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-bench-collector-'));
+    try {
+      const collector = createCollector({ projectRoot: () => root, slug: () => 's' });
+      collector.emit(toolRequest({ requestId: 'cancel', call: { kind: 'write', path: 'src/x.ts', content: 'x' } }));
+      const cancelled: ToolResolvedEvent = {
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'chunk',
+        requestId: 'cancel',
+        decision: { allowed: false, reason: 'прогон отменён', by: 'operator' },
+        cancelled: true,
+      };
+      collector.emit(cancelled);
+
+      collector.emit(toolRequest({ requestId: 'edit', call: { kind: 'write', path: 'src/y.ts', content: 'y' } }));
+      collector.emit({
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'chunk',
+        requestId: 'edit',
+        decision: { allowed: false, reason: 'правленые оператором аргументы не прошли политику [planScope]: x', by: 'policy' },
+      });
+
+      deepStrictEqual(
+        collector.state.denials?.map((d) => [d.requestId, d.policy, d.by]),
+        [['edit', null, 'policy']],
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('decisionsLost переносится в отказ; починка рантаймом собирается отдельно и отказом не считается', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-bench-collector-'));
+    try {
+      const collector = createCollector({ projectRoot: () => root, slug: () => 's' });
+      const erased: ToolRequestEvent = {
+        ...(toolRequest({ stage: 'explore', requestId: 'lost', call: { kind: 'write', path: '.sdlc/s/e.md', content: 'x' } }) as ToolRequestEvent),
+        destructive: 'перезапись .sdlc/s/e.md: −40 строк',
+        decisionsLost: ['Решение человека о полноте'],
+      };
+      collector.emit(erased);
+      collector.emit({
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'explore',
+        requestId: 'lost',
+        decision: { allowed: false, reason: 'разрушающая перезапись', by: 'operator' },
+      });
+
+      const repaired: ToolRequestEvent = {
+        ...(toolRequest({ stage: 'plan', requestId: 'fix', call: { kind: 'write', path: '.sdlc/s/plan.md', content: 'x' } }) as ToolRequestEvent),
+        repaired: 'рантайм вернул стёртое поле решения человека: «Одобрение»',
+        decisionsLost: ['Одобрение'],
+      };
+      collector.emit(repaired);
+      collector.emit({
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'plan',
+        requestId: 'fix',
+        decision: { allowed: true, updatedInput: { content: 'y' }, by: 'auto' },
+      });
+
+      deepStrictEqual(collector.state.denials?.map((d) => [d.requestId, d.decisionsLost]), [['lost', ['Решение человека о полноте']]]);
+      deepStrictEqual(collector.state.repairs, [{ stage: 'plan', requestId: 'fix', decisionsLost: ['Одобрение'] }]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -5,7 +5,33 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import { git } from '../../server/src/gates/git.ts';
-import { SnapshotError, makeSnapshot, restoreSnapshot, verifyRestoredBranch } from '../src/snapshot.ts';
+import {
+  SnapshotError,
+  firstMeasuredFrom,
+  makeSnapshot,
+  readSnapshotMeta,
+  restoreSnapshot,
+  startStageAfter,
+  verifyRestoredBranch,
+} from '../src/snapshot.ts';
+
+describe('точка снимка и первый измеряемый этап', () => {
+  it('старт — следующий этап после точки; после handoff и не-этапа старта нет', () => {
+    strictEqual(startStageAfter('plan'), 'chunk');
+    strictEqual(startStageAfter('intent'), 'explore');
+    strictEqual(startStageAfter('handoff'), null);
+    strictEqual(startStageAfter('нет-такого'), null);
+    strictEqual(startStageAfter(undefined), null);
+  });
+
+  it('первый измеряемый — не раньше старта: --all со снимка после plan мерит chunk, а не intent', () => {
+    const all = ['intent', 'explore', 'ask', 'plan', 'chunk', 'handoff'] as const;
+    strictEqual(firstMeasuredFrom('chunk', all), 'chunk');
+    strictEqual(firstMeasuredFrom('verify', all), 'handoff');
+    strictEqual(firstMeasuredFrom('explore', ['chunk']), 'chunk');
+    strictEqual(firstMeasuredFrom('chunk', ['explore']), null);
+  });
+});
 
 const roots: string[] = [];
 function tmp(prefix: string): string {
@@ -220,6 +246,26 @@ describe('makeSnapshot / restoreSnapshot', () => {
     mkdirSync(join(snapshotsDir, 'чужое'), { recursive: true });
     writeFileSync(join(snapshotsDir, 'чужое', 'x.txt'), 'x', 'utf8');
     throws(() => restoreSnapshot({ snapshotsDir, name: 'чужое', targetSlug: 'x', expectedTask: 'oversize' }), SnapshotError);
+  });
+
+  it('readSnapshotMeta: битый snapshot.json и точка без следующего этапа — SnapshotError с причиной', () => {
+    const snapshotsDir = tmp('sdlc-bench-snaps-meta-');
+    mkdirSync(join(snapshotsDir, 'битый'), { recursive: true });
+    writeFileSync(join(snapshotsDir, 'битый', 'snapshot.json'), '{не json', 'utf8');
+    throws(
+      () => readSnapshotMeta({ snapshotsDir, name: 'битый', expectedTask: 'oversize' }),
+      (e: unknown) => e instanceof SnapshotError && /не парсится/.test(e.message),
+    );
+    mkdirSync(join(snapshotsDir, 'конец'), { recursive: true });
+    writeFileSync(
+      join(snapshotsDir, 'конец', 'snapshot.json'),
+      JSON.stringify({ slug: 's', branch: 'b', stoppedAfterStage: 'handoff', createdAt: 'x', task: 'oversize' }),
+      'utf8',
+    );
+    throws(
+      () => readSnapshotMeta({ snapshotsDir, name: 'конец', expectedTask: 'oversize' }),
+      (e: unknown) => e instanceof SnapshotError && /мерить нечего/.test(e.message),
+    );
   });
 
   it('verifyRestoredBranch падает понятной ошибкой на расхождении ветки', async () => {

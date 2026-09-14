@@ -9,6 +9,7 @@ import { describe, it } from 'node:test';
 import {
   BYTES_PER_TOKEN_ESTIMATE,
   MIN_MAX_TOKENS,
+  budgetParams,
   estimateMessageTokens,
   marginFor,
   maxTokensForRemaining,
@@ -29,6 +30,33 @@ describe('maxTokensForRemaining', () => {
 
   it('остаток ровно на полу — не считается клэмпом (строго меньше)', () => {
     deepStrictEqual(maxTokensForRemaining(1024, 256, 512), { maxTokens: 256, clamped: false });
+  });
+});
+
+describe('budgetParams', () => {
+  it('contextWindow не задан — params как есть, колбэк не зовётся', () => {
+    let called = false;
+    const out = budgetParams({ contextWindow: undefined, params: { seed: 1 }, promptTokens: 9999, marginTokens: 0, onClamped: () => (called = true) });
+    deepStrictEqual(out, { seed: 1 });
+    strictEqual(called, false);
+    strictEqual(budgetParams({ contextWindow: undefined, params: undefined, promptTokens: 0, marginTokens: 0, onClamped: () => {} }), null);
+  });
+
+  it('остаток окна; явный max_tokens оператора перекрывает вычисленный', () => {
+    deepStrictEqual(budgetParams({ contextWindow: 4096, params: null, promptTokens: 3000, marginTokens: 512, onClamped: () => {} }), { max_tokens: 584 });
+    deepStrictEqual(
+      budgetParams({ contextWindow: 4096, params: { max_tokens: 999, temperature: 0.1 }, promptTokens: 3000, marginTokens: 512, onClamped: () => {} }),
+      { max_tokens: 999, temperature: 0.1 },
+    );
+  });
+
+  it('ниже пола — колбэк получает пол', () => {
+    const seen: number[] = [];
+    deepStrictEqual(
+      budgetParams({ contextWindow: 4096, params: null, promptTokens: 4000, marginTokens: 512, onClamped: (m) => seen.push(m) }),
+      { max_tokens: MIN_MAX_TOKENS },
+    );
+    deepStrictEqual(seen, [MIN_MAX_TOKENS]);
   });
 });
 

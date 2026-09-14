@@ -16,6 +16,8 @@
  * (`max_context_length`, тот же независимо от того, с каким окном её загрузили).
  */
 
+import { apiOrigin, describeFetchFailure, fetchJson } from './http.ts';
+
 export interface LmStudioContextCheck {
   ok: boolean;
   /** `null` — модель не найдена в LM Studio вовсе (`lms ls` её не видит под этим id). */
@@ -32,11 +34,6 @@ interface LmStudioModelEntry {
   loaded_context_length?: number;
 }
 
-/** `http://localhost:1434/v1` → `http://localhost:1434` — общий хост для `/api/v0/*`. */
-function apiV0Origin(baseUrl: string): string {
-  return baseUrl.replace(/\/v1\/?$/, '');
-}
-
 /**
  * Сравнивает заявленное в конфиге окно с фактически загруженным. Сетевой сбой и HTTP-ошибка
  * — тоже `ok: false`: и то, и другое значит «нельзя доверять, что прогон получит заявленное
@@ -49,31 +46,19 @@ export async function checkLmStudioContext(
   expected: number,
   signal?: AbortSignal,
 ): Promise<LmStudioContextCheck> {
-  const url = `${apiV0Origin(baseUrl)}/api/v0/models`;
-  let res: Response;
-  try {
-    res = await fetch(url, signal === undefined ? {} : { signal });
-  } catch (e) {
-    const why = e instanceof Error ? e.message : String(e);
-    return { ok: false, state: null, loadedContextLength: null, message: `LM Studio недоступен по ${url}: ${why}` };
-  }
+  const url = `${apiOrigin(baseUrl)}/api/v0/models`;
+  const res = await fetchJson(url, signal === undefined ? {} : { signal });
   if (!res.ok) {
     return {
       ok: false,
       state: null,
       loadedContextLength: null,
-      message: `LM Studio ${url} ответил HTTP ${res.status} — сервер запущен (\`lms server start\`)?`,
+      message: describeFetchFailure(url, res.failure, 'LM Studio', '`lms server start`'),
     };
   }
+  const data = (res.body as { data?: LmStudioModelEntry[] } | null)?.data;
 
-  let body: { data?: LmStudioModelEntry[] };
-  try {
-    body = (await res.json()) as { data?: LmStudioModelEntry[] };
-  } catch {
-    return { ok: false, state: null, loadedContextLength: null, message: `${url} вернул не JSON` };
-  }
-
-  const entry = (body.data ?? []).find((m) => m.id === modelId);
+  const entry = (Array.isArray(data) ? data : []).find((m) => m.id === modelId);
   if (entry === undefined) {
     return {
       ok: false,
