@@ -129,11 +129,36 @@ function mapFinish(reason: string | undefined, hasCalls: boolean): FinishReason 
 /**
  * Вызов инструмента, написанный текстом вместо `tool_calls`.
  *
- * Берём только явную форму `{"tool": "...", "arguments": {...}}` (и синонимы имени поля).
- * Угадывать дальше нельзя: свободный JSON в ответе — это чаще кусок артефакта, чем вызов,
- * и приняв его за вызов, мы бы исполнили то, чего модель не просила.
+ * Берём только две явные формы: `{"tool": "...", "arguments": {...}}` (и синонимы имени
+ * поля) и родную форму Mistral `Имя[ARGS]{...}`. Угадывать дальше нельзя: свободный JSON в
+ * ответе — это чаще кусок артефакта, чем вызов, и приняв его за вызов, мы бы исполнили то,
+ * чего модель не просила.
  */
 export function toolCallFromText(text: string, known: ReadonlySet<string>): ChatToolCall | null {
+  // Форма Mistral: `[TOOL_CALLS]Имя[ARGS]{…}`. Служебный токен шаблон движка съедает, и до
+  // нас доходит `Write[ARGS]{"file_path": …}` обычным текстом. Преполёт 2026-09-14
+  // (`ministral3-14b`): пять кейсов пробы из семи — «вызова нет» при однозначно выраженном
+  // вызове, то есть раннер мерил разбор ответа, а не модель. Планка та же, что у JSON-формы:
+  // имя объявлено и стоит вплотную к `[ARGS]`, за маркером — разбираемый объект.
+  for (let at = text.indexOf('[ARGS]'); at >= 0; at = text.indexOf('[ARGS]', at + 1)) {
+    const name = /([A-Za-z_][\w-]*)$/.exec(text.slice(Math.max(0, at - 128), at))?.[1];
+    if (name === undefined || !known.has(name)) continue;
+    let start = at + '[ARGS]'.length;
+    while (start < text.length && /\s/.test(text[start]!)) start++;
+    if (text[start] !== '{') continue;
+    const end = objectEnd(text, start);
+    if (end < 0) continue;
+    const raw = text.slice(start, end + 1);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue;
+    return { id: `text-${name}`, name, arguments: parsed as Record<string, unknown>, rawArguments: raw };
+  }
+
   // Кандидаты ищем по КАЖДОЙ открывающей скобке, а не только по первой: модель часто
   // пишет вызов после прозы, в которой фигурная скобка уже встретилась (пример формата,
   // фрагмент кода), и с фиксированным началом ни одна нарезка не разбиралась.

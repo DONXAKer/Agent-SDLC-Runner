@@ -256,6 +256,21 @@ describe('вызов, написанный текстом', () => {
     strictEqual(toolCallFromText('{"tool": "НеизвестныйИнструмент", "arguments": {}}', known), null);
     strictEqual(toolCallFromText('просто текст без фигурных скобок', known), null);
   });
+
+  // Преполёт 2026-09-14, ministral3-14b: служебный `[TOOL_CALLS]` съеден шаблоном движка,
+  // и вызов дошёл текстом — раньше это читалось «модель не вызвала инструмент».
+  it('родная форма Mistral распознаётся — с префиксом [TOOL_CALLS] и без', () => {
+    const call = toolCallFromText('Write[ARGS]{"file_path": "notes/hello.md", "content": "привет"}', known);
+    strictEqual(call?.name, 'Write');
+    deepStrictEqual(call?.arguments, { file_path: 'notes/hello.md', content: 'привет' });
+    strictEqual(toolCallFromText('[TOOL_CALLS]Read[ARGS] {"file_path": "a.ts"}', known)?.name, 'Read');
+  });
+
+  it('форма Mistral: незнакомое имя, маркер без объекта, битый JSON — не вызов', () => {
+    strictEqual(toolCallFromText('Delete[ARGS]{"file_path": "a.ts"}', known), null);
+    strictEqual(toolCallFromText('в описании встречается Read[ARGS] без аргументов', known), null);
+    strictEqual(toolCallFromText('Write[ARGS]{"file_path": "a.ts", "content": ', known), null);
+  });
 });
 
 // ---------------------------------------------------------------------------
