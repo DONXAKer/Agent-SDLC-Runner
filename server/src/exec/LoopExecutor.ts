@@ -139,6 +139,37 @@ const READY_STREAK_REMINDERS = 2;
 const NO_PROGRESS_BUDGET_FRACTION = 0.6;
 
 /**
+ * `outgoing` для ОЦЕНКИ размера (`paramsFor`) — без поля `ChatToolCall.arguments`.
+ *
+ * `arguments` (разобранный объект) и `rawArguments` (та же строка ещё раз) несут ОДНО и то
+ * же содержимое дважды — тип задуман так намеренно (`arguments` нужен нормализации вызова,
+ * `rawArguments` — диагностике при сломанном JSON), но по проводу уходит только ОДНО
+ * представление (`OpenAiCompatProvider.ts`: `function: { name, arguments: c.rawArguments
+ * }`, без отдельного поля под разобранный объект). `JSON.stringify` на сыром `outgoing`
+ * считает оба — то есть аргументы КАЖДОГО прошлого вызова в истории оцениваются вдвое
+ * дороже, чем они реально стоят.
+ *
+ * Найдено и подтверждено фоновым разбором серии v13 (2026-09-15): реконструкция ПОДЛИННОГО
+ * внутреннего `outgoing` (`arguments`+`rawArguments` на каждый вызов, как в реальном цикле)
+ * по сырым трейсам explore на `freeship` даёт `max_tokens`, совпадающий с тем, что реально
+ * запросил рантайм, — то есть двойной счёт был ЕДИНСТВЕННОЙ причиной, а не консервативным
+ * излишком: пол `MIN_MAX_TOKENS` наступал уже на ~73% РЕАЛЬНОГО окна, когда без двойного
+ * счёта оставалось бы ещё ~5700 токенов свободных (окно 32768, запас 3000). Правка `10bb5cc`
+ * (тот же день) заменила устаревшее измерение на прямую оценку `outgoing`, но сама оценка
+ * считала внутреннее представление, а не то, что уходит по проводу, — цена роста истории
+ * оказалась вдвое выше настоящей ровно там, где в explore копится больше всего: повторные
+ * `Edit` одного файла.
+ */
+export function leanForEstimate(m: ChatMessage): unknown {
+  if (m.role !== 'assistant' || m.toolCalls.length === 0) return m;
+  return {
+    role: m.role,
+    content: m.content,
+    toolCalls: m.toolCalls.map((c) => ({ id: c.id, name: c.name, rawArguments: c.rawArguments })),
+  };
+}
+
+/**
  * Служебное замечание модели user-сообщением. Если история уже кончается user-сообщением
  * (напоминание стража перед `continue`), замечание дописывается в него: два user подряд
  * часть чат-шаблонов (Mistral) отвергает как нарушение чередования ролей.
@@ -815,7 +846,11 @@ export class LoopExecutor implements StageExecutor {
     onClamp: () => void,
   ): Record<string, unknown> | null {
     if (this.o.contextWindow === undefined) return this.o.params ?? null;
-    const estimated = estimateMessageTokens([{ content: JSON.stringify({ outgoing, tools }) }]);
+    // `leanForEstimate` — иначе аргументы каждого прошлого вызова в истории считаются
+    // дважды (см. её докстринг).
+    const estimated = estimateMessageTokens([
+      { content: JSON.stringify({ outgoing: outgoing.map(leanForEstimate), tools }) },
+    ]);
     const promptTokens = measured === null ? estimated : Math.max(measured, estimated);
     const margin = marginFor(this.o.maxResultBytes, 1);
     const window = this.o.contextWindow;

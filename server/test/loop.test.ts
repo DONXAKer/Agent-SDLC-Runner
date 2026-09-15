@@ -15,7 +15,7 @@ import { after, describe, it } from 'node:test';
 import type { Decision, PreparedPrompt } from '@sdlc-runner/shared';
 import { emptyUsage } from '@sdlc-runner/shared';
 
-import { LoopExecutor } from '../src/exec/LoopExecutor.ts';
+import { LoopExecutor, leanForEstimate } from '../src/exec/LoopExecutor.ts';
 import type { LoopOptions } from '../src/exec/LoopExecutor.ts';
 import { estimateMessageTokens } from '../src/exec/contextBudget.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
@@ -584,7 +584,12 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
     ]);
     await executor(p, { contextWindow: 16384 }).run(request(), hooks());
     const sent = p.seen[1]!;
-    const estimate = estimateMessageTokens([{ content: JSON.stringify({ outgoing: sent.messages, tools: sent.tools }) }]);
+    // `leanForEstimate`: история несёт вызов первого хода (readCall), и `arguments`
+    // считался бы вторым разом поверх `rawArguments` без облегчения (code-review-all,
+    // 2026-09-15 — серия v13 показала цену этого двойного счёта на реальном прогоне).
+    const estimate = estimateMessageTokens([
+      { content: JSON.stringify({ outgoing: sent.messages.map(leanForEstimate), tools: sent.tools }) },
+    ]);
     ok(estimate > 0);
     deepStrictEqual(sent.params, { max_tokens: 16384 - estimate - 1250 });
   });
@@ -647,13 +652,58 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
     ]);
     await executor(p, { contextWindow: 32768 }).run(request(), hooks());
     const sent = p.seen[1]!;
-    const estimate = estimateMessageTokens([{ content: JSON.stringify({ outgoing: sent.messages, tools: sent.tools }) }]);
+    // `leanForEstimate`: здесь без эффекта (вес несут РЕЗУЛЬТАТЫ вызовов, не их аргументы —
+    // `file_path` в каждом крошечный), но применяется тем же способом, что и в коде, чтобы
+    // тест не разошёлся с реализацией при следующей правке.
+    const estimate = estimateMessageTokens([
+      { content: JSON.stringify({ outgoing: sent.messages.map(leanForEstimate), tools: sent.tools }) },
+    ]);
     const margin = Math.ceil(5000 / 4);
     ok(
       estimate > 3000 + margin,
       `оценка исходящего (${estimate}) обязана перекрыть измерение прошлого хода + старый запас на 1 результат (${3000 + margin}) — иначе тест не различает старую и новую формулу`,
     );
     deepStrictEqual(sent.params, { max_tokens: 32768 - estimate - margin });
+  });
+
+  // Регрессия на находку серии v13 (2026-09-15, фоновый разбор): `arguments` (разобранный
+  // объект) и `rawArguments` (та же строка) на каждый вызов в истории считались ОБА —
+  // реконструкция подлинного `outgoing` по сырым трейсам explore на `freeship` дала
+  // `max_tokens`, совпадающий с тем, что реально запросил рантайм, ТОЛЬКО с двойным счётом:
+  // пол наступал уже на ~73% реального окна вместо ~90%+, потому что аргументы КАЖДОГО
+  // прошлого `Edit` в истории оценивались вдвое дороже настоящего.
+  it('аргументы вызова в истории считаются один раз, а не дважды (arguments и rawArguments)', async () => {
+    const bigArgs = { old_string: 'x'.repeat(4000), new_string: 'y'.repeat(4000) };
+    const call = {
+      id: 'c1',
+      name: 'Edit',
+      arguments: bigArgs,
+      rawArguments: JSON.stringify(bigArgs),
+    };
+    // `outputTokens` намеренно БОЛЬШОЙ (не 50, как в соседних тестах): иначе `measured`
+    // (инжектированное измерение прошлого хода) сам оказывается больше свежей оценки —
+    // `Math.max` брал бы его, и тест не различал бы счёт в один и в два раза вовсе.
+    const p = provider([
+      { toolCalls: [call], finishReason: 'tool_use', usage: { ...emptyUsage(), inputTokens: 500, outputTokens: 10 } },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    await executor(p, { contextWindow: 32768 }).run(request(), hooks());
+    const sent = p.seen[1]!;
+    const full = estimateMessageTokens([{ content: JSON.stringify({ outgoing: sent.messages, tools: sent.tools }) }]);
+    const lean = estimateMessageTokens([
+      { content: JSON.stringify({ outgoing: sent.messages.map(leanForEstimate), tools: sent.tools }) },
+    ]);
+    ok(full > lean, `без облегчения оценка (${full}) обязана быть БОЛЬШЕ облегчённой (${lean}) — иначе тест не различает счёт в один и в два раза`);
+    // `measured` (тем же приёмом, что у соседних тестов): «занятость» первого хода плюс
+    // оценка его собственного видимого ответа (сам вызов, других слов в ответе нет).
+    const visible = `${call.name}${call.rawArguments}`;
+    const measured = 500 + Math.max(
+      estimateMessageTokens([{ content: visible }]),
+      Math.min(10, Math.ceil(Buffer.byteLength(visible, 'utf8') / 2)),
+    );
+    ok(lean > measured, `облегчённая оценка (${lean}) обязана перекрыть измерение прошлого хода (${measured}) — иначе Math.max возьмёт не её`);
+    const margin = Math.ceil(5000 / 4);
+    deepStrictEqual(sent.params, { max_tokens: 32768 - lean - margin });
   });
 
   it('второй ход — max_tokens посчитан по prompt_tokens первого ответа и запасу', async () => {
