@@ -1,8 +1,15 @@
-/** Этап 6 — верификация: определение этапа. */
+/**
+ * Этап 6 — верификация: определение этапа и его точки в `runStage`. Гейты — `gates.ts`,
+ * записи рецензента — `records.ts`, ревью рантаймом — `reviewer.ts`, ансамбль —
+ * `ensemble.ts`, вердикт — `verdict.ts`, состояние попытки — `state.ts`.
+ */
 
 import { DECISION } from '../../../artifacts/artifact.ts';
+import { preflightBlockers } from '../../../sandbox/preflight.ts';
 import { RUNTIME_PROTECTED, exists, granted } from '../preconditions.ts';
 import type { StageDef, StageModule } from '../types.ts';
+import { gateReportBlock, runVerifyGates } from './gates.ts';
+import { autofillVerification, verifyGaps } from './records.ts';
 
 export const verifyStage: StageDef = {
   id: 'verify',
@@ -59,4 +66,57 @@ export const verifyModule: StageModule = {
   def: verifyStage,
   formFillExecutor: false,
   leanDocTools: false,
+  checksBranchOnEntry: true,
+  missingSubagentsNote:
+    'Этап 6 пойдёт без независимого рецензента, а «Ревью независимым агентом» ' +
+    'входит в минимальную пятёрку гейтов — вердикт этого витка неполон.',
+  begin: (host) => ({
+    // Кэш предыдущего pre-flight сбрасывается ДО проверки блокеров: если прошлая
+    // попытка упала на пробе среды, `lastPreflightBlockers` от неё ещё не пуст, а
+    // `blockers()` теперь подмешивает его в свой список (см. её комментарий) — без сброса
+    // здесь виток заблокировал бы сам себя устаревшим результатом, ни разу не пройдя до
+    // свежей проверки ниже, и retry стал бы физически недостижим.
+    resetOnEnter: () => {
+      host.verifyState.lastPreflightBlockers = [];
+    },
+
+    // Только «Тесты»/«Сборка» реально идут через `runShell`, и только на этапе 6 — pre-flight
+    // здесь, а не после запуска модели: несоответствие среды раньше обнаруживалось только
+    // прогоном самих гейтов, то есть после того, как разведка и отчёт уже съели попытку.
+    // До `nextAttempt()` (отдельный метод, не вызывается отсюда) — попытка не тратится.
+    // ПОСЛЕ проверки `report.skip`, не до неё: у `verify` пропуска сегодня не бывает
+    // (`skipIf` для него всегда `null`), но если он появится — pre-flight не
+    // должен блокировать попытку, которая всё равно была бы пропущена без него.
+    entryBlocker: async () => {
+      const sandboxBlockers = await preflightBlockers(host.projectRoot, host.projectName);
+      host.verifyState.lastPreflightBlockers = sandboxBlockers;
+      return sandboxBlockers.length > 0 ? sandboxBlockers.join('\n') : null;
+    },
+
+    // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он
+    // судит по своему представлению о сборке и тестах, а не по их фактическому итогу.
+    enterFacts: async (signal) => {
+      // Записи принадлежат ПОПЫТКЕ: перезапуск этапа начинает отчёт заново, и пункты
+      // прошлого прогона не должны в него переезжать — той же логикой, по которой отчёты
+      // прошлых попыток закрыты на чтение.
+      host.verifyState.claimRecords.clear();
+      host.verifyState.findingRecords = [];
+      host.verifyState.anchorHaystack = null;
+      host.verifyState.reviewFillComplete = false;
+
+      const results = await runVerifyGates(host, signal);
+      return results.length > 0 ? [gateReportBlock(results)] : [];
+    },
+
+    // Отчёт приёмки: механику шапки и таблицу «Гейты» заполняет рантайм фактами только
+    // что прогнанных гейтов — рецензенту остаются выводы и ревью. Замер r9: все
+    // расхождения «отчёт/факт» дешёвого рецензента были в переписанной от себя таблице.
+    autofill: async (seeded) => autofillVerification(host, seeded),
+
+    // Этап 6: бланк, тронутый одной правкой, «произведённым» не считается — сверка байт
+    // в байт пропускала отчёт с зелёными статусами при нетронутом тексте пунктов и без
+    // строк на половину листа задачи (замер 2026-09-08, локальный рецензент). Здесь
+    // считается содержание по пунктам ЗАДАЧИ; оформление остаётся дозаполнению.
+    extraNotDone: () => verifyGaps(host),
+  }),
 };

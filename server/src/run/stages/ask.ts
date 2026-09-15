@@ -54,4 +54,6 @@ export const askModule: StageModule = {
       evenWithoutPlaceholders: true,
     },
   ],
+  // `Bash` на этапе нет — сменить ветку внутри хода нечем.
+  checksBranchOnEntry: false,
 };

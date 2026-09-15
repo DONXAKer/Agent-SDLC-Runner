@@ -8,14 +8,14 @@
 import type { ArtifactKey, WitokPaths } from '../../artifacts/paths.ts';
 import type { ApprovalGate } from '../../approval/gate.ts';
 import type { LoadedConfig } from '../../config/load.ts';
-import type { ModuleProfile, ProjectConfig, ResolvedRoute } from '../../config/schema.ts';
+import type { ModuleProfile, ProjectConfig, ResolvedProfile, ResolvedRoute } from '../../config/schema.ts';
 import type { McpAccess, StageExecutor } from '../../exec/StageExecutor.ts';
 import type { EcosystemLine } from '../../explore/view.ts';
 import type { GatesFile } from '../../gates/gatesFile.ts';
 import type { TraceLabel } from '../../provider/rawLog.ts';
 import type { ExploreState } from './explore.ts';
 import type { VerifyState } from './verify/state.ts';
-import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, StageId, ToolName, Usage } from '@sdlc-runner/shared';
+import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, RunMetrics, StageId, ToolName, Usage } from '@sdlc-runner/shared';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
 export type SeededArtifact = { path: string; snapshot?: string };
@@ -105,6 +105,10 @@ export interface StageHost {
   ensembleRoutes(): readonly ResolvedRoute[];
   /** Попытки chunk'а, сгоревшие на среде: из счёта бюджета итераций вычитаются. */
   envBlockedAttempts(): number;
+  /** Числа витка (`Run.metrics`). */
+  metrics(): RunMetrics;
+  /** Профиль витка: маршруты этапов и ансамбли. */
+  profile(): ResolvedProfile;
 }
 
 /** Механическое поле артефакта, которое заполняет рантайм до модели (`formAutofill.ts`). */
@@ -147,6 +151,36 @@ export interface StageModule {
   leanDocTools: boolean;
   /** Механические поля артефактов этапа, закрываемые рантаймом до модели. */
   mechanicalJobs?(host: StageHost): MechanicalJob[];
+  /**
+   * Сверять ли ветку рабочего дерева с полем «Ветка витка» на входе (`Run.branchMismatchBlocker`).
+   * Только этапы, где доступен `Bash` и поле уже может быть заполнено: `git checkout` внутри
+   * вызова меняет ветку после intent, и проверка на одном chunk её не ловила до handoff.
+   */
+  checksBranchOnEntry: boolean;
+  /** Что сказать оператору о ненайденных субагентах этапа сверх общего предупреждения. */
+  missingSubagentsNote?: string;
+  /** Хуки одного прохода этапа; локальное состояние прохода — в замыкании. */
+  begin?(host: StageHost, route: ResolvedRoute): StageInvocation;
+}
+
+/**
+ * Точки `Run.runStage`, где этапы ведут себя по-разному, — в порядке вызова. Каждая точка
+ * зовётся ровно там, где прежде стояло ветвление по имени этапа: порядок фаз внутри этапа
+ * и есть поведение, которое нельзя сдвинуть.
+ */
+export interface StageInvocation {
+  /** Сброс состояния этапа на входе — ДО блокеров. */
+  resetOnEnter?(): void;
+  /** Блокер среды после проверки пропуска этапа; `null` — можно стартовать. */
+  entryBlocker?(): Promise<string | null>;
+  /** Сразу после `stage_started`, до фактов промпта. */
+  afterStart?(): Promise<void>;
+  /** Факты рантайма, подклеиваемые к промпту этапа, в том числе отредактированному оператором. */
+  enterFacts?(signal: AbortSignal): Promise<string[]>;
+  /** Механика артефактов этапа после раскладки форм, до общих `mechanicalJobs`. */
+  autofill?(seeded: SeededArtifact[]): Promise<void>;
+  /** Что ещё считать «этап не произвёл» сверх отсутствующих файлов и нетронутых бланков. */
+  extraNotDone?(): string[];
 }
 
 export interface StageContext {

@@ -242,4 +242,5 @@ export const planModule: StageModule = {
       { path: host.paths.readiness, fill: async (t) => autofillReadiness(t, { title: host.slug, date, run: 2 }) },
     ];
   },
+  checksBranchOnEntry: true,
 };

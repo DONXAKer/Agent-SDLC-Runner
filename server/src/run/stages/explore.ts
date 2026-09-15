@@ -414,6 +414,18 @@ export const exploreModule: StageModule = {
   formFillExecutor: false,
   leanDocTools: false,
   mechanicalJobs: (host) => [{ path: host.paths.explorationReport, fill: async (t) => autofillTitle(t, host.slug) }],
+  checksBranchOnEntry: false,
+  begin: (host) => ({
+    // Кэш индекса разведки ключуется по тексту задачи и экосистеме, а не по состоянию
+    // дерева проекта: тот же ключ мог совпасть у ДВУХ разных попыток этапа (тот же intent,
+    // тот же стек), пока между ними в целевом проекте появился/изменился файл — и второй
+    // проход тихо получал бы дерево первого. Сброс НА ВХОДЕ в этап — тот же приём, что у
+    // `lastPreflightBlockers` этапа 6; в пределах одного прохода `exploreIndexFor` по-прежнему
+    // считает дерево один раз на 2–3 вызова (ревью code-review-all, 2026-09-11).
+    resetOnEnter: () => {
+      host.exploreState.indexCache = null;
+    },
+  }),
 };
 
 /** Состояние этапа 2 между вызовами. Владелец — виток (`Run.state.explore`). */

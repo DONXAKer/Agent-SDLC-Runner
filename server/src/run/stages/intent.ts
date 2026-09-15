@@ -128,4 +128,20 @@ export const intentModule: StageModule = {
     const date = new Date().toISOString().slice(0, 10);
     return [{ path: host.paths.readiness, fill: async (t) => autofillReadiness(t, { title: host.slug, date, run: 1 }) }];
   },
+  // На входе поле «Ветка витка» ещё не заполнено — сверять нечего.
+  checksBranchOnEntry: false,
+  begin: (host) => ({
+    // Ветка рабочего дерева — вход этапа 1, тем же механизмом, что итоги гейтов этапа 6:
+    // рантайм знает её точно, и модели незачем выводить имя из путей `.sdlc/…` (свип
+    // 2026-09-08, см. комментарий у `branchFactBlock`).
+    enterFacts: async () => {
+      const block = await branchFactBlock(host.projectRoot);
+      return block === null ? [] : [block];
+    },
+
+    // «Ветка витка» — та же логика: рантайм знает ответ детерминированно (git-дерево),
+    // модели гадать не о чем. Только на intent — это единственный этап, где поле ещё не
+    // заполнено (`branchMismatchBlocker` сверяет его на входе plan/chunk/verify/handoff).
+    autofill: (seeded) => autofillBranchField(host, seeded),
+  }),
 };

@@ -2,6 +2,7 @@
 
 import { DECISION, artifactExists, readArtifact } from '../../artifacts/artifact.ts';
 import type { ResolvedProfile } from '../../config/schema.ts';
+import { postmortemBlock } from '../postmortem.ts';
 import { relOf } from './preconditions.ts';
 import type { StageContext, StageDef, StageModule } from './types.ts';
 
@@ -67,4 +68,13 @@ export const handoffModule: StageModule = {
   def: handoffStage,
   formFillExecutor: false,
   leanDocTools: false,
+  checksBranchOnEntry: true,
+  begin: (host) => ({
+    // Пост-виток отчёт — вход этапа 7, тем же механизмом, что и итоги гейтов на этапе 6:
+    // модель переносит числа в артефакт, но не сочиняет их.
+    enterFacts: async () => {
+      const block = postmortemBlock(host.metrics(), profileCurrency(host.profile()));
+      return block === null ? [] : [block];
+    },
+  }),
 };

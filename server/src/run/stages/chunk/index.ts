@@ -7,6 +7,7 @@
 import { DECISION, readArtifact, readDecision } from '../../../artifacts/artifact.ts';
 import { autofillChunkJournal } from '../../journalAutofill.ts';
 import { RUNTIME_PROTECTED, granted } from '../preconditions.ts';
+import { ensureBaseline } from './evidence.ts';
 import type { SeededArtifact, StageDef, StageHost, StageModule } from '../types.ts';
 import type { TreeChange } from '../../evidence.ts';
 
@@ -50,6 +51,20 @@ export const chunkModule: StageModule = {
   def: chunkStage,
   formFillExecutor: false,
   leanDocTools: false,
+  checksBranchOnEntry: true,
+  begin: (host) => ({
+    afterStart: () => ensureBaseline(host),
+
+    // Диагноз прошлой попытки — вход повторного chunk'а. Без него ретрай уходил тем же
+    // промптом, что и первая попытка: причины красного посчитаны, но до исполнителя не
+    // доезжали, и он заново угадывал, что именно не сошлось.
+    enterFacts: async () => {
+      const carried = host.carryForward();
+      return carried === null ? [] : [carried];
+    },
+
+    autofill: (seeded) => autofillJournal(host, seeded),
+  }),
 };
 
 /**

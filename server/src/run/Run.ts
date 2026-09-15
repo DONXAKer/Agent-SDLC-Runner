@@ -94,7 +94,6 @@ import { git, hasCommits, workingDiff } from '../gates/git.ts';
 import { autofillClarification, autofillPlan, autofillReadiness, autofillTitle } from './formAutofill.ts';
 import { claimIdOf } from '../artifacts/claims.ts';
 import { salvageBlocks } from './salvage.ts';
-import { preflightBlockers } from '../sandbox/preflight.ts';
 import { buildRetryBrief } from '../verdict/retryBrief.ts';
 import { applyAxisAnswers } from '../artifacts/renderAxes.ts';
 import { fillPlanAxes } from './planAxisFill.ts';
@@ -110,7 +109,6 @@ import { deriveClaimsBlind, intentSectionsForBlind, type BlindClaimsResult } fro
 import { briefFromIntent, titleFromIntent } from './exploreAutofill.ts';
 import { loadSubagent } from '../exec/subagents.ts';
 import { appendIteration, parseIterations } from './iterationsLog.ts';
-import { postmortemBlock } from './postmortem.ts';
 import { metricsBlock } from './metricsReport.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
@@ -130,11 +128,11 @@ import {
   type StageDef,
   stageProducing,
 } from './stages.ts';
-import { ChunkState, autofillJournal } from './stages/chunk/index.ts';
+import { ChunkState } from './stages/chunk/index.ts';
 import { stepFillExecutor } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты и прежние импорты берут выбор гейтов шага отсюда. */
 export { gatesForStep } from './stages/chunk/steps.ts';
-import { compareAttemptDiffs, ensureBaseline, readBaseline, recordEvidence, runNamedGate } from './stages/chunk/evidence.ts';
+import { compareAttemptDiffs, readBaseline, recordEvidence, runNamedGate } from './stages/chunk/evidence.ts';
 import { restoreAttemptFromJournal, restoreChunkFromDir } from './stages/chunk/restore.ts';
 import {
   ExploreState,
@@ -143,10 +141,8 @@ import {
   runClaimsBlind,
   usesExploreFill,
 } from './stages/explore.ts';
-import { profileCurrency } from './stages/handoff.ts';
 import { stageModule } from './stages/index.ts';
 import { axesGateRow as axesGateRowOf, axisProblems as axisProblemsOf, topUpAxes } from './stages/plan.ts';
-import { autofillBranchField, branchFactBlock } from './stages/intent.ts';
 import type { StageHost } from './stages/types.ts';
 import { VerifyState } from './stages/verify/state.ts';
 import {
@@ -154,17 +150,14 @@ import {
   diffStillMatchesTree,
   earlyGateRows as earlyGateRowsOf,
   earlyGatesForModel,
-  gateReportBlock,
   gateResultsForVerdict,
   runVerifyGates as runVerifyGatesOf,
 } from './stages/verify/gates.ts';
 import {
   acceptRecord,
   applyRecords,
-  autofillVerification,
   evidenceHaystack,
   topUpClaims,
-  verifyGaps,
 } from './stages/verify/records.ts';
 import { runEnsembleReviewers } from './stages/verify/ensemble.ts';
 import { runReviewFill, runReviewerDirectly } from './stages/verify/reviewer.ts';
@@ -419,6 +412,8 @@ export class Run {
       verifyRoute: () => this.profile.routes.verify,
       ensembleRoutes: () => this.profile.ensemble.verify ?? [],
       envBlockedAttempts: () => this.envBlockedAttempts,
+      metrics: () => this.metrics,
+      profile: () => this.profile,
     };
   }
   /**
@@ -2108,20 +2103,12 @@ export class Run {
     const def = stageById(stage);
     const route = this.profile.routes[stage];
     const abortOpts = opts.abortHandoff === true ? { abortHandoff: true } : {};
+    const mod = stageModule(stage);
+    const inv = mod.begin?.(this.host, route) ?? {};
 
-    // Кэш предыдущего pre-flight сбрасывается ДО проверки блокеров ниже: если прошлая
-    // попытка упала на пробе среды, `this.state.verify.lastPreflightBlockers` от неё ещё не пуст, а
-    // `blockers()` теперь подмешивает его в свой список (см. её комментарий) — без сброса
-    // здесь виток заблокировал бы сам себя устаревшим результатом, ни разу не пройдя до
-    // свежей проверки ниже, и retry стал бы физически недостижим.
-    if (stage === 'verify') this.state.verify.lastPreflightBlockers = [];
-    // Кэш индекса разведки ключуется по тексту задачи и экосистеме, а не по состоянию
-    // дерева проекта: тот же ключ мог совпасть у ДВУХ разных попыток этапа (тот же intent,
-    // тот же стек), пока между ними в целевом проекте появился/изменился файл — и второй
-    // проход тихо получал бы дерево первого. Сброс НА ВХОДЕ в этап — тот же приём, что у
-    // `lastPreflightBlockers` выше; в пределах одного прохода `exploreIndexFor` по-прежнему
-    // считает дерево один раз на 2–3 вызова (ревью code-review-all, 2026-09-11).
-    if (stage === 'explore') this.state.explore.indexCache = null;
+    // Сброс состояния этапа на входе — ДО блокеров: устаревший кэш прошлого прохода
+    // (pre-flight verify, индекс explore) иначе заблокировал бы или подменил этот проход.
+    inv.resetOnEnter?.();
 
     // Предусловия считаются ОДИН раз: `blockers` вызывает `checkPreconditions` внутри,
     // и второй вызов рядом был чистым дублированием чтения артефактов, хотя комментарий
@@ -2142,22 +2129,13 @@ export class Run {
       return { ok: true, finalText: '', usage: emptyUsage(), note: report.skip };
     }
 
-    // Только «Тесты»/«Сборка» реально идут через `runShell`, и только на этапе 6 — pre-flight
-    // здесь, а не после запуска модели: несоответствие среды раньше обнаруживалось только
-    // прогоном самих гейтов, то есть после того, как разведка и отчёт уже съели попытку.
-    // До `nextAttempt()` (отдельный метод, не вызывается отсюда) — попытка не тратится.
-    // ПОСЛЕ проверки `report.skip`, не до неё: у `verify` пропуска сегодня не бывает
-    // (`stages.ts::skipIf` для него всегда `null`), но если он появится — pre-flight не
-    // должен блокировать попытку, которая всё равно была бы пропущена без него.
-    if (stage === 'verify') {
-      const sandboxBlockers = await preflightBlockers(this.project.projectRoot, this.project.name);
-      this.state.verify.lastPreflightBlockers = sandboxBlockers;
-      if (sandboxBlockers.length > 0) {
-        const message = sandboxBlockers.join('\n');
-        this.status = 'failed';
-        this.emit({ type: 'error', runId: this.id, stage, message });
-        return { ok: false, finalText: '', usage: emptyUsage(), note: message };
-      }
+    // Блокер среды этапа (pre-flight песочницы verify) — после проверки пропуска, до старта
+    // попытки: несоответствие среды не должно съедать попытку.
+    const entryBlocker = (await inv.entryBlocker?.()) ?? null;
+    if (entryBlocker !== null) {
+      this.status = 'failed';
+      this.emit({ type: 'error', runId: this.id, stage, message: entryBlocker });
+      return { ok: false, finalText: '', usage: emptyUsage(), note: entryBlocker };
     }
 
     // `chunk` — первый этап, где модель реально пишет в рабочее дерево (`Write`/`Edit`), но
@@ -2172,7 +2150,7 @@ export class Run {
     // заполнено. Не переключаем ветку автоматически: `git checkout` посреди грязного дерева
     // — свой источник потери рабочих файлов, а решение, что считать «текущей задачей»,
     // принимает человек.
-    if (stage === 'plan' || stage === 'chunk' || stage === 'verify' || stage === 'handoff') {
+    if (mod.checksBranchOnEntry) {
       const branchBlocker = await this.branchMismatchBlocker();
       if (branchBlocker !== null) {
         this.status = 'failed';
@@ -2189,10 +2167,8 @@ export class Run {
         stage,
         message:
           `не найдены определения субагентов: ${missing.join(', ')} (каталог ${this.config.runner.agentsDir}). ` +
-          (stage === 'verify'
-            ? 'Этап 6 пойдёт без независимого рецензента, а «Ревью независимым агентом» ' +
-              'входит в минимальную пятёрку гейтов — вердикт этого витка неполон.'
-            : 'Этап пойдёт без независимого агента: ограничение прав держится на промпте, ' +
+          (mod.missingSubagentsNote ??
+            'Этап пойдёт без независимого агента: ограничение прав держится на промпте, ' +
               'а не на конструкции.'),
       });
     }
@@ -2218,7 +2194,7 @@ export class Run {
     stat.runs += 1;
     this.stageStats.set(stage, stat);
 
-    if (stage === 'chunk') await ensureBaseline(this.host);
+    await inv.afterStart?.();
 
     // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он
     // судит по своему представлению о сборке и тестах, а не по их фактическому итогу.
@@ -2235,49 +2211,15 @@ export class Run {
      *  склейки, и второй источник фактов (диагноз ретрая) туда бы просто не попал. */
     let appended: string | undefined;
 
-    if (stage === 'verify') {
-      // Записи принадлежат ПОПЫТКЕ: перезапуск этапа начинает отчёт заново, и пункты
-      // прошлого прогона не должны в него переезжать — той же логикой, по которой отчёты
-      // прошлых попыток закрыты на чтение.
-      this.state.verify.claimRecords.clear();
-      this.state.verify.findingRecords = [];
-      this.state.verify.anchorHaystack = null;
-      this.state.verify.reviewFillComplete = false;
+    // Факты рантайма этапа: итоги гейтов verify, диагноз ретрая chunk, ветка intent,
+    // пост-виток отчёт handoff — модель переносит их, но не сочиняет.
+    for (const block of (await inv.enterFacts?.(this.aborter.signal)) ?? []) {
+      appended = appended === undefined ? block : `${appended}
 
-      const results = await this.runVerifyGates(this.aborter.signal);
-      if (results.length > 0) {
-        appended = gateReportBlock(results);
-        extra = extra === undefined ? appended : `${extra}\n\n${appended}`;
-      }
-    }
+${block}`;
+      extra = extra === undefined ? block : `${extra}
 
-    // Диагноз прошлой попытки — вход повторного chunk'а. Без него ретрай уходил тем же
-    // промптом, что и первая попытка: причины красного посчитаны, но до исполнителя не
-    // доезжали, и он заново угадывал, что именно не сошлось.
-    if (stage === 'chunk' && this.carryForward !== null) {
-      appended = this.carryForward;
-      extra = extra === undefined ? appended : `${extra}\n\n${appended}`;
-    }
-
-    // Ветка рабочего дерева — вход этапа 1, тем же механизмом: рантайм знает её точно,
-    // и модели незачем выводить имя из путей `.sdlc/…` (свип 2026-09-08, см. комментарий
-    // у `branchFactBlock`).
-    if (stage === 'intent') {
-      const block = await branchFactBlock(this.project.projectRoot);
-      if (block !== null) {
-        appended = appended === undefined ? block : `${appended}\n\n${block}`;
-        extra = extra === undefined ? block : `${extra}\n\n${block}`;
-      }
-    }
-
-    // Пост-виток отчёт — вход этапа 7, тем же механизмом, что и итоги гейтов на этапе 6:
-    // модель переносит числа в артефакт, но не сочиняет их.
-    if (stage === 'handoff') {
-      const block = postmortemBlock(this.metrics, profileCurrency(this.profile));
-      if (block !== null) {
-        appended = block;
-        extra = extra === undefined ? block : `${extra}\n\n${block}`;
-      }
+${block}`;
     }
 
     // Соединения к MCP поднимаются ДО сборки промпта: набор инструментов, показанный
@@ -2308,37 +2250,19 @@ export class Run {
     const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
     this.seeded = seeded.map((s) => s.path);
 
-    // Механические поля журнала chunk'а (номер, base_sha, бюджет попыток, даты) заполняет
-    // рантайм ДО модели: замер серии r2 показал, что слабая модель с идеальным кодом
-    // сжигает лимит ходов ровно на этих полях. Снимок после подстановки уходит в
-    // `SeededArtifact.snapshot` — страж «бланк байт-в-байт» сравнивает с ним, и этап,
-    // не сделавший ничего, по-прежнему виден.
-    if (stage === 'chunk') await autofillJournal(this.host, seeded);
-    // «Ветка витка» — та же логика: рантайм знает ответ детерминированно (git-дерево),
-    // модели гадать не о чем. Только на intent — это единственный этап, где поле ещё не
-    // заполнено (`branchMismatchBlocker` сверяет его на входе plan/chunk/verify/handoff).
-    if (stage === 'intent') await autofillBranchField(this.host, seeded);
-
-    // Отчёт приёмки: механику шапки и таблицу «Гейты» заполняет рантайм фактами только
-    // что прогнанных гейтов — рецензенту остаются выводы и ревью. Замер r9: все
-    // расхождения «отчёт/факт» дешёвого рецензента были в переписанной от себя таблице.
-    if (stage === 'verify') autofillVerification(this.host, seeded);
-    // План, готовность и названия отчётов этапов 2–3 — тот же приём (`formAutofill.ts`).
-    // Поля объявлены за рантаймом и модели больше не отдаются, поэтому закрываются здесь.
-    if (stage === 'intent' || stage === 'explore' || stage === 'ask' || stage === 'plan') {
-      await this.autofillMechanicalFields(stage, seeded);
-    }
+    // Механика артефактов до модели: хук этапа (журнал chunk'а, «Ветка витка» intent, отчёт
+    // приёмки verify), затем задания `mechanicalJobs` (план, готовность, названия отчётов 2–3).
+    // Снимок после подстановки уходит в `SeededArtifact.snapshot` — страж «бланк байт-в-байт»
+    // сравнивает с ним, и этап, не сделавший ничего, по-прежнему виден.
+    await inv.autofill?.(seeded);
+    await this.autofillMechanicalFields(stage, seeded);
 
     // Что считается «этап ничего не произвёл»: файла нет ИЛИ он остался бланком байт в
     // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.
     const notDone = (): string[] => [
       ...stillMissing(produced, missingBefore),
       ...untouchedSeeds(seeded),
-      // Этап 6: бланк, тронутый одной правкой, «произведённым» не считается — сверка байт
-      // в байт пропускала отчёт с зелёными статусами при нетронутом тексте пунктов и без
-      // строк на половину листа задачи (замер 2026-09-08, локальный рецензент). Здесь
-      // считается содержание по пунктам ЗАДАЧИ; оформление остаётся дозаполнению.
-      ...(stage === 'verify' ? verifyGaps(this.host) : []),
+      ...(inv.extraNotDone?.() ?? []),
     ];
     for (const path of this.seeded) {
       this.emit({
