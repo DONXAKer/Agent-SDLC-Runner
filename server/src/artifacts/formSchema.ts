@@ -436,11 +436,16 @@ function labelFields(
 
   if (phs.length === 0) return; // заполненная строка без меню — полем не является
 
+  // Значение метки в одну строку — однострочное поле: многострочный ответ модели (список,
+  // абзацы) иначе вставлялся как есть, и продолжения без отступа вываливались из пункта.
+  const oneLine = line.raw.includes('\n') ? {} : { singleLine: true };
+
   if (phs.length === 1) {
     const ph = phs[0]!;
     const inner = menuOptionsOfPlaceholder(ph.text.slice(1, -1));
     push(b, {
       ...base,
+      ...oneLine,
       id: uniqueId(b, key, section),
       kind: inner === null ? 'scalar' : 'choice',
       ...(inner === null ? {} : { options: inner }),
@@ -466,6 +471,7 @@ function labelFields(
     const wanted = idx === 0 ? `${key}/1` : `${key}/${subKey}`;
     push(b, {
       ...base,
+      ...oneLine,
       label: idx === 0 ? key : subKey,
       id: uniqueId(b, wanted, section),
       kind: inner === null ? 'scalar' : 'choice',
@@ -500,11 +506,18 @@ function columnsOf(header: readonly string[], sample: readonly string[]): Record
   });
 }
 
-/** Строка таблицы — образец: все ячейки, кроме ведущей нумерации/id, шаблонные. */
+/**
+ * Строка таблицы — образец: все ячейки, кроме ведущей нумерации/id, шаблонные.
+ *
+ * `‹…›` внутри инлайн-кода — текст ячейки, а не место под значение: строка чек-листа
+ * readiness «Плейсхолдеров `‹…›` не осталось | ‹✅/❌› | ‹grep -c›» иначе читалась образцом
+ * таблицы, модель размножала её строками, а номера чек-листа дублировались (серия v8).
+ */
 function isSampleRow(cells: readonly string[]): boolean {
-  if (!cells.some((c) => c.includes('‹'))) return false;
+  const outsideCode = (c: string): string => c.replace(/`[^`]*`/g, '');
+  if (!cells.some((c) => outsideCode(c).includes('‹'))) return false;
   return cells.every((c, i) => {
-    const t = c.replace(/`/g, '').trim();
+    const t = outsideCode(c).replace(/`/g, '').trim();
     if (t === '') return true;
     if (i === 0 && (/^\d+$/.test(t) || /^claim-\d+$/i.test(t))) return true;
     if (t.includes('‹')) return true;
@@ -778,10 +791,20 @@ export function deriveSchema(text: string, templateName?: string): FormSchema {
     const content = list === null ? trimmed : list[3]!;
     const contentStart = list === null ? line.start + raw.indexOf(trimmed) : line.start + raw.length - content.length;
 
-    // Продолжения элемента списка (отступ) — часть его значения.
+    // Продолжения элемента списка (отступ) — часть его значения. И незакрытый плейсхолдер,
+    // перенесённый на следующую строку без отступа («… / ‹id: не исполним,\nпринят на
+    // слово›»): без этого второй плейсхолдер не входил в значение, ключ меню начинался с
+    // `‹id`, а после заполнения оставалась строка-сирота с `›`.
+    const openPlaceholder = (end: number): boolean => {
+      const span = text.slice(line.start, end);
+      return (span.match(/‹/g) ?? []).length > (span.match(/›/g) ?? []).length;
+    };
     let valueEndLine = line;
     let j = i + 1;
-    while (j < lines.length && isContinuation(lines[j]!.raw) && !/^\s*_/.test(lines[j]!.raw)) {
+    while (
+      j < lines.length &&
+      ((isContinuation(lines[j]!.raw) && !/^\s*_/.test(lines[j]!.raw)) || openPlaceholder(valueEndLine.end))
+    ) {
       valueEndLine = lines[j]!;
       j++;
     }
@@ -841,8 +864,10 @@ export function deriveSchema(text: string, templateName?: string): FormSchema {
 
     if (list === null) {
       // Проза с плейсхолдерами без метки: поле на каждый плейсхолдер, ключ — его текст.
+      const proseOneLine = text.slice(line.start, valueEndLine.end).includes('\n') ? {} : { singleLine: true };
       for (const ph of fullPhs) {
         push(b, {
+          ...proseOneLine,
           id: uniqueId(b, placeholderKey(ph.text.slice(1, -1)), sec()),
           kind: 'scalar',
           shape: 'label',

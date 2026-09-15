@@ -36,6 +36,35 @@ after(() => {
 });
 
 describe('applyFill: герметичные случаи', () => {
+  // Серия v8: разметка в ответах ломала бланк, а поле засчитывалось заполненным (2026-09-15).
+  it('ячейка фиксированной строки: | экранируется, переносы склеены; пустой ответ и ‹…› — отказ', () => {
+    const text = '| # | Проверка | Статус | Где видно |\n|---|---|---|---|\n| 1 | Набор | ‹✅/❌› | ‹где› |\n';
+    const where = deriveSchema(text).fields.find((f) => f.shape === 'cell' && f.kind === 'scalar');
+    ok(where !== undefined);
+    const r = applyFill(text, where.id, 'grep a|b\nи ещё');
+    ok(r.ok, r.ok ? '' : r.problem);
+    ok(r.text.includes('grep a\\|b; и ещё'), r.text);
+    ok(!applyFill(text, where.id, '   ').ok);
+    ok(!applyFill(text, where.id, 'текст ‹что делаем›').ok);
+  });
+
+  it('строка-метка: однострочное поле — обёртка снята, многострочный хвост не вклеен', () => {
+    const text = '- **Ветка витка:** ‹sdlc/слаг›\n';
+    const r = applyFill(text, 'ветка витка', '`sdlc/freeship`\n---\nПримечание: ветка из задачи');
+    ok(r.ok, r.ok ? '' : r.problem);
+    strictEqual(r.text, '- **Ветка витка:** sdlc/freeship\n');
+  });
+
+  it('choice: значок в жирном и в бэктиках узнаётся', () => {
+    const text = '| # | Проверка | Статус |\n|---|---|---|\n| 1 | Набор | ‹✅/❌› |\n';
+    const status = deriveSchema(text).fields.find((f) => f.kind === 'choice');
+    ok(status !== undefined);
+    for (const answer of ['**✅**', '`✅`']) {
+      const r = applyFill(text, status.id, answer);
+      ok(r.ok && r.text.includes('| 1 | Набор | ✅ |'), answer);
+    }
+  });
+
   it('scalar: сплайс диапазона плейсхолдера', () => {
     const text = '- **Ветка витка:** ‹sdlc/слаг›\n';
     const r = applyFill(text, 'ветка витка', 'sdlc/oversize');

@@ -44,6 +44,33 @@ export function cleanAnswer(raw: string): string {
 }
 
 /**
+ * Обёрточная разметка ВСЕГО значения, которую модель добавляет вокруг ответа: одиночные
+ * бэктики вокруг однострочного значения, `**…**`/`__…__` целиком, хвост после разделителя
+ * `---`/`***` или строки «Примечание:»/«Обоснование:». Серия v8: такие ответы ложились в
+ * бланк как есть — поле засчитывалось заполненным, а в артефакте стояли инлайн-код, жирный
+ * текст и пояснения модели. Внутренняя разметка значения не трогается: править содержание
+ * ответа значило бы сочинять за модель.
+ */
+export function unwrapScalar(raw: string): string {
+  let text = raw.trim();
+  const tail = /\n[ \t]*(?:-{3,}|\*{3,}|_{3,}|\**[ \t]*(?:Примечание|Обоснование|Пояснение)[\s*:])/i.exec(text);
+  if (tail !== null && text.slice(0, tail.index).trim() !== '') text = text.slice(0, tail.index).trim();
+  for (;;) {
+    const bold = /^\*\*([\s\S]+)\*\*$/.exec(text) ?? /^__([\s\S]+)__$/.exec(text);
+    if (bold !== null && !bold[1]!.includes('**') && !bold[1]!.includes('__')) {
+      text = bold[1]!.trim();
+      continue;
+    }
+    const code = /^`([^`\n]+)`$/.exec(text);
+    if (code !== null) {
+      text = code[1]!.trim();
+      continue;
+    }
+    return text;
+  }
+}
+
+/**
  * Эхо метки/id поля, которым модель предваряет ответ («- **Итог:** применено» вместо
  * «применено»), — снимается первой строкой. Живой урок: без этого метка ложилась в файл
  * ВМЕСТЕ со значением (`formFill.test.ts`, ответ на поле-строку с якорем `- **Итог:**`).
@@ -265,13 +292,15 @@ export function parseRecordRows(
       if (!t.startsWith('|') || isSeparatorRow(t)) continue;
       const cells = splitRow(t);
       if (looksLikeHeaderRow(cells, modelCols)) continue;
+      // Ведущий id узнаётся и в жирном (`| **claim-1** |`): иначе он считался значением
+      // первой колонки, и все колонки строки сдвигались на одну.
       const withoutLeadNum =
-        cells.length > modelCols.length && /^\d+$|^claim-\d+$/i.test((cells[0] ?? '').replace(/`/g, '').trim())
+        cells.length > modelCols.length && /^\d+$|^claim-\d+$/i.test((cells[0] ?? '').replace(/[`*]/g, '').trim())
           ? cells.slice(1)
           : cells;
       const row: Record<string, string> = {};
       modelCols.forEach((c, i) => {
-        row[c.id] = (withoutLeadNum[i] ?? '').trim();
+        row[c.id] = unwrapScalar(withoutLeadNum[i] ?? '');
       });
       rows.push(row);
     }
@@ -292,12 +321,15 @@ export function parseRecordRows(
   }
   if (current !== null) items.push(current);
 
+  const hasMechanical = columns.some((c) => c.kind === 'mechanical');
   return items.map((itemLines) => {
-    // Форма 1: первая строка тоже может нести «колонка: значение».
+    // Форма 1: первая строка тоже может нести «колонка: значение». Жирная метка
+    // («**Пункт:** а») сначала освобождается от `**`: иначе метка захватывалась с ними, а
+    // значение начиналось с «** ».
     const explicit = itemLines
-      .map((l) => FIELD_LINE_RE.exec(l))
+      .map((l) => FIELD_LINE_RE.exec(l.replace(/^\*\*([^*:]+?):?\*\*:?\s*/, '$1: ')))
       .filter((m): m is RegExpExecArray => m !== null)
-      .map((m) => ({ label: (m[1] ?? '').trim(), value: (m[2] ?? '').trim() }));
+      .map((m) => ({ label: (m[1] ?? '').trim(), value: unwrapScalar(m[2] ?? '') }));
     if (explicit.length >= Math.min(2, modelCols.length)) {
       const row: Record<string, string> = {};
       for (const e of explicit) {
@@ -306,12 +338,14 @@ export function parseRecordRows(
       }
       if (Object.keys(row).length > 0) return row;
     }
-    // Форма 2: позиционно по «—»/«-» на первой (единственной значимой) строке.
-    const joined = itemLines.join(' ').trim();
+    // Форма 2: позиционно по «—»/«-» на первой (единственной значимой) строке. Ведущий id
+    // (`**claim-1** — …`), который нумерует рантайм, снимается — он не значение колонки.
+    const joinedRaw = itemLines.join(' ').trim();
+    const joined = hasMechanical ? joinedRaw.replace(/^[`*]*claim-\d+[`*]*\s*(?:[—–:|-]\s*)?/i, '') : joinedRaw;
     const parts = joined.split(/\s+[—–]\s+/);
     const row: Record<string, string> = {};
     modelCols.forEach((c, i) => {
-      row[c.id] = (parts[i] ?? (modelCols.length === 1 ? joined : '')).trim();
+      row[c.id] = unwrapScalar(parts[i] ?? (modelCols.length === 1 ? joined : ''));
     });
     return row;
   });
@@ -326,9 +360,9 @@ export function parseFieldValue(field: FormField, raw: string): SheetValue | She
   switch (field.kind) {
     case 'scalar':
     case 'multiline':
-      return { kind: 'text', text };
+      return { kind: 'text', text: unwrapScalar(text) };
     case 'choice': {
-      const m = matchChoice(field.options ?? [], text);
+      const m = matchChoice(field.options ?? [], unwrapScalar(text));
       if (m === null) {
         const known = (field.options ?? []).map((o) => o.key).join(', ');
         return { error: `ответ не совпал ни с одним из вариантов поля «${field.id}»: ${known}` };

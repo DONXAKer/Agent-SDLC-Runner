@@ -20,6 +20,7 @@ import {
   parseListItems,
   parseRecordRows,
   renderSheet,
+  unwrapScalar,
 } from '../src/artifacts/sheet.ts';
 
 function нетЭталона(dir: string): string | false {
@@ -38,6 +39,21 @@ describe('cleanAnswer', () => {
 
   it('обычный текст не трогает', () => {
     strictEqual(cleanAnswer('  готово  '), 'готово');
+  });
+});
+
+// Серия v8: обёртка всего значения ложилась в бланк как есть (code-review и разбор логов, 2026-09-15).
+describe('unwrapScalar', () => {
+  it('снимает обёртку всего значения: бэктики, **, хвост «---»/«Примечание»', () => {
+    strictEqual(unwrapScalar('`sdlc/freeship`'), 'sdlc/freeship');
+    strictEqual(unwrapScalar('**готова**'), 'готова');
+    strictEqual(unwrapScalar('значение\n---\n**Примечание**: пояснение'), 'значение');
+    strictEqual(unwrapScalar('значение\nПримечание: пояснение'), 'значение');
+  });
+
+  it('внутреннюю разметку не трогает', () => {
+    strictEqual(unwrapScalar('правка в `src/a.ts` и **только** там'), 'правка в `src/a.ts` и **только** там');
+    strictEqual(unwrapScalar('**a** и **b**'), '**a** и **b**');
   });
 });
 
@@ -139,6 +155,26 @@ describe('parseRecordRows', () => {
 
   it('пустой ответ — пустой список записей', () => {
     deepStrictEqual(parseRecordRows('', columns), []);
+  });
+});
+
+describe('parseRecordRows: жирный id и жирная метка', () => {
+  const columns = [
+    { id: 'id', header: 'id', kind: 'mechanical' },
+    { id: 'пункт', header: 'Пункт', kind: 'scalar' },
+    { id: 'проверка', header: 'Проверка', kind: 'scalar' },
+  ];
+
+  it('таблица с **claim-1** — колонки не сдвигаются', () => {
+    deepStrictEqual(parseRecordRows('| **claim-1** | а | б |', columns), [{ пункт: 'а', проверка: 'б' }]);
+  });
+
+  it('список с ведущим **claim-1** — id снимается', () => {
+    deepStrictEqual(parseRecordRows('- **claim-1** — а — б', columns), [{ пункт: 'а', проверка: 'б' }]);
+  });
+
+  it('форма «колонка: значение» с жирной меткой', () => {
+    deepStrictEqual(parseRecordRows('- **Пункт:** а\n  **Проверка:** б', columns), [{ пункт: 'а', проверка: 'б' }]);
   });
 });
 

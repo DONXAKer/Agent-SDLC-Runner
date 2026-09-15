@@ -100,6 +100,26 @@ const FILES_TO_TOUCH_HEADER = /\|\s*Путь\s*\|\s*Что делаем\s*\|/;
  */
 const CODE_MAP_HEADER = /\|\s*Файл\s*\|\s*Что там сейчас\s*\|\s*Что меняем\s*\|/;
 
+/**
+ * id поля в схеме ТЕКУЩЕГО текста. Схема пересчитывается после каждого заполнения, и id с
+ * суффиксом раздела (`uniqueId`) у ещё не заполненного соседа смещается: plan
+ * «последствия шагов/статус» после заполнения «статус» не находился вовсе. Поле узнаётся
+ * по устойчивому ключу (раздел, метка, вид, форма, текст плейсхолдера) и порядку среди
+ * ещё не заполненных полей с тем же ключом; заполненные из схемы уходят (плейсхолдера нет).
+ */
+function currentFieldId(
+  fresh: readonly SchemaField[],
+  original: readonly SchemaField[],
+  field: SchemaField,
+  filled: ReadonlySet<SchemaField>,
+): string {
+  const key = (f: SchemaField): string => [f.section, f.label ?? '', f.kind, f.shape, f.placeholders[0]?.text ?? ''].join(' ');
+  const wanted = key(field);
+  const ordinal = original.slice(0, original.indexOf(field)).filter((f) => !filled.has(f) && key(f) === wanted).length;
+  const matches = fresh.filter((f) => key(f) === wanted);
+  return (matches[ordinal] ?? matches[0])?.id ?? field.id;
+}
+
 /** Потолок байт заземляющего списка путей — контекст локальной модели не резиновый. */
 const CODE_MAP_LIST_BYTES = 4000;
 
@@ -791,12 +811,19 @@ export class FormFillExecutor implements StageExecutor {
      * ограничен внутри `deriveSchema`, но легенда секции могла набежать за несколько
      * абзацев на многострочном поле.
      */
-    const askFieldCompact = (field: SchemaField): ReturnType<ChatProvider['chat']> => {
+    const askFieldCompact = async (field: SchemaField, text: string): ReturnType<ChatProvider['chat']> => {
+      // Карта кодовой базы и в карточке получает тот же список реальных путей, что у
+      // некомпактного пути: у режима нет Read/Task, и без него пути угадываются по памяти.
+      const needsCodeMap = field.kind === 'records' && CODE_MAP_HEADER.test(field.header ?? '');
+      const codeMapText = needsCodeMap ? await codeMapGrounding() : '';
       const card = [
         `## Сейчас — ровно одно поле`,
         '',
         `- id: \`${field.id}\``,
         `- вид: ${field.kind}`,
+        // Ячейка фиксированной строки таблицы — с самой строкой: по одному id вида
+        // «прогон 1/3/где видно» модель не видела, что именно проверяет эта строка.
+        ...(field.shape === 'cell' ? [`- строка таблицы: ${lineAt(text, field.range.start).trim()}`, `- колонка: ${field.label ?? ''}`] : []),
         ...(field.options === undefined
           ? []
           : [`- варианты: ${field.options.map((o) => `\`${o.key}\``).join(', ')}`]),
@@ -807,21 +834,38 @@ export class FormFillExecutor implements StageExecutor {
         ...(field.emptyAlternative === undefined ? [] : [`- если элементов нет — ответь пустой строкой`]),
         `- подсказка: ${field.hint === '' ? '(нет)' : field.hint.slice(0, 800)}`,
         '',
+        ...(needsCodeMap
+          ? [
+              '### Реальные файлы проекта (получены рантаймом обходом дерева, не твоей памятью)',
+              '',
+              codeMapText,
+              '',
+              'Называй в карте ТОЛЬКО пути из этого списка. Файл, которого в списке нет и ' +
+                'который предстоит СОЗДАТЬ по плану, помечай словом «новый» рядом с путём.',
+              '',
+            ]
+          : []),
         '## Формат ответа',
         '',
         field.kind === 'choice'
           ? 'Верни ТОЛЬКО ключ выбранного варианта (слово или значок из списка «варианты» ' +
-            'выше), и если по смыслу нужен комментарий — через тире после ключа. Без ‹›, ' +
-            'без пересказа условия.'
+            'выше) без обрамления, и если по смыслу нужен комментарий — через тире после ' +
+            'ключа, одной строкой. Без ‹›, без пересказа условия.'
           : field.kind === 'list'
             ? 'Верни по одному пункту на строку, каждая начинается с `- `. Метку поля ' +
               '(«- **Метка:**») не повторяй.'
             : field.kind === 'records'
               ? 'Верни по одной записи на элемент: `- значение1 — значение2` (по порядку ' +
                 'колонок из списка выше), либо `- колонка: значение` под отдельной строкой ' +
-                'на каждую колонку, если значений больше двух. Id/номер не указывай — его ' +
-                'проставит рантайм.'
-              : 'Верни ТОЛЬКО значение поля — без метки, без ‹›, без пояснений вокруг.',
+                'на каждую колонку, если значений больше двух. Id/номер (`claim-N`) не ' +
+                'указывай — его проставит рантайм. Таблицу `| … |` не рисуй.'
+              : field.shape === 'cell' || field.singleLine === true
+                ? 'Верни ТОЛЬКО значение поля одной строкой — без метки, без ‹›, без пояснений вокруг.'
+                : 'Верни ТОЛЬКО значение поля — без метки, без ‹›, без пояснений вокруг.',
+        // Разметку рисует рантайм: модель, добавлявшая `**`, бэктики, заголовки и «---», в
+        // серии v8 ломала бланк, а поле при этом засчитывалось заполненным.
+        'Без markdown-разметки: без `**`, обратных кавычек, `|`-таблиц, заголовков `#`, ' +
+          'разделителей `---` и примечаний — разметку и оформление рисует рантайм.',
         // Образец граничного пункта — только там, где схема их и требует: на прочих полях
         // он был бы шумом в окне.
         ...(field.min?.edges !== undefined && field.min.edges > 0 ? (this.o.edgeExample ?? []) : []),
@@ -893,6 +937,8 @@ export class FormFillExecutor implements StageExecutor {
       let text = startText;
       let changed = false;
       const fields = this.compactFields(text, path);
+      /** Поля этого прохода, уже вписанные в текст, — для узнавания соседей по ключу (`currentFieldId`). */
+      const filledFields = new Set<SchemaField>();
 
       for (let batchStart = 0; batchStart < fields.length; batchStart += FIELD_PARALLEL) {
         if (req.signal.aborted) return { stop: { ok: false, finalText: '', usage, note: 'этап отменён' }, changed, text };
@@ -903,7 +949,7 @@ export class FormFillExecutor implements StageExecutor {
         const asked = batch.slice(0, allowed);
         callsSpent += asked.length;
 
-        const answers = await Promise.allSettled(asked.map((f) => askFieldCompact(f)));
+        const answers = await Promise.allSettled(asked.map((f) => askFieldCompact(f, text)));
         for (const a of answers) {
           if (a.status !== 'fulfilled') continue;
           usage = addUsage(usage, a.value.usage);
@@ -931,8 +977,7 @@ export class FormFillExecutor implements StageExecutor {
             const min = field.min;
             // Тот же класс бага, что у legacy-добора (askClaimsTopUp): один выстрел без
             // перепроверки засчитывал добор успешным, даже если добавленные записи не
-            // несли [edge]. Сейчас неактивно (compactForms откачен у обеих моделей,
-            // config/models.json), но мина остаётся, пока режим не включат снова.
+            // несли [edge]. Активно у записей `-compactfill` (серия v9).
             const shortfall = (v: string): { rows: number; edges: number } | null => {
               const peek = parseFieldValue(field, v);
               if (isSheetError(peek) || peek.kind !== 'records') return null;
@@ -977,12 +1022,21 @@ export class FormFillExecutor implements StageExecutor {
             }
           }
 
-          const applied = applyFill(text, field.id, answerText, 'set', templateNameFor(path));
+          // id поля — по ТЕКУЩЕМУ тексту: схема пересчитывается после каждого заполнения, и id
+          // с суффиксом раздела у соседа смещался («последствия шагов/статус» после
+          // заполнения «статус» не находился вовсе и уходил на второй проход).
+          const currentId = currentFieldId(this.compactFields(text, path), fields, field, filledFields);
+          const applied = applyFill(text, currentId, answerText, 'set', templateNameFor(path));
           if (!applied.ok) {
-            notes.push(`поле ${field.id} не заполнено: ${applied.problem}`);
+            notes.push(
+              applied.problem.startsWith('нет поля')
+                ? `поле ${field.id} не найдено в бланке: ${applied.problem}`
+                : `ответ на поле ${field.id} отклонён: ${applied.problem}`,
+            );
             continue;
           }
           text = applied.text;
+          filledFields.add(field);
           fieldsFilled++;
           changed = true;
         }

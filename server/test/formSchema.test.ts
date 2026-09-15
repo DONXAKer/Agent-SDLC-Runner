@@ -161,6 +161,16 @@ describe('deriveSchema: таблицы', () => {
   });
 });
 
+// Серия v8: строка 7 чек-листа readiness читалась образцом таблицы, и модель её размножала.
+describe('deriveSchema: ‹…› в инлайн-коде ячейки не делает строку образцом', () => {
+  it('строка чек-листа с `‹…›` в тексте — ячейки, а не records', () => {
+    const text = '| # | Проверка | Статус | Где видно |\n|---|---|---|---|\n| 7 | Плейсхолдеров `‹…›` не осталось | ‹✅/❌› | ‹grep -c› |\n';
+    const schema = deriveSchema(text);
+    ok(!schema.fields.some((f) => f.kind === 'records'), schema.fields.map((f) => f.kind).join(', '));
+    strictEqual(schema.fields.filter((f) => f.shape === 'cell').length, 2);
+  });
+});
+
 describe('deriveSchema: списки', () => {
   it('- ‹x› — list', () => {
     const s = deriveSchema('## Что делаем\n\n- ‹что делаем›\n');
@@ -280,6 +290,14 @@ describe('deriveSchema: реальные шаблоны эталона', { skip:
       const schema = deriveSchema(text, name);
       ok(schema.fields.length > 0, `${name}: полей не найдено`);
     }
+  });
+
+  it('readiness: чек-лист прогонов — ячейки, без records; ни один ключ меню не начинается с ‹', () => {
+    const text = readFileSync(join(templatesDir, 'readiness.template.md'), 'utf8');
+    const model = deriveSchema(text, 'readiness.template.md').fields.filter((f) => f.owner === 'model');
+    const records = model.filter((f) => f.kind === 'records');
+    deepStrictEqual(records.map((f) => f.id), [], 'records в чек-листе readiness');
+    ok(!model.some((f) => (f.options ?? []).some((o) => o.key.startsWith('‹'))), 'ключ меню начинается с ‹');
   });
 
   it('план: пункты приёмки — records с минимумом, колонка id — mechanical', () => {

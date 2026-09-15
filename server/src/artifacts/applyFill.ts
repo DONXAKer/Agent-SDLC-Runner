@@ -38,6 +38,12 @@ function cell(text: string, max = 400): string {
   return escapeCell(cut) === '' ? '—' : escapeCell(cut);
 }
 
+/**
+ * Ответ несёт плейсхолдер бланка (`‹что делаем›` внутри ответа): вклеенный, он оставлял бы
+ * место незаполненным под видом заполненного — то же правило, что у некомпактного пути.
+ */
+const PLACEHOLDER_IN_ANSWER = /‹[^›\n]*›/;
+
 /** Сплайс диапазона на новый текст. */
 function splice(text: string, range: { start: number; end: number }, value: string): string {
   return text.slice(0, range.start) + value + text.slice(range.end);
@@ -186,12 +192,34 @@ export function applyFill(
     case 'scalar':
     case 'multiline': {
       if (value.kind !== 'text') return { ok: false, problem: `внутренняя ошибка: тип значения не совпал` };
-      const rendered = field.singleLine === true ? value.text.replace(/\s*\r?\n\s*/g, ' ').trim() : value.text;
+      if (value.text.trim() === '') return { ok: false, problem: `поле «${fieldId}»: пустой ответ` };
+      if (PLACEHOLDER_IN_ANSWER.test(value.text)) {
+        return { ok: false, problem: `поле «${fieldId}»: ответ несёт плейсхолдер бланка ‹…› вместо значения` };
+      }
+      // Ячейка таблицы — через `cell()`: переносы склеиваются, `|` экранируется. Прежде
+      // скаляр-ячейка вклеивался как есть, и `|` в ответе ломал строку таблицы.
+      const rendered =
+        field.shape === 'cell'
+          ? cell(value.text)
+          : field.singleLine === true
+            ? value.text.replace(/\s*\r?\n\s*/g, ' ').trim()
+            : value.text;
       return { ok: true, text: splice(text, field.placeholders[0] ?? field.valueRange, rendered), rendered };
     }
 
     case 'choice': {
       if (value.kind !== 'choice') return { ok: false, problem: `внутренняя ошибка: тип значения не совпал` };
+      if (PLACEHOLDER_IN_ANSWER.test(value.comment)) {
+        return { ok: false, problem: `поле «${fieldId}»: комментарий несёт плейсхолдер бланка ‹…›` };
+      }
+      if (value.comment !== '') {
+        value.comment =
+          field.shape === 'cell'
+            ? cell(value.comment)
+            : field.singleLine === true
+              ? value.comment.replace(/\s*\r?\n\s*/g, ' ').trim()
+              : value.comment;
+      }
       const rendered = renderChoice(field, value);
       if (rendered === null) return { ok: false, problem: `вариант «${value.key}» не найден среди меню поля` };
       return { ok: true, text: splice(text, field.valueRange, rendered), rendered };
@@ -199,6 +227,9 @@ export function applyFill(
 
     case 'list': {
       if (value.kind !== 'list') return { ok: false, problem: `внутренняя ошибка: тип значения не совпал` };
+      if (value.items.some((it) => PLACEHOLDER_IN_ANSWER.test(it))) {
+        return { ok: false, problem: `поле «${fieldId}»: пункт списка несёт плейсхолдер бланка ‹…›` };
+      }
       if (value.items.length === 0) {
         if (field.emptyAlternative !== undefined) {
           return { ok: true, text: splice(text, field.range, field.emptyAlternative), rendered: field.emptyAlternative };
@@ -215,6 +246,9 @@ export function applyFill(
 
     case 'records': {
       if (value.kind !== 'records') return { ok: false, problem: `внутренняя ошибка: тип значения не совпал` };
+      if (value.rows.some((row) => Object.values(row).some((v) => PLACEHOLDER_IN_ANSWER.test(v)))) {
+        return { ok: false, problem: `поле «${fieldId}»: запись несёт плейсхолдер бланка ‹…›` };
+      }
       if (value.rows.length === 0) {
         if (field.emptyAlternative !== undefined) {
           return { ok: true, text: splice(text, field.range, field.emptyAlternative), rendered: field.emptyAlternative };
