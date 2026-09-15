@@ -54,9 +54,9 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 
 | Фаза скилла | Механика | Диалог | Готовые данные | Только модель / человек |
 |---|---|---|---|---|
-| P0: вход | предусловия (`filledExceptTouchSection`, `readiness`, `claimsMinimum`); гейт claims — `Run.claimsGateRow` ✓ | — | — | — |
+| P0: вход | предусловия (`filledExceptTouchSection`, `readiness`, `claimsMinimum`); гейт claims — `stages/explore.ts::claimsGateRow` ✓ | — | — | — |
 | P1, агент 1 (разведчик): стек, карта, переиспользование, опоры осей | ✓ индекс проекта `explore/*` (`readTree`, `declaredSymbols`, `callersOf`, `intentKeywords`, `rankFiles`, `reuseCandidates`, `axisMechanismCandidates`); ✓ `autofillExplorationReport` (название, цель, стек, команды, гейт заполненности); страж `explorationPathProblem` | ✓ `exploreFill` (`ExploreExecutor`): один закрытый вопрос на карту (по карточкам файлов-кандидатов), один — на переиспользование, один — на шесть осей, один — на вопросы; свободные поля — вложенный `FormFillExecutor` со `skipFields` | ✓ блок «Индекс проекта» в промпте (`exploreIndex`, оба флоу, потолок по флоу `INDEX_BLOCK_BYTES`); карточки файлов (`fileCard`/`symbolCard`/`packCards`) | **модель**: «что там сейчас», «что меняем», точка правки, границы, риски |
-| P1, агент 2 (`sdlc-claims`) | ✓ `Run.runClaimsBlind` — запуск рантаймом до хода модели, слепота ВХОДОМ (четыре секции задачи, индекс, карточки; без инструментов; `.sdlc` в индексе нет) | — | — | **модель-агент**: лист от нуля |
+| P1, агент 2 (`sdlc-claims`) | ✓ `stages/explore.ts::runClaimsBlind` — запуск рантаймом до хода модели, слепота ВХОДОМ (четыре секции задачи, индекс, карточки; без инструментов; `.sdlc` в индексе нет) | — | — | **модель-агент**: лист от нуля |
 | P2: сверка листов | ✓ `explore/compare.ts` — предсортировка «совпало / кандидат / вне scope» по значимым словам, обратное расхождение; рендер таблицы и «Расхождение» построчно | — | — | **человек**: «Решение человека о полноте» (humanGate, поле не трогается) |
 | P3: артефакты | ✓ «Всплывшие вопросы» рендер `- [ ] **[блокирующий]**` (иначе этап 3 их не увидит); ✓ гейт «Заполненность артефактов» по факту; ✓ «Что придётся тронуть» в задаче из карты; запись — `writeThroughGate` (тот же гейт, что у любой записи) | — | — | — |
 | P4: неточность в задаче | — | — | — | **модель + человек**: «scope vs уточнение» (в конвейере нет — уходит в вопросы) |
@@ -231,7 +231,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
   флоу; строка adapter-блока «не трать ходы на `Glob`/`Grep` по корню». Без ручки промпт
   байт-в-байт прежний.
 - `ModelDef.exploreFill` — `exec/ExploreExecutor.ts` (только `loop`; на `sdk` игнорируется с
-  предупреждением, как `stepFill`): `Run.runClaimsBlind` → `run/claimsBlind.ts` (слепота
+  предупреждением, как `stepFill`): `stages/explore.ts::runClaimsBlind` → `run/claimsBlind.ts` (слепота
   входом), `run/exploreAutofill.ts`, четыре закрытых вопроса, `explore/compare.ts`, запись через
   `exec/gateWrite.ts` (общий с `FormFillExecutor`), вложенный `FormFillExecutor` со `skipFields`,
   гейт заполненности по факту, «Что придётся тронуть» в задаче.

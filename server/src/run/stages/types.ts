@@ -8,8 +8,10 @@
 import type { ArtifactKey, WitokPaths } from '../../artifacts/paths.ts';
 import type { ApprovalGate } from '../../approval/gate.ts';
 import type { LoadedConfig } from '../../config/load.ts';
+import type { EcosystemLine } from '../../explore/view.ts';
 import type { GatesFile } from '../../gates/gatesFile.ts';
 import type { TraceLabel } from '../../provider/rawLog.ts';
+import type { ExploreState } from './explore.ts';
 import type { Decision, EventSink, PolicyContext, StageId, ToolName, Usage } from '@sdlc-runner/shared';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
@@ -48,6 +50,14 @@ export interface StageHost {
   /** Сигнал отмены текущего этапа; без этапа — свежий, никогда не отменяемый. */
   signal(): AbortSignal;
   limits(): LoadedConfig['runner']['limits'];
+  /** Конфиг раннера: каталоги субагентов и эталона методологии. */
+  runner(): LoadedConfig['runner'];
+  /** Чем проект собирается — тем же источником, что у гейтов (`Run.ecosystemFor`). */
+  ecosystemFor(stage: StageId): EcosystemLine[];
+  /** Включён ли гейт «Разбор последствий» с отчётом на этапе 4 (`stages/plan.ts::axesGateRow`). */
+  axesEnabled(): boolean;
+  /** Состояние этапа 2 между вызовами — живая ссылка на `Run.state.explore`. */
+  readonly exploreState: ExploreState;
 }
 
 /** Механическое поле артефакта, которое заполняет рантайм до модели (`formAutofill.ts`). */

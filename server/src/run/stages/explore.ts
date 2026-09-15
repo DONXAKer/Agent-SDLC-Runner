@@ -4,8 +4,25 @@ import { DECISION, pathExistsAny, readArtifact } from '../../artifacts/artifact.
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
 import { claimsMinimum, exists, filledExceptTouchSection, isSmallContour, relOf } from './preconditions.ts';
-import type { Precondition, StageContext, StageDef, StageModule } from './types.ts';
+import type { Precondition, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 import { autofillTitle } from '../formAutofill.ts';
+import { edgeExampleLines } from '../../artifacts/edgeExample.ts';
+import type { ResolvedRoute } from '../../config/schema.ts';
+import { ExploreExecutor } from '../../exec/ExploreExecutor.ts';
+import { loadSubagent } from '../../exec/subagents.ts';
+import { cardBudgetPerFile, fileCard, packCards } from '../../explore/cards.ts';
+import type { AuthorClaim } from '../../explore/compare.ts';
+import { intentKeywords } from '../../explore/keywords.ts';
+import { INDEX_BLOCK_BYTES, renderIndexBlock } from '../../explore/render.ts';
+import { readTree } from '../../explore/tree.ts';
+import { buildView, type EcosystemLine } from '../../explore/view.ts';
+import { gateKey } from '../../gates/gatesFile.ts';
+import type { GateRow, GatesFile } from '../../gates/gatesFile.ts';
+import { ProviderEnvError } from '../../provider/ChatProvider.ts';
+import { createProvider } from '../../provider/registry.ts';
+import { claimTextCell } from '../../verdict/retryBrief.ts';
+import { deriveClaimsBlind, intentSectionsForBlind } from '../claimsBlind.ts';
+import { briefFromIntent, titleFromIntent } from '../exploreAutofill.ts';
 import type { BlindClaimsResult } from '../claimsBlind.ts';
 import type { Keywords } from '../../explore/keywords.ts';
 import type { ExploreIndex } from '../../explore/types.ts';
@@ -228,6 +245,169 @@ export const exploreStage: StageDef = {
       ? 'мелкий контур: разведка точечная на этапе 5, отчёт не пишется'
       : null,
 };
+
+/**
+ * Исполняется ли этап 2 конвейером рантайма (`ExploreExecutor`, `ModelDef.exploreFill`).
+ * Только flow `loop`: у `sdk` своего цикла нет, и ручка там игнорируется с предупреждением
+ * в `executorFor` — тем же способом, что `stepFill`.
+ */
+export function usesExploreFill(route: ResolvedRoute): boolean {
+  return route.flow === 'loop' && route.exploreFill;
+}
+
+/** Строка набора «Независимый вывод claims вторым агентом»; `null` — строки нет. */
+function claimsGateRow(gates: GatesFile | null): GateRow | null {
+  if (gates === null) return null;
+  return gates.rows.find((r) => gateKey(r.name) === gateKey('Независимый вывод claims вторым агентом')) ?? null;
+}
+
+/** Состояние гейта «Заполненность артефактов» для отчёта разведки. */
+function fillednessGateState(gates: GatesFile | null): 'enabled' | 'debt' | 'absent' {
+  const row = gates?.rows.find((r) => gateKey(r.name) === gateKey('Заполненность артефактов'));
+  if (row === undefined) return 'absent';
+  return row.enabled ? 'enabled' : 'debt';
+}
+
+/** Строки секции «Чего не делаем» задачи — адресат вердикта «вне scope» при сверке листов. */
+function notDoingLines(intentText: string): string[] {
+  return h2SectionRanges(intentText, /^чего не делаем$/i)
+    .flatMap((r) => intentText.slice(r.start, r.end).split(/\r?\n/))
+    .filter((l) => /^\s*[-*+]\s+/.test(l) && !l.includes('‹'))
+    .map((l) => l.trim());
+}
+
+/**
+ * Индекс проекта для разведки (`explore/*`) — по задаче на диске, с кэшем
+ * (`ExploreState.indexCache`). Экосистема приходит от вызывающего тем же `describeBuild`, что
+ * у гейтов и блока `ecosystem`: второй детект здесь разошёлся бы с первым.
+ */
+export function exploreIndexFor(
+  host: StageHost,
+  ecosystem: readonly EcosystemLine[],
+): { index: ExploreIndex; kw: Keywords; built: BuiltView } {
+  const intent = readArtifact(host.paths.intent);
+  const intentText = intent.exists ? intent.text : '';
+  const axesEnabled = host.axesEnabled();
+  const key = `${axesEnabled ? 'axes' : 'no-axes'}\n${ecosystem.map((e) => `${e.dir}|${e.build ?? ''}|${e.test ?? ''}`).join(';')}\n${intentText}`;
+  if (host.exploreState.indexCache !== null && host.exploreState.indexCache.key === key) return host.exploreState.indexCache;
+  const index = readTree(host.projectRoot);
+  const kw = intentKeywords(intentText);
+  const built = buildView(index, ecosystem, kw, axesEnabled);
+  host.exploreState.indexCache = { key, index, kw, built };
+  return host.exploreState.indexCache;
+}
+
+/**
+ * Слепой вывод приёмочного листа рантаймом — шаг конвейера `exploreFill`, идущий ДО хода
+ * модели (тем же порядком, что `runReviewerDirectly` на этапе 6). Слепота — входом:
+ * агенту уходят четыре секции задачи, индекс и карточки кандидатов, без инструментов
+ * (`run/claimsBlind.ts`). Итог кладётся в `ExploreState.claims`, исполнитель забирает его оттуда.
+ */
+export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecosystem: readonly EcosystemLine[]): Promise<void> {
+  host.exploreState.claims = { result: null, skipReason: null };
+  const warn = (message: string): void => host.emit({ type: 'warning', runId: host.id, stage: 'explore', message });
+  const row = claimsGateRow(host.gatesFile());
+  if (row !== null && !row.enabled) {
+    host.exploreState.claims.skipReason = 'гейт «Независимый вывод claims вторым агентом» в долге';
+    return;
+  }
+  if (row === null) {
+    warn('строки «Независимый вывод claims вторым агентом» в наборе нет — второй агент запущен по умолчанию методологии; добавь строку в .sdlc/gates.md');
+  }
+  const def = loadSubagent(host.runner().agentsDir, 'sdlc-claims');
+  if (def === null) {
+    host.exploreState.claims.skipReason = `определение субагента sdlc-claims не найдено в ${host.runner().agentsDir}`;
+    warn(`слепой вывод листа не запущен: ${host.exploreState.claims.skipReason}`);
+    return;
+  }
+  const intent = readArtifact(host.paths.intent);
+  const sections = intent.exists ? intentSectionsForBlind(intent.text) : null;
+  if (sections === null) {
+    host.exploreState.claims.skipReason = 'в задаче нет секций «Коротко»/«Что делаем» — слепой вывод не с чего';
+    warn(`слепой вывод листа не запущен: ${host.exploreState.claims.skipReason}`);
+    return;
+  }
+  const { built } = exploreIndexFor(host, ecosystem);
+  const limits = host.limits();
+  const cardBudget = Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes);
+  const perCard = cardBudgetPerFile(cardBudget, built.ranked.length);
+  const result = await deriveClaimsBlind({
+    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('explore', 'claimsBlind')),
+    model: route.model,
+    params: route.params,
+    system: def.prompt,
+    sections,
+    indexBlock: renderIndexBlock(built.view, INDEX_BLOCK_BYTES.loop),
+    sources: packCards(built.ranked.map((r) => fileCard(r.file, perCard)), cardBudget),
+    signal: host.signal(),
+    onProgress: warn,
+    onUsage: (usage) => host.accountOffPathUsage('explore', usage, route.providerDef.currency),
+  });
+  // `requestError` — запрос не состоялся (сеть, таймаут), а не «субагент честно вернул
+  // пустой лист»: без разделения отчёт писал бы утверждение о проведённом сравнении,
+  // которого не было (ревью code-review-all, 2026-09-11).
+  host.exploreState.claims = {
+    result,
+    skipReason:
+      result.claims.length === 0
+        ? result.requestError !== null
+          ? `запрос к субагенту не удался: ${result.requestError}`
+          : 'субагент вернул пустой лист — второго измерения не было'
+        : null,
+  };
+  if (result.envFailure !== null) throw new ProviderEnvError(result.envFailure);
+}
+
+/**
+ * Этап 2 конвейером рантайма (`ModelDef.exploreFill`): индекс, карточки, закрытые
+ * вопросы, запись через гейт — `exec/ExploreExecutor.ts`. Слепой лист уже посчитан
+ * (`runClaimsBlind`) и лежит в `ExploreState.claims`.
+ */
+export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): ExploreExecutor {
+  const stage = 'explore';
+  const limits = host.limits();
+  const ecosystem = host.ecosystemFor(stage);
+  const { index, built } = exploreIndexFor(host, ecosystem);
+  const intent = readArtifact(host.paths.intent);
+  const intentText = intent.exists ? intent.text : '';
+  const claims: AuthorClaim[] = [...host.intentClaimLines(intentText)].map(([id, line]) => ({ id, text: claimTextCell(line) }));
+  host.emit({
+    type: 'warning',
+    runId: host.id,
+    stage,
+    message:
+      `режим разведки конвейером: кандидатов ${built.ranked.length} (${built.ranked.map((r) => r.file.path).join(', ') || 'нет'}), ` +
+      `переиспользования ${built.reuse.length}; AskHuman и Task в режиме нет — вопросы уходят в «Всплывшие вопросы», ` +
+      'решение о полноте листа остаётся полем человека',
+  });
+  return new ExploreExecutor({
+    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace(stage, 'explore')),
+    params: route.params,
+    currency: route.providerDef.currency ?? 'USD',
+    ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
+    maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+    readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
+    bashTimeoutMs: limits.gateTimeoutMs,
+    index,
+    built,
+    ecosystem,
+    intent: {
+      path: host.paths.intent,
+      readinessPath: host.paths.readiness,
+      title: titleFromIntent(intentText) ?? host.slug,
+      brief: briefFromIntent(intentText),
+      claims,
+      notDoing: notDoingLines(intentText),
+    },
+    reportPath: host.paths.explorationReport,
+    claims: host.exploreState.claims.result,
+    claimsSkipReason: host.exploreState.claims.skipReason,
+    axesEnabled: host.axesEnabled(),
+    fillednessGate: fillednessGateState(host.gatesFile()),
+    edgeExample: edgeExampleLines(host.runner().methodologyDir),
+    cardBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+  });
+}
 
 export const exploreModule: StageModule = {
   def: exploreStage,
