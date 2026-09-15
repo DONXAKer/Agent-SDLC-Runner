@@ -5,6 +5,10 @@ import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
 import { claimsMinimum, exists, filledExceptTouchSection, isSmallContour, relOf } from './preconditions.ts';
 import type { Precondition, StageContext, StageDef } from './types.ts';
+import type { BlindClaimsResult } from '../claimsBlind.ts';
+import type { Keywords } from '../../explore/keywords.ts';
+import type { ExploreIndex } from '../../explore/types.ts';
+import type { BuiltView } from '../../explore/view.ts';
 
 /**
  * Объявлен ли путь строки как будущий — то есть его отсутствие в дереве законно.
@@ -223,3 +227,22 @@ export const exploreStage: StageDef = {
       ? 'мелкий контур: разведка точечная на этапе 5, отчёт не пишется'
       : null,
 };
+
+/** Состояние этапа 2 между вызовами. Владелец — виток (`Run.state.explore`). */
+export class ExploreState {
+  /**
+   * Индекс проекта для этапа 2 — считается лениво и кэшируется по ключу (текст задачи +
+   * включённость гейта осей): `preparePrompt` зовётся и из интерфейса на каждый показ
+   * промпта, а обход дерева с чтением файлов на каждый показ — лишняя работа и лишний I/O.
+   * Тот же снимок уходит и в блок промпта, и в карточки конвейера `exploreFill`: список
+   * для оператора и список для модели обязаны совпадать.
+   */
+  indexCache: { key: string; index: ExploreIndex; kw: Keywords; built: BuiltView } | null = null;
+
+  /**
+   * Итог слепого вывода листа (`runClaimsBlind`) для конвейера `exploreFill` — считается в
+   * `runStage` ДО создания исполнителя (запуск асинхронный, `executorFor` — нет).
+   * `result: null` — не запускался, причина в `skipReason`.
+   */
+  claims: { result: BlindClaimsResult | null; skipReason: string | null } = { result: null, skipReason: null };
+}

@@ -3,6 +3,7 @@
 import { DECISION } from '../../../artifacts/artifact.ts';
 import { RUNTIME_PROTECTED, granted } from '../preconditions.ts';
 import type { StageDef } from '../types.ts';
+import type { TreeChange } from '../../evidence.ts';
 
 export const chunkStage: StageDef = {
   id: 'chunk',
@@ -39,3 +40,15 @@ export const chunkStage: StageDef = {
   humanGate: { artifact: 'journal', label: DECISION.confirmed },
   skipIf: null,
 };
+
+/** Состояние этапа 5 между вызовами. Владелец — виток (`Run.state.chunk`). */
+export class ChunkState {
+  /**
+   * Что стало с деревом за последнюю попытку этапа 5.
+   *
+   * Три значения, а не булево: «не знаем» (запись улик упала) обязано отличаться от
+   * «правки были», иначе попытка с неизвестным состоянием дерева проходит как нормальная —
+   * ровно та дыра, ради закрытия которой улики и отобраны у агента.
+   */
+  tree: TreeChange = 'unknown';
+}

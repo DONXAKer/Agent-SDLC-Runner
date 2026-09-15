@@ -5,7 +5,7 @@ import { intentPlaceholdersOutsideTouch } from './preconditions.ts';
 import type { StageContext, StageDef } from './types.ts';
 
 /**
- * Та же проверка, что `filledExceptTouchSection` выше (предусловие входа в разведку), но
+ * Та же проверка, что `filledExceptTouchSection` (`preconditions.ts`, предусловие входа в разведку), но
  * вызванная СВОИМ ходом модели на этапе `intent`, а не чужим предусловием следующего
  * этапа. Общий страж завершения хода (`notDone()`, `Run.ts`) видит только «файл тронут
  * vs пустой бланк», а не «плейсхолдеры закрыты» — `FormFillExecutor` считает точное число

@@ -159,6 +159,9 @@ import {
   type StageDef,
   stageProducing,
 } from './stages.ts';
+import { ChunkState } from './stages/chunk/index.ts';
+import { ExploreState } from './stages/explore.ts';
+import { VerifyState } from './stages/verify/state.ts';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -550,36 +553,13 @@ export class Run {
    */
   private attemptObservedFromStart = false;
   private aborter: AbortController | null = null;
-  /** Фактический прогон гейтов текущей попытки — источник статусов для вердикта. */
-  private lastGateResults: GateRunResult[] = [];
-  /** Бланк отчёта приёмки, заполненный рантаймом, — стартовая точка маршрутов ансамбля. */
-  private verifyPrefill: string | null = null;
   /**
-   * Индекс проекта для этапа 2 — считается лениво и кэшируется по ключу (текст задачи +
-   * включённость гейта осей): `preparePrompt` зовётся и из интерфейса на каждый показ
-   * промпта, а обход дерева с чтением файлов на каждый показ — лишняя работа и лишний I/O.
-   * Тот же снимок уходит и в блок промпта, и в карточки конвейера `exploreFill`: список
-   * для оператора и список для модели обязаны совпадать.
+   * Состояние этапов, живущее между вызовами: записи и вердикт попытки этапа 6, кэш индекса
+   * и слепой лист разведки, дерево попытки chunk. Владелец — виток; объяснения полей — в
+   * классах состояния модулей этапов (`stages/verify/state.ts`, `stages/explore.ts`,
+   * `stages/chunk/index.ts`).
    */
-  private exploreIndexCache: { key: string; index: ExploreIndex; kw: Keywords; built: BuiltView } | null = null;
-  /**
-   * Итог слепого вывода листа (`runClaimsBlind`) для конвейера `exploreFill` — считается в
-   * `runStage` ДО создания исполнителя (запуск асинхронный, `executorFor` — нет).
-   * `result: null` — не запускался, причина в `skipReason`.
-   */
-  private exploreClaims: { result: BlindClaimsResult | null; skipReason: string | null } = { result: null, skipReason: null };
-  private lastGatesAborted = false;
-  /**
-   * Последний посчитанный `preflightBlockers` для `verify` — не «живой» результат (Docker
-   * не опрашивается на каждый вызов `blockers()`, только когда сам `runStage` реально его
-   * посчитал), но лучше, чем ничего: `blockers()` синхронный и вызывается из GET-ручек на
-   * каждый опрос списка витков — дёргать Docker на каждый такой опрос было бы дороже, чем
-   * не показывать pre-flight-статус в списке заранее вовсе. Обновляется в `runStage`, тем
-   * же местом, где сегодня и вычисляется актуальный pre-flight.
-   */
-  private lastPreflightBlockers: string[] = [];
-  /** Вход последнего посчитанного вердикта — из него собирается выжимка для ретрая. */
-  private lastVerdictInput: VerdictInput | null = null;
+  private readonly state = { verify: new VerifyState(), explore: new ExploreState(), chunk: new ChunkState() };
   /**
    * Выжимка причин прошлого красного, ждущая следующей попытки chunk'а.
    *
@@ -588,11 +568,6 @@ export class Run {
    * `nextAttempt`, и переживает сброс намеренно.
    */
   private carryForward: string | null = null;
-  private verdict: Verdict | null = null;
-  /** Куда возвращать виток по природе красного. На `passed` не влияет. */
-  private redCause: RedCause | null = null;
-  /** Близость патча этой попытки к предыдущей. `null` — считать не из чего. */
-  private closeness: number | null = null;
   /**
    * Числа витка. НЕ сбрасываются в `resetAttemptState`: там обнуляется состояние попытки,
    * а метрики принадлежат витку — иначе «сколько итераций съел виток» опять станет
@@ -661,14 +636,6 @@ export class Run {
   /** Счётчик спасённых из текста записей: идентификатор вызова обязан быть уникальным. */
   private salvageSeq = 0;
   /**
-   * Что стало с деревом за последнюю попытку этапа 5.
-   *
-   * Три значения, а не булево: «не знаем» (запись улик упала) обязано отличаться от
-   * «правки были», иначе попытка с неизвестным состоянием дерева проходит как нормальная —
-   * ровно та дыра, ради закрытия которой улики и отобраны у агента.
-   */
-  private chunkTree: TreeChange = 'unknown';
-  /**
    * Сколько попыток этого chunk'а закончились «красным из-за окружения».
    *
    * Вычитается из счётчика при сверке с бюджетом: методология требует, чтобы дефект среды
@@ -687,20 +654,8 @@ export class Run {
   /** История попыток для интерфейса — тот же набор фактов, что уходит в `iterations.md`. */
   private readonly iterationLog: IterationSummary[] = [];
   private verdictCount = 0;
-  /**
-   * `chunk:attempt`, для которых статистика вердикта уже учтена. `null` — ещё нет.
-   *
-   * Повторный запуск этапа 6 на той же попытке — обычное действие оператора (например
-   * после правки набора гейтов). Без этой отметки он дописывал вторую строку в журнал
-   * итераций про ту же попытку, дублировал проваленные пункты приёмки, и эскалация
-   * «второй red на том же пункте» срабатывала по ОДНОМУ фактическому провалу, предлагая
-   * поднять модель без основания.
-   */
-  private verdictCountedFor: string | null = null;
   private redCount = 0;
   private readonly redByCause = new Map<RedCauseKind, number>();
-  /** Отработал ли независимый рецензент на ТЕКУЩЕЙ попытке. */
-  private reviewerRan = false;
   /** Разобранный набор гейтов: файл проекта, читать его на каждое обращение незачем. */
   private gatesCache: { mtimeMs: number; parsed: GatesFile } | null = null;
   /** Чей расход копится в бюджет (`RunOptions.budgetStages`). `null` — все этапы. */
@@ -1009,11 +964,11 @@ export class Run {
 
   /** Прогон гейтов оборван отменой: набор в `gateResults` неполон. */
   get gatesAborted(): boolean {
-    return this.lastGatesAborted;
+    return this.state.verify.lastGatesAborted;
   }
 
   get lastVerdict(): Verdict | null {
-    return this.verdict;
+    return this.state.verify.verdict;
   }
 
   /**
@@ -1033,7 +988,7 @@ export class Run {
         verdict,
         gates: this.gateResultsForVerdict(),
         patch: patch.exists ? patch.text : '',
-        closeness: this.closeness,
+        closeness: this.state.verify.closeness,
         // Флагом, а не грепом по тексту причины: формулировка в `verdict.ts` — текст для
         // человека, и любая её правка (перенос слова, «diff» → «патч») молча выключала бы
         // признак топтания в журнале. Ровно от этого написан соседний `classify.ts`.
@@ -1047,7 +1002,7 @@ export class Run {
         passed: verdict.passed,
         action: verdict.action,
         reasons: verdict.reasons,
-        closeness: this.closeness,
+        closeness: this.state.verify.closeness,
         at: new Date().toISOString(),
       });
       this.emit({
@@ -1092,7 +1047,7 @@ export class Run {
 
   /** Природа красной причины и предложенный ход. `null` — вердикт зелёный или не считался. */
   get lastRedCause(): RedCause | null {
-    return this.redCause;
+    return this.state.verify.redCause;
   }
 
   /**
@@ -1175,9 +1130,9 @@ export class Run {
     // сказать про неё нечего, а оставленная от прошлой попытки выжимка поехала бы в промпт
     // под заголовком «что не сошлось в прошлой попытке» — то есть как свежая.
     this.carryForward =
-      this.lastVerdictInput === null
+      this.state.verify.lastVerdictInput === null
         ? null
-        : buildRetryBrief(this.lastVerdictInput, this.lastGateResults, this.retryDetail());
+        : buildRetryBrief(this.state.verify.lastVerdictInput, this.state.verify.lastGateResults, this.retryDetail());
     // Средовой красный не должен съедать бюджет итераций — но и переиспользовать номер
     // попытки нельзя: на момент `blocked_env` этап 5 уже отработал, и по этому номеру лежат
     // НАСТОЯЩИЕ улики (патч, запись о тестах, отчёт приёмки). Первая версия не увеличивала
@@ -1185,7 +1140,7 @@ export class Run {
     //
     // Поэтому номер растёт всегда, а «не занимает попытку» реализовано вычетом: бюджет
     // считается по попыткам, где работа действительно проверялась.
-    if (this.verdict?.action === 'blocked_env') this.envBlockedAttempts += 1;
+    if (this.state.verify.verdict?.action === 'blocked_env') this.envBlockedAttempts += 1;
     this.attempt += 1;
     this.resetAttemptState();
     this.notePeakAttempt();
@@ -1223,13 +1178,13 @@ export class Run {
   private retryDetail(): RetryDetail {
     const claimTexts = new Map([...this.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)] as const));
     const whatToFix = new Map<string, string>();
-    for (const [id, r] of this.claimRecords) {
+    for (const [id, r] of this.state.verify.claimRecords) {
       if (r.whatToFix !== null && r.whatToFix.trim() !== '') whatToFix.set(id.toLowerCase(), r.whatToFix);
     }
     return {
       claimTexts,
       whatToFix,
-      findings: this.findingRecords.map((f) => ({ text: f.text, evidence: f.evidence, anchored: f.anchored })),
+      findings: this.state.verify.findingRecords.map((f) => ({ text: f.text, evidence: f.evidence, anchored: f.anchored })),
     };
   }
 
@@ -1269,19 +1224,19 @@ export class Run {
    * которая ещё не запускалась.
    */
   private resetAttemptState(): void {
-    this.lastGateResults = [];
-    this.lastGatesAborted = false;
-    this.verdict = null;
-    this.lastVerdictInput = null;
-    this.redCause = null;
-    this.reviewerRan = false;
+    this.state.verify.lastGateResults = [];
+    this.state.verify.lastGatesAborted = false;
+    this.state.verify.verdict = null;
+    this.state.verify.lastVerdictInput = null;
+    this.state.verify.redCause = null;
+    this.state.verify.reviewerRan = false;
     // Близость к прошлому патчу — свойство ПОПЫТКИ. Пока её тут не было, шапка новой
     // попытки до самого вердикта показывала совпадение от предыдущей, то есть янтарным
     // предупреждала о топтании там, где ещё ничего не сделано.
-    this.closeness = null;
+    this.state.verify.closeness = null;
     // Вердикт этой попытки ещё не считался — счётчики статистики не должны его удвоить
     // при повторном запуске verify (правка набора гейтов и второй прогон — обычное дело).
-    this.verdictCountedFor = null;
+    this.state.verify.verdictCountedFor = null;
     // Лента — свойство ПОПЫТКИ: вызовы прошлой не должны подтверждать утверждения этой.
     this.attemptToolEvents = [];
     this.attemptObservedFromStart = true;
@@ -1715,29 +1670,8 @@ export class Run {
     return limits.maxIterationsByStage?.[stage] ?? limits.maxIterationsPerStage;
   }
 
-  /** Пункты приёмки, записанные моделью на ТЕКУЩЕЙ попытке (`RecordClaim`), по id. */
-  private claimRecords = new Map<string, ClaimRecord>();
-  /** Находки ревью текущей попытки (`RecordFinding`). */
-  private findingRecords: FindingRecord[] = [];
-
-  /**
-   * Текст, в котором ищется ссылка записи: патч попытки плюс отчёт этапа 5.
-   *
-   * Считается один раз на этап и лениво: `anchorFound` зовётся на каждую запись, а патч
-   * читается с диска — перечитывать его на каждый вызов значило бы платить диском за
-   * каждую строку отчёта.
-   */
-  private anchorHaystack: string | null = null;
-
-  /**
-   * Прошёл ли конвейер `reviewFill` эту попытку целиком (все хунки и все спрошенные оси
-   * отвечены). Читается один раз — перед решением, звать ли собственный ход модели.
-   * Сброс — вместе с записями отчёта, той же попыткой.
-   */
-  private reviewFillComplete = false;
-
   private evidenceHaystack(): string {
-    if (this.anchorHaystack !== null) return this.anchorHaystack;
+    if (this.state.verify.anchorHaystack !== null) return this.state.verify.anchorHaystack;
     const parts: string[] = [];
     for (const p of [
       this.paths.chunkDiff(this.chunk, this.attempt),
@@ -1747,8 +1681,8 @@ export class Run {
       const a = readArtifact(p);
       if (a.exists) parts.push(a.text);
     }
-    this.anchorHaystack = parts.join('\n');
-    return this.anchorHaystack;
+    this.state.verify.anchorHaystack = parts.join('\n');
+    return this.state.verify.anchorHaystack;
   }
 
   /**
@@ -1775,12 +1709,12 @@ export class Run {
   private acceptRecord(call: NormalizedCall): string {
     if (call.kind === 'record_claim') {
       const anchored = anchorFound(call.evidence, this.evidenceHaystack());
-      const had = this.claimRecords.has(call.id);
+      const had = this.state.verify.claimRecords.has(call.id);
       // Зелёный без места в патче принимается как `⚠`, а не как зелёный с пометкой:
       // пометка в колонке доказательства статуса не меняла, и вердикт читал `✅`, которого
       // никто не подтвердил (замер 2026-09-08, класс «оформитель»).
       const status = acceptedClaimStatus(call.status, anchored);
-      this.claimRecords.set(call.id, {
+      this.state.verify.claimRecords.set(call.id, {
         id: call.id,
         status,
         evidence: anchored ? call.evidence : `${call.evidence} _(ссылка не найдена в патче попытки)_`,
@@ -1799,7 +1733,7 @@ export class Run {
 
     if (call.kind === 'record_finding') {
       const anchored = anchorFound(call.evidence, this.evidenceHaystack());
-      this.findingRecords.push({
+      this.state.verify.findingRecords.push({
         section: call.section,
         text: call.text,
         evidence: call.evidence,
@@ -1841,7 +1775,7 @@ export class Run {
   private async topUpClaims(route: ResolvedRoute, system: string): Promise<void> {
     const asks: ClaimAsk[] = [];
     for (const [id, text] of this.intentClaimLines()) {
-      if (!this.claimRecords.has(id)) asks.push({ id, text });
+      if (!this.state.verify.claimRecords.has(id)) asks.push({ id, text });
     }
     if (asks.length === 0) return;
 
@@ -1979,14 +1913,14 @@ export class Run {
    * доступе не появляется.
    */
   private async applyRecords(): Promise<void> {
-    if (this.claimRecords.size === 0 && this.findingRecords.length === 0) return;
+    if (this.state.verify.claimRecords.size === 0 && this.state.verify.findingRecords.length === 0) return;
     const path = this.paths.verificationReport(this.chunk, this.attempt);
     const report = readArtifact(path);
     if (!report.exists) return;
 
     const { text, filled } = renderRecords(report.text, {
-      claims: [...this.claimRecords.values()],
-      findings: this.findingRecords,
+      claims: [...this.state.verify.claimRecords.values()],
+      findings: this.state.verify.findingRecords,
       // Текст пункта — из листа задачи, тем же разбором, что у брифа ретрая: строка-образец
       // шаблона несёт плейсхолдер, и строка с зелёным статусом при `‹начало пункта…›`
       // выглядела заполненной.
@@ -2021,12 +1955,12 @@ export class Run {
   private autofillVerification(seeded: { path: string; snapshot?: string }[]): void {
     // Сброс ДО ранних выходов: без него ансамбль попытки K+1 стартовал бы с бланка
     // попытки K — с её номером в шапке и её таблицей гейтов (ревью-2).
-    this.verifyPrefill = null;
+    this.state.verify.verifyPrefill = null;
     const path = this.paths.verificationReport(this.chunk, this.attempt);
     const report = readArtifact(path);
     if (!report.exists || report.placeholders === 0) return;
 
-    const gates = this.lastGateResults.filter((g) => gateKey(g.name) !== gateKey(REVIEW_GATE));
+    const gates = this.state.verify.lastGateResults.filter((g) => gateKey(g.name) !== gateKey(REVIEW_GATE));
     const { text, filled } = autofillVerificationReport(report.text, gates, {
       chunk: this.chunk,
       attempt: this.attempt,
@@ -2039,7 +1973,7 @@ export class Run {
     // стартуют с него, а не с пустого файла — иначе класс расхождений «отчёт/факт» r9,
     // ради которого автозаполнение заведено, возвращался в маршрутах (ревью, К5).
     // Гард выше гарантирует placeholders > 0, поэтому и при filled === 0 бланк живой.
-    this.verifyPrefill = filled > 0 ? text : report.text;
+    this.state.verify.verifyPrefill = filled > 0 ? text : report.text;
     if (filled === 0) return;
 
     this.writeAutofilled(path, text, seeded);
@@ -2438,7 +2372,7 @@ export class Run {
     // тихо не состоялась.
     const complete =
       result.hunksAsked > 0 && result.hunksAnswered === result.hunksAsked && result.axesAnswered === result.axesAsked;
-    this.reviewFillComplete = complete;
+    this.state.verify.reviewFillComplete = complete;
     if (complete) this.markReviewerRan();
     this.emit({
       type: 'warning',
@@ -2647,7 +2581,7 @@ export class Run {
       });
     }
 
-    const { text } = renderRecords(this.verifyPrefill ?? readArtifact(canonical).text, {
+    const { text } = renderRecords(this.state.verify.verifyPrefill ?? readArtifact(canonical).text, {
       claims: records,
       findings: [],
     });
@@ -2697,8 +2631,8 @@ export class Run {
     // в те же `claimRecords`/`findingRecords` через общие хуки, и бриф ретрая (`retryDetail`,
     // читается после ансамбля) нёс бы «что чинить» последнего, самого слабого маршрута под
     // подписью «по словам рецензента», а находки — дублями от каждого маршрута.
-    const primaryClaims = new Map(this.claimRecords);
-    const primaryFindings = [...this.findingRecords];
+    const primaryClaims = new Map(this.state.verify.claimRecords);
+    const primaryFindings = [...this.state.verify.findingRecords];
 
     for (const [i, other] of extraRoutes.entries()) {
       if (this.aborter?.signal.aborted === true) break;
@@ -2714,7 +2648,7 @@ export class Run {
       // механика шапки), — чтобы следующий рецензент не дописывал в чужой отчёт, но и не
       // сочинял таблицу гейтов от себя. Бланка нет (автозаполнение не отработало) —
       // прежнее поведение, пустой файл.
-      writeArtifact(canonical, this.verifyPrefill ?? '');
+      writeArtifact(canonical, this.state.verify.verifyPrefill ?? '');
       try {
         // Узкий маршрут: спросить сильную модель ТОЛЬКО о пунктах, в которых слабая не
         // уверена (`⚠`), вместо полного второго ревью. Дешевле в разы — замер r18 назвал
@@ -2774,8 +2708,8 @@ export class Run {
     // Канонический путь возвращается основному маршруту: его читают скиллы `/sdlc-*`,
     // предусловия этапов и витки, начатые в терминале.
     writeArtifact(canonical, primary);
-    this.claimRecords = primaryClaims;
-    this.findingRecords = primaryFindings;
+    this.state.verify.claimRecords = primaryClaims;
+    this.state.verify.findingRecords = primaryFindings;
   }
 
   /**
@@ -2851,11 +2785,11 @@ export class Run {
    * (`run/claimsBlind.ts`). Итог кладётся в `exploreClaims`, исполнитель забирает его оттуда.
    */
   private async runClaimsBlind(route: ResolvedRoute, ecosystem: readonly EcosystemLine[]): Promise<void> {
-    this.exploreClaims = { result: null, skipReason: null };
+    this.state.explore.claims = { result: null, skipReason: null };
     const warn = (message: string): void => this.emit({ type: 'warning', runId: this.id, stage: 'explore', message });
     const row = this.claimsGateRow();
     if (row !== null && !row.enabled) {
-      this.exploreClaims.skipReason = 'гейт «Независимый вывод claims вторым агентом» в долге';
+      this.state.explore.claims.skipReason = 'гейт «Независимый вывод claims вторым агентом» в долге';
       return;
     }
     if (row === null) {
@@ -2863,15 +2797,15 @@ export class Run {
     }
     const def = loadSubagent(this.config.runner.agentsDir, 'sdlc-claims');
     if (def === null) {
-      this.exploreClaims.skipReason = `определение субагента sdlc-claims не найдено в ${this.config.runner.agentsDir}`;
-      warn(`слепой вывод листа не запущен: ${this.exploreClaims.skipReason}`);
+      this.state.explore.claims.skipReason = `определение субагента sdlc-claims не найдено в ${this.config.runner.agentsDir}`;
+      warn(`слепой вывод листа не запущен: ${this.state.explore.claims.skipReason}`);
       return;
     }
     const intent = readArtifact(this.paths.intent);
     const sections = intent.exists ? intentSectionsForBlind(intent.text) : null;
     if (sections === null) {
-      this.exploreClaims.skipReason = 'в задаче нет секций «Коротко»/«Что делаем» — слепой вывод не с чего';
-      warn(`слепой вывод листа не запущен: ${this.exploreClaims.skipReason}`);
+      this.state.explore.claims.skipReason = 'в задаче нет секций «Коротко»/«Что делаем» — слепой вывод не с чего';
+      warn(`слепой вывод листа не запущен: ${this.state.explore.claims.skipReason}`);
       return;
     }
     const { built } = this.exploreIndexFor(ecosystem);
@@ -2893,7 +2827,7 @@ export class Run {
     // `requestError` — запрос не состоялся (сеть, таймаут), а не «субагент честно вернул
     // пустой лист»: без разделения отчёт писал бы утверждение о проведённом сравнении,
     // которого не было (ревью code-review-all, 2026-09-11).
-    this.exploreClaims = {
+    this.state.explore.claims = {
       result,
       skipReason:
         result.claims.length === 0
@@ -2971,8 +2905,8 @@ export class Run {
           notDoing: this.notDoingLines(intentText),
         },
         reportPath: this.paths.explorationReport,
-        claims: this.exploreClaims.result,
-        claimsSkipReason: this.exploreClaims.skipReason,
+        claims: this.state.explore.claims.result,
+        claimsSkipReason: this.state.explore.claims.skipReason,
         axesEnabled: this.axesGateRow() !== null,
         fillednessGate: this.fillednessGateState(),
         edgeExample: edgeExampleLines(this.config.runner.methodologyDir),
@@ -3138,12 +3072,12 @@ export class Run {
     const intentText = intent.exists ? intent.text : '';
     const axesEnabled = this.axesGateRow() !== null;
     const key = `${axesEnabled ? 'axes' : 'no-axes'}\n${ecosystem.map((e) => `${e.dir}|${e.build ?? ''}|${e.test ?? ''}`).join(';')}\n${intentText}`;
-    if (this.exploreIndexCache !== null && this.exploreIndexCache.key === key) return this.exploreIndexCache;
+    if (this.state.explore.indexCache !== null && this.state.explore.indexCache.key === key) return this.state.explore.indexCache;
     const index = readTree(this.project.projectRoot);
     const kw = intentKeywords(intentText);
     const built = buildView(index, ecosystem, kw, axesEnabled);
-    this.exploreIndexCache = { key, index, kw, built };
-    return this.exploreIndexCache;
+    this.state.explore.indexCache = { key, index, kw, built };
+    return this.state.explore.indexCache;
   }
 
   /**
@@ -3304,7 +3238,7 @@ export class Run {
     // на каждый опрос списка витков, и дёргать Docker на каждый такой опрос было бы дороже
     // самой проблемы, которую чинит.
     if (stage === 'verify') {
-      problems.push(...this.lastPreflightBlockers.map(by(null)));
+      problems.push(...this.state.verify.lastPreflightBlockers.map(by(null)));
     }
 
     return problems;
@@ -3325,8 +3259,8 @@ export class Run {
     // Итоги копятся по одному, а не присваиваются разом в конце: интерфейс перечитывает
     // состояние по событию `gate_result`, и при позднем присваивании каждый такой запрос
     // возвращал таблицу ПРЕДЫДУЩЕГО прогона — зелёную, пока текущий уже краснел.
-    this.lastGateResults = [];
-    this.lastGatesAborted = false;
+    this.state.verify.lastGateResults = [];
+    this.state.verify.lastGatesAborted = false;
 
     const results = await runGates({
       gates,
@@ -3343,7 +3277,7 @@ export class Run {
       externalStatuses: this.externalGateStatuses(),
       onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage: 'verify', message }),
       onResult: (gate) => {
-        this.lastGateResults.push(gate);
+        this.state.verify.lastGateResults.push(gate);
         // В метрики результат идёт не отсюда: гейты прогоняются ДО вызова рецензента,
         // поэтому «Ревью независимым агентом» здесь всегда `⏭`, и каждый зелёный виток
         // копил «гейт включён, но проверка не состоялась» (ревью). Учёт — по итоговым
@@ -3355,8 +3289,8 @@ export class Run {
     // Отмена прерывает цикл гейтов и возвращает то, что успело прогнаться. Без этой
     // отметки частичный набор выглядел в интерфейсе полным: две зелёные строки читались
     // как «весь набор пройден», хотя обязательная пятёрка не запускалась.
-    this.lastGatesAborted = signal?.aborted === true;
-    this.lastGateResults = results;
+    this.state.verify.lastGatesAborted = signal?.aborted === true;
+    this.state.verify.lastGateResults = results;
     return results;
   }
 
@@ -3675,7 +3609,7 @@ export class Run {
     const status: GateStatus =
       missing.length === REVIEWER_AGENTS.length
         ? '⏭' // ни одного определения субагента нет — рецензировать некому
-        : this.reviewerRan
+        : this.state.verify.reviewerRan
           ? '✅'
           : '⏭'; // прогона ещё не было либо субагент не вызывался
 
@@ -3689,14 +3623,8 @@ export class Run {
    * единственный факт, по которому гейт минимума может стать зелёным.
    */
   markReviewerRan(): void {
-    this.reviewerRan = true;
+    this.state.verify.reviewerRan = true;
   }
-
-  /**
-   * Факт сверки патча с деревом, посчитанный перед вердиктом. `null` — не считался либо
-   * посчитать было нечем; тогда действует прежнее правило «сказано в отчёте».
-   */
-  private diffFactMatchesTree: boolean | null = null;
 
   /**
    * Совпадает ли патч попытки с фактическим деревом — ФАКТ рантайма, не слова отчёта.
@@ -3728,7 +3656,7 @@ export class Run {
   /** Итоги прогона с пересчитанными статусами «не скриптовых» гейтов. */
   private gateResultsForVerdict(): GateRunResult[] {
     const external = this.externalGateStatuses();
-    return this.lastGateResults.map((r) => {
+    return this.state.verify.lastGateResults.map((r) => {
       const fresh = external[gateKey(r.name)];
       if (fresh === undefined || fresh === r.status) return r;
       return {
@@ -3776,7 +3704,7 @@ export class Run {
       // этапа 5 устарел» только потому, что слабый рецензент не написал нужного слова.
       // Критическое условие вердикта не может висеть на формулировке модели, когда
       // рантайм в состоянии посчитать его механически.
-      diffMatchesTreeFact: this.diffFactMatchesTree,
+      diffMatchesTreeFact: this.state.verify.diffFactMatchesTree,
       // Ручные пункты приходят из ЗАДАЧИ, а не из отчёта: освобождение от автоматической
       // проверки — решение человека, написавшего приёмочный лист.
       manualClaims: manualClaimIds(readArtifact(this.paths.intent).text),
@@ -3800,10 +3728,10 @@ export class Run {
     // иначе приписка сама делала бы вердикт красным.
     const closenessNote =
       !verdict.passed &&
-      this.closeness !== null &&
-      this.closeness >= this.config.runner.limits.progressClosenessWarn
+      this.state.verify.closeness !== null &&
+      this.state.verify.closeness >= this.config.runner.limits.progressClosenessWarn
         ? [
-            `патч этой попытки совпадает с предыдущей на ${Math.round(this.closeness * 100)}% ` +
+            `патч этой попытки совпадает с предыдущей на ${Math.round(this.state.verify.closeness * 100)}% ` +
               `по существу (порог ${Math.round(
                 this.config.runner.limits.progressClosenessWarn * 100,
               )}%) — похоже на топтание на месте; решение о переходе принимает человек`,
@@ -3833,25 +3761,25 @@ export class Run {
     const withNotes: Verdict =
       notes.length === 0 ? verdict : { ...verdict, reasons: [...verdict.reasons, ...notes] };
 
-    this.verdict = withNotes;
-    this.lastVerdictInput = input;
+    this.state.verify.verdict = withNotes;
+    this.state.verify.lastVerdictInput = input;
     // Классификация считается только по красному: у зелёного «куда возвращать» нет вопроса.
-    this.redCause = withNotes.passed ? null : classifyRedVerdict(input, disagreements);
+    this.state.verify.redCause = withNotes.passed ? null : classifyRedVerdict(input, disagreements);
 
     // Статистика попытки учитывается РОВНО ОДИН РАЗ. Пересчёт вердикта на той же попытке
     // (оператор поправил набор гейтов и запустил verify снова) обязан обновить сам
     // вердикт, но не удваивать историю: иначе одна неудача выглядит как две.
     const key = `${this.chunk}:${this.attempt}`;
-    if (this.verdictCountedFor !== key) {
-      this.verdictCountedFor = key;
+    if (this.state.verify.verdictCountedFor !== key) {
+      this.state.verify.verdictCountedFor = key;
       // Гейт-агрегаты — по тем же статусам, что ушли в вердикт: рантайм видел прогон
       // рецензента своими глазами, и `⏭`, стоявшее там до его вызова, метрикой не является.
       for (const g of this.gateResultsForVerdict()) this.recordGateResult(g);
       this.recordIteration(withNotes, noProgress);
       this.verdictCount += 1;
       if (!withNotes.passed) this.redCount += 1;
-      if (this.redCause !== null) {
-        this.redByCause.set(this.redCause.kind, (this.redByCause.get(this.redCause.kind) ?? 0) + 1);
+      if (this.state.verify.redCause !== null) {
+        this.redByCause.set(this.state.verify.redCause.kind, (this.redByCause.get(this.state.verify.redCause.kind) ?? 0) + 1);
       }
       // `manual` сюда не идёт: пункт, освобождённый человеком от автоматической проверки,
       // «не закрывается вторую попытку подряд» по построению, и предложение поднять модель
@@ -3958,18 +3886,18 @@ export class Run {
     const abortOpts = opts.abortHandoff === true ? { abortHandoff: true } : {};
 
     // Кэш предыдущего pre-flight сбрасывается ДО проверки блокеров ниже: если прошлая
-    // попытка упала на пробе среды, `this.lastPreflightBlockers` от неё ещё не пуст, а
+    // попытка упала на пробе среды, `this.state.verify.lastPreflightBlockers` от неё ещё не пуст, а
     // `blockers()` теперь подмешивает его в свой список (см. её комментарий) — без сброса
     // здесь виток заблокировал бы сам себя устаревшим результатом, ни разу не пройдя до
     // свежей проверки ниже, и retry стал бы физически недостижим.
-    if (stage === 'verify') this.lastPreflightBlockers = [];
+    if (stage === 'verify') this.state.verify.lastPreflightBlockers = [];
     // Кэш индекса разведки ключуется по тексту задачи и экосистеме, а не по состоянию
     // дерева проекта: тот же ключ мог совпасть у ДВУХ разных попыток этапа (тот же intent,
     // тот же стек), пока между ними в целевом проекте появился/изменился файл — и второй
     // проход тихо получал бы дерево первого. Сброс НА ВХОДЕ в этап — тот же приём, что у
     // `lastPreflightBlockers` выше; в пределах одного прохода `exploreIndexFor` по-прежнему
     // считает дерево один раз на 2–3 вызова (ревью code-review-all, 2026-09-11).
-    if (stage === 'explore') this.exploreIndexCache = null;
+    if (stage === 'explore') this.state.explore.indexCache = null;
 
     // Предусловия считаются ОДИН раз: `blockers` вызывает `checkPreconditions` внутри,
     // и второй вызов рядом был чистым дублированием чтения артефактов, хотя комментарий
@@ -3999,7 +3927,7 @@ export class Run {
     // должен блокировать попытку, которая всё равно была бы пропущена без него.
     if (stage === 'verify') {
       const sandboxBlockers = await preflightBlockers(this.project.projectRoot, this.project.name);
-      this.lastPreflightBlockers = sandboxBlockers;
+      this.state.verify.lastPreflightBlockers = sandboxBlockers;
       if (sandboxBlockers.length > 0) {
         const message = sandboxBlockers.join('\n');
         this.status = 'failed';
@@ -4087,10 +4015,10 @@ export class Run {
       // Записи принадлежат ПОПЫТКЕ: перезапуск этапа начинает отчёт заново, и пункты
       // прошлого прогона не должны в него переезжать — той же логикой, по которой отчёты
       // прошлых попыток закрыты на чтение.
-      this.claimRecords.clear();
-      this.findingRecords = [];
-      this.anchorHaystack = null;
-      this.reviewFillComplete = false;
+      this.state.verify.claimRecords.clear();
+      this.state.verify.findingRecords = [];
+      this.state.verify.anchorHaystack = null;
+      this.state.verify.reviewFillComplete = false;
 
       const results = await this.runVerifyGates(this.aborter.signal);
       if (results.length > 0) {
@@ -4462,7 +4390,7 @@ export class Run {
         route.flow === 'loop' &&
         route.reviewFill &&
         route.skipTurnAfterReviewFill &&
-        this.reviewFillComplete;
+        this.state.verify.reviewFillComplete;
 
       let result: StageResult = skipModelTurn
         ? {
@@ -4560,7 +4488,7 @@ export class Run {
           // рядом с делом, не должна терять уже записанный код.
           ...(stage === 'verify'
             ? {
-                progressSignal: () => this.claimRecords.size + this.findingRecords.length,
+                progressSignal: () => this.state.verify.claimRecords.size + this.state.verify.findingRecords.length,
                 // Совет по умолчанию в LoopExecutor зовёт Edit — на verify прогресс это
                 // RecordClaim/RecordFinding, а Edit противоречит независимости ревью
                 // (`CLAUDE.md` → «Этап 6…»; code-review-all, 2026-09-14).
@@ -4703,7 +4631,7 @@ export class Run {
       // то, что записал агент. Иначе вход этапа 6 остаётся рассказом исполнителя о самом
       // себе; замер поймал ровно этот случай (см. `evidence.ts`).
       if (stage === 'chunk' && !cancelled) {
-        this.chunkTree = await this.recordEvidence(diffBefore);
+        this.state.chunk.tree = await this.recordEvidence(diffBefore);
 
         // Честность доказательств: журнал утверждает «тесты прогнаны и прошли» — в ленте
         // обязан быть успешный bash-вызов команды тестов. Расхождение раньше было видно
@@ -4742,7 +4670,7 @@ export class Run {
       if (stage === 'verify') {
         // Сверку патча с деревом делает рантайм и делает её ЗДЕСЬ — после ревью, но до
         // подсчёта вердикта: раньше это условие держалось на фразе рецензента (r31).
-        this.diffFactMatchesTree = await this.diffStillMatchesTree();
+        this.state.verify.diffFactMatchesTree = await this.diffStillMatchesTree();
         this.computeStageVerdict(this.detectNoProgress());
       }
 
@@ -4757,8 +4685,8 @@ export class Run {
       // быть признаком сделанной работы. `unknown` роняет этап по той же причине — состояние
       // дерева неизвестно, и считать его успехом значит зеленеть на непроверенном.
       const treeProblem =
-        result.ok && stage === 'chunk' && this.chunkTree !== 'changed'
-          ? this.chunkTree === 'empty'
+        result.ok && stage === 'chunk' && this.state.chunk.tree !== 'changed'
+          ? this.state.chunk.tree === 'empty'
             ? 'этап закончился, но дерево не изменилось: правки не было'
             : 'этап закончился, но состояние дерева неизвестно: свидетельства попытки не записаны'
           : null;
@@ -4813,7 +4741,7 @@ export class Run {
     // существует — он обязательное предусловие этапа 6. Пока сравнивались две прошлые,
     // одинаковые попытки 1 и 2 обнаруживались только на третьей: целая итерация бюджета
     // тратилась на заведомо известный факт.
-    this.closeness = null;
+    this.state.verify.closeness = null;
     if (this.attempt < 2) return false;
     const current = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt));
     const prev = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt - 1));
@@ -4821,13 +4749,13 @@ export class Run {
 
     // Патчи читаются один раз на вердикт и здесь же обслуживают обе меры: они бывают
     // сотнями килобайт, и второй проход по диску ради числа для интерфейса не нужен.
-    this.closeness = diffCloseness(prev.text, current.text);
+    this.state.verify.closeness = diffCloseness(prev.text, current.text);
     return current.text.trim() === prev.text.trim();
   }
 
   /** Близость патча к патчу прошлой попытки. `null` — первая попытка или сравнивать нечего. */
   get progressCloseness(): number | null {
-    return this.closeness;
+    return this.state.verify.closeness;
   }
 
   /** Сообщает о произведённых артефактах и о том, сколько мест в них осталось незаполненными. */
