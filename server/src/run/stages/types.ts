@@ -69,6 +69,10 @@ export interface StageHost {
   chunk(): number;
   /** Номер текущей попытки chunk'а. */
   attempt(): number;
+  /** Бюджет попыток chunk'а из набора гейтов (`Run.attemptBudget`). */
+  attemptBudget(): number;
+  /** Диагноз прошлой попытки — вход повторного chunk'а; `null` — первая попытка. */
+  carryForward(): string | null;
   /** Улика попытки chunk'а в метрики витка (`RunMetrics.chunkEvidence`). */
   noteChunkEvidence(metric: ChunkEvidenceMetric): void;
   /**

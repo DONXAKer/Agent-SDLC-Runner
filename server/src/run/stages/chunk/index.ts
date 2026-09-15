@@ -1,8 +1,13 @@
-/** Этап 5 — chunk: определение этапа. */
+/**
+ * Этап 5 — chunk: определение этапа и механика журнала. Улики попытки —
+ * `chunk/evidence.ts`, режим по шагам плана — `chunk/steps.ts`, восстановление номеров
+ * chunk'а и попытки — `chunk/restore.ts`.
+ */
 
-import { DECISION } from '../../../artifacts/artifact.ts';
+import { DECISION, readArtifact, readDecision } from '../../../artifacts/artifact.ts';
+import { autofillChunkJournal } from '../../journalAutofill.ts';
 import { RUNTIME_PROTECTED, granted } from '../preconditions.ts';
-import type { StageDef, StageModule } from '../types.ts';
+import type { SeededArtifact, StageDef, StageHost, StageModule } from '../types.ts';
 import type { TreeChange } from '../../evidence.ts';
 
 export const chunkStage: StageDef = {
@@ -46,6 +51,55 @@ export const chunkModule: StageModule = {
   formFillExecutor: false,
   leanDocTools: false,
 };
+
+/**
+ * Механические поля журнала chunk'а (номер, base_sha, бюджет попыток, даты) заполняет
+ * рантайм ДО модели: замер серии r2 показал, что слабая модель с идеальным кодом
+ * сжигает лимит ходов ровно на этих полях. Снимок после подстановки уходит в
+ * `SeededArtifact.snapshot` — страж «бланк байт-в-байт» сравнивает с ним, и этап,
+ * не сделавший ничего, по-прежнему виден.
+ */
+export async function autofillJournal(host: StageHost, seeded: SeededArtifact[]): Promise<void> {
+  const path = host.paths.chunkJournal(host.chunk());
+  const journal = readArtifact(path);
+  if (!journal.exists || journal.placeholders === 0) return;
+
+  const baseSha = (await host.head()).sha;
+
+  // Дата одобрения плана — только из фактического решения в plan.md: сочинять дату
+  // решения человека нельзя, не извлеклась — поле остаётся плейсхолдером.
+  let planApprovedOn: string | null = null;
+  const plan = readArtifact(host.paths.plan);
+  if (plan.exists) {
+    const d = readDecision(plan.text, DECISION.approval);
+    if (d.state === 'granted') {
+      const m = /\d{4}-\d{2}-\d{2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}/.exec(
+        ('raw' in d ? d.raw : undefined) ?? '',
+      );
+      planApprovedOn = m === null ? null : m[0];
+    }
+  }
+
+  const { text, filled } = autofillChunkJournal(journal.text, {
+    chunk: host.chunk(),
+    slug: host.slug,
+    date: new Date().toISOString().slice(0, 10),
+    baseSha,
+    attemptBudget: host.attemptBudget(),
+    planApprovedOn,
+  });
+  if (filled === 0) return;
+
+  host.writeAutofilled(path, text, seeded);
+  host.emit({
+    type: 'warning',
+    runId: host.id,
+    stage: 'chunk',
+    message:
+      `рантайм заполнил механические поля журнала (${filled}): номер, base_sha, бюджет, ` +
+      'даты — модели остались содержательные',
+  });
+}
 
 /** Состояние этапа 5 между вызовами. Владелец — виток (`Run.state.chunk`). */
 export class ChunkState {
