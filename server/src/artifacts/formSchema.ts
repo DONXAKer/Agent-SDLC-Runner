@@ -801,10 +801,26 @@ export function deriveSchema(text: string, templateName?: string): FormSchema {
     };
     let valueEndLine = line;
     let j = i + 1;
-    while (
-      j < lines.length &&
-      ((isContinuation(lines[j]!.raw) && !/^\s*_/.test(lines[j]!.raw)) || openPlaceholder(valueEndLine.end))
-    ) {
+    // Открытая скобка без пары тянет значение дальше БЕЗ ПОТОЛКА, если границу не поставить:
+    // пример в комментарии выше — законный перенос ровно на одну строку, но модель, забывшая
+    // закрыть `‹…›` в своём ОТВЕТЕ (не в шаблоне), даёт тот же признак «не закрыто» — и цикл
+    // тянет значение до первой случайной `‹…›`-пары дальше по документу, поглощая всё между
+    // ними. На реальном шаблоне разведки одна забытая скобка в ответе на первое же поле («Язык
+    // / стек») сносила 14 полей из 19 — включая «Найдено для переиспользования», «Точка
+    // правки», «Границы разведки», «Риски», «Всплывшие вопросы» и «Решение человека о
+    // полноте» (humanGate) — до самого конца документа (разбор серии v13, 2026-09-15, живой
+    // прогон `silent-contract`: ровно эти секции ни разу не были заданы модели). Счётчик ниже
+    // ограничивает ВКЛАД ЭТОЙ ветки: строки с отступом (законные продолжения списка) по-прежнему
+    // тянутся без ограничения — раздутый пункт списка риска не несёт, у него всегда есть
+    // следующая строка БЕЗ отступа, которая остановит цикл естественно.
+    let openPlaceholderExtensions = 0;
+    const OPEN_PLACEHOLDER_LINE_CAP = 2;
+    while (j < lines.length) {
+      const indentedContinuation = isContinuation(lines[j]!.raw) && !/^\s*_/.test(lines[j]!.raw);
+      if (!indentedContinuation) {
+        if (openPlaceholderExtensions >= OPEN_PLACEHOLDER_LINE_CAP || !openPlaceholder(valueEndLine.end)) break;
+        openPlaceholderExtensions++;
+      }
       valueEndLine = lines[j]!;
       j++;
     }
