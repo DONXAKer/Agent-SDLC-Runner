@@ -9,6 +9,7 @@
  * заменяет значение, а не дублирует его.
  */
 
+import { hasPlaceholder } from './artifact.ts';
 import { escapeCell, isSeparatorRow } from '../md/table.ts';
 import { deriveSchema, findField, type FormField } from './formSchema.ts';
 import { isSheetError, matchChoice, parseFieldValue, type SheetValue } from './sheet.ts';
@@ -185,7 +186,15 @@ export function applyFill(
     const model = schema.fields.filter((f) => f.owner === 'model');
     const label = (id: string): string => (id.split('/').pop() ?? id).toLowerCase().replace(/ё/g, 'е');
     const near = model.filter((f) => label(f.id) === label(fieldId)).map((f) => f.id);
-    const shown = (near.length > 0 ? near : model.map((f) => f.id)).slice(0, 8);
+    // Когда догадка модели не совпадает даже по метке (не «id сдвинулся», а промах мимо
+    // словаря методологии — разбор v14, 2026-09-15: модель трижды подряд мимо «точка
+    // правки» — «изменения», «что_меняем_где» — искала слово из шаблона intent, а поле
+    // называется иначе), список по порядку схемы прячет нужное поле за «(и ещё N)» так же
+    // легко, как и раньше. Незаполненные поля показываем первыми: догадка почти всегда
+    // целится в то, чего ещё нет в документе, а не в то, что уже стоит.
+    const unfilled = (f: FormField): boolean => hasPlaceholder(text.slice(f.valueRange.start, f.valueRange.end));
+    const ordered = near.length > 0 ? near : [...model].sort((a, b) => Number(unfilled(b)) - Number(unfilled(a))).map((f) => f.id);
+    const shown = ordered.slice(0, 8);
     const what = near.length > 0 ? 'поле с такой меткой есть под другим id' : 'доступные поля';
     const more = near.length === 0 && model.length > shown.length ? ` (и ещё ${model.length - shown.length})` : '';
     return { ok: false, problem: `нет поля «${fieldId}» — ${what}: ${shown.join(', ') || '(нет)'}${more}` };

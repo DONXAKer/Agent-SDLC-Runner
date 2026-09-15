@@ -20,7 +20,7 @@ import { applyFill } from '../src/artifacts/applyFill.ts';
 import { countPlaceholders, isDecisionLine, writeArtifact } from '../src/artifacts/artifact.ts';
 import { WitokPaths } from '../src/artifacts/paths.ts';
 import { countClaims } from '../src/artifacts/claims.ts';
-import { deriveSchema, modelFields } from '../src/artifacts/formSchema.ts';
+import { deriveSchema, findField, modelFields } from '../src/artifacts/formSchema.ts';
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
 import { extractHumanFacts } from '../src/artifacts/humanFacts.ts';
 import { isSmallContour } from '../src/run/stages.ts';
@@ -229,6 +229,26 @@ describe('applyFill: раунд-трип по реальным шаблонам 
     // Шапка не тронута applyFill — фиксированные строки правятся по ячейкам, не по секции.
     const setTable = tables.find((t) => t.header.includes('Гейт'));
     ok(setTable !== undefined);
+  });
+
+  // Разбор живого прогона v14 (2026-09-15): модель трижды промахнулась мимо реального
+  // ключа поля «точка правки» («изменения», «что_меняем_где» — словарь из шаблона intent,
+  // не exploration-report), а подсказка «доступные поля» после отказа показывала только
+  // первые 8 по порядку схемы — уже заполненные к тому моменту поля вытесняли из подсказки
+  // как раз то незаполненное поле, которое искала модель.
+  it('exploration-report: уже заполненное поле уступает в подсказке ещё не заполненным', () => {
+    const name = 'exploration-report.template.md';
+    const original = readFileSync(join(templatesDir, name), 'utf8');
+    const schema0 = deriveSchema(original, name);
+    const gate = findField(schema0, 'гейт «заполненность артефактов»');
+    ok(gate !== undefined, 'поле «гейт «заполненность артефактов»»» пропало из шаблона');
+    const filled = applyFill(original, gate.id, (gate.options ?? [])[0]?.key ?? 'да', 'set', name);
+    ok(filled.ok, filled.ok ? '' : filled.problem);
+    const model = deriveSchema(filled.text, name).fields.filter((f) => f.owner === 'model');
+    ok(model.length > 8, `сценарий не воспроизведён — полей модели всего ${model.length}, обрезка на 8 не сработает`);
+    const r = applyFill(filled.text, 'совсем-незнакомое-поле-которого-нет', 'x', 'set', name);
+    ok(!r.ok);
+    ok(!r.problem.includes(gate.id), `заполненное поле «${gate.id}» не должно вытеснять незаполненные из подсказки: ${r.problem}`);
   });
 });
 
