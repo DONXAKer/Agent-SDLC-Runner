@@ -103,6 +103,8 @@ export interface StageHost {
   verifyRoute(): ResolvedRoute;
   /** Маршруты ансамбля этапа 6, первый — основной (`profile.ensemble.verify`). */
   ensembleRoutes(): readonly ResolvedRoute[];
+  /** Попытки chunk'а, сгоревшие на среде: из счёта бюджета итераций вычитаются. */
+  envBlockedAttempts(): number;
 }
 
 /** Механическое поле артефакта, которое заполняет рантайм до модели (`formAutofill.ts`). */

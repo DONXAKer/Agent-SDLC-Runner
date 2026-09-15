@@ -27,7 +27,6 @@ import type {
   RedCauseKind,
   RunMetrics,
   Verdict,
-  VerdictInput,
 } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
@@ -86,7 +85,6 @@ import {
   configProblems,
   gateKey,
   parseGates,
-  uncalibratedGates,
   unimplementedGates,
 } from '../gates/gatesFile.ts';
 import { builtinFor, describeBuild } from '../gates/builtin/index.ts';
@@ -97,9 +95,7 @@ import { autofillClarification, autofillPlan, autofillReadiness, autofillTitle }
 import { claimIdOf } from '../artifacts/claims.ts';
 import { salvageBlocks } from './salvage.ts';
 import { preflightBlockers } from '../sandbox/preflight.ts';
-import { collectVerdictInput, manualClaimIds } from '../verdict/collect.ts';
-import { classifyRedVerdict } from '../verdict/classify.ts';
-import { buildRetryBrief, claimTextCell, type RetryDetail } from '../verdict/retryBrief.ts';
+import { buildRetryBrief } from '../verdict/retryBrief.ts';
 import { applyAxisAnswers } from '../artifacts/renderAxes.ts';
 import { fillPlanAxes } from './planAxisFill.ts';
 import { intentKeywords, type Keywords } from '../explore/keywords.ts';
@@ -119,7 +115,6 @@ import { metricsBlock } from './metricsReport.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
 import type { Escalation } from './escalation.ts';
-import { computeVerdict } from '../verdict/verdict.ts';
 import { checkJournalClaimsVsBash } from '../verdict/honesty.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
@@ -173,6 +168,7 @@ import {
 } from './stages/verify/records.ts';
 import { runEnsembleReviewers } from './stages/verify/ensemble.ts';
 import { runReviewFill, runReviewerDirectly } from './stages/verify/reviewer.ts';
+import { retryDetail, stageVerdict } from './stages/verify/verdict.ts';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -422,6 +418,7 @@ export class Run {
       spentBefore: (currency) => this.spent.spent(currency),
       verifyRoute: () => this.profile.routes.verify,
       ensembleRoutes: () => this.profile.ensemble.verify ?? [],
+      envBlockedAttempts: () => this.envBlockedAttempts,
     };
   }
   /**
@@ -996,7 +993,7 @@ export class Run {
     this.carryForward =
       this.state.verify.lastVerdictInput === null
         ? null
-        : buildRetryBrief(this.state.verify.lastVerdictInput, this.state.verify.lastGateResults, this.retryDetail());
+        : buildRetryBrief(this.state.verify.lastVerdictInput, this.state.verify.lastGateResults, retryDetail(this.host));
     // Средовой красный не должен съедать бюджет итераций — но и переиспользовать номер
     // попытки нельзя: на момент `blocked_env` этап 5 уже отработал, и по этому номеру лежат
     // НАСТОЯЩИЕ улики (патч, запись о тестах, отчёт приёмки). Первая версия не увеличивала
@@ -1011,11 +1008,6 @@ export class Run {
     return this.attempt;
   }
 
-  /**
-   * Тексты для выжимки ретрая — всё уже посчитано этапом 6, здесь только сбор:
-   * пункты приёмки дословно из задачи (во входах chunk'а `intent.md` нет), «что чинить»
-   * из записей рецензента, находки §2–§5 с местом. До этого бриф нёс id и числа.
-   */
   /**
    * Пункты приёмки задачи: id (нижний регистр) → СЫРАЯ строка листа целиком, со всеми
    * колонками. Один разбор на бриф ретрая и на поклаймовый добор — правило «строка листа —
@@ -1037,19 +1029,6 @@ export class Run {
       if (id !== null && !out.has(id.toLowerCase())) out.set(id.toLowerCase(), line.trim());
     }
     return out;
-  }
-
-  private retryDetail(): RetryDetail {
-    const claimTexts = new Map([...this.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)] as const));
-    const whatToFix = new Map<string, string>();
-    for (const [id, r] of this.state.verify.claimRecords) {
-      if (r.whatToFix !== null && r.whatToFix.trim() !== '') whatToFix.set(id.toLowerCase(), r.whatToFix);
-    }
-    return {
-      claimTexts,
-      whatToFix,
-      findings: this.state.verify.findingRecords.map((f) => ({ text: f.text, evidence: f.evidence, anchored: f.anchored })),
-    };
   }
 
   /** Следующий chunk витка: нумерация попыток начинается заново. */
@@ -2048,94 +2027,10 @@ export class Run {
    * ложный зелёный выдать не может.
    */
   computeStageVerdict(noProgress = false): Verdict | null {
-    const gates = this.gatesFile;
-    if (gates === null) return null;
-
-    // Отчёты ВСЕХ маршрутов ансамбля, а не один канонический: свод по худшему статусу
-    // делает «`✅` только если так сказали все» свойством вердикта. Раньше все рецензенты
-    // писали в один файл, и в вердикт попадало мнение записавшего последним.
-    const routeCount = Math.max(1, (this.profile.ensemble.verify ?? []).length);
-    const reports = Array.from({ length: routeCount }, (_, r) =>
-      readArtifact(this.paths.verificationReport(this.chunk, this.attempt, r)).text,
-    ).filter((t) => t.trim() !== '');
-
-    const { input, disagreements, reportQuality } = collectVerdictInput({
-      gates,
-      // Статусы гейтов, которые рантайм не исполняет скриптом, пересчитываются здесь:
-      // прогон идёт ДО ревью, и на его момент рецензент заведомо не отработал. Без
-      // пересчёта гейт ревью навсегда оставался бы `⏭` даже после честного прогона.
-      gateResults: gateResultsForVerdict(this.host),
-      // Факт запуска рецензента рантайм знает достовернее отчёта: `⏭` («не запускался»)
-      // в отчёте не может опровергнуть состоявшийся вызов субагента. Красный отчёта при
-      // этом всё равно побеждает — см. `collectVerdictInput`.
-      runtimeAuthoritativeWhenGreen: [gateKey(REVIEW_GATE)],
-      // Совпадение патча попытки с фактическим деревом рантайм проверяет САМ — сверкой
-      // побайтово, а не чтением прозы «Сверка с деревом: да» из отчёта. Живая серия r31:
-      // три сэмпла подряд с безупречным кодом (9/9) получили красный вердикт «артефакт
-      // этапа 5 устарел» только потому, что слабый рецензент не написал нужного слова.
-      // Критическое условие вердикта не может висеть на формулировке модели, когда
-      // рантайм в состоянии посчитать его механически.
-      diffMatchesTreeFact: this.state.verify.diffFactMatchesTree,
-      // Ручные пункты приходят из ЗАДАЧИ, а не из отчёта: освобождение от автоматической
-      // проверки — решение человека, написавшего приёмочный лист.
-      manualClaims: manualClaimIds(readArtifact(this.paths.intent).text),
-      // Список пунктов — тоже из ЗАДАЧИ: пункт, о котором отчёт молчит, вердикт прежде не
-      // видел вовсе и считал отчёт по тем строкам, которые модель соизволила написать.
-      expectedClaims: [...this.intentClaimLines().keys()],
-      reports,
-      // Попытки, сгоревшие на среде, из счёта вычитаются: бюджет итераций тратится на
-      // работу, а не на машину. Номер попытки при этом растёт всегда — см. nextAttempt.
-      attempt: Math.max(1, this.attempt - this.envBlockedAttempts),
-      attemptBudget: this.attemptBudget,
-      noProgress,
-    });
-
-    const verdict = computeVerdict(input, disagreements);
-    // Расхождение отчёта с прогоном не роняет вердикт само по себе (в статус уже взят
-    // худший из двух), но обязано быть видно: рецензент, переписывающий статусы, —
-    // отдельный симптом, о котором оператор должен узнать.
-    // Близость называется фактом рядом с причинами — и ТОЛЬКО у красного: у зелёного
-    // вопроса «топчемся ли» нет. `passed` при этом не пересчитывается по длине `reasons`,
-    // иначе приписка сама делала бы вердикт красным.
-    const closenessNote =
-      !verdict.passed &&
-      this.state.verify.closeness !== null &&
-      this.state.verify.closeness >= this.config.runner.limits.progressClosenessWarn
-        ? [
-            `патч этой попытки совпадает с предыдущей на ${Math.round(this.state.verify.closeness * 100)}% ` +
-              `по существу (порог ${Math.round(
-                this.config.runner.limits.progressClosenessWarn * 100,
-              )}%) — похоже на топтание на месте; решение о переходе принимает человек`,
-          ]
-        : [];
-
-    // Пометка о некалиброванных гейтах: красный, полученный проверкой, чью способность
-    // ловить никто не подтверждал посевом, стоит читать с оговоркой. На `passed` это не
-    // влияет — иначе один флаг в наборе гейтов начал бы решать судьбу витка.
-    // Показывается при ЛЮБОМ исходе, а не только при красном: текст говорит «„зелёный“ от
-    // них слабее, чем выглядит», то есть адресован ровно тому случаю, когда вердикт
-    // зелёный и человек собирается принимать работу. Условие `!passed` выключало
-    // предупреждение в единственной ситуации, ради которой оно написано.
-    // Ветка `gates === null` тут мёртвая — до неё функция уже вышла.
-    const uncalibrated = uncalibratedGates(gates);
-    const calibrationNote =
-      uncalibrated.length > 0
-        ? [
-            `посевом не проверялись гейты: ${uncalibrated.join(', ')} — их способность ` +
-              'ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит',
-          ]
-        : [];
-
-    // Замечания к качеству отчёта идут в заметки вердикта, но НЕ в причины красного:
-    // рантайм исполнил гейт сам и получил зелёный, а рецензент вписал красный (r23).
-    const notes = [...disagreements, ...reportQuality, ...closenessNote, ...calibrationNote];
-    const withNotes: Verdict =
-      notes.length === 0 ? verdict : { ...verdict, reasons: [...verdict.reasons, ...notes] };
-
-    this.state.verify.verdict = withNotes;
-    this.state.verify.lastVerdictInput = input;
-    // Классификация считается только по красному: у зелёного «куда возвращать» нет вопроса.
-    this.state.verify.redCause = withNotes.passed ? null : classifyRedVerdict(input, disagreements);
+    // Расчёт — `stages/verify/verdict.ts`; здесь учёт попытки в метриках витка и событие.
+    const computed = stageVerdict(this.host, noProgress);
+    if (computed === null) return null;
+    const { verdict: withNotes, input } = computed;
 
     // Статистика попытки учитывается РОВНО ОДИН РАЗ. Пересчёт вердикта на той же попытке
     // (оператор поправил набор гейтов и запустил verify снова) обязан обновить сам
