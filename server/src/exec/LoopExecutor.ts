@@ -353,6 +353,7 @@ export class LoopExecutor implements StageExecutor {
                   `из ${budget} — ответы человека и последние результаты рантайм не трогает никогда`,
               ),
             );
+      const startedAt = Date.now();
       const answer = await this.o.provider.chat({
         model: req.model,
         messages: outgoing,
@@ -392,7 +393,7 @@ export class LoopExecutor implements StageExecutor {
         const reported = Math.min(answer.usage.outputTokens, Math.ceil(Buffer.byteLength(visible, 'utf8') / 2));
         lastUsedTokens = answer.usage.inputTokens + Math.max(estimated, reported);
       }
-      hooks.onUsage(answer.usage);
+      hooks.onUsage(answer.usage, Date.now() - startedAt);
       if (answer.text !== '') {
         finalText = answer.text;
         hooks.onText(answer.text);

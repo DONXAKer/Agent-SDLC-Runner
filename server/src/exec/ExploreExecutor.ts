@@ -251,6 +251,7 @@ export class ExploreExecutor implements StageExecutor {
         { role: 'user', content: `${req.prompt.user}\n\n## Сейчас — ${title}\n\n${body}` },
       ];
       try {
+        const startedAt = Date.now();
         const answer = await this.o.provider.chat({
           model: req.model,
           messages,
@@ -263,7 +264,7 @@ export class ExploreExecutor implements StageExecutor {
         // Обмен, затем его расход: печать хода прогона закрывает блок «ЗАПРОС/ОТВЕТ» строкой
         // токенов этого же запроса.
         hooks.onExchange?.({ question: `## ${title}\n\n${body}`, answer: answer.text });
-        hooks.onUsage(answer.usage);
+        hooks.onUsage(answer.usage, Date.now() - startedAt);
         if (answer.finishReason === 'max_tokens') {
           hooks.onFriction('truncated');
           notes.push(`${title}: ответ обрезан лимитом длины — разобрано то, что дошло`);

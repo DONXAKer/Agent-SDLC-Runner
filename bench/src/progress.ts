@@ -167,8 +167,12 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
         // Расход мимо исполнителя этапа (рецензент, ансамбль, доборы — другой маршрут и другое
         // окно) — отдельной строкой: в запросы этапа и в пик его контекста он не идёт, иначе
         // итог этапа показывал «183% окна» чужой модели.
+        // Время самого запроса, когда исполнитель его мерил. Одна десятая секунды, а не
+        // целые секунды `report.ts::fmtDuration`: там строка — итог ЭТАПА (минуты), здесь —
+        // один запрос, и округление до секунды превращало бы полсекунды в «0 с».
+        const time = e.durationMs === undefined ? '' : `, ${(e.durationMs / 1000).toFixed(1)} с`;
         if (e.offPath === true) {
-          write(`  · токены вне хода этапа: вход ${num(e.usage.inputTokens)}, ответ ${num(e.usage.outputTokens)}`);
+          write(`  · токены вне хода этапа: вход ${num(e.usage.inputTokens)}, ответ ${num(e.usage.outputTokens)}${time}`);
           return;
         }
         requests += 1;
@@ -179,11 +183,13 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
         const lead = exchangeOpen ? '  └ токены' : `  · токены №${requests}`;
         exchangeOpen = false;
         if (input === 0) {
-          write(`${lead}: сервер не прислал usage`);
+          write(`${lead}: сервер не прислал usage${time}`);
           return;
         }
         peak = Math.max(peak, input);
-        write(`${lead}: контекст ${contextLine(input, o.contextWindowFor(e.stage))}, ответ ${num(e.usage.outputTokens)}`);
+        write(
+          `${lead}: контекст ${contextLine(input, o.contextWindowFor(e.stage))}, ответ ${num(e.usage.outputTokens)}${time}`,
+        );
         return;
       }
       case 'model_exchange': {

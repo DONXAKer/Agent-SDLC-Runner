@@ -424,6 +424,7 @@ export class FormFillExecutor implements StageExecutor {
 
   /** Полевой запрос без инструментов — одна форма на все виды вопросов режима. */
   private async ask(req: ExecRequest, messages: ChatMessage[], hooks: ExecHooks): ReturnType<ChatProvider['chat']> {
+    const startedAt = Date.now();
     const answer = await this.o.provider.chat({
       model: req.model,
       messages,
@@ -438,7 +439,7 @@ export class FormFillExecutor implements StageExecutor {
     hooks.onExchange?.({ question, answer: answer.text });
     // Расход — сразу за обменом, а не после всей параллельной пачки полей: печать хода прогона
     // закрывает им блок этого запроса, и строки токенов больше не отстают пачкой.
-    hooks.onUsage(answer.usage);
+    hooks.onUsage(answer.usage, Date.now() - startedAt);
     return answer;
   }
 

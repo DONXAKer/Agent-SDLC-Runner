@@ -441,6 +441,7 @@ export class StepExecutor implements StageExecutor {
     };
 
     const chat = async (messages: ChatMessage[]): Promise<{ text: string; finishReason: FinishReason }> => {
+      const startedAt = Date.now();
       const answer = await this.o.provider.chat({
         model: req.model,
         messages,
@@ -455,7 +456,7 @@ export class StepExecutor implements StageExecutor {
       // отвечала блоками замены. Последнее сообщение — запрос шага или его ремонта. Расход —
       // сразу за обменом: печать хода прогона закрывает им блок этого запроса.
       hooks.onExchange?.({ question: messages.at(-1)?.content ?? '', answer: answer.text });
-      hooks.onUsage(answer.usage);
+      hooks.onUsage(answer.usage, Date.now() - startedAt);
       return { text: answer.text, finishReason: answer.finishReason };
     };
 

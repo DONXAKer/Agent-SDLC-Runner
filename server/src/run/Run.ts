@@ -2463,7 +2463,7 @@ ${block}`;
       // одним `Write` после хода, обычным путём через политику и гейт.
       onRecord: (call) => acceptRecord(this.host, call),
 
-      onUsage: (usage) => {
+      onUsage: (usage, durationMs) => {
         const st = this.stageStats.get(stage);
         if (st !== undefined) st.usage = addUsage(st.usage, usage);
         this.totalUsage = addUsage(this.totalUsage, usage);
@@ -2476,7 +2476,14 @@ ${block}`;
         if (countsTowardBudget(this.budgetStages, stage)) {
           this.spent.add(route.providerDef.currency ?? 'USD', usage.costUsd);
         }
-        this.emit({ type: 'usage', runId: this.id, stage, usage, total: this.totalUsage });
+        this.emit({
+          type: 'usage',
+          runId: this.id,
+          stage,
+          usage,
+          total: this.totalUsage,
+          ...(durationMs === undefined ? {} : { durationMs }),
+        });
       },
 
       onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage, message }),
