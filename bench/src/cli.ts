@@ -7,7 +7,7 @@
  * набор гейтов, несовпавшую ветку, отсутствующий эталон методологии.
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -292,17 +292,49 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   const operatorLog = emptyOperatorLog();
 
   let runId = '';
-  // Живой ход прогона в консоль — тот же поток событий, что у коллектора; `--quiet` снимает.
-  const progress = opts.quiet
-    ? null
-    : createProgressPrinter({
-        contextWindowFor: (stage) => built.profile.routes[stage].contextWindow,
-        routeFor: (stage) => built.routes[stage],
-      });
+  // Живой ход прогона — тот же поток событий, что у коллектора. В консоль (снимает `--quiet`)
+  // и ВСЕГДА на диск, `traces/<slug>/progress.log`: разбор серии после неё читает этот файл, а
+  // не прокрутку окна. Файл обнуляется на старте — повтор слага не дописывает к старому логу.
+  const progressFile = join(TRACES_DIR, opts.slug, 'progress.log');
+  let progressFileOk = true;
+  const writeProgressFile = (line: string): void => {
+    if (!progressFileOk) return;
+    try {
+      appendFileSync(progressFile, `${line}\n`);
+    } catch (e) {
+      progressFileOk = false;
+      console.error(`лог хода прогона не пишется (${progressFile}): ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  const logLine = (line: string): void => {
+    if (!opts.quiet) console.log(line);
+    writeProgressFile(line);
+  };
+  try {
+    mkdirSync(dirname(progressFile), { recursive: true });
+    writeFileSync(
+      progressFile,
+      [
+        `# ${opts.slug} · модель ${opts.model} · задача ${opts.task} · ${new Date().toISOString()}`,
+        ...STAGE_ORDER.map(
+          (stage) => `#   ${stage.padEnd(8)} ${built.routes[stage]}${built.measured.includes(stage) ? '   (под измерением)' : ''}`,
+        ),
+        '',
+      ].join('\n'),
+    );
+  } catch (e) {
+    progressFileOk = false;
+    console.error(`лог хода прогона не пишется (${progressFile}): ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const progress = createProgressPrinter({
+    contextWindowFor: (stage) => built.profile.routes[stage].contextWindow,
+    routeFor: (stage) => built.routes[stage],
+    write: logLine,
+  });
   const collector = createCollector({
     projectRoot: () => wsRoot,
     slug: () => opts.slug,
-    ...(progress === null ? {} : { onEvent: progress }),
+    onEvent: progress,
   });
 
   // Коллектор и автоответчик — два независимых подписчика ОДНОГО и того же потока
@@ -417,9 +449,14 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       // умолчание plan) — снимок пишется НИЖЕ, из уже остановленного дерева, а не из
       // драйвера: он про виток, не про файлы снимка.
       ...(opts.makeSnapshot === null ? {} : { stopAfterStage: opts.snapshotAfter }),
-      ...(opts.quiet ? {} : { onDecision: (line: string) => console.log(line) }),
+      onDecision: logLine,
     });
     const finishedAt = new Date();
+    writeProgressFile(
+      `\n# ${finishedAt.toTimeString().slice(0, 8)} остановка: ${driverResult.stopped} · вердикт: ` +
+        `${driverResult.finalVerdict === null ? '—' : driverResult.finalVerdict.action} · ` +
+        `${Math.round((finishedAt.getTime() - startedAt.getTime()) / 60000)} мин`,
+    );
 
     if (opts.makeSnapshot !== null && driverResult.stopped === 'snapshot-point') {
       makeSnapshot({
