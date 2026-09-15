@@ -28,8 +28,10 @@ import { ARTIFACT_KEYS } from '@sdlc-runner/shared';
 import type { RunnerConfig } from '../config/schema.ts';
 import { specsFor } from '../exec/toolSpecs.ts';
 import { toPosix } from '../policy/paths.ts';
-import type { StageContext, StageDef } from '../run/stages.ts';
-import { stageInputs } from '../run/stages.ts';
+// Типы и входы этапов — напрямую из модулей, а не через фасад `run/stages.ts`: фасад тянет
+// модули этапов, и сборка промпта замыкала бы цикл импортов.
+import type { StageContext, StageDef } from '../run/stages/types.ts';
+import { stageInputs } from '../run/stages/inputs.ts';
 import type { FlowId, PreparedPrompt, ToolName } from '@sdlc-runner/shared';
 
 const MAX_ARTIFACT_BYTES = 40_000;
