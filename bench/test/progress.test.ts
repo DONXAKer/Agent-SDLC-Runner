@@ -38,8 +38,8 @@ describe('createProgressPrinter', () => {
     emit({ type: 'stage_done', runId: 'r', stage: 'intent', ok: false, note: 'модель упёрлась в лимит длины ответа' });
 
     ok(lines[0]?.includes('▶') && lines[0].includes('intent') && lines[0].includes('lmstudio:qwen3-8b'), lines[0]);
-    ok(lines[1]?.includes('запрос 1') && lines[1].includes('(25%)'), lines[1]);
-    ok(lines[2]?.includes('запрос 2') && lines[2].includes('(50%)'), lines[2]);
+    ok(lines[1]?.includes('токены №1') && lines[1].includes('(25%)'), lines[1]);
+    ok(lines[2]?.includes('токены №2') && lines[2].includes('(50%)'), lines[2]);
     ok(lines[3]?.includes('❌') && lines[3].includes('запросов к модели 2') && lines[3].includes('(50%)'), lines[3]);
     ok(lines[3]?.includes('лимит длины ответа'), lines[3]);
   });
@@ -72,29 +72,57 @@ describe('createProgressPrinter', () => {
     deepStrictEqual(lines, ['    снят обрывом: прогон отменён', '  ⚠ рантайм заполнил механические поля (3)']);
   });
 
-  it('обмен с моделью: вопрос первой непустой строкой, ответ построчно; пустой ответ назван', () => {
+  it('обмен с моделью: блок ЗАПРОС с предметом (строка бланка) и ОТВЕТ построчно; пустой ответ назван', () => {
     const { lines, emit } = printer(32768);
     emit({
       type: 'model_exchange',
       runId: 'r',
       stage: 'intent',
-      question: '\n\n## Поле «Итог»\nПлейсхолдер: ‹что должно стать правдой›',
+      question: '\n\n## Сейчас — ровно одно поле\n\nФайл `.sdlc/x/intent.md`, строка бланка:\n\n```\n- **Коротко:** ‹одна фраза›\n```\n',
       answer: 'Бесплатная доставка\nдля крупных отправлений',
     });
     emit({ type: 'model_exchange', runId: 'r', stage: 'intent', question: 'Поле «Зачем»', answer: '  ' });
     deepStrictEqual(lines, [
-      '  ? ## Поле «Итог»',
-      '    │ Бесплатная доставка',
-      '    │ для крупных отправлений',
-      '  ? Поле «Зачем»',
-      '    │ (пустой ответ)',
+      '  ┌ ЗАПРОС №1 · intent · ровно одно поле',
+      '  │   бланк: - **Коротко:** ‹одна фраза›',
+      '  ├ ОТВЕТ',
+      '  │   Бесплатная доставка',
+      '  │   для крупных отправлений',
+      '  └',
+      '  ┌ ЗАПРОС №2 · intent · Поле «Зачем»',
+      '  ├ ОТВЕТ',
+      '  │   (пустой ответ)',
+      '  └',
+    ]);
+  });
+
+  it('карточка компактной формы: предмет — id поля; таблица в ответе — списком', () => {
+    const { lines, emit } = printer(32768);
+    emit({
+      type: 'model_exchange',
+      runId: 'r',
+      stage: 'intent',
+      question: '## Сейчас — ровно одно поле\n\n- id: `acceptance`\n- вид: records',
+      answer: 'Лист:\n| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | скидка gold | тест `total === 0` |\n| claim-2 | silver без изменений |  |',
+    });
+    deepStrictEqual(lines, [
+      '  ┌ ЗАПРОС №1 · intent · ровно одно поле',
+      '  │   поле acceptance',
+      '  ├ ОТВЕТ',
+      '  │   Лист:',
+      '  │   • claim-1',
+      '  │       Пункт: скидка gold',
+      '  │       Как проверить: тест `total === 0`',
+      '  │   • claim-2',
+      '  │       Пункт: silver без изменений',
+      '  └',
     ]);
   });
 
   it('длинный ответ обрезан; текст ассистента этапа с циклом — одной строкой', () => {
     const { lines, emit } = printer(32768);
     emit({ type: 'model_exchange', runId: 'r', stage: 'explore', question: 'q', answer: 'x'.repeat(5000) });
-    ok(lines[1]!.endsWith('…') && lines[1]!.length < 1600, String(lines[1]?.length));
+    ok(lines[2]!.endsWith('…') && lines[2]!.length < 1600, String(lines[2]?.length));
     emit({ type: 'assistant_text', runId: 'r', stage: 'chunk', text: 'Прочитаю\nфайл' });
     strictEqual(lines.at(-1), '  ‹ Прочитаю файл');
   });

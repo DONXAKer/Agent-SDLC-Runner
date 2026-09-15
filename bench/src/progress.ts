@@ -62,6 +62,63 @@ export function contextLine(tokens: number, window: number | undefined): string 
 /** Сколько символов ответа модели печатать: лог читает человек, полный ответ — в ленте событий. */
 const EXCHANGE_ANSWER_PRINT = 1500;
 
+/**
+ * О чём спросили — одной-двумя строками вместо всей карточки. Первая строка карточки у
+ * дозаполнения всегда одна и та же («## Сейчас — ровно одно поле»), и лог из одинаковых
+ * заголовков не говорил, какое поле спрашивали: предмет — id поля (карточка компактной
+ * формы), иначе первая строка бланка из блока кода, иначе заголовок.
+ */
+export function exchangeSubject(question: string): { title: string; detail: string | null } {
+  const lines = question.split('\n').map((l) => l.trim());
+  const heading = lines.find((l) => l.startsWith('#'))?.replace(/^#+\s*/, '').replace(/^Сейчас\s+—\s+/, '') ?? '';
+  const title = heading === '' ? flat(lines.find((l) => l !== '') ?? '', 160) : flat(heading, 160);
+  const id = /^-\s*id:\s*`([^`]+)`/.exec(lines.find((l) => /^-\s*id:/.test(l)) ?? '')?.[1];
+  if (id !== undefined) return { title, detail: `поле ${id}` };
+  const fence = lines.findIndex((l) => l.startsWith('```'));
+  const blank = fence < 0 ? undefined : lines.slice(fence + 1).find((l) => l !== '' && !l.startsWith('```'));
+  return { title, detail: blank === undefined || blank === heading ? null : `бланк: ${flat(blank, 200)}` };
+}
+
+/**
+ * Markdown-таблица в ответе — списком: строка таблицы с десятком колонок в консоли
+ * растягивалась на экраны и не читалась. Первая ячейка строки — пункт списка, остальные —
+ * «колонка: значение» под ним. Прочий текст остаётся как есть.
+ */
+export function tablesAsLists(text: string): string[] {
+  const cells = (line: string): string[] =>
+    line
+      .trim()
+      .replace(/^\|/, '')
+      .replace(/\|$/, '')
+      .split(/(?<!\\)\|/)
+      .map((c) => c.trim());
+  const isRow = (line: string): boolean => line.trim().startsWith('|');
+  const isSeparator = (line: string): boolean => /^\|?[\s:|-]+\|?$/.test(line.trim()) && line.includes('-');
+
+  const src = text.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < src.length; i++) {
+    const line = src[i]!;
+    const next = src[i + 1];
+    if (!(isRow(line) && next !== undefined && isSeparator(next))) {
+      out.push(line);
+      continue;
+    }
+    const header = cells(line);
+    i += 1;
+    while (i + 1 < src.length && isRow(src[i + 1]!)) {
+      i += 1;
+      const row = cells(src[i]!);
+      out.push(`• ${row[0] === '' || row[0] === undefined ? '(без первой ячейки)' : row[0]}`);
+      for (let c = 1; c < row.length; c++) {
+        if (row[c] === '') continue;
+        out.push(`    ${header[c] === undefined || header[c] === '' ? `колонка ${c + 1}` : header[c]}: ${row[c]}`);
+      }
+    }
+  }
+  return out;
+}
+
 export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void {
   const write = o.write ?? ((line: string) => console.log(line));
   const now = o.now ?? (() => new Date());
@@ -69,6 +126,8 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
   /** Запросы и пик контекста текущего этапа — для строки итога этапа. */
   let requests = 0;
   let peak = 0;
+  /** Обмены «запрос → ответ» текущего этапа — нумерация блоков в логе. */
+  let exchanges = 0;
   const denied = new Set<string>();
 
   return (e) => {
@@ -76,6 +135,7 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
       case 'stage_started':
         requests = 0;
         peak = 0;
+        exchanges = 0;
         write(
           `\n▶ ${stamp()} ${e.stage} — ${o.routeFor(e.stage)} (chunk ${e.chunk}, попытка ${e.attempt}, ` +
             `окно ${o.contextWindowFor(e.stage) === undefined ? 'не задано' : num(o.contextWindowFor(e.stage)!)})`,
@@ -89,22 +149,29 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
       case 'usage': {
         requests += 1;
         const input = e.usage.inputTokens;
+        // Расход — отдельной строкой «токены», а не «запрос»: запросы дозаполнения идут пачками
+        // параллельно, и строки расхода с блоками «ЗАПРОС/ОТВЕТ» по порядку не совпадают.
         if (input === 0) {
-          write(`  · запрос ${requests}: сервер не прислал usage`);
+          write(`  · токены №${requests}: сервер не прислал usage`);
           return;
         }
         peak = Math.max(peak, input);
-        write(`  · запрос ${requests}: контекст ${contextLine(input, o.contextWindowFor(e.stage))}, ответ ${num(e.usage.outputTokens)}`);
+        write(`  · токены №${requests}: контекст ${contextLine(input, o.contextWindowFor(e.stage))}, ответ ${num(e.usage.outputTokens)}`);
         return;
       }
       case 'model_exchange': {
-        // Вопрос — первой непустой строкой (что спрашивали), ответ — как есть, с отступом:
-        // по нему видно, чем модель заполнила поле и почему оно могло остаться пустым.
-        const head = e.question.split('\n').map((l) => l.trim()).find((l) => l !== '') ?? '';
-        write(`  ? ${flat(head, 160)}`);
-        const answer = e.answer.length > EXCHANGE_ANSWER_PRINT ? `${e.answer.slice(0, EXCHANGE_ANSWER_PRINT)}…` : e.answer;
-        const lines = answer.trim() === '' ? ['(пустой ответ)'] : answer.trimEnd().split('\n');
-        for (const line of lines) write(`    │ ${line}`);
+        // Блок: что спросили (предмет вопроса, не вся карточка) и что модель ответила — по
+        // ответу видно, чем заполнено поле и почему оно могло остаться пустым.
+        exchanges += 1;
+        const subject = exchangeSubject(e.question);
+        write(`  ┌ ЗАПРОС №${exchanges} · ${e.stage} · ${subject.title}`);
+        if (subject.detail !== null) write(`  │   ${subject.detail}`);
+        write('  ├ ОТВЕТ');
+        const listed = tablesAsLists(e.answer.trimEnd()).join('\n');
+        const answer = listed.length > EXCHANGE_ANSWER_PRINT ? `${listed.slice(0, EXCHANGE_ANSWER_PRINT)}…` : listed;
+        const lines = answer.trim() === '' ? ['(пустой ответ)'] : answer.split('\n');
+        for (const line of lines) write(`  │   ${line}`);
+        write('  └');
         return;
       }
       case 'assistant_text':
