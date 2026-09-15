@@ -589,6 +589,26 @@ describe('runStage: эталон поведения витка', () => {
     );
   });
 
+  it('этап 5 по шагам (stepFill): карта шагов, блок замены, проверка гейтами, журнал дозаполнением', async () => {
+    // Запрос шага несёт свой системный промпт, без текста скилла, — у подменной модели он
+    // приходит в очередь «вне этапа». Дозаполнение журнала идёт с промптом этапа — очередь chunk.
+    const queues = {
+      intent: INTENT_REPLIES(),
+      plan: PLAN_REPLIES(),
+      'вне этапа': [{ text: '<<<<<<< SEARCH\nexport const version = 1;\n=======\nexport const version = 2;\n>>>>>>> REPLACE\n' }],
+    } as Queues;
+    await scenario(
+      'step-fill',
+      queues,
+      async (run, results) => {
+        await toChunkDone(run, results);
+        results['closeness'] = run.progressCloseness;
+      },
+      GATES,
+      { route: { stepFill: true } },
+    );
+  });
+
   it('записи рецензента и повтор: RecordClaim ❌ → вторая попытка chunk с тем же патчем → verify', async () => {
     const claim: Reply = {
       tool: 'RecordClaim',
