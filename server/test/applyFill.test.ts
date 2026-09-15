@@ -250,6 +250,18 @@ describe('applyFill: раунд-трип по реальным шаблонам 
     ok(!r.ok);
     ok(!r.problem.includes(gate.id), `заполненное поле «${gate.id}» не должно вытеснять незаполненные из подсказки: ${r.problem}`);
   });
+
+  // Тот же прогон v14: третья по счёту догадка модели была «точка_правки» (подчёркивание
+  // вместо пробела) — метка та же, что у реального поля «точка правки», только записана
+  // словом из головы модели, а не бланка.
+  it('exploration-report: догадка с подчёркиванием вместо пробела находит поле по метке', () => {
+    const name = 'exploration-report.template.md';
+    const original = readFileSync(join(templatesDir, name), 'utf8');
+    const r = applyFill(original, 'точка_правки', 'x', 'set', name);
+    ok(!r.ok);
+    ok(r.problem.includes('точка правки'), r.problem);
+    ok(r.problem.includes('под другим id'), r.problem);
+  });
 });
 
 describe('applyFill: раунд-трип на заполненных примерах', { skip: нетЭталона(exampleDir) }, () => {
