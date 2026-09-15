@@ -96,8 +96,7 @@ import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName } from '../gates/run.ts';
 import { git, hasCommits, workingDiff } from '../gates/git.ts';
 import { autofillClarification, autofillPlan, autofillReadiness, autofillTitle } from './formAutofill.ts';
-import { autofillVerificationReport } from './verifyAutofill.ts';
-import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } from './verifyReport.ts';
+import { anchorFound, renderRecords } from './verifyReport.ts';
 import { claimIdOf } from '../artifacts/claims.ts';
 import { fillClaims } from './claimFill.ts';
 import type { ClaimAsk } from './claimFill.ts';
@@ -173,6 +172,14 @@ import {
   gateResultsForVerdict,
   runVerifyGates as runVerifyGatesOf,
 } from './stages/verify/gates.ts';
+import {
+  acceptRecord,
+  applyRecords,
+  autofillVerification,
+  evidenceHaystack,
+  topUpClaims,
+  verifyGaps,
+} from './stages/verify/records.ts';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -1301,12 +1308,6 @@ export class Run {
   }
 
   /**
-   * Заполняет отчёт приёмки фактами рантайма — см. `verifyAutofill.ts`.
-   *
-   * Результат ревью сюда не передаётся намеренно: на момент автозаполнения рецензент ещё
-   * не запускался, и его строка в таблице остаётся модели.
-   */
-  /**
    * Потолок ходов ЭТАПА: поэтапное значение, иначе общее.
    *
    * Один хелпер на оба места вызова (основной исполнитель и дополнительные маршруты
@@ -1316,84 +1317,6 @@ export class Run {
   private maxTurnsFor(stage: StageId): number {
     const limits = this.config.runner.limits;
     return limits.maxIterationsByStage?.[stage] ?? limits.maxIterationsPerStage;
-  }
-
-  private evidenceHaystack(): string {
-    if (this.state.verify.anchorHaystack !== null) return this.state.verify.anchorHaystack;
-    const parts: string[] = [];
-    for (const p of [
-      this.paths.chunkDiff(this.chunk, this.attempt),
-      this.paths.chunkTests(this.chunk, this.attempt),
-      this.paths.plan,
-    ]) {
-      const a = readArtifact(p);
-      if (a.exists) parts.push(a.text);
-    }
-    this.state.verify.anchorHaystack = parts.join('\n');
-    return this.state.verify.anchorHaystack;
-  }
-
-  /**
-   * Пробелы отчёта приёмки этой попытки по пунктам задачи — для стража завершения и для
-   * переворота исхода после дозаполнения. Каждый пробел назван с путём отчёта, потому что
-   * список уходит в одну строку «артефакт этапа не заполнен: …» вместе с путями.
-   */
-  private verifyGaps(): string[] {
-    const path = this.paths.verificationReport(this.chunk, this.attempt);
-    const report = readArtifact(path);
-    if (!report.exists) return [];
-    const gaps = verifyReportGaps(report.text, [...this.intentClaimLines().keys()]);
-    return gaps.length === 0 ? [] : [`${path} (${gaps.join('; ')})`];
-  }
-
-  /**
-   * Принимает запись модели в отчёт приёмки и отвечает ей подтверждением.
-   *
-   * Ссылка проверяется здесь, а не при рендере: модель обязана узнать об оговорке в тот
-   * ход, когда ещё может её исправить. Запись при этом принимается в любом случае —
-   * требование ссылки задумано против оформителя, закрывающего бланк вслепую, а не против
-   * рецензента, который что-то увидел и не смог показать пальцем.
-   */
-  private acceptRecord(call: NormalizedCall): string {
-    if (call.kind === 'record_claim') {
-      const anchored = anchorFound(call.evidence, this.evidenceHaystack());
-      const had = this.state.verify.claimRecords.has(call.id);
-      // Зелёный без места в патче принимается как `⚠`, а не как зелёный с пометкой:
-      // пометка в колонке доказательства статуса не меняла, и вердикт читал `✅`, которого
-      // никто не подтвердил (замер 2026-09-08, класс «оформитель»).
-      const status = acceptedClaimStatus(call.status, anchored);
-      this.state.verify.claimRecords.set(call.id, {
-        id: call.id,
-        status,
-        evidence: anchored ? call.evidence : `${call.evidence} _(ссылка не найдена в патче попытки)_`,
-        whatToFix: call.whatToFix,
-      });
-      return (
-        `пункт ${call.id} записан со статусом ${status}${had ? ' (заменил прежнюю запись)' : ''}. ` +
-        (anchored
-          ? 'Ссылка на место найдена в патче попытки.'
-          : (status !== call.status
-              ? `Заявленный ${call.status} понижен до ⚠: доказательство не показано. `
-              : 'Ссылку на место в патче попытки найти не удалось — пункт помечен: доказательство не показано. ') +
-            'Если место есть, назови его точнее (файл:символ, имя теста, хунк) и запиши пункт заново.')
-      );
-    }
-
-    if (call.kind === 'record_finding') {
-      const anchored = anchorFound(call.evidence, this.evidenceHaystack());
-      this.state.verify.findingRecords.push({
-        section: call.section,
-        text: call.text,
-        evidence: call.evidence,
-        anchored,
-      });
-      return anchored
-        ? `находка записана в секцию ${call.section} отчёта.`
-        : `находка принята, но БЕЗ привязки к месту: она уйдёт в отчёт отдельной строкой и в ` +
-            `вердикт не пойдёт. Назови место (файл:строка, символ, хунк) и запиши заново, если оно есть.`;
-    }
-
-    return 'запись не распознана';
   }
 
   /**
@@ -1410,140 +1333,6 @@ export class Run {
       this.spent.add(currency ?? 'USD', usage.costUsd);
     }
     this.emit({ type: 'usage', runId: this.id, stage, usage, total: this.totalUsage });
-  }
-
-  /**
-   * Поклаймовый добор: спросить модель по каждому пункту, о котором она промолчала.
-   *
-   * Пункты берутся из приёмочного листа ЗАДАЧИ, а не из отчёта: список пунктов — решение
-   * человека этапа 1, и выводить его из того, что успела написать модель, значит терять
-   * ровно те пункты, до которых она не дошла. Уже записанные не переспрашиваются: добор
-   * дополняет работу модели, а не переделывает её.
-   */
-  private async topUpClaims(route: ResolvedRoute, system: string): Promise<void> {
-    const asks: ClaimAsk[] = [];
-    for (const [id, text] of this.intentClaimLines()) {
-      if (!this.state.verify.claimRecords.has(id)) asks.push({ id, text });
-    }
-    if (asks.length === 0) return;
-
-    const limits = this.config.runner.limits;
-    const { calls, envFailure } = await fillClaims({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace('verify', 'claimFill')),
-      model: route.model,
-      params: route.params,
-      system,
-      claims: asks,
-      diff: readArtifact(this.paths.chunkDiff(this.chunk, this.attempt)).text,
-      tests: readArtifact(this.paths.chunkTests(this.chunk, this.attempt)).text,
-      // Тот же потолок, что у результата инструмента локального контура: срез патча
-      // конкурирует за то же окно, что и всё остальное в вопросе.
-      evidenceBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
-      signal: this.aborter?.signal ?? new AbortController().signal,
-      onProgress: (note) => this.emit({ type: 'warning', runId: this.id, stage: 'verify', message: `поклаймовый добор: ${note}` }),
-      onUsage: (usage) => this.accountOffPathUsage('verify', usage, route.providerDef.currency),
-    });
-
-    // Ответы проходят тем же приёмом, что и записи модели: проверка ссылки, замена по id,
-    // подтверждение. Второго места, знающего форму записи, не появляется.
-    for (const call of calls) this.acceptRecord(call);
-    if (calls.length > 0) {
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage: 'verify',
-        message:
-          `поклаймовый добор: спрошено ${asks.length} пункт(ов), разобрано ответов — ${calls.length}`,
-      });
-    }
-    // До батчинга (трек 2) упавший запрос пробрасывал исключение из `fillClaims` наружу, и
-    // внешний catch этапа (`ProviderEnvError`) отличал отказ СРЕДЫ от отказа модели.
-    // `Promise.allSettled` эту метку внутри пачки гасит — здесь она возвращается тем же
-    // классом ошибки, уже ПОСЛЕ того как успевшие ответы приняты (не теряя частичный
-    // прогресс, которого до батчинга не было вовсе).
-    if (envFailure !== null) throw new ProviderEnvError(envFailure);
-  }
-
-  /**
-   * Вносит записи модели в отчёт приёмки — после хода, до вердикта.
-   *
-   * Запись на диск идёт тем же путём, что у спасения артефакта и заполнения по полям:
-   * нормализованный `Write` через политику и гейт одобрения. Второго места решения о
-   * доступе не появляется.
-   */
-  private async applyRecords(): Promise<void> {
-    if (this.state.verify.claimRecords.size === 0 && this.state.verify.findingRecords.length === 0) return;
-    const path = this.paths.verificationReport(this.chunk, this.attempt);
-    const report = readArtifact(path);
-    if (!report.exists) return;
-
-    const { text, filled } = renderRecords(report.text, {
-      claims: [...this.state.verify.claimRecords.values()],
-      findings: this.state.verify.findingRecords,
-      // Текст пункта — из листа задачи, тем же разбором, что у брифа ретрая: строка-образец
-      // шаблона несёт плейсхолдер, и строка с зелёным статусом при `‹начало пункта…›`
-      // выглядела заполненной.
-      titles: new Map([...this.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)] as const)),
-    });
-    if (filled === 0 || text === report.text) return;
-
-    // Запись — тем же путём, что у спасения артефакта: нормализованный `Write` через
-    // политику и гейт одобрения. Оператор видит карточку и вправе её править; отказ
-    // означает, что отчёт остаётся таким, каким его оставила модель.
-    const call: NormalizedCall = { kind: 'write', path, content: text };
-    const decision = await this.gate.request({
-      runId: this.id,
-      stage: 'verify',
-      requestId: `records-${this.salvageSeq++}`,
-      toolName: 'Write',
-      rawInput: { file_path: path, content: text },
-      call,
-      ctx: this.policyContext('verify'),
-    });
-    if (!decision.allowed) return;
-    const edited = (decision.updatedInput as Record<string, unknown> | null)?.['content'];
-    writeArtifact(path, typeof edited === 'string' ? edited : text);
-    this.emit({
-      type: 'warning',
-      runId: this.id,
-      stage: 'verify',
-      message: `отчёт приёмки дополнен записями рецензента: строк — ${filled}`,
-    });
-  }
-
-  private autofillVerification(seeded: { path: string; snapshot?: string }[]): void {
-    // Сброс ДО ранних выходов: без него ансамбль попытки K+1 стартовал бы с бланка
-    // попытки K — с её номером в шапке и её таблицей гейтов (ревью-2).
-    this.state.verify.verifyPrefill = null;
-    const path = this.paths.verificationReport(this.chunk, this.attempt);
-    const report = readArtifact(path);
-    if (!report.exists || report.placeholders === 0) return;
-
-    const gates = this.state.verify.lastGateResults.filter((g) => gateKey(g.name) !== gateKey(REVIEW_GATE));
-    const { text, filled } = autofillVerificationReport(report.text, gates, {
-      chunk: this.chunk,
-      attempt: this.attempt,
-      slug: this.slug,
-      attemptBudget: this.attemptBudget,
-      earlyGates: this.earlyGateRows(),
-      earlyGatesForModel: earlyGatesForModel(this.host),
-    });
-    // Заполненный рантаймом бланк запоминается для ансамбля: дополнительные маршруты
-    // стартуют с него, а не с пустого файла — иначе класс расхождений «отчёт/факт» r9,
-    // ради которого автозаполнение заведено, возвращался в маршрутах (ревью, К5).
-    // Гард выше гарантирует placeholders > 0, поэтому и при filled === 0 бланк живой.
-    this.state.verify.verifyPrefill = filled > 0 ? text : report.text;
-    if (filled === 0) return;
-
-    this.writeAutofilled(path, text, seeded);
-    this.emit({
-      type: 'warning',
-      runId: this.id,
-      stage: 'verify',
-      message:
-        `рантайм заполнил отчёт приёмки фактами прогона (${filled}): таблица «Гейты» и ` +
-        'механика шапки — рецензенту остались выводы, ревью и вердикт',
-    });
   }
 
   /**
@@ -1921,7 +1710,7 @@ export class Run {
 
     // Находки проходят тем же приёмом, что записи модели: проверка ссылки, рендер
     // рантайма, гейт одобрения. Второго места, знающего форму записи, не появляется.
-    for (const call of result.findings) this.acceptRecord(call);
+    for (const call of result.findings) acceptRecord(this.host, call);
 
     // Оба конвейера обязаны дойти до конца — не только хунки. Докстринг
     // `skipTurnAfterReviewFill` определяет «конвейер прошёл целиком» как «все хунки И все
@@ -2045,7 +1834,7 @@ export class Run {
       // все гейты «⏭ не запускался» и не найдя ничего: прогон состоялся, ревью — нет.
       // Отличить одно от другого можно ровно так: рецензент, читавший diff, называет
       // файлы и символы из него. Планка низкая намеренно — достаточно одного совпадения.
-      if (!anchorFound(text, this.evidenceHaystack())) {
+      if (!anchorFound(text, evidenceHaystack(this.host))) {
         this.emit({
           type: 'warning',
           runId: this.id,
@@ -2128,7 +1917,7 @@ export class Run {
     });
 
     const records: ClaimRecord[] = [];
-    const haystack = this.evidenceHaystack();
+    const haystack = evidenceHaystack(this.host);
     for (const call of calls) {
       if (call.kind !== 'record_claim') continue;
       const anchored = anchorFound(call.evidence, haystack);
@@ -3034,7 +2823,7 @@ export class Run {
     // Отчёт приёмки: механику шапки и таблицу «Гейты» заполняет рантайм фактами только
     // что прогнанных гейтов — рецензенту остаются выводы и ревью. Замер r9: все
     // расхождения «отчёт/факт» дешёвого рецензента были в переписанной от себя таблице.
-    if (stage === 'verify') this.autofillVerification(seeded);
+    if (stage === 'verify') autofillVerification(this.host, seeded);
     // План, готовность и названия отчётов этапов 2–3 — тот же приём (`formAutofill.ts`).
     // Поля объявлены за рантаймом и модели больше не отдаются, поэтому закрываются здесь.
     if (stage === 'intent' || stage === 'explore' || stage === 'ask' || stage === 'plan') {
@@ -3050,7 +2839,7 @@ export class Run {
       // в байт пропускала отчёт с зелёными статусами при нетронутом тексте пунктов и без
       // строк на половину листа задачи (замер 2026-09-08, локальный рецензент). Здесь
       // считается содержание по пунктам ЗАДАЧИ; оформление остаётся дозаполнению.
-      ...(stage === 'verify' ? this.verifyGaps() : []),
+      ...(stage === 'verify' ? verifyGaps(this.host) : []),
     ];
     for (const path of this.seeded) {
       this.emit({
@@ -3254,7 +3043,7 @@ export class Run {
 
       // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
       // одним `Write` после хода, обычным путём через политику и гейт.
-      onRecord: (call) => this.acceptRecord(call),
+      onRecord: (call) => acceptRecord(this.host, call),
 
       onUsage: (usage) => {
         const st = this.stageStats.get(stage);
@@ -3467,7 +3256,7 @@ export class Run {
         (route.claimFill || route.reviewFill) &&
         !this.aborter.signal.aborted
       ) {
-        await this.topUpClaims(route, stagePrompt.system);
+        await topUpClaims(this.host, route, stagePrompt.system);
       }
 
       // Топ-ап осей плана (`ModelDef.planAxisFill`): оси, о которых секция «Последствия
@@ -3485,7 +3274,7 @@ export class Run {
       // Записи рецензента вносятся в отчёт ДО дозаполнения по полям и до ансамбля:
       // дозаполнение считает оставшиеся плейсхолдеры, а маршруты ансамбля снимают копию
       // канонического отчёта — оба обязаны видеть уже внесённые пункты и находки.
-      if (stage === 'verify') await this.applyRecords();
+      if (stage === 'verify') await applyRecords(this.host);
 
       // Дозаполнение журнала chunk'а по полям (`ModelDef.formFill` у модели этапа 5):
       // серия r5 показала конструкционный провал — модель с идеальным кодом 7 прогонов
