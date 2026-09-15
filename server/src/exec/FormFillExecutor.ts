@@ -57,7 +57,7 @@ import {
   modelFields,
   type FormField as SchemaField,
 } from '../artifacts/formSchema.ts';
-import { isSheetError, parseFieldValue } from '../artifacts/sheet.ts';
+import { foreignScript, isSheetError, parseFieldValue } from '../artifacts/sheet.ts';
 import { listSourceFiles } from '../gates/builtin/index.ts';
 import { templateNameFor } from '../run/seed.ts';
 import { isSeparatorRow, splitRow } from '../md/table.ts';
@@ -1172,6 +1172,17 @@ export class FormFillExecutor implements StageExecutor {
             // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
             // как был, и его честно назовут страж и предусловие следующего этапа.
             if (filled === '' || filled.includes('‹')) continue;
+            // Чужая письменность — тот же класс: не значение поля, а сбой генерации
+            // (`sheet.ts::foreignScript`; компактный путь отказывает в `parseFieldValue`).
+            // Причина называется вслух, в отличие от двух отказов выше: поле, пропущенное
+            // молча, в сводке неотличимо от «модель не ответила», и по логу не видно, что
+            // ответ был и его стоит переспросить.
+            const foreign = foreignScript(filled);
+            if (foreign !== null) {
+              const where = range.kind === 'row' ? range.header : range.text;
+              notes.push(`ответ на поле ${where.slice(0, 60)} отклонён: чужая письменность («${foreign}»)`);
+              continue;
+            }
             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому
             // контуру переизбыток пунктов не вредит (его мягкий минимум знает гейт).
             if (range.kind === 'row' && /claim-/.test(range.text) && callsSpent < requestBudget) {

@@ -14,6 +14,7 @@ import { loadConfig } from '../src/config/load.ts';
 import { deriveSchema, findField } from '../src/artifacts/formSchema.ts';
 import {
   cleanAnswer,
+  foreignScript,
   isSheetError,
   matchChoice,
   parseFieldValue,
@@ -54,6 +55,38 @@ describe('unwrapScalar', () => {
   it('внутреннюю разметку не трогает', () => {
     strictEqual(unwrapScalar('правка в `src/a.ts` и **только** там'), 'правка в `src/a.ts` и **только** там');
     strictEqual(unwrapScalar('**a** и **b**'), '**a** и **b**');
+  });
+});
+
+// Разбор логов серии v9 (2026-09-15): `ministral3-14b` подставляет китайское слово вместо
+// русского посреди фразы и вырождается в повтор знака перед тем, как упереться в лимит
+// длины ответа. Вклеенный в артефакт, такой ответ уходит во вход каждого следующего запроса.
+describe('foreignScript', () => {
+  it('ловит иероглиф внутри русской фразы и вырожденный повтор', () => {
+    strictEqual(foreignScript('с проверкой边界 (например, пустой выставитель)'), '边界');
+    strictEqual(foreignScript('останавливается на阶段 0'), '阶段');
+    strictEqual(foreignScript('попадает в «на候候»'), '候候');
+    strictEqual(foreignScript('механизм базовой安全性 анализа'), '安全性');
+  });
+
+  it('законное содержимое артефактов не трогает', () => {
+    const годные = [
+      'готова',
+      'правка в `src/a.ts` — 1 200 ₽',
+      '§4: псевдографика ─┘, стрелки ↔ ⇒, множества ⊆',
+      'A ≥ B, −5 °C, 12 × 3',
+      '✅ ❌ ⏭ ⚠ — глифы статусов',
+      'символ `__init__` в модуле',
+    ];
+    for (const s of годные) strictEqual(foreignScript(s), null, s);
+  });
+
+  it('parseFieldValue отказывает полю, а не правит ответ за модель', () => {
+    const s = deriveSchema('# Задача\n\n- **Ветка витка:** ‹sdlc/слаг›\n');
+    const f = findField(s, 'ветка витка')!;
+    const v = parseFieldValue(f, 'sdlc/freeship — проверка边界');
+    ok(isSheetError(v));
+    ok(v.error.includes('边界'));
   });
 });
 
