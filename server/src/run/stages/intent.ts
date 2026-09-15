@@ -143,5 +143,16 @@ export const intentModule: StageModule = {
     // модели гадать не о чем. Только на intent — это единственный этап, где поле ещё не
     // заполнено (`branchMismatchBlocker` сверяет его на входе plan/chunk/verify/handoff).
     autofill: (seeded) => autofillBranchField(host, seeded),
+
+    // Полнота intent.md — здесь, а не только предусловием этапа 2. `notDone()`
+    // выше видит только «файл тронут vs пустой бланк»: дозаполнение, тронувшее
+    // intent.md и оставившее хотя бы одно место (вне законно пустой «Что придётся
+    // тронуть»), уходило зелёным — до входа в `explore` СЛЕДУЮЩЕГО цикла, где
+    // чинить уже некому (тот же класс потери, что карта разведки; живой
+    // разбор серии v5, 2026-09-14: 4 из 22 прогонов упёрлись ровно в это).
+    finishProblem: () => {
+      const problem = intentPlaceholderProblem(host.ctx());
+      return problem === null ? null : `${problem}. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`;
+    },
   }),
 };

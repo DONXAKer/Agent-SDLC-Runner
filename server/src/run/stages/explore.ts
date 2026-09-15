@@ -415,7 +415,27 @@ export const exploreModule: StageModule = {
   leanDocTools: false,
   mechanicalJobs: (host) => [{ path: host.paths.explorationReport, fill: async (t) => autofillTitle(t, host.slug) }],
   checksBranchOnEntry: false,
-  begin: (host) => ({
+  begin: (host, route) => ({
+    // Слепой вывод листа (агент 2 этапа 2) — шаг РАНТАЙМА до создания исполнителя: конвейер
+    // `exploreFill` забирает его итог из `exploreClaims` при конструировании.
+    beforeExecutor: async () => {
+      if (usesExploreFill(route)) await runClaimsBlind(host, route, host.ecosystemFor('explore'));
+    },
+
+    // Фактичность карты кодовой базы — здесь, а не только предусловием этапа 3.
+    // Пока она стояла лишь там, отчёт с сочинённым путём закрывал этап 2 «успешно»,
+    // а виток умирал на входе в этап 3 — модель уже ушла, и чинить было некому
+    // (живой прогон r32 сгорел так на ЧЕСТНОМ отчёте). Замечание в своём ходу —
+    // тот же приём, которым страж требует заполнить бланк.
+    finishProblem: () => {
+      const problem = explorationPathProblem(host.ctx());
+      if (problem === null) return null;
+      return (
+        `${problem}. Поправь карту: несуществующий путь либо убери, либо помечай ` +
+        `словом «новый» — файл, который предстоит создать, картой кодовой базы не является.`
+      );
+    },
+
     // Кэш индекса разведки ключуется по тексту задачи и экосистеме, а не по состоянию
     // дерева проекта: тот же ключ мог совпасть у ДВУХ разных попыток этапа (тот же intent,
     // тот же стек), пока между ними в целевом проекте появился/изменился файл — и второй

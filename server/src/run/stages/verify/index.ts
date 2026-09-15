@@ -4,12 +4,15 @@
  * `ensemble.ts`, вердикт — `verdict.ts`, состояние попытки — `state.ts`.
  */
 
+import { emptyUsage } from '@sdlc-runner/shared';
+
 import { DECISION } from '../../../artifacts/artifact.ts';
 import { preflightBlockers } from '../../../sandbox/preflight.ts';
 import { RUNTIME_PROTECTED, exists, granted } from '../preconditions.ts';
 import type { StageDef, StageModule } from '../types.ts';
 import { gateReportBlock, runVerifyGates } from './gates.ts';
 import { autofillVerification, verifyGaps } from './records.ts';
+import { reviewerBlock, runReviewFill, runReviewerDirectly } from './reviewer.ts';
 
 export const verifyStage: StageDef = {
   id: 'verify',
@@ -70,7 +73,69 @@ export const verifyModule: StageModule = {
   missingSubagentsNote:
     'Этап 6 пойдёт без независимого рецензента, а «Ревью независимым агентом» ' +
     'входит в минимальную пятёрку гейтов — вердикт этого витка неполон.',
-  begin: (host) => ({
+  begin: (host, route) => ({
+    // Независимое ревью — шаг РАНТАЙМА, идущий до хода модели этапа (тем же порядком,
+    // что и автоматические гейты). Его текст приходит модели готовым блоком: ей остаётся
+    // перенести находки в §2–§5 отчёта, а не догадаться позвать `Task`. Не состоялось —
+    // `null`, и тогда всё как раньше: у модели остаётся собственный вызов субагента.
+    // Рецензент: свободный ход субагента либо — на flow `loop` с `reviewFill` — конвейер
+    // закрытых вопросов по хункам. Одно место выбора, чтобы гейт ревью и вход этапа
+    // ставились по одному и тому же прогону.
+    preTurn: async (prompt, agents, hooks) => {
+      const reviewText =
+        route.flow === 'loop' && route.reviewFill
+          ? await runReviewFill(host, route)
+          : await runReviewerDirectly(host, prompt, agents, hooks);
+
+      // R1.1: конвейер `reviewFill`, прошедший ПОЛНОСТЬЮ, закрывает разбор diff'а сам —
+      // собственный ход модели читал бы тот же diff ещё раз, в одном большом запросе,
+      // и ровно это не проходило по бюджету у моделей без ручки эффорта (Apriel-1.6-15B,
+      // qwen3.8-27b: конвейер из коротких вопросов проходил целиком, а следующий за ним
+      // свободный ход — нет; замеры 2026-09-08). §1 добирает `topUpClaims` (тоже короткими
+      // вопросами, вызывается после хода независимо от этого пропуска), прочее оформление —
+      // дозаполнение по полям (`route.formFill`, тоже короткими запросами). Неполный
+      // конвейер (диффа нет, часть вопросов не отвечена) собственный ход НЕ пропускает —
+      // тогда разбора не было вовсе, и заменить его нечем.
+      //
+      // `route.skipTurnAfterReviewFill` — а не автоматика по факту полного конвейера: на
+      // быстрой модели (100 % GPU) пропуск хода делает этап МЕДЛЕННЕЕ (дозаполнение по
+      // полям поле-за-полем дороже, чем несколько ходов агентного цикла с батчем правок,
+      // замер 2026-09-08) — ручка нужна там, где измеренно помогает, не всем.
+      const skipModelTurn =
+        route.flow === 'loop' &&
+        route.reviewFill &&
+        route.skipTurnAfterReviewFill &&
+        host.verifyState.reviewFillComplete;
+
+      return {
+        block: reviewText === null ? null : reviewerBlock(reviewText),
+        skip: skipModelTurn
+          ? {
+              ok: true,
+              finalText: reviewText ?? '',
+              usage: emptyUsage(),
+              note:
+                'ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается ' +
+                'его записями, добором по пунктам приёмки и дозаполнением по полям, без второго ' +
+                'свободного прохода по тому же diff\'у',
+            }
+          : null,
+      };
+    },
+
+    // Прогресс этапа 6 — принятые записи отчёта. Анти-цикл обрывает этап только
+    // тогда, когда за серию повторов не прибавилось ничего: обрыв посреди
+    // заполняемого отчёта терял работу, уже сделанную (и оплаченную) целиком.
+    progress: () => ({
+      progressSignal: () => host.verifyState.claimRecords.size + host.verifyState.findingRecords.length,
+      // Совет по умолчанию в LoopExecutor зовёт Edit — на verify прогресс это
+      // RecordClaim/RecordFinding, а Edit противоречит независимости ревью
+      // (`CLAUDE.md` → «Этап 6…»; code-review-all, 2026-09-14).
+      progressHint:
+        'переходи к записи находок инструментами RecordClaim/RecordFinding прямо ' +
+        'сейчас, бюджет ходов не резиновый.',
+    }),
+
     // Кэш предыдущего pre-flight сбрасывается ДО проверки блокеров: если прошлая
     // попытка упала на пробе среды, `lastPreflightBlockers` от неё ещё не пуст, а
     // `blockers()` теперь подмешивает его в свой список (см. её комментарий) — без сброса

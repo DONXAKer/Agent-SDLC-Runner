@@ -119,8 +119,6 @@ import { buildPrompt } from '../prompt/build.ts';
 import {
   checkPreconditions,
   explorationPathProblem,
-  filesToTouchProblem,
-  intentPlaceholderProblem,
   hasOpenQuestions,
   relOf,
   stageById,
@@ -133,13 +131,14 @@ import { ChunkState } from './stages/chunk/index.ts';
 import { stepFillExecutor } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты и прежние импорты берут выбор гейтов шага отсюда. */
 export { gatesForStep } from './stages/chunk/steps.ts';
+/** Реэкспорт: тесты берут блок рецензента для входа этапа 6 отсюда. */
+export { reviewerBlock } from './stages/verify/reviewer.ts';
 import { compareAttemptDiffs, readBaseline, recordEvidence, runNamedGate } from './stages/chunk/evidence.ts';
 import { restoreAttemptFromJournal, restoreChunkFromDir } from './stages/chunk/restore.ts';
 import {
   ExploreState,
   exploreFillExecutor,
   exploreIndexFor as exploreIndexOf,
-  runClaimsBlind,
   usesExploreFill,
 } from './stages/explore.ts';
 import { stageModule } from './stages/index.ts';
@@ -161,7 +160,6 @@ import {
   topUpClaims,
 } from './stages/verify/records.ts';
 import { runEnsembleReviewers } from './stages/verify/ensemble.ts';
-import { runReviewFill, runReviewerDirectly } from './stages/verify/reviewer.ts';
 import { retryDetail, stageVerdict } from './stages/verify/verdict.ts';
 
 export interface RunOptions {
@@ -268,28 +266,6 @@ const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
  */
 const EXCHANGE_QUESTION_CHARS = 4000;
 const EXCHANGE_ANSWER_CHARS = 8000;
-
-/**
- * Отчёт независимого рецензента, прогнанного рантаймом, — блоком во вход этапа.
- *
- * Текст рецензента подаётся как ФАКТ прогона, а не как мнение, которое можно
- * переписать: ровно так же, как итоги гейтов. Отдельно сказано, что звать `Task` второй
- * раз не нужно — иначе дешёвая модель тратит ходы на повторное ревью, которое уже
- * состоялось (а анти-цикл на `Task` ×3 её же и обрывает).
- */
-export function reviewerBlock(text: string): string {
-  return [
-    '## Отчёт независимого рецензента (прогон рантайма, этот этап)',
-    '',
-    'Ревью уже проведено: рецензент запущен рантаймом на отдельном маршруте, твоего рассказа',
-    'о работе он не получал. Повторно звать субагента `Task` не надо — перенеси находки в',
-    '§2–§5 отчёта приёмки и учти их в статусах пунктов. Своим мнением находки не отменяй:',
-    'расхождение, названное рецензентом, роняет вердикт, даже если пункта приёмки на это',
-    'поведение нет.',
-    '',
-    text,
-  ].join('\n');
-}
 
 /**
  * Дописывает к промпту оператора блок фактов, которых на момент правки ещё не было.
@@ -414,6 +390,7 @@ export class Run {
       ensembleRoutes: () => this.profile.ensemble.verify ?? [],
       envBlockedAttempts: () => this.envBlockedAttempts,
       metrics: () => this.metrics,
+      ctx: () => this.ctx,
       profile: () => this.profile,
     };
   }
@@ -2497,60 +2474,18 @@ ${block}`;
       // и тест-сьют. Пока бросок случался снаружи, `finally` не отрабатывал: статус
       // навсегда оставался `running`, `stage_done` не приходил, и кнопка запуска в
       // интерфейсе не разблокировалась до перезагрузки страницы.
-      // Слепой вывод листа (агент 2 этапа 2) — шаг РАНТАЙМА до создания исполнителя: конвейер
-      // `exploreFill` забирает его итог из `exploreClaims` при конструировании.
-      if (stage === 'explore' && usesExploreFill(route)) {
-        await runClaimsBlind(this.host, route, this.ecosystemFor(stage));
-      }
+      // Шаг рантайма до создания исполнителя (слепой лист разведки).
+      await inv.beforeExecutor?.();
 
       const executor = this.executorFor(stage);
 
-      // Независимое ревью — шаг РАНТАЙМА, идущий до хода модели этапа (тем же порядком,
-      // что и автоматические гейты). Его текст приходит модели готовым блоком: ей остаётся
-      // перенести находки в §2–§5 отчёта, а не догадаться позвать `Task`. Не состоялось —
-      // `null`, и тогда всё как раньше: у модели остаётся собственный вызов субагента.
-      // Рецензент: свободный ход субагента либо — на flow `loop` с `reviewFill` — конвейер
-      // закрытых вопросов по хункам. Одно место выбора, чтобы гейт ревью и вход этапа
-      // ставились по одному и тому же прогону.
-      const reviewText =
-        stage === 'verify'
-          ? route.flow === 'loop' && route.reviewFill
-            ? await runReviewFill(this.host, route)
-            : await runReviewerDirectly(this.host, prompt, agents, hooks)
-          : null;
-      const stagePrompt = reviewText === null ? prompt : withExtra(prompt, reviewerBlock(reviewText));
+      // Шаг рантайма до хода модели (независимое ревью verify): его блок подклеивается к
+      // промпту хода, а готовый исход, если он есть, заменяет сам ход.
+      const pre = (await inv.preTurn?.(prompt, agents, hooks)) ?? { block: null, skip: null };
+      const stagePrompt = pre.block === null ? prompt : withExtra(prompt, pre.block);
 
-      // R1.1: конвейер `reviewFill`, прошедший ПОЛНОСТЬЮ, закрывает разбор diff'а сам —
-      // собственный ход модели читал бы тот же diff ещё раз, в одном большом запросе,
-      // и ровно это не проходило по бюджету у моделей без ручки эффорта (Apriel-1.6-15B,
-      // qwen3.8-27b: конвейер из коротких вопросов проходил целиком, а следующий за ним
-      // свободный ход — нет; замеры 2026-09-08). §1 добирает `topUpClaims` (тоже короткими
-      // вопросами, вызывается ниже независимо от этого пропуска), прочее оформление —
-      // дозаполнение по полям (`route.formFill`, тоже короткими запросами). Неполный
-      // конвейер (диффа нет, часть вопросов не отвечена) собственный ход НЕ пропускает —
-      // тогда разбора не было вовсе, и заменить его нечем.
-      //
-      // `route.skipTurnAfterReviewFill` — а не автоматика по факту полного конвейера: на
-      // быстрой модели (100 % GPU) пропуск хода делает этап МЕДЛЕННЕЕ (дозаполнение по
-      // полям поле-за-полем дороже, чем несколько ходов агентного цикла с батчем правок,
-      // замер 2026-09-08) — ручка нужна там, где измеренно помогает, не всем.
-      const skipModelTurn =
-        stage === 'verify' &&
-        route.flow === 'loop' &&
-        route.reviewFill &&
-        route.skipTurnAfterReviewFill &&
-        this.state.verify.reviewFillComplete;
-
-      let result: StageResult = skipModelTurn
-        ? {
-            ok: true,
-            finalText: reviewText ?? '',
-            usage: emptyUsage(),
-            note:
-              'ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается ' +
-              'его записями, добором по пунктам приёмки и дозаполнением по полям, без второго ' +
-              'свободного прохода по тому же diff\'у',
-          }
+      let result: StageResult = pre.skip !== null
+        ? pre.skip
         : await executor.run(
         {
           prompt: stagePrompt,
@@ -2570,59 +2505,9 @@ ${block}`;
                 `открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.`
               );
             }
-            // Полнота intent.md — здесь, а не только предусловием этапа 2. `notDone()`
-            // выше видит только «файл тронут vs пустой бланк»: дозаполнение, тронувшее
-            // intent.md и оставившее хотя бы одно место (вне законно пустой «Что придётся
-            // тронуть»), уходило зелёным — до входа в `explore` СЛЕДУЮЩЕГО цикла, где
-            // чинить уже некому (тот же класс потери, что карта разведки ниже; живой
-            // разбор серии v5, 2026-09-14: 4 из 22 прогонов упёрлись ровно в это).
-            if (stage === 'intent') {
-              const problem = intentPlaceholderProblem(this.ctx);
-              if (problem !== null) {
-                return `${problem}. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`;
-              }
-            }
-            // Фактичность карты кодовой базы — здесь, а не только предусловием этапа 3.
-            // Пока она стояла лишь там, отчёт с сочинённым путём закрывал этап 2 «успешно»,
-            // а виток умирал на входе в этап 3 — модель уже ушла, и чинить было некому
-            // (живой прогон r32 сгорел так на ЧЕСТНОМ отчёте). Замечание в своём ходу —
-            // тот же приём, которым страж требует заполнить бланк.
-            if (stage === 'explore') {
-              const problem = explorationPathProblem(this.ctx);
-              if (problem !== null) {
-                return (
-                  `${problem}. Поправь карту: несуществующий путь либо убери, либо помечай ` +
-                  `словом «новый» — файл, который предстоит создать, картой кодовой базы не является.`
-                );
-              }
-            }
-            // Разбор последствий — тем же приёмом и по той же причине, что карта разведки:
-            // находка нужна модели в её собственном ходу. Предусловием этапа 5 она пришла бы
-            // после ухода планировщика, а дописывать исход за него стало бы некому — кроме
-            // самого исполнителя, которому решение человека не принадлежит.
-            if (stage === 'plan') {
-              // Пустой files_to_touch — раньше axisProblems: без адресов правки разбор
-              // последствий по осям тоже не может ссылаться на реальные пути, но само по
-              // себе отсутствие files_to_touch — более фундаментальная и более дешёвая в
-              // проверке находка (см. filesToTouchProblem).
-              const filesProblem = filesToTouchProblem(this.ctx);
-              if (filesProblem !== null) return filesProblem;
-              const problems = this.axisProblems();
-              if (problems.length > 0) {
-                return [
-                  'секция «Последствия шагов» плана не доведена:',
-                  ...problems.map((p) => `- ${p}`),
-                  // Подписи под принятым риском в форме НЕТ намеренно: риск принимается полем
-                  // «Одобрение» плана, а подписная колонка была бы вторым каналом решения,
-                  // которого у человека в этом файле нет. Требуя подпись, страж гнал модель
-                  // дописывать колонку, которой в шаблоне эталона не существует (ревью).
-                  'Исход — из закрытого словаря: claim-N, инвариант, гейт «имя», принятый риск ' +
-                    '(с причиной и сроком возврата), следующий виток либо «н/п — почему». Совет ' +
-                    'свободным текстом исходом не является: у него нет исполнителя.',
-                ].join('\n');
-              }
-            }
-            return null;
+            // Своя проверка этапа в его же ходу (полнота intent, фактичность карты разведки,
+            // разбор последствий плана): находка нужна модели, пока она ещё здесь.
+            return inv.finishProblem?.() ?? null;
           },
           // Спасение напечатанного артефакта: модель составила его правильно, но не
           // записала. Идёт тем же путём, что обычная запись — политика и гейт одобрения.
@@ -2630,38 +2515,15 @@ ${block}`;
           maxTurns: this.maxTurnsFor(stage),
           maxBudgetUsd: this.project.maxBudgetUsd,
           spentUsdBefore: this.spent.spent(route.providerDef.currency ?? 'USD'),
-          // Прогресс этапа 6 — принятые записи отчёта. Анти-цикл обрывает этап только
-          // тогда, когда за серию повторов не прибавилось ничего: обрыв посреди
-          // заполняемого отчёта терял работу, уже сделанную (и оплаченную) целиком.
-          // На этапе 5 прогресс — принятые записи в дерево: модель, повторившая вызов
-          // рядом с делом, не должна терять уже записанный код.
-          ...(stage === 'verify'
-            ? {
-                progressSignal: () => this.state.verify.claimRecords.size + this.state.verify.findingRecords.length,
-                // Совет по умолчанию в LoopExecutor зовёт Edit — на verify прогресс это
-                // RecordClaim/RecordFinding, а Edit противоречит независимости ревью
-                // (`CLAUDE.md` → «Этап 6…»; code-review-all, 2026-09-14).
-                progressHint:
-                  'переходи к записи находок инструментами RecordClaim/RecordFinding прямо ' +
-                  'сейчас, бюджет ходов не резиновый.',
-              }
-            : stage === 'chunk'
-              ? {
-                  progressSignal: () => acceptedWrites,
-                  // Без императива «Edit»: на задаче, где требуемое уже сделано, правка не
-                  // нужна вовсе, и совет по умолчанию толкал модель портить готовый код.
-                  progressHint:
-                    'если правка кода нужна — делай её сейчас инструментом Edit; если требуемое ' +
-                    'уже есть в коде — зафиксируй это в журнале и заверши этап.',
-                }
-              : {}),
+          // Сигнал прогресса анти-цикла — у этапа свой (записи отчёта verify, принятые правки
+          // дерева chunk): обрыв посреди заполняемого артефакта терял уже сделанную работу.
+          ...(inv.progress?.(() => acceptedWrites) ?? {}),
           // Для режима заполнения по полям: где искать плейсхолдеры. Обычные исполнители
           // поле не читают.
           formArtifacts: produced,
           // Проактивное закрытие готового этапа (`docs/proposals/model-flow-improvements.md`
-          // §1.3/§2.1): не на chunk — там журнал попытки может стать готовым раньше кода, и
-          // раннее закрытие обрубило бы дописывание правок в дереве.
-          closeOnFinalizeReady: stage !== 'chunk',
+          // §1.3/§2.1) — у этапа, где готовый артефакт не значит готовую работу, выключено.
+          closeOnFinalizeReady: mod.closeOnFinalizeReady ?? true,
           // Ключ → путь для FillField — тот же список, что уже отдан политике
           // (`policyContext`); нужен исполнителю, чтобы разрешённый политикой вызов дошёл
           // до диска (LoopExecutor кладёт его в ToolContext, SdkExecutor — в свой MCP-сервер).

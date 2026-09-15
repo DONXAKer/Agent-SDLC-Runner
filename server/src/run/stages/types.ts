@@ -9,13 +9,13 @@ import type { ArtifactKey, WitokPaths } from '../../artifacts/paths.ts';
 import type { ApprovalGate } from '../../approval/gate.ts';
 import type { LoadedConfig } from '../../config/load.ts';
 import type { ModuleProfile, ProjectConfig, ResolvedProfile, ResolvedRoute } from '../../config/schema.ts';
-import type { McpAccess, StageExecutor } from '../../exec/StageExecutor.ts';
+import type { ExecHooks, McpAccess, StageExecutor, StageResult, SubagentDef } from '../../exec/StageExecutor.ts';
 import type { EcosystemLine } from '../../explore/view.ts';
 import type { GatesFile } from '../../gates/gatesFile.ts';
 import type { TraceLabel } from '../../provider/rawLog.ts';
 import type { ExploreState } from './explore.ts';
 import type { VerifyState } from './verify/state.ts';
-import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, RunMetrics, StageId, ToolName, Usage } from '@sdlc-runner/shared';
+import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, PreparedPrompt, RunMetrics, StageId, ToolName, Usage } from '@sdlc-runner/shared';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
 export type SeededArtifact = { path: string; snapshot?: string };
@@ -107,6 +107,8 @@ export interface StageHost {
   envBlockedAttempts(): number;
   /** Числа витка (`Run.metrics`). */
   metrics(): RunMetrics;
+  /** Контекст предусловий: пути витка, текущие chunk и попытка (`Run.ctx`). */
+  ctx(): StageContext;
   /** Профиль витка: маршруты этапов и ансамбли. */
   profile(): ResolvedProfile;
 }
@@ -159,6 +161,8 @@ export interface StageModule {
   checksBranchOnEntry: boolean;
   /** Что сказать оператору о ненайденных субагентах этапа сверх общего предупреждения. */
   missingSubagentsNote?: string;
+  /** Закрывать ли этап, как только артефакт готов (`ExecRequest.closeOnFinalizeReady`); умолчание — да. */
+  closeOnFinalizeReady?: boolean;
   /** Хуки одного прохода этапа; локальное состояние прохода — в замыкании. */
   begin?(host: StageHost, route: ResolvedRoute): StageInvocation;
 }
@@ -181,6 +185,21 @@ export interface StageInvocation {
   autofill?(seeded: SeededArtifact[]): Promise<void>;
   /** Что ещё считать «этап не произвёл» сверх отсутствующих файлов и нетронутых бланков. */
   extraNotDone?(): string[];
+  /** Шаг рантайма до создания исполнителя этапа. */
+  beforeExecutor?(): Promise<void>;
+  /**
+   * Шаг рантайма до хода модели: `block` подклеивается к промпту хода, `skip` — готовый исход
+   * вместо хода. `null` в обоих — ход идёт как обычно.
+   */
+  preTurn?(
+    prompt: PreparedPrompt,
+    agents: readonly SubagentDef[],
+    hooks: ExecHooks,
+  ): Promise<{ block: string | null; skip: StageResult | null }>;
+  /** Своя проверка этапа в страже завершения хода — после общей «артефакт не заполнен». */
+  finishProblem?(): string | null;
+  /** Сигнал прогресса анти-цикла и совет при его отсутствии; `acceptedWrites` — принятые правки дерева. */
+  progress?(acceptedWrites: () => number): { progressSignal: () => number; progressHint: string };
 }
 
 export interface StageContext {
