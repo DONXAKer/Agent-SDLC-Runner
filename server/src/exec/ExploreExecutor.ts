@@ -260,8 +260,10 @@ export class ExploreExecutor implements StageExecutor {
           params: this.paramsFor(messages, hooks),
         });
         usage = addUsage(usage, answer.usage);
-        hooks.onUsage(answer.usage);
+        // Обмен, затем его расход: печать хода прогона закрывает блок «ЗАПРОС/ОТВЕТ» строкой
+        // токенов этого же запроса.
         hooks.onExchange?.({ question: `## ${title}\n\n${body}`, answer: answer.text });
+        hooks.onUsage(answer.usage);
         if (answer.finishReason === 'max_tokens') {
           hooks.onFriction('truncated');
           notes.push(`${title}: ответ обрезан лимитом длины — разобрано то, что дошло`);

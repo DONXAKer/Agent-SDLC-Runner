@@ -451,10 +451,11 @@ export class StepExecutor implements StageExecutor {
       });
       callsTotal++;
       usage = addUsage(usage, answer.usage);
-      hooks.onUsage(answer.usage);
       // Обмен целиком, а не только текст ответа: без вопроса шага не видно, на что модель
-      // отвечала блоками замены. Последнее сообщение — запрос шага или его ремонта.
+      // отвечала блоками замены. Последнее сообщение — запрос шага или его ремонта. Расход —
+      // сразу за обменом: печать хода прогона закрывает им блок этого запроса.
       hooks.onExchange?.({ question: messages.at(-1)?.content ?? '', answer: answer.text });
+      hooks.onUsage(answer.usage);
       return { text: answer.text, finishReason: answer.finishReason };
     };
 

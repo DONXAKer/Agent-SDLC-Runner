@@ -133,9 +133,21 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
   let peak = 0;
   /** Обмены «запрос → ответ» текущего этапа — нумерация блоков в логе. */
   let exchanges = 0;
+  /**
+   * Блок «ЗАПРОС/ОТВЕТ» ждёт строку расхода своего запроса: исполнители шлют `usage` сразу за
+   * обменом, и она закрывает блок. Любое другое событие закрывает его пустой чертой — расход
+   * тогда не пришёл (сбой запроса) или идёт отдельно.
+   */
+  let exchangeOpen = false;
+  const closeExchange = (): void => {
+    if (!exchangeOpen) return;
+    exchangeOpen = false;
+    write('  └');
+  };
   const denied = new Set<string>();
 
   return (e) => {
+    if (e.type !== 'usage' || e.offPath === true) closeExchange();
     switch (e.type) {
       case 'stage_started':
         requests = 0;
@@ -161,14 +173,17 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
         }
         requests += 1;
         const input = e.usage.inputTokens;
-        // Расход — отдельной строкой «токены», а не «запрос»: запросы дозаполнения идут пачками
-        // параллельно, и строки расхода с блоками «ЗАПРОС/ОТВЕТ» по порядку не совпадают.
+        // Расход сразу за обменом — строка закрытия его блока, без номера: номер запроса этапа
+        // (ходы цикла идут без блоков) разошёлся бы с номером «ЗАПРОСА» и снова путал бы.
+        // Без обмена (ход цикла) — своей строкой с номером запроса.
+        const lead = exchangeOpen ? '  └ токены' : `  · токены №${requests}`;
+        exchangeOpen = false;
         if (input === 0) {
-          write(`  · токены №${requests}: сервер не прислал usage`);
+          write(`${lead}: сервер не прислал usage`);
           return;
         }
         peak = Math.max(peak, input);
-        write(`  · токены №${requests}: контекст ${contextLine(input, o.contextWindowFor(e.stage))}, ответ ${num(e.usage.outputTokens)}`);
+        write(`${lead}: контекст ${contextLine(input, o.contextWindowFor(e.stage))}, ответ ${num(e.usage.outputTokens)}`);
         return;
       }
       case 'model_exchange': {
@@ -183,7 +198,7 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
         const answer = clip(listed, EXCHANGE_ANSWER_PRINT);
         const lines = answer.trim() === '' ? ['(пустой ответ)'] : answer.split('\n');
         for (const line of lines) write(`  │   ${line}`);
-        write('  └');
+        exchangeOpen = true;
         return;
       }
       case 'assistant_text':

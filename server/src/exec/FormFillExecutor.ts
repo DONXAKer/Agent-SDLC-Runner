@@ -416,6 +416,9 @@ export class FormFillExecutor implements StageExecutor {
     const last = messages.at(-1)?.content ?? '';
     const question = last.startsWith(req.prompt.user) ? last.slice(req.prompt.user.length).trim() : last;
     hooks.onExchange?.({ question, answer: answer.text });
+    // Расход — сразу за обменом, а не после всей параллельной пачки полей: печать хода прогона
+    // закрывает им блок этого запроса, и строки токенов больше не отстают пачкой.
+    hooks.onUsage(answer.usage);
     return answer;
   }
 
@@ -904,7 +907,6 @@ export class FormFillExecutor implements StageExecutor {
         for (const a of answers) {
           if (a.status !== 'fulfilled') continue;
           usage = addUsage(usage, a.value.usage);
-          hooks.onUsage(a.value.usage);
         }
 
         for (const [idx, field] of asked.entries()) {
@@ -945,7 +947,6 @@ export class FormFillExecutor implements StageExecutor {
               try {
                 const more = await askTopUpCompact(field, answerText, attempt > 0);
                 usage = addUsage(usage, more.usage);
-                hooks.onUsage(more.usage);
                 const seen = new Set(
                   answerText
                     .split('\n')
@@ -1071,8 +1072,7 @@ export class FormFillExecutor implements StageExecutor {
           for (const a of answers) {
             if (a.status !== 'fulfilled') continue;
             usage = addUsage(usage, a.value.usage);
-            hooks.onUsage(a.value.usage);
-          }
+            }
 
           // Сплайсы — ДО проверки бюджета: ответы пачки уже оплачены в любом случае, и
           // выбрасывать их из текста при обрыве значило бы платить за них второй раз.
@@ -1102,7 +1102,6 @@ export class FormFillExecutor implements StageExecutor {
               try {
                 const more = await askFilesToTouchTopUp(path, text, range);
                 usage = addUsage(usage, more.usage);
-                hooks.onUsage(more.usage);
                 const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
                 if (extra !== '' && !extra.includes('‹')) {
                   filled = extra;
@@ -1135,8 +1134,7 @@ export class FormFillExecutor implements StageExecutor {
                 try {
                   const more = await askClaimsTopUp(path, text, range, filled, attempt > 0);
                   usage = addUsage(usage, more.usage);
-                  hooks.onUsage(more.usage);
-                  const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
+                    const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
                   // Модели на добор часто возвращают ВЕСЬ лист заново с теми же id —
                   // фильтр «дубль id → в мусор» выбрасывал и новые пункты (r17e, лист
                   // остался 4/1). Дословный повтор пункта отбрасывается по СОДЕРЖИМОМУ,

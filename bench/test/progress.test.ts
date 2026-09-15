@@ -82,7 +82,7 @@ describe('createProgressPrinter', () => {
     deepStrictEqual(lines, ['    снят обрывом: прогон отменён', '  ⚠ рантайм заполнил механические поля (3)']);
   });
 
-  it('обмен с моделью: блок ЗАПРОС с предметом (строка бланка) и ОТВЕТ построчно; пустой ответ назван', () => {
+  it('обмен с моделью: ЗАПРОС с предметом, ОТВЕТ построчно, блок закрыт токенами своего запроса', () => {
     const { lines, emit } = printer(32768);
     emit({
       type: 'model_exchange',
@@ -91,18 +91,22 @@ describe('createProgressPrinter', () => {
       question: '\n\n## Сейчас — ровно одно поле\n\nФайл `.sdlc/x/intent.md`, строка бланка:\n\n```\n- **Коротко:** ‹одна фраза›\n```\n',
       answer: 'Бесплатная доставка\nдля крупных отправлений',
     });
+    emit({ type: 'usage', runId: 'r', stage: 'intent', usage: { ...emptyUsage(), inputTokens: 5000, outputTokens: 111 }, total: emptyUsage() });
+    // Запрос без расхода (сбой) — блок закрывается следующим событием пустой чертой.
     emit({ type: 'model_exchange', runId: 'r', stage: 'intent', question: 'Поле «Зачем»', answer: '  ' });
+    emit({ type: 'warning', runId: 'r', stage: 'intent', message: 'дозаполнение не закрыло поля' });
     deepStrictEqual(lines, [
       '  ┌ ЗАПРОС №1 · intent · ровно одно поле',
       '  │   бланк: - **Коротко:** ‹одна фраза›',
       '  ├ ОТВЕТ',
       '  │   Бесплатная доставка',
       '  │   для крупных отправлений',
-      '  └',
+      `  └ токены: контекст ${contextLine(5000, 32768)}, ответ 111`,
       '  ┌ ЗАПРОС №2 · intent · Поле «Зачем»',
       '  ├ ОТВЕТ',
       '  │   (пустой ответ)',
       '  └',
+      '  ⚠ дозаполнение не закрыло поля',
     ]);
   });
 
@@ -115,6 +119,7 @@ describe('createProgressPrinter', () => {
       question: '## Сейчас — ровно одно поле\n\n- id: `acceptance`\n- вид: records',
       answer: 'Лист:\n| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | скидка gold | тест `total === 0` |\n| claim-2 | silver без изменений |  |',
     });
+    emit({ type: 'usage', runId: 'r', stage: 'intent', usage: { ...emptyUsage(), inputTokens: 1000, outputTokens: 5 }, total: emptyUsage() });
     deepStrictEqual(lines, [
       '  ┌ ЗАПРОС №1 · intent · ровно одно поле',
       '  │   поле acceptance',
@@ -125,7 +130,7 @@ describe('createProgressPrinter', () => {
       '  │       Как проверить: тест `total === 0`',
       '  │   • claim-2',
       '  │       Пункт: silver без изменений',
-      '  └',
+      `  └ токены: контекст ${contextLine(1000, 32768)}, ответ 5`,
     ]);
   });
 
