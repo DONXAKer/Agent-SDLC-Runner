@@ -243,7 +243,16 @@ export const planModule: StageModule = {
     ];
   },
   checksBranchOnEntry: true,
-  begin: (host) => ({
+  begin: (host, route) => ({
+    // Топ-ап осей плана (`ModelDef.planAxisFill`): оси, о которых секция «Последствия
+    // шагов» ничего не сказала, добираются ОДНИМ запросом. До стража завершения этапа —
+    // он увидит меньше проблем, если топ-ап уже закрыл часть строк.
+    afterTurn: async (stagePrompt, signal) => {
+      if (route.flow === 'loop' && route.planAxisFill && !signal.aborted) {
+        await topUpAxes(host, route, stagePrompt.system);
+      }
+    },
+
     // Разбор последствий — тем же приёмом и по той же причине, что карта разведки:
     // находка нужна модели в её собственном ходу. Предусловием этапа 5 она пришла бы
     // после ухода планировщика, а дописывать исход за него стало бы некому — кроме

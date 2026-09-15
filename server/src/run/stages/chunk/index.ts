@@ -4,10 +4,12 @@
  * chunk'а и попытки — `chunk/restore.ts`.
  */
 
-import { DECISION, readArtifact, readDecision } from '../../../artifacts/artifact.ts';
+import { DECISION, readArtifact, readDecision, writeArtifact } from '../../../artifacts/artifact.ts';
+import { workingDiff } from '../../../gates/git.ts';
+import { checkJournalClaimsVsBash } from '../../../verdict/honesty.ts';
 import { autofillChunkJournal } from '../../journalAutofill.ts';
 import { RUNTIME_PROTECTED, granted } from '../preconditions.ts';
-import { ensureBaseline } from './evidence.ts';
+import { ensureBaseline, recordEvidence } from './evidence.ts';
 import type { SeededArtifact, StageDef, StageHost, StageModule } from '../types.ts';
 import type { TreeChange } from '../../evidence.ts';
 
@@ -55,7 +57,89 @@ export const chunkModule: StageModule = {
   // Проактивное закрытие готового этапа — не на chunk: журнал попытки может стать готовым
   // раньше кода, и раннее закрытие обрубило бы дописывание правок в дереве.
   closeOnFinalizeReady: false,
-  begin: (host) => ({
+  begin: (host, route) => {
+    /** Рабочее дерево до этапа — база «дерево не изменилось» для улик попытки. */
+    let diffBefore = '';
+    return {
+    // Снимок рабочего дерева ДО этапа: «дерево не изменилось» обязано считаться против
+    // него, а не против HEAD. Коммита до этапа 7 не бывает, поэтому правки прошлой попытки
+    // и прошлого chunk'а остаются в дереве, и сравнение с HEAD объявляло бы результативной
+    // любую попытку после первой удачной.
+    beforeSeed: async () => {
+      diffBefore = await workingDiff(host.projectRoot, [], host.aborterSignal());
+    },
+
+    // Дозаполнение журнала chunk'а по полям (`ModelDef.formFill` у модели этапа 5):
+    // серия r5 показала конструкционный провал — модель с идеальным кодом 7 прогонов
+    // подряд не закрывала этап, дочищая журнал инструментами до конца лимита ходов.
+    // Содержательные поля добираются per-field completion'ами тем же FormFillExecutor,
+    // запись идёт через тот же гейт; этап закрывается ТОЛЬКО если исполнитель упал
+    // именно на оформлении и после дозаполнения на диске всё на месте.
+    formFinish: (result) => {
+      // В режиме по шагам (`stepFill`) журнал chunk'а исполнитель не пишет по построению:
+      // дозаполнение по полям идёт с отчётом о шагах во входе — иначе поля «что сделано»
+      // заполнялись бы по памяти, которой у режима нет. Но только если хоть один шаг дал
+      // правку: журнал этапа, в котором не записано ничего, не стоит двенадцати запросов —
+      // он всё равно красный по дереву.
+      const stepMode = route.stepFill;
+      const stepProduced = stepMode && /применено [1-9]/.test(result.note);
+      // Отчёт о шагах — артефакт попытки: причина красного шага иначе остаётся только в
+      // консоли, и разбор прогона восстанавливает её по дереву (bench, stepfill-v2).
+      if (stepMode && result.finalText !== '') {
+        writeArtifact(host.paths.chunkSteps(host.chunk(), host.attempt()), `${result.finalText}\n`);
+      }
+      return {
+        path: host.paths.chunkJournal(host.chunk()),
+        forced: stepProduced,
+        // Отчёт о шагах — второй блок промпта дозаполнения, которого нет в промпте из
+        // `prompt_prepared`: как и блок рецензента, он факт рантайма, а не правка за спиной
+        // оператора.
+        extraBlock: stepProduced && result.finalText !== '' ? result.finalText : null,
+        // `notDone` на chunk смотрит только журнал, и заполненный дозаполнением журнал
+        // переворачивал бы в ok этап, упавший на лимите ходов с нетронутым кодом.
+        requireCodeChange: true,
+      };
+    },
+
+    // Свидетельства попытки — патч и запись о тестах — производит рантайм, перезаписывая
+    // то, что записал агент. Иначе вход этапа 6 остаётся рассказом исполнителя о самом
+    // себе; замер поймал ровно этот случай (см. `evidence.ts`).
+    evidence: async () => {
+      host.chunkState.tree = await recordEvidence(host, diffBefore);
+
+      // Честность доказательств: журнал утверждает «тесты прогнаны и прошли» — в ленте
+      // обязан быть успешный bash-вызов команды тестов. Расхождение раньше было видно
+      // только в отчёте бенчмарка после прогона; оператор витка обязан видеть его здесь,
+      // до вердикта (порт щупа `bench/src/honesty.ts`).
+      const journal = readArtifact(host.paths.chunkJournal(host.chunk()));
+      if (journal.exists) {
+        const honesty = checkJournalClaimsVsBash(
+          journal.text,
+          host.attemptToolEvents(),
+          host.attemptObservedFromStart(),
+        );
+        if (honesty.ok === false) {
+          host.emit({
+            type: 'warning',
+            runId: host.id,
+            stage: 'chunk',
+            message: `честность журнала: ${honesty.detail}`,
+          });
+        }
+      }
+    },
+
+    // Пустое дерево после этапа 5 — самостоятельный провал, наравне с незаполненным
+    // артефактом: свидетельства теперь кладёт рантайм, то есть «файлы на месте» перестало
+    // быть признаком сделанной работы. `unknown` роняет этап по той же причине — состояние
+    // дерева неизвестно, и считать его успехом значит зеленеть на непроверенном.
+    outcomeProblem: (result) =>
+      result.ok && host.chunkState.tree !== 'changed'
+        ? host.chunkState.tree === 'empty'
+          ? 'этап закончился, но дерево не изменилось: правки не было'
+          : 'этап закончился, но состояние дерева неизвестно: свидетельства попытки не записаны'
+        : null,
+
     // На этапе 5 прогресс — принятые записи в дерево: модель, повторившая вызов
     // рядом с делом, не должна терять уже записанный код.
     progress: (acceptedWrites) => ({
@@ -78,7 +162,8 @@ export const chunkModule: StageModule = {
     },
 
     autofill: (seeded) => autofillJournal(host, seeded),
-  }),
+    };
+  },
 };
 
 /**

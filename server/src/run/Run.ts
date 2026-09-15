@@ -90,7 +90,7 @@ import {
 import { builtinFor, describeBuild } from '../gates/builtin/index.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName } from '../gates/run.ts';
-import { git, hasCommits, workingDiff } from '../gates/git.ts';
+import { git, hasCommits } from '../gates/git.ts';
 import { autofillClarification, autofillPlan, autofillReadiness, autofillTitle } from './formAutofill.ts';
 import { claimIdOf } from '../artifacts/claims.ts';
 import { salvageBlocks } from './salvage.ts';
@@ -114,11 +114,9 @@ import { metricsBlock } from './metricsReport.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
 import type { Escalation } from './escalation.ts';
-import { checkJournalClaimsVsBash } from '../verdict/honesty.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
   checkPreconditions,
-  explorationPathProblem,
   hasOpenQuestions,
   relOf,
   stageById,
@@ -133,7 +131,7 @@ import { stepFillExecutor } from './stages/chunk/steps.ts';
 export { gatesForStep } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты берут блок рецензента для входа этапа 6 отсюда. */
 export { reviewerBlock } from './stages/verify/reviewer.ts';
-import { compareAttemptDiffs, readBaseline, recordEvidence, runNamedGate } from './stages/chunk/evidence.ts';
+import { compareAttemptDiffs, readBaseline, runNamedGate } from './stages/chunk/evidence.ts';
 import { restoreAttemptFromJournal, restoreChunkFromDir } from './stages/chunk/restore.ts';
 import {
   ExploreState,
@@ -142,12 +140,11 @@ import {
   usesExploreFill,
 } from './stages/explore.ts';
 import { stageModule } from './stages/index.ts';
-import { axesGateRow as axesGateRowOf, axisProblems as axisProblemsOf, topUpAxes } from './stages/plan.ts';
+import { axesGateRow as axesGateRowOf, axisProblems as axisProblemsOf } from './stages/plan.ts';
 import type { StageHost } from './stages/types.ts';
 import { VerifyState } from './stages/verify/state.ts';
 import {
   REVIEW_GATE,
-  diffStillMatchesTree,
   earlyGateRows as earlyGateRowsOf,
   earlyGatesForModel,
   gateResultsForVerdict,
@@ -155,11 +152,8 @@ import {
 } from './stages/verify/gates.ts';
 import {
   acceptRecord,
-  applyRecords,
   evidenceHaystack,
-  topUpClaims,
 } from './stages/verify/records.ts';
-import { runEnsembleReviewers } from './stages/verify/ensemble.ts';
 import { retryDetail, stageVerdict } from './stages/verify/verdict.ts';
 
 export interface RunOptions {
@@ -391,6 +385,13 @@ export class Run {
       envBlockedAttempts: () => this.envBlockedAttempts,
       metrics: () => this.metrics,
       ctx: () => this.ctx,
+      attemptToolEvents: () => this.attemptToolEvents,
+      attemptObservedFromStart: () => this.attemptObservedFromStart,
+      chunkState: this.state.chunk,
+      detectNoProgress: () => this.detectNoProgress(),
+      computeStageVerdict: (noProgress) => {
+        this.computeStageVerdict(noProgress);
+      },
       profile: () => this.profile,
     };
   }
@@ -1316,6 +1317,8 @@ export class Run {
      * нетронутым кодом.
      */
     codeChanged: () => boolean = () => true,
+    /** Проверка добранного артефакта, которую плейсхолдеры не видят (у explore — фактичность карты). */
+    honesty: () => string | null = () => null,
   ): Promise<StageResult> {
     // Честность карты кодовой базы — общий страж для ОБОИХ путей ниже, не только для
     // рескью closableFailure. `FormFillExecutor` у дозаполнения не несёт ни `Read`, ни
@@ -1328,8 +1331,7 @@ export class Run {
     // всплывала на шаг позже, на входе в `ask` (живой замер `qwencoder-freeship`, серия
     // v3, 2026-09-13 — пять из шести находок этого класса прошли именно так).
     const explorationHonestyProblem = (): StageResult | null => {
-      if (stage !== 'explore') return null;
-      const problem = explorationPathProblem(this.ctx);
+      const problem = honesty();
       return problem === null
         ? null
         : { ...result, ok: false, note: `дозаполнение закрыло плейсхолдеры, но не честность: ${problem}` };
@@ -1366,7 +1368,7 @@ export class Run {
     // Переворот исхода по-прежнему сторожит `notDone().length === 0`: пустых обязательных
     // полей быть не должно, иначе красное станет зелёным на недоделанном артефакте.
     const closableFailure = !result.ok && isFormattingFailure(result.note);
-    if (closableFailure && notDone().length === 0 && (stage !== 'chunk' || codeChanged())) {
+    if (closableFailure && notDone().length === 0 && codeChanged()) {
       // Рескью нужен своя проверка честности: `remaining` мог быть 0 уже на входе (ход
       // упал не по счётчику плейсхолдеров, а, например, по лимиту длины ответа) — тогда
       // блок выше не запускался вовсе, и это первая проверка для данного прогона.
@@ -2210,12 +2212,8 @@ ${block}`;
     // Снимок отсутствующего берётся ДО раскладки: по нему потом видно, произвёл ли этап
     // хоть что-то, а существовавший ранее файл (набор гейтов проекта) доказательством не
     // считается.
-    // Снимок рабочего дерева ДО этапа: «дерево не изменилось» обязано считаться против
-    // него, а не против HEAD. Коммита до этапа 7 не бывает, поэтому правки прошлой попытки
-    // и прошлого chunk'а остаются в дереве, и сравнение с HEAD объявляло бы результативной
-    // любую попытку после первой удачной.
-    const diffBefore =
-      stage === 'chunk' ? await workingDiff(this.project.projectRoot, [], this.aborter?.signal) : '';
+    // Подготовка этапа до раскладки форм (снимок рабочего дерева chunk).
+    await inv.beforeSeed?.();
 
     // Строка трения заводится ДО исполнителя. Пока она создавалась первым же счётчиком,
     // этап, не сделавший ни одного вызова и не получивший ни одного напоминания, в метрики
@@ -2533,104 +2531,38 @@ ${block}`;
         hooks,
       );
 
-      // Поклаймовый добор (`ModelDef.claimFill`): пункты, о которых модель не сказала
-      // ничего, добираются по одному вопросу со срезом патча. ДО внесения записей —
-      // добранное идёт в отчёт тем же путём, что записанное вручную.
-      if (
-        stage === 'verify' &&
-        route.flow === 'loop' &&
-        (route.claimFill || route.reviewFill) &&
-        !this.aborter.signal.aborted
-      ) {
-        await topUpClaims(this.host, route, stagePrompt.system);
-      }
+      // Доборы рантайма после хода, до дозаполнения по полям и ансамбля (добор пунктов и
+      // записи отчёта verify, добор осей plan): оба обязаны видеть уже внесённое.
+      await inv.afterTurn?.(stagePrompt, this.aborter.signal);
 
-      // Топ-ап осей плана (`ModelDef.planAxisFill`): оси, о которых секция «Последствия
-      // шагов» ничего не сказала, добираются ОДНИМ запросом. До `finishGuard`'а этапа —
-      // он увидит меньше проблем, если топ-ап уже закрыл часть строк.
+      // Дозаполнение артефакта этапа по полям (`ModelDef.formFill`) — ПОСЛЕ хода: модель с
+      // готовым содержанием не должна сгорать на оформлении бланка. Что дозаполнять и на
+      // каких условиях, говорит этап (`formFinish`); этап закрывается ТОЛЬКО если исполнитель
+      // упал именно на оформлении и после дозаполнения на диске всё на месте.
+      const finish = inv.formFinish?.(result) ?? null;
       if (
-        stage === 'plan' &&
+        finish !== null &&
         route.flow === 'loop' &&
-        route.planAxisFill &&
-        !this.aborter.signal.aborted
-      ) {
-        await topUpAxes(this.host, route, stagePrompt.system);
-      }
-
-      // Записи рецензента вносятся в отчёт ДО дозаполнения по полям и до ансамбля:
-      // дозаполнение считает оставшиеся плейсхолдеры, а маршруты ансамбля снимают копию
-      // канонического отчёта — оба обязаны видеть уже внесённые пункты и находки.
-      if (stage === 'verify') await applyRecords(this.host);
-
-      // Дозаполнение журнала chunk'а по полям (`ModelDef.formFill` у модели этапа 5):
-      // серия r5 показала конструкционный провал — модель с идеальным кодом 7 прогонов
-      // подряд не закрывала этап, дочищая журнал инструментами до конца лимита ходов.
-      // Содержательные поля добираются per-field completion'ами тем же FormFillExecutor,
-      // запись идёт через тот же гейт; этап закрывается ТОЛЬКО если исполнитель упал
-      // именно на оформлении и после дозаполнения на диске всё на месте.
-      // Тот же механизм — и для отчёта приёмки (замер r9: рецензенту 14B при лимите 40
-      // не хватало ходов именно на оформление отчёта). До ансамбля: дополнительные
-      // маршруты снимают копию канонического отчёта, и она обязана быть полной.
-      const formFinishPath =
-        stage === 'chunk'
-          ? this.paths.chunkJournal(this.chunk)
-          : stage === 'verify'
-            ? this.paths.verificationReport(this.chunk, this.attempt)
-            : // Разведка — с 2026-09-04. Раньше её здесь не было потому, что этап сгорал
-              // не на оформлении: живой прогон показал, как модель тратила ход на
-              // ПРОДУКТОВЫЙ КОД (это закрыто политикой: до плана запись сужена до
-              // артефактов витка). После починки картина другая — 25 ходов уходят на сам
-              // отчёт, и этап падает с «исчерпан лимит ходов» при 17 незаполненных местах,
-              // то есть ровно в `closableFailure`, ради которого добор и заведён.
-              //
-              // Заменить исполнителя целиком (`FORM_FILL_STAGES`) здесь нельзя и не нужно:
-              // у `FormFillExecutor` нет ни `Read`, ни `Task`, а разведка без чтения кода —
-              // это отчёт о том, что придётся тронуть, написанный по воображению. Добор
-              // идёт ПОСЛЕ хода: инструменты у разведки остаются, рантайм снимает с неё
-              // только цену оформления бланка.
-              stage === 'explore'
-              ? this.paths.explorationReport
-              : null;
-      // В режиме по шагам (`stepFill`) журнал chunk'а исполнитель не пишет по построению:
-      // дозаполнение по полям идёт с отчётом о шагах во входе — иначе поля «что сделано»
-      // заполнялись бы по памяти, которой у режима нет. Но только если хоть один шаг дал
-      // правку: журнал этапа, в котором не записано ничего, не стоит двенадцати запросов —
-      // он всё равно красный по дереву.
-      const stepMode = stage === 'chunk' && route.stepFill;
-      const stepProduced = stepMode && /применено [1-9]/.test(result.note);
-      // Отчёт о шагах — артефакт попытки: причина красного шага иначе остаётся только в
-      // консоли, и разбор прогона восстанавливает её по дереву (bench, stepfill-v2).
-      if (stepMode && result.finalText !== '') {
-        writeArtifact(this.paths.chunkSteps(this.chunk, this.attempt), `${result.finalText}\n`);
-      }
-      // В режиме `exploreFill` дозаполнение уже внутри конвейера (вложенным
-      // `FormFillExecutor` со `skipFields`) — второй проход здесь переспрашивал бы поля.
-      if (
-        formFinishPath !== null &&
-        route.flow === 'loop' &&
-        (route.formFill || stepProduced) &&
-        !(stage === 'explore' && usesExploreFill(route)) &&
+        (route.formFill || finish.forced) &&
         !this.aborter.signal.aborted
       ) {
         result = await this.finishFormArtifact(
           stage,
-          formFinishPath,
+          finish.path,
           result,
           // Тот же промпт, что видел основной ход, — на этапе 6 он включает блок с
           // отчётом рецензента. Дозаполнение по полям без него добирало бы поля §2–§5
-          // «по памяти», не зная о находках, ради которых этап и существует. В режиме по
-          // шагам сюда же подклеивается отчёт о шагах — второй блок, которого нет в
-          // промпте из `prompt_prepared`: как и блок рецензента, он факт рантайма, а не
-          // правка за спиной оператора.
-          stepProduced && result.finalText !== '' ? withExtra(stagePrompt, result.finalText) : stagePrompt,
+          // «по памяти», не зная о находках, ради которых этап и существует.
+          finish.extraBlock === null ? stagePrompt : withExtra(stagePrompt, finish.extraBlock),
           hooks,
           notDone,
           this.aborter.signal,
-          () => acceptedWrites > 0 || stepProduced,
+          finish.requireCodeChange ? () => acceptedWrites > 0 || finish.forced : () => true,
+          finish.honesty ?? (() => null),
         );
       }
 
-      if (stage === 'verify') await runEnsembleReviewers(this.host, prompt, def, agents, hooks);
+      await inv.afterForm?.(prompt, def, agents, hooks);
 
       // Отмена проверяется ДО записи улик. Иначе отменённый этап затирал патч предыдущего
       // состояния снимком наполовину сделанного дерева (а при прерванном сигнале git
@@ -2638,33 +2570,9 @@ ${block}`;
       // тест-сьют, который уже некому ждать.
       const cancelled = this.aborter?.signal.aborted === true;
 
-      // Свидетельства попытки — патч и запись о тестах — производит рантайм, перезаписывая
-      // то, что записал агент. Иначе вход этапа 6 остаётся рассказом исполнителя о самом
-      // себе; замер поймал ровно этот случай (см. `evidence.ts`).
-      if (stage === 'chunk' && !cancelled) {
-        this.state.chunk.tree = await recordEvidence(this.host, diffBefore);
-
-        // Честность доказательств: журнал утверждает «тесты прогнаны и прошли» — в ленте
-        // обязан быть успешный bash-вызов команды тестов. Расхождение раньше было видно
-        // только в отчёте бенчмарка после прогона; оператор витка обязан видеть его здесь,
-        // до вердикта (порт щупа `bench/src/honesty.ts`).
-        const journal = readArtifact(this.paths.chunkJournal(this.chunk));
-        if (journal.exists) {
-          const honesty = checkJournalClaimsVsBash(
-            journal.text,
-            this.attemptToolEvents,
-            this.attemptObservedFromStart,
-          );
-          if (honesty.ok === false) {
-            this.emit({
-              type: 'warning',
-              runId: this.id,
-              stage,
-              message: `честность журнала: ${honesty.detail}`,
-            });
-          }
-        }
-      }
+      // Улики этапа производит рантайм, а не исполнитель (патч и тесты chunk) — и только у
+      // неотменённого этапа.
+      if (!cancelled) await inv.evidence?.();
 
       this.reportArtifacts(stage);
 
@@ -2675,15 +2583,8 @@ ${block}`;
         return { ...result, ok: false, note };
       }
 
-      // Вердикт считается сразу после этапа 6 — по отчёту, который только что записан,
-      // и по прогону гейтов, который был до ревью. Отдельной кнопки у него нет: вердикт,
-      // который надо не забыть посчитать, рано или поздно не считают.
-      if (stage === 'verify') {
-        // Сверку патча с деревом делает рантайм и делает её ЗДЕСЬ — после ревью, но до
-        // подсчёта вердикта: раньше это условие держалось на фразе рецензента (r31).
-        this.state.verify.diffFactMatchesTree = await diffStillMatchesTree(this.host);
-        this.computeStageVerdict(this.detectNoProgress());
-      }
+      // Вердикт этапа (verify) — сразу после хода, по только что записанному отчёту.
+      await inv.verdict?.();
 
       // Последнее слово об исходе — за диском, а не за исполнителем. Модель, объявившая
       // ход завершённым и не записавшая ни одного из объявленных этапом артефактов,
@@ -2691,24 +2592,16 @@ ${block}`;
       // во флоу `sdk` цикл крутит харнесс, и другого места для этой проверки нет.
       const missingAfter = notDone();
       const failedSilently = result.ok && missingAfter.length > 0;
-      // Пустое дерево после этапа 5 — самостоятельный провал, наравне с незаполненным
-      // артефактом: свидетельства теперь кладёт рантайм, то есть «файлы на месте» перестало
-      // быть признаком сделанной работы. `unknown` роняет этап по той же причине — состояние
-      // дерева неизвестно, и считать его успехом значит зеленеть на непроверенном.
-      const treeProblem =
-        result.ok && stage === 'chunk' && this.state.chunk.tree !== 'changed'
-          ? this.state.chunk.tree === 'empty'
-            ? 'этап закончился, но дерево не изменилось: правки не было'
-            : 'этап закончился, но состояние дерева неизвестно: свидетельства попытки не записаны'
-          : null;
+      // Провал исхода, который этап видит сам (у chunk — дерево не изменилось или неизвестно).
+      const stageProblem = inv.outcomeProblem?.(result) ?? null;
       const outcome = failedSilently
         ? {
             ...result,
             ok: false,
             note: `этап закончился, но артефакт не заполнен: ${missingAfter.join(', ')}`,
           }
-        : treeProblem !== null
-          ? { ...result, ok: false, note: treeProblem }
+        : stageProblem !== null
+          ? { ...result, ok: false, note: stageProblem }
           : result;
 
       this.status = outcome.ok ? 'done' : 'failed';

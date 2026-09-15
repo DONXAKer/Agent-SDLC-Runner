@@ -35,6 +35,27 @@ describe('реестр этапов', () => {
   });
 });
 
+describe('runStage не ветвится по имени этапа', () => {
+  // Отличие этапа в рантайме — хук его модуля (`StageInvocation`), а не `stage === '…'` в общем
+  // каркасе: иначе логика этапа снова расползается по `Run.ts`, и изучить этап в одном файле
+  // нельзя. Комментарии не в счёт — в них история прежних ветвлений законна.
+  it('в runStage и finishFormArtifact нет сравнений stage с литералом', () => {
+    const text = readFileSync(join(STAGES_DIR, '..', 'Run.ts'), 'utf8');
+    for (const head of ['  async runStage(', '  private async finishFormArtifact(']) {
+      const start = text.indexOf(head);
+      ok(start >= 0, `в Run.ts нет ${head.trim()}`);
+      const end = text.indexOf('\n  }\n', start);
+      ok(end > start, `не найден конец ${head.trim()}`);
+      const code = text
+        .slice(start, end)
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|\*|\/\*\*)/.test(line))
+        .join('\n');
+      ok(!/\bstage\s*[!=]==\s*'/.test(code), `${head.trim()}: ветвление по имени этапа — место хуку модуля`);
+    }
+  });
+});
+
 describe('модули этапов не замыкают цикл импортов', () => {
   it('не импортируют фасад run/stages.ts и Run.ts как значение', () => {
     for (const file of files(STAGES_DIR)) {

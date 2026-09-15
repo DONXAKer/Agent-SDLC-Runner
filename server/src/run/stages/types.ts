@@ -15,7 +15,8 @@ import type { GatesFile } from '../../gates/gatesFile.ts';
 import type { TraceLabel } from '../../provider/rawLog.ts';
 import type { ExploreState } from './explore.ts';
 import type { VerifyState } from './verify/state.ts';
-import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, PreparedPrompt, RunMetrics, StageId, ToolName, Usage } from '@sdlc-runner/shared';
+import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, PreparedPrompt, RunEvent, RunMetrics, StageId, ToolName, Usage } from '@sdlc-runner/shared';
+import type { ChunkState } from './chunk/index.ts';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
 export type SeededArtifact = { path: string; snapshot?: string };
@@ -109,6 +110,16 @@ export interface StageHost {
   metrics(): RunMetrics;
   /** Контекст предусловий: пути витка, текущие chunk и попытка (`Run.ctx`). */
   ctx(): StageContext;
+  /** События инструментов текущей попытки — для сверки журнала с лентой. */
+  attemptToolEvents(): RunEvent[];
+  /** Видел ли этот процесс попытку с начала (`Run.attemptObservedFromStart`). */
+  attemptObservedFromStart(): boolean;
+  /** Состояние этапа 5 — живая ссылка на `Run.state.chunk`. */
+  readonly chunkState: ChunkState;
+  /** Детект «нет прогресса» с близостью патчей для интерфейса (`Run.detectNoProgress`). */
+  detectNoProgress(): boolean;
+  /** Вердикт этапа 6 с учётом попытки в метриках витка (`Run.computeStageVerdict`). */
+  computeStageVerdict(noProgress: boolean): void;
   /** Профиль витка: маршруты этапов и ансамбли. */
   profile(): ResolvedProfile;
 }
@@ -200,6 +211,31 @@ export interface StageInvocation {
   finishProblem?(): string | null;
   /** Сигнал прогресса анти-цикла и совет при его отсутствии; `acceptedWrites` — принятые правки дерева. */
   progress?(acceptedWrites: () => number): { progressSignal: () => number; progressHint: string };
+  /** Подготовка до раскладки форм — после подъёма MCP. */
+  beforeSeed?(): Promise<void>;
+  /** Доборы рантайма после хода модели, до дозаполнения по полям и ансамбля. */
+  afterTurn?(stagePrompt: PreparedPrompt, signal: AbortSignal): Promise<void>;
+  /**
+   * Дозаполнение артефакта этапа по полям после хода: `null` — не дозаполнять. `forced` —
+   * дозаполнять и без `ModelDef.formFill`; `extraBlock` — факт рантайма к промпту дозаполнения;
+   * `requireCodeChange` — переворот исхода в ok только при принятой правке кода; `honesty` —
+   * проверка добранного артефакта, которую плейсхолдеры не видят.
+   */
+  formFinish?(result: StageResult): {
+    path: string;
+    forced: boolean;
+    extraBlock: string | null;
+    requireCodeChange: boolean;
+    honesty?: () => string | null;
+  } | null;
+  /** После дозаполнения по полям (ансамбль рецензентов verify). */
+  afterForm?(prompt: PreparedPrompt, def: StageDef, agents: readonly SubagentDef[], hooks: ExecHooks): Promise<void>;
+  /** Улики этапа из фактов, а не из слов исполнителя; не зовётся у отменённого этапа. */
+  evidence?(): Promise<void>;
+  /** Вердикт этапа по только что записанному отчёту. */
+  verdict?(): Promise<void>;
+  /** Провал исхода, который этап видит сам, помимо незаполненного артефакта; `null` — нет. */
+  outcomeProblem?(result: StageResult): string | null;
 }
 
 export interface StageContext {

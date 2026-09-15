@@ -10,8 +10,9 @@ import { DECISION } from '../../../artifacts/artifact.ts';
 import { preflightBlockers } from '../../../sandbox/preflight.ts';
 import { RUNTIME_PROTECTED, exists, granted } from '../preconditions.ts';
 import type { StageDef, StageModule } from '../types.ts';
-import { gateReportBlock, runVerifyGates } from './gates.ts';
-import { autofillVerification, verifyGaps } from './records.ts';
+import { runEnsembleReviewers } from './ensemble.ts';
+import { diffStillMatchesTree, gateReportBlock, runVerifyGates } from './gates.ts';
+import { applyRecords, autofillVerification, topUpClaims, verifyGaps } from './records.ts';
 import { reviewerBlock, runReviewFill, runReviewerDirectly } from './reviewer.ts';
 
 export const verifyStage: StageDef = {
@@ -121,6 +122,42 @@ export const verifyModule: StageModule = {
             }
           : null,
       };
+    },
+
+    afterTurn: async (stagePrompt, signal) => {
+      // Поклаймовый добор (`ModelDef.claimFill`): пункты, о которых модель не сказала
+      // ничего, добираются по одному вопросу со срезом патча. ДО внесения записей —
+      // добранное идёт в отчёт тем же путём, что записанное вручную.
+      if (route.flow === 'loop' && (route.claimFill || route.reviewFill) && !signal.aborted) {
+        await topUpClaims(host, route, stagePrompt.system);
+      }
+
+      // Записи рецензента вносятся в отчёт ДО дозаполнения по полям и до ансамбля:
+      // дозаполнение считает оставшиеся плейсхолдеры, а маршруты ансамбля снимают копию
+      // канонического отчёта — оба обязаны видеть уже внесённые пункты и находки.
+      await applyRecords(host);
+    },
+
+    // Дозаполнение отчёта приёмки по полям (замер r9: рецензенту 14B при лимите 40 не
+    // хватало ходов именно на оформление отчёта). До ансамбля: дополнительные маршруты
+    // снимают копию канонического отчёта, и она обязана быть полной.
+    formFinish: () => ({
+      path: host.paths.verificationReport(host.chunk(), host.attempt()),
+      forced: false,
+      extraBlock: null,
+      requireCodeChange: false,
+    }),
+
+    afterForm: (prompt, def, agents, hooks) => runEnsembleReviewers(host, prompt, def, agents, hooks),
+
+    // Вердикт считается сразу после этапа 6 — по отчёту, который только что записан,
+    // и по прогону гейтов, который был до ревью. Отдельной кнопки у него нет: вердикт,
+    // который надо не забыть посчитать, рано или поздно не считают.
+    verdict: async () => {
+      // Сверку патча с деревом делает рантайм и делает её ЗДЕСЬ — после ревью, но до
+      // подсчёта вердикта: раньше это условие держалось на фразе рецензента (r31).
+      host.verifyState.diffFactMatchesTree = await diffStillMatchesTree(host);
+      host.computeStageVerdict(host.detectNoProgress());
     },
 
     // Прогресс этапа 6 — принятые записи отчёта. Анти-цикл обрывает этап только
