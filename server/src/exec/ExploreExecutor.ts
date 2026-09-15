@@ -261,6 +261,7 @@ export class ExploreExecutor implements StageExecutor {
         });
         usage = addUsage(usage, answer.usage);
         hooks.onUsage(answer.usage);
+        hooks.onExchange?.({ question: `## ${title}\n\n${body}`, answer: answer.text });
         if (answer.finishReason === 'max_tokens') {
           hooks.onFriction('truncated');
           notes.push(`${title}: ответ обрезан лимитом длины — разобрано то, что дошло`);

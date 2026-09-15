@@ -100,6 +100,18 @@ function PlainEvent({ e, currency }: { e: RunEvent; currency?: string }): JSX.El
     case 'thinking':
       return <div className="whitespace-pre-wrap italic text-neutral-500">{e.text}</div>;
 
+    // Узкий вопрос рантайма и ответ модели (поле бланка, вопрос разведки, шаг плана): ответ
+    // шага плана раньше шёл сюда `assistant_text` и без этого случая пропал бы из ленты.
+    case 'model_exchange':
+      return (
+        <div>
+          <div className="text-xs text-neutral-500">
+            ? {e.question.split('\n').map((l) => l.trim()).find((l) => l !== '') ?? ''}
+          </div>
+          <div className="whitespace-pre-wrap font-sans text-sm text-neutral-200">{e.answer}</div>
+        </div>
+      );
+
     // `tool_request` сюда не попадает: `groupEvents` заворачивает КАЖДЫЙ запрос в
     // группу `kind: 'tool'` (множество `requests` строится из тех же событий) — здесь
     // случай не нужен. Осиротевшими бывают только их `resolved`/`result` — см. ниже.

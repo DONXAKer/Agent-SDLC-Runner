@@ -452,7 +452,9 @@ export class StepExecutor implements StageExecutor {
       callsTotal++;
       usage = addUsage(usage, answer.usage);
       hooks.onUsage(answer.usage);
-      if (answer.text !== '') hooks.onText(answer.text);
+      // Обмен целиком, а не только текст ответа: без вопроса шага не видно, на что модель
+      // отвечала блоками замены. Последнее сообщение — запрос шага или его ремонта.
+      hooks.onExchange?.({ question: messages.at(-1)?.content ?? '', answer: answer.text });
       return { text: answer.text, finishReason: answer.finishReason };
     };
 

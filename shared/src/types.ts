@@ -695,6 +695,12 @@ export type RunEvent =
   | { type: 'prompt_prepared'; runId: string; stage: StageId; prompt: PreparedPrompt }
   | { type: 'assistant_text'; runId: string; stage: StageId; text: string }
   | { type: 'thinking'; runId: string; stage: StageId; text: string }
+  /**
+   * Узкий вопрос рантайма модели и её ответ — поле бланка, вопрос разведки, шаг плана.
+   * `question` — часть запроса об этом вопросе, без общего промпта этапа; оба поля обрезаны
+   * рантаймом по длине.
+   */
+  | { type: 'model_exchange'; runId: string; stage: StageId; question: string; answer: string }
   | {
       type: 'tool_request';
       runId: string;

@@ -93,6 +93,21 @@ function setup(): { root: string; artifact: string } {
 const exec = (provider: ChatProvider): FormFillExecutor =>
   new FormFillExecutor({ provider, maxResultBytes: 10_000, readRangeRequiredAboveBytes: 10_000, bashTimeoutMs: 1000 });
 
+describe('onExchange: что спросили у модели и что она ответила', () => {
+  it('хук получает карточку поля без общего промпта этапа и ответ модели', async () => {
+    const { root, artifact } = setup();
+    const exchanges: { question: string; answer: string }[] = [];
+    const h = { ...hooks({ writes: [] }, true), onExchange: (x: { question: string; answer: string }) => exchanges.push(x) } as ExecHooks;
+    await exec(fieldProvider({ 'что должно стать правдой': 'Демо работает', 'почему сейчас': 'Нужно к релизу' })).run(request(root, artifact), h);
+
+    ok(exchanges.length >= 2, String(exchanges.length));
+    const itog = exchanges.find((x) => x.question.includes('что должно стать правдой'));
+    ok(itog !== undefined, exchanges.map((x) => x.question.slice(0, 80)).join(' | '));
+    strictEqual(itog.answer, 'Демо работает');
+    ok(!itog.question.startsWith('задача: сделать демо'), itog.question.slice(0, 120));
+  });
+});
+
 describe('groupFields: строка таблицы — одно поле-образец', () => {
   it('два плейсхолдера в строке таблицы схлопываются в одно поле-строку', () => {
     const text = '| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | ‹поведение› | ‹критерий› |\n';

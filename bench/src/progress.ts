@@ -59,6 +59,9 @@ export function contextLine(tokens: number, window: number | undefined): string 
   return `${num(tokens)} / ${num(window)} (${Math.round((tokens / window) * 100)}%)`;
 }
 
+/** Сколько символов ответа модели печатать: лог читает человек, полный ответ — в ленте событий. */
+const EXCHANGE_ANSWER_PRINT = 1500;
+
 export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void {
   const write = o.write ?? ((line: string) => console.log(line));
   const now = o.now ?? (() => new Date());
@@ -94,6 +97,19 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
         write(`  · запрос ${requests}: контекст ${contextLine(input, o.contextWindowFor(e.stage))}, ответ ${num(e.usage.outputTokens)}`);
         return;
       }
+      case 'model_exchange': {
+        // Вопрос — первой непустой строкой (что спрашивали), ответ — как есть, с отступом:
+        // по нему видно, чем модель заполнила поле и почему оно могло остаться пустым.
+        const head = e.question.split('\n').map((l) => l.trim()).find((l) => l !== '') ?? '';
+        write(`  ? ${flat(head, 160)}`);
+        const answer = e.answer.length > EXCHANGE_ANSWER_PRINT ? `${e.answer.slice(0, EXCHANGE_ANSWER_PRINT)}…` : e.answer;
+        const lines = answer.trim() === '' ? ['(пустой ответ)'] : answer.trimEnd().split('\n');
+        for (const line of lines) write(`    │ ${line}`);
+        return;
+      }
+      case 'assistant_text':
+        write(`  ‹ ${flat(e.text, 600)}`);
+        return;
       case 'tool_request':
         if (!e.policy.ok) {
           denied.add(e.requestId);

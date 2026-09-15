@@ -71,4 +71,31 @@ describe('createProgressPrinter', () => {
     emit({ type: 'warning', runId: 'r', stage: 'intent', message: 'рантайм заполнил механические поля (3)' });
     deepStrictEqual(lines, ['    снят обрывом: прогон отменён', '  ⚠ рантайм заполнил механические поля (3)']);
   });
+
+  it('обмен с моделью: вопрос первой непустой строкой, ответ построчно; пустой ответ назван', () => {
+    const { lines, emit } = printer(32768);
+    emit({
+      type: 'model_exchange',
+      runId: 'r',
+      stage: 'intent',
+      question: '\n\n## Поле «Итог»\nПлейсхолдер: ‹что должно стать правдой›',
+      answer: 'Бесплатная доставка\nдля крупных отправлений',
+    });
+    emit({ type: 'model_exchange', runId: 'r', stage: 'intent', question: 'Поле «Зачем»', answer: '  ' });
+    deepStrictEqual(lines, [
+      '  ? ## Поле «Итог»',
+      '    │ Бесплатная доставка',
+      '    │ для крупных отправлений',
+      '  ? Поле «Зачем»',
+      '    │ (пустой ответ)',
+    ]);
+  });
+
+  it('длинный ответ обрезан; текст ассистента этапа с циклом — одной строкой', () => {
+    const { lines, emit } = printer(32768);
+    emit({ type: 'model_exchange', runId: 'r', stage: 'explore', question: 'q', answer: 'x'.repeat(5000) });
+    ok(lines[1]!.endsWith('…') && lines[1]!.length < 1600, String(lines[1]?.length));
+    emit({ type: 'assistant_text', runId: 'r', stage: 'chunk', text: 'Прочитаю\nфайл' });
+    strictEqual(lines.at(-1), '  ‹ Прочитаю файл');
+  });
 });

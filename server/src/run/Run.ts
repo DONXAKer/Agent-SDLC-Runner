@@ -310,6 +310,14 @@ const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
 const FORM_FILL_STAGES: ReadonlySet<StageId> = new Set(['intent', 'plan']);
 
 /**
+ * Потолки длины события `model_exchange`: лента пишется на диск на каждый узкий запрос, а
+ * вопрос шага плана несёт план и файл целиком — разбору «что спросили и что ответили»
+ * хватает начала вопроса и ответа почти целиком.
+ */
+const EXCHANGE_QUESTION_CHARS = 4000;
+const EXCHANGE_ANSWER_CHARS = 8000;
+
+/**
  * Какие строки гейтов прогонять ПОСЛЕ конкретного шага этапа 5 по шагам (`stepFill`,
  * флоу без tool-use, `StepExecutor.ts`).
  *
@@ -4241,6 +4249,16 @@ export class Run {
     const hooks: ExecHooks = {
       onText: (text) => this.emit({ type: 'assistant_text', runId: this.id, stage, text }),
       onThinking: (text) => this.emit({ type: 'thinking', runId: this.id, stage, text }),
+      // Потолки размера — лента событий пишется на диск на каждый запрос, а вопрос шага несёт
+      // план и файл целиком; разбору «что спросили и что ответили» хватает начала.
+      onExchange: ({ question, answer }) =>
+        this.emit({
+          type: 'model_exchange',
+          runId: this.id,
+          stage,
+          question: question.length > EXCHANGE_QUESTION_CHARS ? `${question.slice(0, EXCHANGE_QUESTION_CHARS)}…` : question,
+          answer: answer.length > EXCHANGE_ANSWER_CHARS ? `${answer.slice(0, EXCHANGE_ANSWER_CHARS)}…` : answer,
+        }),
 
       onToolRequest: async (call, meta) => {
         this.status = 'awaiting';

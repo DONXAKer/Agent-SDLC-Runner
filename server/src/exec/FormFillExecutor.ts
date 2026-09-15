@@ -403,8 +403,8 @@ export class FormFillExecutor implements StageExecutor {
   }
 
   /** Полевой запрос без инструментов — одна форма на все виды вопросов режима. */
-  private ask(req: ExecRequest, messages: ChatMessage[], hooks: ExecHooks): ReturnType<ChatProvider['chat']> {
-    return this.o.provider.chat({
+  private async ask(req: ExecRequest, messages: ChatMessage[], hooks: ExecHooks): ReturnType<ChatProvider['chat']> {
+    const answer = await this.o.provider.chat({
       model: req.model,
       messages,
       tools: [],
@@ -412,6 +412,11 @@ export class FormFillExecutor implements StageExecutor {
       temperature: null,
       params: this.paramsFor(messages, hooks),
     });
+    // В лог — карточка поля, а не весь промпт этапа, повторяющийся в каждом запросе.
+    const last = messages.at(-1)?.content ?? '';
+    const question = last.startsWith(req.prompt.user) ? last.slice(req.prompt.user.length).trim() : last;
+    hooks.onExchange?.({ question, answer: answer.text });
+    return answer;
   }
 
   /** Поля модели в режиме `compact` минус `skipFields` — один источник для прохода и для счёта остатка. */
