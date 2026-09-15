@@ -228,6 +228,15 @@ export class LoopExecutor implements StageExecutor {
     let usage: Usage = emptyUsage();
     let finalText = '';
     /**
+     * Сколько ходов рантайм САМ сжал `max_tokens` до пола и не смог уместить историю в
+     * бюджет. Нужно исходу этапа: обрыв по длине после такого сжатия — предел окна, а не
+     * отказ модели, и называть его «модель упёрлась» значит записывать в счёт модели чужую
+     * промашку (разбор серии v9, 2026-09-15: 3 прогона из 5 кончились так, и в логе прямо
+     * над отказом стояли обе ноты рантайма).
+     */
+    let clampedTurns = 0;
+    let historyOverBudget = false;
+    /**
      * Занято окна по измерению сервера: `prompt_tokens + completion_tokens` ПРЕДЫДУЩЕГО
      * ответа — вход расчёта `max_tokens`, см. `paramsFor`. `null` — измерения нет.
      */
@@ -347,12 +356,13 @@ export class LoopExecutor implements StageExecutor {
       const outgoing =
         this.o.historyBudgetBytes === undefined
           ? messages
-          : trimHistory(messages, this.o.historyBudgetBytes, undefined, (total, budget) =>
+          : trimHistory(messages, this.o.historyBudgetBytes, undefined, (total, budget) => {
+              historyOverBudget = true;
               hooks.onWarn(
                 `история хода превышает бюджет даже после сокращения заглушками: ${total} байт ` +
                   `из ${budget} — ответы человека и последние результаты рантайм не трогает никогда`,
-              ),
-            );
+              );
+            });
       const startedAt = Date.now();
       const answer = await this.o.provider.chat({
         model: req.model,
@@ -360,7 +370,9 @@ export class LoopExecutor implements StageExecutor {
         tools,
         signal: req.signal,
         temperature: this.o.temperature,
-        params: this.paramsFor(outgoing, tools, lastUsedTokens, hooks),
+        params: this.paramsFor(outgoing, tools, lastUsedTokens, hooks, () => {
+          clampedTurns++;
+        }),
       });
 
       usage = addUsage(usage, answer.usage);
@@ -487,10 +499,22 @@ export class LoopExecutor implements StageExecutor {
           }
         }
 
+        // Кто именно упёрся. Если рантайм САМ сжал `max_tokens` до пола или не уместил
+        // историю в бюджет, обрыв по длине — предел окна, а не отказ модели: писать
+        // «модель упёрлась» значит записывать чужую промашку в счёт модели, а по этим
+        // нотам потом выбирают модель (`docs/model-runs.md`). Подстрока «обрезан лимитом
+        // длины» сохранена намеренно: по ней `Run.isFormattingFailure` узнаёт класс и
+        // запускает спасение текста и дозаполнение.
+        const squeezed = clampedTurns > 0 || historyOverBudget;
         const note = done
           ? 'модель завершила ход'
           : answer.finishReason === 'max_tokens'
-            ? 'модель упёрлась в лимит длины ответа'
+            ? squeezed
+              ? 'ответ обрезан лимитом длины, который выставил сам рантайм: история этапа не ' +
+                'уместилась в окно' +
+                (historyOverBudget ? ' (сокращение заглушками не помогло)' : '') +
+                `, max_tokens садился на пол на ${clampedTurns} ходах — это предел окна, а не отказ модели`
+              : 'модель упёрлась в лимит длины ответа'
             : `ход оборван: причина завершения «${answer.finishReason}», вызовов инструментов нет`;
         return { ok: done, finalText, usage, note };
       }
@@ -526,7 +550,7 @@ export class LoopExecutor implements StageExecutor {
         // Отпечаток хода целиком, а не последнего вызова: пока `repeats` здесь обнулялся
         // безусловно, модель, повторяющая одну и ту же пару `Task`, крутилась до
         // `maxTurns`, и каждый ход стоил двух полных вложенных прогонов.
-        const turnFingerprint = answer.toolCalls.map(callFingerprint).join(' ');
+        const turnFingerprint = answer.toolCalls.map(callFingerprint).join('\u0000');
         repeats = turnFingerprint === lastFingerprint ? repeats + 1 : 0;
         lastFingerprint = turnFingerprint;
         if (repeats > 0) hooks.onFriction('repeat');
@@ -771,6 +795,8 @@ export class LoopExecutor implements StageExecutor {
     tools: readonly unknown[],
     measured: number | null,
     hooks: ExecHooks,
+    /** Остаток окна ушёл ниже пола — цикл считает такие ходы, чтобы честно назвать виновника. */
+    onClamp: () => void,
   ): Record<string, unknown> | null {
     if (this.o.contextWindow === undefined) return this.o.params ?? null;
     const promptTokens =
@@ -782,12 +808,14 @@ export class LoopExecutor implements StageExecutor {
       params: this.o.params,
       promptTokens,
       marginTokens: margin,
-      onClamped: (maxTokens) =>
+      onClamped: (maxTokens) => {
+        onClamp();
         hooks.onWarn(
           `окно контекста (${window}) почти исчерпано: занято ~${promptTokens} ` +
             `токенов из истории плюс запас ${margin} — max_tokens ограничен полом ${maxTokens}, ` +
             'переполнение всё ещё вероятно',
-        ),
+        );
+      },
     });
   }
 

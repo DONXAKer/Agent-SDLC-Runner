@@ -113,7 +113,7 @@ function currentFieldId(
   field: SchemaField,
   filled: ReadonlySet<SchemaField>,
 ): string {
-  const key = (f: SchemaField): string => [f.section, f.label ?? '', f.kind, f.shape, f.placeholders[0]?.text ?? ''].join(' ');
+  const key = (f: SchemaField): string => [f.section, f.label ?? '', f.kind, f.shape, f.placeholders[0]?.text ?? ''].join('\u0000');
   const wanted = key(field);
   const ordinal = original.slice(0, original.indexOf(field)).filter((f) => !filled.has(f) && key(f) === wanted).length;
   const matches = fresh.filter((f) => key(f) === wanted);

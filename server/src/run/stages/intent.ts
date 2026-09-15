@@ -3,7 +3,7 @@
 import { DecisionFormError, readArtifact, readField, setDecision } from '../../artifacts/artifact.ts';
 import { currentBranch, isRepo } from '../../gates/git.ts';
 import { autofillReadiness } from '../formAutofill.ts';
-import { intentPlaceholdersOutsideTouch } from './preconditions.ts';
+import { claimsMinimum, intentPlaceholdersOutsideTouch } from './preconditions.ts';
 import type { SeededArtifact, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 
 /**
@@ -152,7 +152,17 @@ export const intentModule: StageModule = {
     // разбор серии v5, 2026-09-14: 4 из 22 прогонов упёрлись ровно в это).
     finishProblem: () => {
       const problem = intentPlaceholderProblem(host.ctx());
-      return problem === null ? null : `${problem}. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`;
+      if (problem !== null) {
+        return `${problem}. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`;
+      }
+      // Минимум приёмочного листа — той же проверкой, что стоит предусловием входа в
+      // разведку (`claimsMinimum`), но в ходу САМОГО этапа 1. Пока она была только
+      // предусловием, недобор выглядел так: дозаполнение честно писало «добор поля
+      // приемочный лист не закрыл минимум за 2 попытки: строк 11 (нужно 3), [edge] 0
+      // (нужно 2) — этап 3 отклонит», этап всё равно закрывался ✅, и виток вставал на
+      // входе разведки, где чинить уже некому (разбор серии v9, 2026-09-15). Тот же класс
+      // потери, что `intentPlaceholderProblem` рядом.
+      return claimsMinimum().check(host.ctx());
     },
   }),
 };

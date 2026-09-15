@@ -274,7 +274,7 @@ interface Masked {
   inner: string[];
 }
 
-const MASK = ' ';
+const MASK = '\u0000';
 
 /** Плейсхолдеры заменяются меткой, чтобы « / » и «:» внутри них не резали строку. */
 function mask(s: string): Masked {
