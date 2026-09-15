@@ -109,6 +109,7 @@ import { deriveClaimsBlind, intentSectionsForBlind, type BlindClaimsResult } fro
 import { briefFromIntent, titleFromIntent } from './exploreAutofill.ts';
 import { loadSubagent } from '../exec/subagents.ts';
 import { appendIteration, parseIterations } from './iterationsLog.ts';
+import { postmortemBlock } from './postmortem.ts';
 import { metricsBlock } from './metricsReport.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
