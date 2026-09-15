@@ -609,6 +609,26 @@ describe('runStage: эталон поведения витка', () => {
     );
   });
 
+  it('поклаймовый добор (claimFill): пункт без записи спрашивается узким вопросом со срезом патча', async () => {
+    await scenario(
+      'claim-fill',
+      {
+        intent: INTENT_REPLIES(),
+        plan: PLAN_REPLIES(),
+        chunk: CHUNK_REPLIES(),
+        // Ход рецензента без записей, затем ответ на узкий вопрос добора по claim-1.
+        verify: [{ text: 'проверено' }, { text: 'claim-1: ✅ — src/app.js:1 `export const version = 2;`' }],
+      },
+      async (run, results) => {
+        await toChunkDone(run, results);
+        results['verify:1'] = await run.runStage('verify');
+        results['verdict:1'] = run.lastVerdict;
+      },
+      GATES,
+      { route: { claimFill: true } },
+    );
+  });
+
   it('записи рецензента и повтор: RecordClaim ❌ → вторая попытка chunk с тем же патчем → verify', async () => {
     const claim: Reply = {
       tool: 'RecordClaim',
