@@ -103,6 +103,12 @@ export interface DriverArgs {
    * он про виток, а не про файловую систему снимков.
    */
   stopAfterStage?: StageId;
+  /**
+   * Строка о ветке решения драйвера — для живого вывода в консоль. Решение не принимает и
+   * ни на что не влияет: блокировка, повтор из-за среды, итог verify видны сразу, а не
+   * только в `result.json` после прогона.
+   */
+  onDecision?: (line: string) => void;
 }
 
 /** Индекс этапа `chunk` в `STAGE_ORDER` — сюда прыгает `retry`. */
@@ -212,6 +218,7 @@ export function decideAfterStageFailure(args: {
 
 export async function runBench(args: DriverArgs): Promise<DriverResult> {
   const { run, stageTimeoutMs, runTimeoutMs, attempts } = args;
+  const say = args.onDecision ?? ((): void => {});
   const stages: DriverStageRecord[] = [];
   const deadline = Date.now() + runTimeoutMs;
 
@@ -231,6 +238,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     const stage = STAGE_ORDER[i]!;
 
     if (Date.now() > deadline) {
+      say(`⏱ виток превысил лимит стенных часов (${runTimeoutMs} мс) — остановка`);
       return { stages, finalVerdict: run.lastVerdict, stopped: 'run-timeout' };
     }
 
@@ -249,6 +257,10 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
         skipped: false,
         ...(blamed === null ? {} : { blamedStage: blamed }),
       });
+      say(
+        `⛔ ${stage} не стартовал${blamed === null ? '' : ` — вход завалил артефакт этапа ${blamed}`}: ` +
+          blockers.join(' / '),
+      );
       return { stages, finalVerdict: run.lastVerdict, stopped: 'blocked' };
     }
 
@@ -279,6 +291,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     });
 
     if (timedOut) {
+      say(`⏱ ${stage}: превышен лимит стенных часов этапа (${stageTimeoutMs} мс) — остановка`);
       return { stages, finalVerdict: run.lastVerdict, stopped: 'stage-timeout' };
     }
     if (!result.ok) {
@@ -288,6 +301,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
         alreadyRetriedThisStage: envRetriedStage === stage,
       });
       if (decision.kind === 'retry-stage-env') {
+        say(`↻ ${stage}: отказ среды (${result.envFailure}) — один повтор этапа`);
         envRetriedStage = stage;
         // Повтор — тот же `stage`/`chunk`/`attempt`, и цикл вернётся к нему без инкремента
         // `i`: сам этап один, а не два, и провальная запись здесь — промежуточный шум, не
@@ -297,6 +311,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
         stages.pop();
         continue;
       }
+      say(`■ ${stage} провалился — остановка «${decision.reason}»`);
       return { stages, finalVerdict: run.lastVerdict, stopped: decision.reason };
     }
     envRetriedStage = null;
@@ -326,11 +341,13 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
           last.ok = false;
           last.note = `${last.note}; решение человека не записалось: ${msg}`;
         }
+        say(`■ ${stage}: решение человека не записалось (форма испорчена моделью) — ${msg}`);
         return { stages, finalVerdict: run.lastVerdict, stopped: 'blocked' };
       }
     }
 
     if (stage === args.stopAfterStage) {
+      say(`📸 точка снимка после ${stage} — остановка`);
       return { stages, finalVerdict: run.lastVerdict, stopped: 'snapshot-point' };
     }
 
@@ -357,9 +374,11 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     });
 
     if (decision.kind === 'stop') {
+      say(`⚖ verify: вердикт «${verdict.action}» — остановка «${decision.reason}»`);
       return { stages, finalVerdict: verdict, stopped: decision.reason };
     }
     if (decision.kind === 'retry-verify-env') {
+      say('↻ verify: вердикт «blocked_env» — повтор verify без новой попытки');
       blockedEnvStreak += 1;
       // Повтор verify без нового номера попытки — тот же индекс цикла.
       continue;
@@ -367,11 +386,13 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     blockedEnvStreak = 0;
     if (decision.kind === 'retry') {
       run.nextAttempt();
+      say(`↻ verify: вердикт «retry» — назад на chunk, попытка ${run.attempt}`);
       i = CHUNK_INDEX;
       continue;
     }
 
     // 'continue' — вердикт зелёный, виток идёт дальше к handoff.
+    say('⚖ verify: вердикт зелёный — дальше handoff');
     i += 1;
   }
 

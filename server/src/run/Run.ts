@@ -310,24 +310,6 @@ const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
 const FORM_FILL_STAGES: ReadonlySet<StageId> = new Set(['intent', 'plan']);
 
 /**
- * Потолок ходов дозаполнения (`fillFormFields`) — не плоская константа, а функция от
- * реального числа незакрытых мест: `12` был откалиброван под журнал chunk'а («полей в
- * журнале единицы»), но тот же вызов достаётся и `exploration-report.md`, где мест часто
- * заметно больше десятка — с плоской константой добор упирался в потолок ходов, не
- * ответив хотя бы раз на КАЖДОЕ поле (живой замер: `gemma-4-e4b`/`security-bait`,
- * 2026-09-13 — 17 мест, потолок 12, добор остановился на 11/17, `ход` истёк раньше, чем
- * добор дошёл до последних полей). Запас сверх количества мест — под добор списков
- * (`askClaimsTopUp`/`askFilesToTouchTopUp`), который тратит ходы, не закрывая НОВОЕ поле.
- */
-const FILL_TURNS_FLOOR = 12;
-const FILL_TURNS_MARGIN = 6;
-const FILL_TURNS_CEILING = 60;
-
-export function fillTurnsFor(remainingPlaceholders: number): number {
-  return Math.min(FILL_TURNS_CEILING, Math.max(FILL_TURNS_FLOOR, remainingPlaceholders + FILL_TURNS_MARGIN));
-}
-
-/**
  * Какие строки гейтов прогонять ПОСЛЕ конкретного шага этапа 5 по шагам (`stepFill`,
  * флоу без tool-use, `StepExecutor.ts`).
  *
@@ -2118,7 +2100,7 @@ export class Run {
     let requests = result.modelRequests ?? 0;
     const remaining = countPlaceholdersExceptDecisions(readArtifact(path).text);
     if (remaining > 0) {
-      const fill = await this.fillFormFields(stage, path, prompt, hooks, signal, remaining);
+      const fill = await this.fillFormFields(stage, path, prompt, hooks, signal);
       requests += fill.modelRequests;
       result = { ...result, ...(requests === 0 ? {} : { modelRequests: requests }) };
       if (!fill.ok) return result;
@@ -2156,10 +2138,8 @@ export class Run {
 
   /**
    * Дозаполнение полей артефакта per-field completion'ами. `ok: false` — поля не закрылись;
-   * `modelRequests` — сколько обращений к модели оно стоило (идёт в итог этапа).
-   *
-   * `remainingPlaceholders` — сколько мест не закрыто ПЕРЕД добором: потолок ходов
-   * (`fillTurnsFor`) считается от него, не плоской константой (см. комментарий там).
+   * `modelRequests` — сколько обращений к модели оно стоило (идёт в итог этапа). Бюджет
+   * запросов считает само дозаполнение от числа полей (`fillRequestBudget`).
    */
   private async fillFormFields(
     stage: StageId,
@@ -2167,7 +2147,6 @@ export class Run {
     prompt: PreparedPrompt,
     hooks: ExecHooks,
     signal: AbortSignal,
-    remainingPlaceholders: number,
   ): Promise<{ ok: boolean; modelRequests: number }> {
     const route = this.profile.routes[stage];
     const limits = this.config.runner.limits;
@@ -2207,10 +2186,9 @@ export class Run {
         finishGuard: () =>
           countPlaceholdersExceptDecisions(readArtifact(path).text) > 0 ? 'в артефакте остались незаполненные поля' : null,
         salvageFromText: null,
-        // Потолок — от реального числа мест, не плоская константа (см. `fillTurnsFor`):
-        // лимит этапа уже сожжён исполнителем, но добор не должен упираться в потолок
-        // раньше, чем дойдёт до КАЖДОГО поля хотя бы раз.
-        maxTurns: fillTurnsFor(remainingPlaceholders),
+        // Дозаполнение лимит ходов не читает — бюджет запросов у него от числа полей
+        // (`fillRequestBudget`); поле обязательно для контракта исполнителя.
+        maxTurns: this.maxTurnsFor(stage),
         maxBudgetUsd: this.project.maxBudgetUsd,
         spentUsdBefore: this.spent.spent(route.providerDef.currency ?? 'USD'),
         formArtifacts: [path],

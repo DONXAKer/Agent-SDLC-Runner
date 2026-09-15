@@ -87,6 +87,11 @@ export interface BenchOptions {
    */
   preflight: boolean;
   /**
+   * Не печатать живой ход прогона (этапы, вызовы, ветки решений, контекст) — `--quiet`.
+   * По умолчанию печатается: без него прогон молчал часами до итоговой сводки.
+   */
+  quiet: boolean;
+  /**
    * Имя снимка (шаг 6 ROADMAP.md), который сделать сразу после успешного `plan` этого
    * прогона, вместо того чтобы идти дальше к `chunk`. Прогон останавливается на снимке —
    * это отдельный режим, не довесок к измерению.
@@ -216,6 +221,7 @@ ${taskListForUsage()}
   --preflight           преполётный тест вместо прогона: среда (фикстура/снимок/конфиг) +
                         расширенная проба модели (точность записи, честность путей, длина ответа)
   --no-preflight        не гонять преполёт автоматически перед живым прогоном (по умолчанию гоняется)
+  --quiet               не печатать живой ход прогона: этапы, вызовы, ветки решений, контекст
   --make-snapshot <имя> остановиться после точки снимка и сохранить снимок под этим именем
   --snapshot-after <этап> точка снимка для --make-snapshot (умолчание plan)
   --from-snapshot <имя> начать с этого снимка — со следующего этапа после его точки
@@ -256,6 +262,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let probe = false;
   let preflightOnly = false;
   let preflight = true;
+  let quiet = false;
   let makeSnapshot: string | null = null;
   let fromSnapshot: string | null = null;
   // `null` — ключ не задан; умолчание `plan` подставляется на выходе. Один факт в одной
@@ -364,6 +371,9 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         break;
       case '--no-preflight':
         preflight = false;
+        break;
+      case '--quiet':
+        quiet = true;
         break;
       case '--make-snapshot':
         makeSnapshot = next(i, key);
@@ -474,6 +484,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     probe,
     preflightOnly,
     preflight,
+    quiet,
     makeSnapshot,
     fromSnapshot,
     snapshotAfter: snapshotAfter ?? 'plan',

@@ -198,6 +198,25 @@ export type FormField =
     };
 
 /**
+ * Бюджет запросов дозаполнения — от числа полей бланка, а не от лимита ходов этапа.
+ *
+ * Запрос поля ходом не является, и потолок `maxTurns` мерил не то: серия v7 (2026-09-15)
+ * подняла лимит стенда 25 → 40 до штатного, и intent стал делать ровно 40 запросов вместо
+ * 25 на каждом прогоне, удвоив время этапа, — а бланк всё равно оставался с незакрытыми
+ * полями («заполнено 26, осталось 8»): на 34 поля не хватало ни 25, ни 40. Здесь бюджет —
+ * по одному запросу на поле, половина сверху на второй проход по недобранным и запас под
+ * добор листов (`CLAIMS_TOPUP_ATTEMPTS`); пол — маленький журнал, потолок — чтобы бланк на
+ * сотни мест не жёг часы.
+ */
+const FILL_REQUESTS_FLOOR = 12;
+const FILL_REQUESTS_MARGIN = 6;
+const FILL_REQUESTS_CEILING = 90;
+
+export function fillRequestBudget(fields: number): number {
+  return Math.min(FILL_REQUESTS_CEILING, Math.max(FILL_REQUESTS_FLOOR, Math.ceil(fields * 1.5) + FILL_REQUESTS_MARGIN));
+}
+
+/**
  * Поля бланка, которые спрашиваются у модели: `groupFields` минус поля рантайма схемы.
  *
  * Карточный режим (`compact`) отсекал их всегда (`modelFields`), а основной путь шёл по
@@ -568,6 +587,8 @@ export class FormFillExecutor implements StageExecutor {
             : modelGroupFields(a.text, p).length)
         );
       }, 0);
+    // Считается один раз, по бланкам на входе: `req.maxTurns` здесь не читается вовсе.
+    const requestBudget = fillRequestBudget(fieldsLeftOnDisk());
 
     /**
      * Запись собранного текста через гейт — тем же путём, что любая запись исполнителя:
@@ -866,7 +887,7 @@ export class FormFillExecutor implements StageExecutor {
       for (let batchStart = 0; batchStart < fields.length; batchStart += FIELD_PARALLEL) {
         if (req.signal.aborted) return { stop: { ok: false, finalText: '', usage, note: 'этап отменён' }, changed, text };
 
-        const allowed = Math.min(FIELD_PARALLEL, req.maxTurns - callsSpent);
+        const allowed = Math.min(FIELD_PARALLEL, requestBudget - callsSpent);
         const batch = fields.slice(batchStart, batchStart + FIELD_PARALLEL);
         if (allowed <= 0) continue;
         const asked = batch.slice(0, allowed);
@@ -897,7 +918,7 @@ export class FormFillExecutor implements StageExecutor {
           // задаётся один раз, оба текста склеиваются, и только тогда — единственный
           // applyFill. Дубли верхнего уровня из повторного ответа модели отсекаются по
           // нормализованному содержимому строки, тем же приёмом, что у legacy-добора.
-          if (field.kind === 'records' && field.min !== undefined && callsSpent < req.maxTurns) {
+          if (field.kind === 'records' && field.min !== undefined && callsSpent < requestBudget) {
             const min = field.min;
             // Тот же класс бага, что у legacy-добора (askClaimsTopUp): один выстрел без
             // перепроверки засчитывал добор успешным, даже если добавленные записи не
@@ -911,7 +932,7 @@ export class FormFillExecutor implements StageExecutor {
                 ? { rows: peek.rows.length, edges }
                 : null;
             };
-            for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < req.maxTurns; attempt++) {
+            for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < requestBudget; attempt++) {
               if (shortfall(answerText) === null) break;
               callsSpent++;
               try {
@@ -1029,7 +1050,7 @@ export class FormFillExecutor implements StageExecutor {
 
           // Потолок вызовов — тот же лимит ходов этапа: поле дешевле хода, но безлимитный
           // бланк на сотню плейсхолдеров съел бы больше, чем обычный цикл.
-          const allowed = Math.min(FIELD_PARALLEL, req.maxTurns - callsSpent);
+          const allowed = Math.min(FIELD_PARALLEL, requestBudget - callsSpent);
           const batch = ranges.slice(batchStart, batchStart + FIELD_PARALLEL);
           if (allowed <= 0) continue;
           const asked = batch.slice(0, allowed);
@@ -1068,7 +1089,7 @@ export class FormFillExecutor implements StageExecutor {
               (filled === '' || filled.includes('‹')) &&
               range.kind === 'row' &&
               FILES_TO_TOUCH_HEADER.test(range.header) &&
-              callsSpent < req.maxTurns
+              callsSpent < requestBudget
             ) {
               callsSpent++;
               try {
@@ -1093,14 +1114,14 @@ export class FormFillExecutor implements StageExecutor {
             if (filled === '' || filled.includes('‹')) continue;
             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому
             // контуру переизбыток пунктов не вредит (его мягкий минимум знает гейт).
-            if (range.kind === 'row' && /claim-/.test(range.text) && callsSpent < req.maxTurns) {
+            if (range.kind === 'row' && /claim-/.test(range.text) && callsSpent < requestBudget) {
               // Один выстрел без перепроверки однажды считал добор успешным, даже если
               // добавленные строки не несли [edge]: заметка «добавлено M» писалась
               // независимо от факта, а предусловие explore честно находило тот же
               // дефицит (r-серия свипа 2026-09-04, docs/model-runs.md). Теперь после
               // каждой попытки — реальный пересчёт `countClaims`, вторая попытка (если
               // нужна) называет дефицит прямо, а не повторяет ту же общую просьбу.
-              for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < req.maxTurns; attempt++) {
+              for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < requestBudget; attempt++) {
                 const have = countClaims(filled);
                 if (have.rows >= CLAIMS_MINIMUM.rows && have.edges >= CLAIMS_MINIMUM.edges) break;
                 callsSpent++;
@@ -1202,7 +1223,7 @@ export class FormFillExecutor implements StageExecutor {
     // БЕСПЛАТНА и лимитом ходов не запирается — иначе оплаченный текст, ради спасения
     // которого pendingText заведён, терялся бы ровно на исчерпанном лимите, ревью-4).
     const leftRetriable = fieldsLeftOnDisk(true);
-    const retriable = (leftRetriable > 0 && callsSpent < req.maxTurns) || pendingText.size > 0;
+    const retriable = (leftRetriable > 0 && callsSpent < requestBudget) || pendingText.size > 0;
     let secondSweep = false;
     if (retriable && !req.signal.aborted) {
       secondSweep = true;

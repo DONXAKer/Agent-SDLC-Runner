@@ -45,6 +45,7 @@ import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
 import { draftJournalEntry } from './journal.ts';
+import { createProgressPrinter } from './progress.ts';
 
 const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RESULTS_DIR = join(BENCH_DIR, 'results');
@@ -291,9 +292,17 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   const operatorLog = emptyOperatorLog();
 
   let runId = '';
+  // Живой ход прогона в консоль — тот же поток событий, что у коллектора; `--quiet` снимает.
+  const progress = opts.quiet
+    ? null
+    : createProgressPrinter({
+        contextWindowFor: (stage) => built.profile.routes[stage].contextWindow,
+        routeFor: (stage) => built.routes[stage],
+      });
   const collector = createCollector({
     projectRoot: () => wsRoot,
     slug: () => opts.slug,
+    ...(progress === null ? {} : { onEvent: progress }),
   });
 
   // Коллектор и автоответчик — два независимых подписчика ОДНОГО и того же потока
@@ -408,6 +417,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       // умолчание plan) — снимок пишется НИЖЕ, из уже остановленного дерева, а не из
       // драйвера: он про виток, не про файлы снимка.
       ...(opts.makeSnapshot === null ? {} : { stopAfterStage: opts.snapshotAfter }),
+      ...(opts.quiet ? {} : { onDecision: (line: string) => console.log(line) }),
     });
     const finishedAt = new Date();
 

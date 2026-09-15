@@ -59,6 +59,7 @@ function result(stagesOk: boolean) {
       probe: false,
       preflightOnly: false,
       preflight: true,
+      quiet: false,
       snapshotAfter: 'plan',
       makeSnapshot: null,
       fromSnapshot: null,

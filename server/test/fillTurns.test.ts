@@ -1,26 +1,25 @@
 /**
- * `fillTurnsFor` — потолок ходов дозаполнения (`Run.fillFormFields`) от реального числа
- * незакрытых мест, не плоская константа. Живой замер `gemma-4-e4b`/`security-bait`
- * (2026-09-13): 17 мест, плоский потолок 12 — добор остановился на 11/17, не дойдя до
- * каждого поля хотя бы раз.
+ * `fillRequestBudget` — бюджет запросов дозаполнения по полям от числа полей бланка, а не
+ * от лимита ходов этапа. Серия v7 (2026-09-15): лимит стенда 25 → 40 превратил intent в
+ * ровно 40 запросов на каждом прогоне, а 34 поля бланка всё равно не закрывались.
  */
 
 import { strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { fillTurnsFor } from '../src/run/Run.ts';
+import { fillRequestBudget } from '../src/exec/FormFillExecutor.ts';
 
-describe('fillTurnsFor', () => {
-  it('маленький журнал (единицы мест) — пол 12, как раньше', () => {
-    strictEqual(fillTurnsFor(0), 12);
-    strictEqual(fillTurnsFor(3), 12);
+describe('fillRequestBudget', () => {
+  it('маленький журнал (единицы полей) — пол 12', () => {
+    strictEqual(fillRequestBudget(0), 12);
+    strictEqual(fillRequestBudget(3), 12);
   });
 
-  it('большой отчёт (17 мест) — потолок растёт с запасом под добор списков', () => {
-    strictEqual(fillTurnsFor(17), 23);
+  it('бланк intent (34 поля) — поле, половина на второй проход и запас под добор листов', () => {
+    strictEqual(fillRequestBudget(34), 57);
   });
 
-  it('потолок не растёт бесконечно — есть верхняя граница', () => {
-    strictEqual(fillTurnsFor(1000), 60);
+  it('бюджет не растёт бесконечно — есть верхняя граница', () => {
+    strictEqual(fillRequestBudget(1000), 90);
   });
 });
