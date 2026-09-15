@@ -68,7 +68,6 @@ import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/sc
 import { FormFillExecutor } from '../exec/FormFillExecutor.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { normalize } from '../exec/normalize.ts';
-import { isToolName } from '../exec/toolSpecs.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
 import { edgeExampleLines } from '../artifacts/edgeExample.ts';
 import { createProvider } from '../provider/registry.ts';
@@ -79,7 +78,6 @@ import type {
   McpAccess,
   StageExecutor,
   StageResult,
-  SubagentDef,
 } from '../exec/StageExecutor.ts';
 import { REVIEWER_AGENTS } from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
@@ -96,20 +94,14 @@ import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName } from '../gates/run.ts';
 import { git, hasCommits, workingDiff } from '../gates/git.ts';
 import { autofillClarification, autofillPlan, autofillReadiness, autofillTitle } from './formAutofill.ts';
-import { anchorFound, renderRecords } from './verifyReport.ts';
 import { claimIdOf } from '../artifacts/claims.ts';
-import { fillClaims } from './claimFill.ts';
-import type { ClaimAsk } from './claimFill.ts';
-import type { ClaimRecord, FindingRecord } from './verifyReport.ts';
 import { salvageBlocks } from './salvage.ts';
 import { preflightBlockers } from '../sandbox/preflight.ts';
 import { collectVerdictInput, manualClaimIds } from '../verdict/collect.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief, claimTextCell, type RetryDetail } from '../verdict/retryBrief.ts';
-import { parsePlanAxes, planAxisProblems, unansweredAxes } from '../artifacts/planAxes.ts';
 import { applyAxisAnswers } from '../artifacts/renderAxes.ts';
 import { fillPlanAxes } from './planAxisFill.ts';
-import { reviewByHunks } from './reviewFill.ts';
 import { intentKeywords, type Keywords } from '../explore/keywords.ts';
 import { readTree } from '../explore/tree.ts';
 import type { ExploreIndex } from '../explore/types.ts';
@@ -127,7 +119,6 @@ import { metricsBlock } from './metricsReport.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
 import type { Escalation } from './escalation.ts';
-import { readReport } from '../verdict/collect.ts';
 import { computeVerdict } from '../verdict/verdict.ts';
 import { checkJournalClaimsVsBash } from '../verdict/honesty.ts';
 import { buildPrompt } from '../prompt/build.ts';
@@ -180,6 +171,8 @@ import {
   topUpClaims,
   verifyGaps,
 } from './stages/verify/records.ts';
+import { runEnsembleReviewers } from './stages/verify/ensemble.ts';
+import { runReviewFill, runReviewerDirectly } from './stages/verify/reviewer.ts';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -419,6 +412,16 @@ export class Run {
       aborterSignal: () => this.aborter?.signal,
       attemptBudget: () => this.attemptBudget,
       carryForward: () => this.carryForward,
+      markReviewerRan: () => this.markReviewerRan(),
+      toolsFor: (stage) => this.toolsFor(stage),
+      executorFor: (stage, route) => this.executorFor(stage, route),
+      mcpAccess: (stage) => this.mcpAccess(stage),
+      maxTurnsFor: (stage) => this.maxTurnsFor(stage),
+      readOnlyRoots: () => this.readOnlyRoots,
+      maxBudgetUsd: this.project.maxBudgetUsd,
+      spentBefore: (currency) => this.spent.spent(currency),
+      verifyRoute: () => this.profile.routes.verify,
+      ensembleRoutes: () => this.profile.ensemble.verify ?? [],
     };
   }
   /**
@@ -1662,405 +1665,6 @@ export class Run {
   }
 
   /**
-   * Ревью по хункам (`ModelDef.reviewFill`): конвейер закрытых вопросов вместо
-   * свободного хода рецензента — см. шапку `run/reviewFill.ts`.
-   *
-   * Гейт «Ревью независимым агентом» ставится по факту, который рантайм видел сам:
-   * каждый фрагмент патча показан модели и на каждый получен ответ. Планка якоря здесь
-   * не нужна — чтение diff'а обеспечено конструкцией, а не доверием к тексту; сводка и
-   * так называет проверенные файлы. Неполный конвейер (упавшие запросы) гейт не зеленит.
-   *
-   * `null` — ревью не состоялось: патча нет, либо прогон отменён до первого вопроса.
-   */
-  private async runReviewFill(route: ResolvedRoute): Promise<string | null> {
-    const aborter = this.aborter;
-    if (aborter === null) return null;
-    const diff = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt));
-    if (!diff.exists || diff.text.trim() === '') {
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage: 'verify',
-        message: `ревью по хункам не запущено: патча попытки нет — гейт «${REVIEW_GATE}» остаётся ⏭`,
-      });
-      return null;
-    }
-    const plan = readArtifact(this.paths.plan);
-    const axes = plan.exists
-      ? parsePlanAxes(plan.text).rows.map((r) => ({ name: r.name, affected: r.affected, outcomeRaw: r.outcomeRaw }))
-      : [];
-    const intent = readArtifact(this.paths.intent);
-    const taskContext = intent.exists ? [...this.intentClaimLines(intent.text).values()].join('\n') : '';
-    const limits = this.config.runner.limits;
-
-    const result = await reviewByHunks({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace('verify', 'reviewFill')),
-      model: route.model,
-      params: route.params,
-      taskContext,
-      diff: diff.text,
-      axes,
-      // Тот же потолок, что у среза патча в поклаймовом доборе: фрагмент конкурирует за
-      // то же окно локальной модели.
-      hunkBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
-      signal: aborter.signal,
-      onProgress: (note) => this.emit({ type: 'warning', runId: this.id, stage: 'verify', message: `ревью по хункам: ${note}` }),
-      onUsage: (usage) => this.accountOffPathUsage('verify', usage, route.providerDef.currency),
-    });
-
-    // Находки проходят тем же приёмом, что записи модели: проверка ссылки, рендер
-    // рантайма, гейт одобрения. Второго места, знающего форму записи, не появляется.
-    for (const call of result.findings) acceptRecord(this.host, call);
-
-    // Оба конвейера обязаны дойти до конца — не только хунки. Докстринг
-    // `skipTurnAfterReviewFill` определяет «конвейер прошёл целиком» как «все хунки И все
-    // спрошенные оси отвечены»; до этой правки ось, упавшая отдельным батчем ПОСЛЕ хунков
-    // (см. `reviewByHunks`), не мешала считать проход полным — гейт «Ревью независимым
-    // агентом» зеленел, а осевая сверка (весь смысл трека 1а — ловить `axis-config-blind`)
-    // тихо не состоялась.
-    const complete =
-      result.hunksAsked > 0 && result.hunksAnswered === result.hunksAsked && result.axesAnswered === result.axesAsked;
-    this.state.verify.reviewFillComplete = complete;
-    if (complete) this.markReviewerRan();
-    this.emit({
-      type: 'warning',
-      runId: this.id,
-      stage: 'verify',
-      message:
-        `ревью по хункам: фрагментов ${result.hunksAnswered}/${result.hunksAsked}, осей ` +
-        `${result.axesAnswered}/${result.axesAsked}, находок ${result.findings.length}` +
-        (complete ? '' : ` — конвейер неполный, гейт «${REVIEW_GATE}» остаётся ⏭`),
-    });
-    return result.text;
-  }
-
-  /**
-   * Независимое ревью, запущенное РАНТАЙМОМ, а не просьбой в промпте.
-   *
-   * Методология требует ревью другим агентом, не получающим рассказ исполнителя. До сих
-   * пор это держалось на том, что модель этапа догадается позвать `Task` — и на дешёвой
-   * полке это ровно тот шаг, который не случается: замеры дали и залипание анти-цикла на
-   * `Task` ×3 (`qwen3-14b`), и уход хода в оболочку вместо вызова, и просто нехватку ходов
-   * до вызова. Раз гейты рантайм прогоняет сам, ревью — та же природа: обязательный шаг
-   * этапа, а не поручение.
-   *
-   * Вход рецензента — пользовательское сообщение этапа как есть: методология перечисляет
-   * его входы исчерпывающе (задача, план, набор гейтов, diff), и `stageInputs` собирает
-   * ровно их, без журнала исполнителя. Второго места сборки входа не появляется.
-   *
-   * `null` — ревью не состоялось (определения агента нет, прав нет, прогон упал). Этап
-   * при этом не падает: у модели остаётся `Task`, а гейт «Ревью независимым агентом»
-   * честно останется `⏭`, если не отработал никто.
-   */
-  private async runReviewerDirectly(
-    prompt: PreparedPrompt,
-    agents: readonly SubagentDef[],
-    hooks: ExecHooks,
-  ): Promise<string | null> {
-    const def = agents.find((a) => REVIEWER_AGENTS.includes(a.name));
-    const aborter = this.aborter;
-    if (def === undefined || aborter === null) return null;
-
-    // Права — то же пересечение, что и у субагента, вызванного моделью: ни расширить
-    // права этапа прогоном рантайма, ни выдать рецензенту больше объявленного нельзя.
-    // Пустое пересечение — не ревью, а прогон вслепую (тот же отказ, что в LoopExecutor).
-    const stageTools = this.toolsFor('verify');
-    const declared = def.tools === null ? null : def.tools.filter((t): t is ToolName => isToolName(t));
-    const allowed = declared === null ? stageTools : stageTools.filter((t) => declared.includes(t));
-    if (allowed.length === 0) {
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage: 'verify',
-        message:
-          `рецензент «${def.name}» не получил ни одного инструмента: пересечение прав этапа и ` +
-          `объявленных им пусто — ревью рантаймом не запускается`,
-      });
-      return null;
-    }
-
-    const route = this.profile.routes.verify;
-    try {
-      const result = await this.executorFor('verify', route).run(
-        {
-          prompt: {
-            presetNote: null,
-            // Тело определения агента — его системный промпт. Рассказа исполнителя здесь
-            // нет и быть не может: `stageInputs('verify')` журнала chunk'а не содержит.
-            system: def.prompt,
-            user: prompt.user,
-            tools: [],
-            editedByOperator: false,
-          },
-          cwd: this.project.projectRoot,
-          model: route.model,
-          allowedTools: allowed,
-          readOnlyDirs: this.readOnlyRoots,
-          // Одноуровневость: рецензент не разворачивает своих субагентов.
-          subagents: [],
-          mcp: await this.mcpAccess('verify'),
-          // Артефакт этапа пишет модель этапа, а не рецензент: он возвращает текст.
-          finishGuard: null,
-          salvageFromText: null,
-          maxTurns: this.maxTurnsFor('verify'),
-          maxBudgetUsd: this.project.maxBudgetUsd,
-          spentUsdBefore: this.spent.spent(route.providerDef.currency ?? 'USD'),
-          signal: aborter.signal,
-        },
-        hooks,
-      );
-
-      const text = result.finalText.trim();
-      if (!result.ok || text === '') {
-        // Причина обязана быть НАЗВАНА, а не сведена к «пусто»: живой прогон дал
-        // `ok=true`, 1174 выходных токена и пустой текст — то есть рецензент потратил ход
-        // на вызовы инструментов (часть — по протухшим абсолютным путям из артефактов
-        // снимка) и не сказал ни слова. По сообщению «вернул пустой ответ» это неотличимо
-        // от модели, которая просто промолчала, а чинится это разными способами.
-        this.emit({
-          type: 'warning',
-          runId: this.id,
-          stage: 'verify',
-          message:
-            `ревью рантаймом не состоялось: ${result.ok ? 'рецензент не вернул текста' : result.note}. ` +
-            `Исход прогона: ${result.note}; израсходовано токенов на выходе: ${result.usage.outputTokens}. ` +
-            `Гейт «${REVIEW_GATE}» зелёным от этого не станет`,
-        });
-        return null;
-      }
-
-      // Планка содержательности: ответ обязан ссылаться на МЕСТО из патча попытки.
-      // Замер r9 дал класс «оформитель» — `gpt-oss-20b` закрыла бланк за ₽0.48, пометив
-      // все гейты «⏭ не запускался» и не найдя ничего: прогон состоялся, ревью — нет.
-      // Отличить одно от другого можно ровно так: рецензент, читавший diff, называет
-      // файлы и символы из него. Планка низкая намеренно — достаточно одного совпадения.
-      if (!anchorFound(text, evidenceHaystack(this.host))) {
-        this.emit({
-          type: 'warning',
-          runId: this.id,
-          stage: 'verify',
-          message:
-            `рецензент отработал, но в его ответе нет ни одной ссылки на место из патча ` +
-            `попытки — прогон состоялся, ревью не состоялось. Гейт «${REVIEW_GATE}» остаётся ⏭, ` +
-            `текст всё равно уходит во вход этапа`,
-        });
-        return text;
-      }
-
-      // Факт ревью ставится ТОЛЬКО по непустому ответу состоявшегося прогона — тем же
-      // правилом, что и при вызове субагента моделью: «ход завершён» ревью не является.
-      this.markReviewerRan();
-      return text;
-    } catch (e) {
-      // Падение рецензента не роняет этап: у модели остаётся собственный `Task`, а
-      // несостоявшееся ревью честно видно по `⏭` гейта минимума.
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage: 'verify',
-        message: `ревью рантаймом упало: ${(e as Error).message}. Гейт «${REVIEW_GATE}» останется ⏭`,
-      });
-      return null;
-    }
-  }
-
-  /**
-   * Пункты, в которых основной маршрут не уверен: `⚠` — «доказательство держится на
-   * непройденной проверке». Именно они и стоят второго мнения; зелёные и красные пункты
-   * второй раз не оплачиваются.
-   */
-  private uncertainClaims(report: string): ClaimAsk[] {
-    const intent = readArtifact(this.paths.intent);
-    if (!intent.exists) return [];
-    const unsure = new Set(
-      readReport(report)
-        .claims.filter((c) => c.status === '⚠')
-        .map((c) => c.id),
-    );
-    if (unsure.size === 0) return [];
-
-    const out: ClaimAsk[] = [];
-    for (const line of intent.text.split(/\r?\n/)) {
-      const id = claimIdOf(line);
-      if (id === null || !unsure.has(id.toLowerCase())) continue;
-      out.push({ id: id.toLowerCase(), text: line.trim() });
-    }
-    return out;
-  }
-
-  /**
-   * Узкий маршрут ансамбля: вопросы по названным пунктам вместо полного ревью.
-   *
-   * Отчёт маршрута собирается из бланка рантайма теми же `renderRecords`, что и отчёт
-   * основного маршрута: вторая форма отчёта в кодовой базе означала бы вторую форму
-   * разбора и, рано или поздно, расхождение вердикта с самим собой.
-   */
-  private async narrowRoute(
-    route: ResolvedRoute,
-    prompt: PreparedPrompt,
-    canonical: string,
-    claims: readonly ClaimAsk[],
-  ): Promise<void> {
-    const limits = this.config.runner.limits;
-    const { calls, envFailure } = await fillClaims({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace('verify', 'claimFill')),
-      model: route.model,
-      params: route.params,
-      system: prompt.system,
-      claims,
-      diff: readArtifact(this.paths.chunkDiff(this.chunk, this.attempt)).text,
-      tests: readArtifact(this.paths.chunkTests(this.chunk, this.attempt)).text,
-      evidenceBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
-      signal: this.aborter?.signal ?? new AbortController().signal,
-      onProgress: (note) => this.emit({ type: 'warning', runId: this.id, stage: 'verify', message: `ансамбль, узкий маршрут ${route.modelId}: ${note}` }),
-      onUsage: (usage) => this.accountOffPathUsage('verify', usage, route.providerDef.currency),
-    });
-
-    const records: ClaimRecord[] = [];
-    const haystack = evidenceHaystack(this.host);
-    for (const call of calls) {
-      if (call.kind !== 'record_claim') continue;
-      const anchored = anchorFound(call.evidence, haystack);
-      records.push({
-        id: call.id,
-        status: call.status,
-        evidence: anchored ? call.evidence : `${call.evidence} _(ссылка не найдена в патче попытки)_`,
-        whatToFix: call.whatToFix,
-      });
-    }
-
-    const { text } = renderRecords(this.state.verify.verifyPrefill ?? readArtifact(canonical).text, {
-      claims: records,
-      findings: [],
-    });
-    writeArtifact(canonical, text);
-    this.emit({
-      type: 'warning',
-      runId: this.id,
-      stage: 'verify',
-      message:
-        `ансамбль, узкий маршрут ${route.modelId}: спрошено ${claims.length} неуверенных ` +
-        `пункт(ов), разобрано ответов — ${records.length}. Статусы сводятся по худшему, ` +
-        `как у любого маршрута`,
-    });
-    // Частичный отчёт маршрута уже записан выше — бросаем ПОСЛЕ, чтобы уже собранные
-    // ответы не терялись. Вызывающий (`runEnsembleReviewers`) ловит `ProviderEnvError`
-    // отдельно и печатает настоящую причину («узкий маршрут не отработал: …»), а не
-    // общее «разобрано ответов — 0», неотличимое от того, что модель просто промолчала
-    // на все пункты (см. докстринг `ClaimFillResult.envFailure`).
-    if (envFailure !== null) throw new ProviderEnvError(envFailure);
-  }
-
-  /**
-   * Дополнительные маршруты ансамбля рецензентов. Только этап 6 и только он.
-   *
-   * Ансамбль на пишущем этапе — это второй исполнитель, который правит те же файлы поверх
-   * готового патча первого: улика попытки становится смесью двух авторов, а детект
-   * отсутствия прогресса сравнивает патчи, собранные разным числом рук. Поэтому ограничение
-   * стоит здесь, в рантайме, а не держится на том, что так никто не сконфигурирует.
-   *
-   * Каждый маршрут пишет в канонический путь отчёта (его называет промпт этапа), а рантайм
-   * сразу переносит написанное в путь маршрута. Так вердикт получает ВСЕ мнения, а не
-   * последнее записанное, и при этом ни промпт, ни имя основного артефакта не меняются.
-   */
-  private async runEnsembleReviewers(
-    prompt: PreparedPrompt,
-    def: StageDef,
-    agents: readonly SubagentDef[],
-    hooks: ExecHooks,
-  ): Promise<void> {
-    const extraRoutes = (this.profile.ensemble.verify ?? []).slice(1);
-    const aborter = this.aborter;
-    if (extraRoutes.length === 0 || aborter === null) return;
-
-    const canonical = this.paths.verificationReport(this.chunk, this.attempt, 0);
-    const primary = readArtifact(canonical).text;
-    // Записи основного маршрута сохраняются и возвращаются после ансамбля: маршруты пишут
-    // в те же `claimRecords`/`findingRecords` через общие хуки, и бриф ретрая (`retryDetail`,
-    // читается после ансамбля) нёс бы «что чинить» последнего, самого слабого маршрута под
-    // подписью «по словам рецензента», а находки — дублями от каждого маршрута.
-    const primaryClaims = new Map(this.state.verify.claimRecords);
-    const primaryFindings = [...this.state.verify.findingRecords];
-
-    for (const [i, other] of extraRoutes.entries()) {
-      if (this.aborter?.signal.aborted === true) break;
-      const route = i + 1;
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage: 'verify',
-        message: `ансамбль: дополнительный маршрут ${route + 1} — ${other.modelId}`,
-      });
-
-      // Канонический файл сбрасывается к бланку, заполненному рантаймом (таблица гейтов,
-      // механика шапки), — чтобы следующий рецензент не дописывал в чужой отчёт, но и не
-      // сочинял таблицу гейтов от себя. Бланка нет (автозаполнение не отработало) —
-      // прежнее поведение, пустой файл.
-      writeArtifact(canonical, this.state.verify.verifyPrefill ?? '');
-      try {
-        // Узкий маршрут: спросить сильную модель ТОЛЬКО о пунктах, в которых слабая не
-        // уверена (`⚠`), вместо полного второго ревью. Дешевле в разы — замер r18 назвал
-        // цену независимости цифрой: контроль в 11 раз дороже и в 7 раз медленнее при
-        // одинаковом вердикте.
-        //
-        // Статусы при этом НЕ переписываются: ответ уходит в отчёт СВОЕГО маршрута, и
-        // вердикт сводит маршруты как всегда — по худшему статусу. Заменять `⚠` слабой
-        // модели зелёным сильной значило бы двигать вердикт к зелёному по слову модели, а
-        // это ровно то, против чего написано правило «худший из двух».
-        if (other.claimFill && other.flow === 'loop') {
-          const uncertain = this.uncertainClaims(primary);
-          if (uncertain.length > 0) {
-            await this.narrowRoute(other, prompt, canonical, uncertain);
-            continue;
-          }
-        }
-
-        await this.executorFor('verify', other).run(
-          {
-            prompt,
-            cwd: this.project.projectRoot,
-            model: other.model,
-            allowedTools: this.toolsFor('verify'),
-            // Тот же набор, что у первого маршрута: соединения уже подняты, отбор посчитан.
-            mcp: await this.mcpAccess('verify'),
-            // Стража нет: канонический файл отчёта здесь намеренно опустошён перед каждым
-            // маршрутом ансамбля, и «артефакт на месте» тут не признак сделанной работы.
-            finishGuard: null,
-        // Субагент артефактов этапа не производит — спасать нечего.
-        salvageFromText: null,
-            readOnlyDirs: this.readOnlyRoots,
-            subagents: agents,
-            maxTurns: this.maxTurnsFor('verify'),
-            maxBudgetUsd: this.project.maxBudgetUsd,
-            spentUsdBefore: this.spent.spent(other.providerDef.currency ?? 'USD'),
-            signal: aborter.signal,
-          },
-          hooks,
-        );
-      } catch (e) {
-        // Падение ДОПОЛНИТЕЛЬНОГО рецензента не отменяет вердикт по уже готовым отчётам:
-        // пока оно улетало в общий catch этапа, работа основного маршрута выбрасывалась
-        // целиком и оператор возвращался к попытке с нуля.
-        this.emit({
-          type: 'warning',
-          runId: this.id,
-          stage: 'verify',
-          message:
-            `ансамбль: маршрут ${route + 1} (${other.modelId}) не отработал: ` +
-            `${(e as Error).message}. Вердикт считается по отчётам остальных.`,
-        });
-      }
-      writeArtifact(this.paths.verificationReport(this.chunk, this.attempt, route), readArtifact(canonical).text);
-    }
-
-    // Канонический путь возвращается основному маршруту: его читают скиллы `/sdlc-*`,
-    // предусловия этапов и витки, начатые в терминале.
-    writeArtifact(canonical, primary);
-    this.state.verify.claimRecords = primaryClaims;
-    this.state.verify.findingRecords = primaryFindings;
-  }
-
-  /**
    * Метка сырого дампа запросов к модели (`provider/rawLog.ts`) — корпус «вход → выход»
    * для замеров и обучения. Собирается здесь, потому что только виток знает слаг и номер
    * попытки; сам дамп выключен, пока не задан `SDLC_RAW_LOG_DIR`.
@@ -3091,8 +2695,8 @@ export class Run {
       const reviewText =
         stage === 'verify'
           ? route.flow === 'loop' && route.reviewFill
-            ? await this.runReviewFill(route)
-            : await this.runReviewerDirectly(prompt, agents, hooks)
+            ? await runReviewFill(this.host, route)
+            : await runReviewerDirectly(this.host, prompt, agents, hooks)
           : null;
       const stagePrompt = reviewText === null ? prompt : withExtra(prompt, reviewerBlock(reviewText));
 
@@ -3344,7 +2948,7 @@ export class Run {
         );
       }
 
-      if (stage === 'verify') await this.runEnsembleReviewers(prompt, def, agents, hooks);
+      if (stage === 'verify') await runEnsembleReviewers(this.host, prompt, def, agents, hooks);
 
       // Отмена проверяется ДО записи улик. Иначе отменённый этап затирал патч предыдущего
       // состояния снимком наполовину сделанного дерева (а при прерванном сигнале git

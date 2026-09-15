@@ -8,7 +8,8 @@
 import type { ArtifactKey, WitokPaths } from '../../artifacts/paths.ts';
 import type { ApprovalGate } from '../../approval/gate.ts';
 import type { LoadedConfig } from '../../config/load.ts';
-import type { ModuleProfile } from '../../config/schema.ts';
+import type { ModuleProfile, ProjectConfig, ResolvedRoute } from '../../config/schema.ts';
+import type { McpAccess, StageExecutor } from '../../exec/StageExecutor.ts';
 import type { EcosystemLine } from '../../explore/view.ts';
 import type { GatesFile } from '../../gates/gatesFile.ts';
 import type { TraceLabel } from '../../provider/rawLog.ts';
@@ -83,6 +84,25 @@ export interface StageHost {
    * без подстановки свежего: контекст гейта без этапа не должен нести ключ `signal` вовсе.
    */
   aborterSignal(): AbortSignal | undefined;
+  /** Факт состоявшегося независимого ревью на этой попытке (`Run.markReviewerRan`). */
+  markReviewerRan(): void;
+  /** Права этапа с учётом MCP и урезанного набора (`Run.toolsFor`). */
+  toolsFor(stage: StageId): readonly ToolName[];
+  /** Исполнитель этапа под маршрут (`Run.executorFor`). */
+  executorFor(stage: StageId, route?: ResolvedRoute): StageExecutor;
+  /** Инструменты внешних MCP-серверов этапа (`Run.mcpAccess`). */
+  mcpAccess(stage: StageId): Promise<McpAccess | null>;
+  /** Потолок ходов этапа (`Run.maxTurnsFor`). */
+  maxTurnsFor(stage: StageId): number;
+  /** Каталоги, открытые только на чтение (`Run.readOnlyRoots`). */
+  readOnlyRoots(): string[];
+  readonly maxBudgetUsd: ProjectConfig['maxBudgetUsd'];
+  /** Уже потрачено в валюте маршрута — вход бюджета исполнителя. */
+  spentBefore(currency: string): number;
+  /** Основной маршрут этапа 6 (`profile.routes.verify`). */
+  verifyRoute(): ResolvedRoute;
+  /** Маршруты ансамбля этапа 6, первый — основной (`profile.ensemble.verify`). */
+  ensembleRoutes(): readonly ResolvedRoute[];
 }
 
 /** Механическое поле артефакта, которое заполняет рантайм до модели (`formAutofill.ts`). */
