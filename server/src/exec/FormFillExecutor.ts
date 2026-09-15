@@ -443,11 +443,23 @@ export class FormFillExecutor implements StageExecutor {
     return answer;
   }
 
-  /** Поля модели в режиме `compact` минус `skipFields` — один источник для прохода и для счёта остатка. */
+  /**
+   * Поля модели в режиме `compact` минус `skipFields` — один источник для прохода и для
+   * счёта остатка.
+   *
+   * Мусор, который модель сама записала в бланк, полем не считается. Живой случай (серия
+   * v9, 2026-09-15): модель вписала в отчёт разведки строку
+   * `{"tool":"Read","arguments":{"file":"intent.md"}}` вместо значения поля риска —
+   * `deriveSchema` честно разобрала её как поле-меню с меткой `{"tool"` и вариантом-JSON,
+   * и рантайм задал модели вопрос про её же мусор: потраченный ход и отказ разбора в
+   * ответ. Признак узкий — пунктуация JSON в метке или id; в метках методологии её не
+   * бывает (проверено по шаблонам эталона).
+   */
   private compactFields(text: string, path: string): SchemaField[] {
     const skip = new Set((this.o.skipFields ?? []).map((id) => id.toLowerCase().replace(/ё/g, 'е')));
+    const debris = (f: SchemaField): boolean => /\{"|"\}|":\s*"/.test(`${f.id} ${f.label ?? ''}`);
     return modelFields(deriveSchema(text, templateNameFor(path)), this.o.stage).filter(
-      (f) => !skip.has(f.id.toLowerCase().replace(/ё/g, 'е')),
+      (f) => !skip.has(f.id.toLowerCase().replace(/ё/g, 'е')) && !debris(f),
     );
   }
 
@@ -812,7 +824,17 @@ export class FormFillExecutor implements StageExecutor {
      * ограничен внутри `deriveSchema`, но легенда секции могла набежать за несколько
      * абзацев на многострочном поле.
      */
-    const askFieldCompact = async (field: SchemaField, text: string): ReturnType<ChatProvider['chat']> => {
+    const askFieldCompact = async (
+      field: SchemaField,
+      /**
+       * Текст, ПО КОТОРОМУ выведена схема, а не текущий: `field.range` — смещение в нём.
+       * Пока сюда приходил уже изменённый текст, `lineAt` по старому смещению попадал в
+       * чужую строку, и карточка показывала модели не ту проверку (разбор серии v9,
+       * 2026-09-15: на чек-листе из 7 строк 11 карточек из 14 несли чужую строку). Для
+       * id тот же дрейф чинит `currentFieldId` — здесь он чинится снимком.
+       */
+      snapshot: string,
+    ): ReturnType<ChatProvider['chat']> => {
       // Карта кодовой базы и в карточке получает тот же список реальных путей, что у
       // некомпактного пути: у режима нет Read/Task, и без него пути угадываются по памяти.
       const needsCodeMap = field.kind === 'records' && CODE_MAP_HEADER.test(field.header ?? '');
@@ -822,9 +844,13 @@ export class FormFillExecutor implements StageExecutor {
         '',
         `- id: \`${field.id}\``,
         `- вид: ${field.kind}`,
+        // Раздел бланка — единственный контекст у поля без подсказки: id «необходимое» с
+        // пустым хинтом модель читала как вопрос о чём угодно и отвечала именем ветки
+        // витка (серия v9, 5 прогонов из 5).
+        ...(field.section === undefined || field.section === '' ? [] : [`- раздел бланка: ${field.section}`]),
         // Ячейка фиксированной строки таблицы — с самой строкой: по одному id вида
         // «прогон 1/3/где видно» модель не видела, что именно проверяет эта строка.
-        ...(field.shape === 'cell' ? [`- строка таблицы: ${lineAt(text, field.range.start).trim()}`, `- колонка: ${field.label ?? ''}`] : []),
+        ...(field.shape === 'cell' ? [`- строка таблицы: ${lineAt(snapshot, field.range.start).trim()}`, `- колонка: ${field.label ?? ''}`] : []),
         ...(field.options === undefined
           ? []
           : [`- варианты: ${field.options.map((o) => `\`${o.key}\``).join(', ')}`]),
@@ -950,7 +976,9 @@ export class FormFillExecutor implements StageExecutor {
         const asked = batch.slice(0, allowed);
         callsSpent += asked.length;
 
-        const answers = await Promise.allSettled(asked.map((f) => askFieldCompact(f, text)));
+        // `startText`, а не текущий `text`: схема полей выведена из него, и смещения
+        // `field.range` действительны только в нём.
+        const answers = await Promise.allSettled(asked.map((f) => askFieldCompact(f, startText)));
         for (const a of answers) {
           if (a.status !== 'fulfilled') continue;
           usage = addUsage(usage, a.value.usage);

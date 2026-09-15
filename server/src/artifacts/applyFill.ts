@@ -175,11 +175,20 @@ export function applyFill(
   const schema = deriveSchema(text, templateName);
   const field = findField(schema, fieldId);
   if (field === undefined) {
-    const ids = schema.fields
-      .filter((f) => f.owner === 'model')
-      .map((f) => f.id)
-      .join(', ');
-    return { ok: false, problem: `нет поля «${fieldId}» — доступные поля: ${ids || '(нет)'}` };
+    // Диагностика называет ПРИЧИНУ, а не вываливает весь бланк. Самый частый случай —
+    // не «такого поля нет», а «поле то же, id сдвинулся»: id несёт номер раздела
+    // (`uniqueId`), и у соседа с той же меткой он меняется по мере заполнения. Разбор
+    // серии v9 (2026-09-15): во всех пяти прогонах нота гласила «нет поля
+    // «необходимое/единичное»» и печатала следом шестнадцать идентификаторов, среди
+    // которых стояли `необходимое/1`, `необходимое/однозначное` — то есть подсказка
+    // была, но утонула в списке.
+    const model = schema.fields.filter((f) => f.owner === 'model');
+    const label = (id: string): string => (id.split('/').pop() ?? id).toLowerCase().replace(/ё/g, 'е');
+    const near = model.filter((f) => label(f.id) === label(fieldId)).map((f) => f.id);
+    const shown = (near.length > 0 ? near : model.map((f) => f.id)).slice(0, 8);
+    const what = near.length > 0 ? 'поле с такой меткой есть под другим id' : 'доступные поля';
+    const more = near.length === 0 && model.length > shown.length ? ` (и ещё ${model.length - shown.length})` : '';
+    return { ok: false, problem: `нет поля «${fieldId}» — ${what}: ${shown.join(', ') || '(нет)'}${more}` };
   }
   if (field.owner !== 'model') {
     return { ok: false, problem: `поле «${fieldId}» не заполняется моделью (${field.owner})` };
