@@ -32,7 +32,7 @@ import type {
 } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
 
 import {
@@ -52,7 +52,7 @@ import {
 import { SDLC_DIR, WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { ARTIFACT_KEYS as ARTIFACT_KEYS_ALL, type ArtifactKey } from '@sdlc-runner/shared';
 import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
-import { columnIndex, h2SectionRanges, parseTables } from '../md/table.ts';
+import { h2SectionRanges } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import { normalizePlanPath, relativizeWithin, resolveUserPath } from '../policy/paths.ts';
@@ -95,10 +95,10 @@ import {
   uncalibratedGates,
   unimplementedGates,
 } from '../gates/gatesFile.ts';
-import { builtinFor, describeBuild, snapshotBaseline } from '../gates/builtin/index.ts';
+import { builtinFor, describeBuild } from '../gates/builtin/index.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName, runGates } from '../gates/run.ts';
-import { git, hasCommits, stageNewPlanFiles, workingDiff } from '../gates/git.ts';
+import { git, hasCommits, workingDiff } from '../gates/git.ts';
 import { autofillChunkJournal } from './journalAutofill.ts';
 import { autofillClarification, autofillPlan, autofillReadiness, autofillTitle } from './formAutofill.ts';
 import { autofillVerificationReport } from './verifyAutofill.ts';
@@ -107,15 +107,9 @@ import { claimIdOf } from '../artifacts/claims.ts';
 import { fillClaims } from './claimFill.ts';
 import type { ClaimAsk } from './claimFill.ts';
 import type { ClaimRecord, FindingRecord } from './verifyReport.ts';
-import type { BuiltinGate, GateContext } from '../gates/builtin/index.ts';
-import { recordAttemptEvidence } from './evidence.ts';
-import type { TreeChange } from './evidence.ts';
-import { planConstantsMissingFromDiff } from './planConstants.ts';
 import { salvageBlocks } from './salvage.ts';
 import { preflightBlockers } from '../sandbox/preflight.ts';
-import { ensureSandboxFor } from '../sandbox/registry.ts';
 import { collectVerdictInput, manualClaimIds } from '../verdict/collect.ts';
-import { diffCloseness } from './diffDistance.ts';
 import { classifyRedVerdict } from '../verdict/classify.ts';
 import { buildRetryBrief, claimTextCell, type RetryDetail } from '../verdict/retryBrief.ts';
 import { describeStep, planSteps } from '../artifacts/planSteps.ts';
@@ -160,6 +154,8 @@ import {
   stageProducing,
 } from './stages.ts';
 import { ChunkState } from './stages/chunk/index.ts';
+import { compareAttemptDiffs, ensureBaseline, readBaseline, recordEvidence, runNamedGate } from './stages/chunk/evidence.ts';
+import { restoreAttemptFromJournal, restoreChunkFromDir } from './stages/chunk/restore.ts';
 import {
   ExploreState,
   exploreFillExecutor,
@@ -394,65 +390,6 @@ function withExtra(prompt: PreparedPrompt, block: string | undefined): PreparedP
 /** Гейт минимума, который рантайм не исполняет скриптом. */
 const REVIEW_GATE = 'Ревью независимым агентом';
 
-/**
- * Восстанавливает номер последней попытки chunk'а из журнала на диске.
- *
- * Новый `Run` в памяти всегда стартовал с попытки 1, даже если на диске уже лежат
- * артефакты попытки 3 — например, после рестарта сервера (виток живёт на диске, но
- * счётчик попытки был только в памяти процесса). Предусловие этапа верификации требует
- * `chunk-<N>-attempt-<K>-diff.patch` по ТЕКУЩЕМУ счётчику и падало «нет файла», хотя
- * реальный файл существовал под другим номером — единственным обходом было вручную
- * «прокликать» attempt 1→2→3 через кнопку «Новая попытка», рискуя случайно перезапустить
- * дорогой этап вместо того, чтобы просто продолжить его просмотр.
- */
-/**
- * Восстанавливает номер ТЕКУЩЕГО chunk'а по файлам витка на диске.
- *
- * `restoreAttemptFromJournal` ниже чинит попытку внутри chunk'а, но сам `this.chunk`
- * до его вызова был захардкожен единицей в поле класса — рестарт процесса на chunk'е 3
- * откатывал счётчик в памяти на chunk 1, и `restoreAttemptFromJournal` смотрела не в тот
- * журнал вовсе. Наблюдение живого витка: случайный клик «Следующий chunk» сдвинул
- * состояние, откатить смог только `docker restart`, потому что перезапуск НЕ восстанавливал
- * то, что должен был. Берём наибольший `N`, для которого на диске есть `chunk-N-journal.md`
- * — тот же признак «chunk начался», на который опирается `restoreAttemptFromJournal`.
- */
-function restoreChunkFromDir(dir: string): number | null {
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return null;
-  }
-  let max = 0;
-  for (const name of entries) {
-    const m = /^chunk-(\d+)-journal\.md$/.exec(name);
-    if (m === null) continue;
-    const n = Number.parseInt(m[1] as string, 10);
-    if (Number.isFinite(n) && n > max) max = n;
-  }
-  return max > 0 ? max : null;
-}
-
-function restoreAttemptFromJournal(journalPath: string): number | null {
-  if (!existsSync(journalPath)) return null;
-  let text: string;
-  try {
-    text = readFileSync(journalPath, 'utf8');
-  } catch {
-    return null;
-  }
-  const table = parseTables(text).find((t) => t.section === 'Попытки');
-  if (table === undefined || table.rows.length === 0) return null;
-  const col = columnIndex(table.header, 'K');
-  if (col === -1) return null;
-  let max = 0;
-  for (const row of table.rows) {
-    const n = Number.parseInt(row[col] ?? '', 10);
-    if (Number.isFinite(n) && n > max) max = n;
-  }
-  return max > 0 ? max : null;
-}
-
 /** Пустая строка трения. Функция, а не константа: объект здесь мутируется на месте. */
 function EMPTY_FRICTION(): {
   repeat: number;
@@ -543,6 +480,13 @@ export class Run {
       ecosystemFor: (stage) => this.ecosystemFor(stage),
       axesEnabled: () => this.axesGateRow() !== null,
       exploreState: this.state.explore,
+      projectName: this.project.name,
+      projectModules: () => this.project.modules,
+      planFilesFor: (stage) => this.planFilesFor(stage),
+      chunk: () => this.chunk,
+      attempt: () => this.attempt,
+      noteChunkEvidence: (metric) => this.chunkEvidenceAgg.set(`${metric.chunk}:${metric.attempt}`, metric),
+      aborterSignal: () => this.aborter?.signal,
     };
   }
   /**
@@ -2646,7 +2590,7 @@ export class Run {
                     return { status: 'skipped', note: 'для этого шага в наборе нет применимой строки гейта' };
                   }
                   for (const row of rows) {
-                    const r = await this.runNamedGate(row.name);
+                    const r = await runNamedGate(this.host, row.name);
                     if (r === null) return { status: 'skipped', note: 'строка гейта не найдена при прогоне' };
                     if (r.status === '❌') {
                       const tail = (r.outputTail ?? '').trim();
@@ -2894,7 +2838,7 @@ export class Run {
       projectRoot: this.project.projectRoot,
       projectName: this.project.name,
       planFiles: this.planFilesFor('verify') ?? [],
-      baseline: this.readBaseline(),
+      baseline: readBaseline(this.host),
       timeoutMs: this.config.runner.limits.gateTimeoutMs,
       // Описание модулей проекта: человек знает про свой моно-репо больше, чем детект.
       ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
@@ -2988,233 +2932,6 @@ export class Run {
       `содержимое артефакта было напечатано в ответ, а не записано инструментом — ` +
       `рантайм записал его через гейт одобрения: ${written.join(', ')}`
     );
-  }
-
-  /**
-   * Один гейт набора проекта по имени — тем же путём, что прогон всех гейтов
-   * (`runGateByName`: команда в обратных кавычках имеет приоритет). `null` — строки
-   * нет или она выключена. Нужен проверке после шага в режиме `stepFill` и улике тестов.
-   *
-   * Песочница греется здесь же: `runGateByName` этого не делает (только `runGates`), и
-   * первая «Сборка» после шага при старте с chunk шла на хосте — «нет tsc» читалось как
-   * ⏭ и зелёный шаг, а иная версия инструмента давала ложный красный.
-   */
-  /**
-   * `ctx` — переиспользовать уже построенный `GateContext` вызывающего (`recordEvidence`),
-   * а не строить свой. Раньше строился всегда свой: два новых вызова для улики
-   * (`Scope: файлы вне плана`/`Scope: пути плана без правок`) получали контекст с ДРУГОЙ
-   * идентичностью объекта, чем `gateCtx` соседних `recordAttemptEvidence`/`runTests` — а
-   * WeakMap-кэши гейтов (`gates/builtin/index.ts`: `modulesCache`, `diffCache`,
-   * `rawDiffCache`) ключуются именно по идентичности `ctx`, так что кэш никогда не
-   * подхватывался, вопреки соседнему комментарию, который это утверждал (code-review-all,
-   * 2026-09-14).
-   */
-  private async runNamedGate(name: string, ctx?: GateContext): Promise<GateRunResult | null> {
-    const gates = this.gatesFile;
-    if (gates === null) return null;
-    try {
-      await ensureSandboxFor(this.project.projectRoot, this.project.name);
-    } catch (e) {
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage: 'chunk',
-        message: `песочница для гейта «${name}» не поднялась: ${(e as Error).message}`,
-      });
-    }
-    const signal = this.aborter?.signal;
-    const gateCtx: GateContext =
-      ctx ?? {
-        projectRoot: this.project.projectRoot,
-        planFiles: this.planFilesFor('chunk') ?? [],
-        baseline: this.readBaseline(),
-        timeoutMs: this.config.runner.limits.gateTimeoutMs,
-        ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
-        ...(signal === undefined ? {} : { signal }),
-      };
-    return runGateByName(
-      name,
-      {
-        gates,
-        projectRoot: this.project.projectRoot,
-        projectName: this.project.name,
-        planFiles: gateCtx.planFiles,
-        baseline: gateCtx.baseline,
-        timeoutMs: gateCtx.timeoutMs,
-        ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
-        ...(signal === undefined ? {} : { signal }),
-      },
-      gateCtx,
-    );
-  }
-
-  /**
-   * Патч и запись о тестах этой попытки — из фактов, а не из слов исполнителя.
-   *
-   * Тесты гоняются ТОЙ ЖЕ строкой набора, что и на этапе 6, через `runGateByName`: два
-   * способа «запустить тесты проекта» расходятся молча, и они уже разошлись — проект с
-   * `./gradlew test` в наборе получал в улике результат встроенного автодетекта.
-   *
-   * Возвращает, что стало с деревом. `unknown` — посчитать не удалось; вызывающий обязан
-   * обойтись с этим как с провалом, а не как с «правки были».
-   */
-  private async recordEvidence(diffBefore: string): Promise<TreeChange> {
-    const gateCtx: GateContext = {
-      projectRoot: this.project.projectRoot,
-      planFiles: this.planFilesFor('chunk') ?? [],
-      baseline: this.readBaseline(),
-      timeoutMs: this.config.runner.limits.gateTimeoutMs,
-      ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
-      ...(this.aborter === null ? {} : { signal: this.aborter.signal }),
-    };
-
-    // Гейт «Тесты» берётся из НАБОРА проекта, а не из реестра встроенных: приоритет
-    // команды в обратных кавычках — правило `runOne`, и улика обязана его соблюдать.
-    const gates = this.gatesFile;
-    // Один путь запуска гейта по имени на улику и на проверку после шага: второй набор
-    // тех же полей контекста разошёлся бы с первым при следующем добавленном поле.
-    const runTests: BuiltinGate | null =
-      gates === null
-        ? null
-        : async () => {
-            const r = await this.runNamedGate('Тесты');
-            if (r === null) {
-              return {
-                status: '⏭',
-                command: null,
-                exitCode: null,
-                lastLine: 'строки «Тесты» в наборе нет или она выключена — прогон не назначен',
-              };
-            }
-            return {
-              status: r.status,
-              command: r.command,
-              exitCode: r.exitCode,
-              lastLine: r.lastLine,
-              envBlocked: r.envBlocked,
-              // Хвост вывода обязан доехать до улики: он тут ради того и посчитан.
-              // Пока литерал его не переносил, «## Вывод команды» в tests.txt не
-              // появлялся никогда, и попытка N+1 чинила падения вслепую.
-              ...(r.outputTail === undefined ? {} : { outputTail: r.outputTail }),
-            };
-          };
-
-    try {
-      // Новые файлы, названные планом, заводятся в индекс рантаймом ДО записи улик:
-      // право на эти пути уже выдано одобренным планом, а «забыть git add» — привычка
-      // модели (2/2 наблюдения даже на контроле), не решение. Файлы вне плана не
-      // трогаются — их гейт «Scope: нетракованные файлы» называет по-прежнему.
-      const staged = await stageNewPlanFiles(
-        this.project.projectRoot,
-        this.planFilesFor('chunk') ?? [],
-        this.aborter === null ? undefined : this.aborter.signal,
-      );
-      if (staged.added.length > 0) {
-        this.emit({
-          type: 'warning',
-          runId: this.id,
-          stage: 'chunk',
-          message: `рантайм завёл в git новые файлы плана: ${staged.added.join(', ')}`,
-        });
-      }
-      if (staged.problem !== null) {
-        this.emit({
-          type: 'warning',
-          runId: this.id,
-          stage: 'chunk',
-          message: `не удалось завести файлы плана в git: ${staged.problem}`,
-        });
-      }
-
-      // Улика «Тесты» идёт тем же путём, что гейт «Тесты» этапа 6, — через песочницу
-      // проекта, когда она объявлена. Живой виток ta-13: у прогона, начатого сразу с
-      // chunk'а, реестр песочниц пуст (его греет только runGates), и запись тестов падала
-      // локальным шеллом контейнера («python3: not found», код 127) — улика краснела про
-      // среду, а не про код. Сбой подготовки не роняет попытку — та же семантика, что в
-      // runGates: остаёмся на локальном исполнителе.
-      try {
-        await ensureSandboxFor(this.project.projectRoot, this.project.name);
-      } catch (e) {
-        this.emit({
-          type: 'warning',
-          runId: this.id,
-          stage: 'chunk',
-          message: `песочница для улик не поднялась: ${(e as Error).message}`,
-        });
-      }
-
-      const { tree, testsNote, testsStatus, diff } = await recordAttemptEvidence({
-        projectRoot: this.project.projectRoot,
-        diffPath: this.paths.chunkDiff(this.chunk, this.attempt),
-        testsPath: this.paths.chunkTests(this.chunk, this.attempt),
-        diffBefore,
-        gateCtx,
-        runTests,
-        ...(this.aborter === null ? {} : { signal: this.aborter.signal }),
-      });
-
-      // Улика для RunMetrics.chunkEvidence — дешёвый, безмодельный сигнал ДО дорогого
-      // verify (Opus, десятки ходов): те же ДВА Scope-гейта, что этап 6 гоняет тем же
-      // `gateCtx` (git diff + сверка путей с планом, без LLM). Не блокирует попытку и не
-      // влияет на stage_done chunk'а — только видимость (см. комментарий в evidence.ts).
-      // Разбор двух `escalate` у ministral3-14b-instruct-ctx32k (docs/model-runs.md →
-      // «Серия 5×5») нашёл: рантайм уже знал «Тесты ❌»/scope-нарушение ДО старта verify,
-      // но это оставалось только текстом в ленте, не структурой.
-      const [scopeOutside, scopeUntouched] = await Promise.all([
-        this.runNamedGate('Scope: файлы вне плана', gateCtx),
-        this.runNamedGate('Scope: пути плана без правок', gateCtx),
-      ]);
-      this.chunkEvidenceAgg.set(`${this.chunk}:${this.attempt}`, {
-        chunk: this.chunk,
-        attempt: this.attempt,
-        testsStatus,
-        treeChanged: tree === 'changed',
-        scopeViolation: scopeOutside?.status === '❌' || scopeUntouched?.status === '❌',
-      });
-
-      // Пустой патч называется вслух: «этап закончился, артефакты на месте» при нетронутом
-      // дереве — тот самый правдоподобный успех, ради которого улики и отобраны у агента.
-      if (tree === 'empty') {
-        this.emit({
-          type: 'warning',
-          runId: this.id,
-          stage: 'chunk',
-          message: 'дерево не изменилось за эту попытку — правки не было',
-        });
-      } else {
-        // Тесты, написанные под собственную выдумку исполнителя, зеленеют, ничего не
-        // доказывая: живой прогон (docs/model-runs.md, серия r33) поймал модель, что
-        // проигнорировала явные числа плана и подставила свои. Узкая сверка — не подмена
-        // ревью, просто самый дешёвый и самый прямой сигнал из всех возможных.
-        const planText = readArtifact(this.paths.plan).text;
-        if (planText !== '') {
-          const mismatches = planConstantsMissingFromDiff(planText, diff);
-          if (mismatches.length > 0) {
-            this.emit({
-              type: 'warning',
-              runId: this.id,
-              stage: 'chunk',
-              message: `числа плана разошлись с diff'ом: ${mismatches.join('; ')}`,
-            });
-          }
-        }
-      }
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage: 'chunk',
-        message: `свидетельства попытки перезаписаны рантаймом · тесты: ${testsNote}`,
-      });
-      return tree;
-    } catch (e) {
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage: 'chunk',
-        message: `не удалось записать свидетельства попытки: ${(e as Error).message}`,
-      });
-      return 'unknown';
-    }
   }
 
   /**
@@ -3419,48 +3136,6 @@ export class Run {
     return withNotes;
   }
 
-  private readBaseline(): ReadonlyMap<string, string> | null {
-    const a = readArtifact(this.paths.chunkBaseline(this.chunk));
-    if (!a.exists) return null;
-    try {
-      return new Map(Object.entries(JSON.parse(a.text) as Record<string, string>));
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Снимок грязного дерева перед первой попыткой chunk'а.
-   *
-   * Без него scope-гейт вменяет исполнителю чужие незакоммиченные правки оператора.
-   * Снимается один раз на chunk: на второй попытке дерево уже содержит работу агента,
-   * и пересъёмка стёрла бы ровно то, что гейт должен увидеть.
-   */
-  private async ensureBaseline(): Promise<void> {
-    const path = this.paths.chunkBaseline(this.chunk);
-    if (readArtifact(path).exists) return;
-    const snapshot = await snapshotBaseline(this.project.projectRoot);
-    writeArtifact(path, JSON.stringify(snapshot, null, 2));
-
-    // Грязное дерево называется человеку. Методология (этап 5): «дерево грязное чужими
-    // правками — назови их человеку одной строкой… молча продолжать нельзя, эти файлы
-    // попадут в diff попытки и в гейт „Scope: файлы вне плана“ как твоя работа». База
-    // отличит чужое от своего, но оператор должен знать, что она вообще понадобилась.
-    const dirty = Object.keys(snapshot);
-    if (dirty.length === 0) return;
-    const shown = dirty.slice(0, 5).join(', ');
-    this.emit({
-      type: 'warning',
-      runId: this.id,
-      stage: 'chunk',
-      message:
-        `дерево грязное до начала chunk'а: ${dirty.length} файл(ов) — ${shown}` +
-        `${dirty.length > 5 ? ` и ещё ${dirty.length - 5}` : ''}. Их правки в diff попытки ` +
-        `не войдут: база chunk ${this.chunk} записана. Решение — чинить дерево или ` +
-        `продолжать с базой — за вами.`,
-    });
-  }
-
   /**
    * Блокер, если рабочее дерево стоит не на ветке, объявленной задачей.
    *
@@ -3621,7 +3296,7 @@ export class Run {
     stat.runs += 1;
     this.stageStats.set(stage, stat);
 
-    if (stage === 'chunk') await this.ensureBaseline();
+    if (stage === 'chunk') await ensureBaseline(this.host);
 
     // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он
     // судит по своему представлению о сборке и тестах, а не по их фактическому итогу.
@@ -4258,7 +3933,7 @@ export class Run {
       // то, что записал агент. Иначе вход этапа 6 остаётся рассказом исполнителя о самом
       // себе; замер поймал ровно этот случай (см. `evidence.ts`).
       if (stage === 'chunk' && !cancelled) {
-        this.state.chunk.tree = await this.recordEvidence(diffBefore);
+        this.state.chunk.tree = await recordEvidence(this.host, diffBefore);
 
         // Честность доказательств: журнал утверждает «тесты прогнаны и прошли» — в ленте
         // обязан быть успешный bash-вызов команды тестов. Расхождение раньше было видно
@@ -4355,29 +4030,11 @@ export class Run {
     }
   }
 
-  /**
-   * Детект отсутствия прогресса: с третьей попытки diff предыдущей сравнивается с diff
-   * позапрошлой. Два подряд одинаковых — это остановка, а не следующая попытка.
-   *
-   * Сравнение дословное. «По существу» отличалось бы от «побайтово» только на шуме вроде
-   * таймстампов, а угадывать, что считать шумом, здесь опаснее, чем изредка дать лишнюю
-   * попытку: ложная эскалация дороже ложного продолжения.
-   */
+  /** Детект «нет прогресса» (`stages/chunk/evidence.ts::compareAttemptDiffs`); ставит близость патчей для интерфейса. */
   detectNoProgress(): boolean {
-    // Сравниваются ТЕКУЩАЯ попытка и предыдущая. Патч текущей к моменту вердикта уже
-    // существует — он обязательное предусловие этапа 6. Пока сравнивались две прошлые,
-    // одинаковые попытки 1 и 2 обнаруживались только на третьей: целая итерация бюджета
-    // тратилась на заведомо известный факт.
-    this.state.verify.closeness = null;
-    if (this.attempt < 2) return false;
-    const current = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt));
-    const prev = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt - 1));
-    if (!current.exists || !prev.exists) return false;
-
-    // Патчи читаются один раз на вердикт и здесь же обслуживают обе меры: они бывают
-    // сотнями килобайт, и второй проход по диску ради числа для интерфейса не нужен.
-    this.state.verify.closeness = diffCloseness(prev.text, current.text);
-    return current.text.trim() === prev.text.trim();
+    const { same, closeness } = compareAttemptDiffs(this.paths, this.chunk, this.attempt);
+    this.state.verify.closeness = closeness;
+    return same;
   }
 
   /** Близость патча к патчу прошлой попытки. `null` — первая попытка или сравнивать нечего. */

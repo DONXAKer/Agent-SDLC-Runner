@@ -8,11 +8,12 @@
 import type { ArtifactKey, WitokPaths } from '../../artifacts/paths.ts';
 import type { ApprovalGate } from '../../approval/gate.ts';
 import type { LoadedConfig } from '../../config/load.ts';
+import type { ModuleProfile } from '../../config/schema.ts';
 import type { EcosystemLine } from '../../explore/view.ts';
 import type { GatesFile } from '../../gates/gatesFile.ts';
 import type { TraceLabel } from '../../provider/rawLog.ts';
 import type { ExploreState } from './explore.ts';
-import type { Decision, EventSink, PolicyContext, StageId, ToolName, Usage } from '@sdlc-runner/shared';
+import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, StageId, ToolName, Usage } from '@sdlc-runner/shared';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
 export type SeededArtifact = { path: string; snapshot?: string };
@@ -58,6 +59,23 @@ export interface StageHost {
   axesEnabled(): boolean;
   /** Состояние этапа 2 между вызовами — живая ссылка на `Run.state.explore`. */
   readonly exploreState: ExploreState;
+  /** Имя проекта — ключ реестра песочниц (`ensureSandboxFor`). */
+  readonly projectName: string;
+  /** Описание модулей проекта из конфига; `undefined` — модули определяет детект. */
+  projectModules(): ModuleProfile[] | undefined;
+  /** Разрешённые планом пути записи этапа (`Run.planFilesFor`). */
+  planFilesFor(stage: StageId): readonly string[] | null;
+  /** Номер текущего chunk'а. */
+  chunk(): number;
+  /** Номер текущей попытки chunk'а. */
+  attempt(): number;
+  /** Улика попытки chunk'а в метрики витка (`RunMetrics.chunkEvidence`). */
+  noteChunkEvidence(metric: ChunkEvidenceMetric): void;
+  /**
+   * Сигнал отмены текущего этапа как есть — `undefined` вне этапа. В отличие от `signal()`,
+   * без подстановки свежего: контекст гейта без этапа не должен нести ключ `signal` вовсе.
+   */
+  aborterSignal(): AbortSignal | undefined;
 }
 
 /** Механическое поле артефакта, которое заполняет рантайм до модели (`formAutofill.ts`). */
