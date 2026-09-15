@@ -1354,9 +1354,19 @@ export class Run {
       requests += fill.modelRequests;
       result = { ...result, ...(requests === 0 ? {} : { modelRequests: requests }) };
       if (!fill.ok) {
-        return fill.envFailure === undefined || result.envFailure !== undefined
-          ? result
-          : { ...result, envFailure: fill.envFailure };
+        const withEnv =
+          fill.envFailure === undefined || result.envFailure !== undefined
+            ? result
+            : { ...result, envFailure: fill.envFailure };
+        // Причина остановки этапа не должна забывать, что рескью ВООБЩЕ запускался и
+        // как далеко дошёл. Прежде возвращался нетронутым исходный `result.note` (обрыв
+        // свободного хода), и разбор отчёта видел «ход обрезан лимитом длины…» без
+        // единого слова о том, что дозаполнение следом закрыло часть полей и на каких
+        // остановилось — эту сводку `FormFillExecutor` печатает в лог (`hooks.onText`),
+        // но в StageResult, который уходит в `report.md`, она не попадала (разбор серии
+        // v11, 2026-09-15: explore на freeship — дозаполнение закрыло 29 полей из ~46,
+        // а итоговая причина осталась исходной, будто рескью не пытался вовсе).
+        return { ...withEnv, note: `${withEnv.note} — рескью дозаполнением не закрыл бланк: ${fill.summary}` };
       }
       const dishonest = explorationHonestyProblem();
       if (dishonest !== null) return dishonest;
@@ -1401,7 +1411,7 @@ export class Run {
     prompt: PreparedPrompt,
     hooks: ExecHooks,
     signal: AbortSignal,
-  ): Promise<{ ok: boolean; modelRequests: number; envFailure?: string }> {
+  ): Promise<{ ok: boolean; modelRequests: number; envFailure?: string; summary: string }> {
     const route = this.profile.routes[stage];
     const limits = this.config.runner.limits;
     this.emit({
@@ -1464,6 +1474,10 @@ export class Run {
     return {
       ok: fill.ok,
       modelRequests: fill.modelRequests ?? 0,
+      // `finalText`, а не `note`: `note` при отказе — это одна строка стража (например
+      // «в артефакте остались незаполненные поля»), а `finalText` — полная сводка
+      // (сколько заполнено, сколько осталось, что отклонено), та же, что уходит в лог.
+      summary: fill.finalText,
       ...(fill.envFailure === undefined ? {} : { envFailure: fill.envFailure }),
     };
   }
