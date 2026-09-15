@@ -249,6 +249,23 @@ export function countPlaceholdersExceptSections(text: string, headings: readonly
 }
 
 /**
+ * Плейсхолдеры ВНУТРИ названной секции — дополнение к `countPlaceholdersExceptSections`.
+ *
+ * Нужен стражу завершения этапа 2: «Что придётся тронуть» интента исключена из предусловия
+ * входа в разведку (её заполняет сама разведка), но предусловие входа в ПЛАН считает
+ * обычным `countPlaceholders` — то есть эту секцию уже считает. Пока никто не требовал её
+ * закрыть в ходу разведки, два счётчика на одном файле давали противоположные решения:
+ * `intent` уходил зелёным, `explore` — тоже, а виток умирал на входе `plan` с обвинением
+ * этапа `intent`, который к незаполненной секции отношения не имеет (серия v9, 2026-09-15:
+ * 5 прогонов из 5, всегда одна и та же строка `- ‹path/to/file› — ‹что здесь меняем›`).
+ */
+export function countPlaceholdersInSection(text: string, heading: string): number {
+  const range = sectionRange(text, heading);
+  if (range === null) return 0;
+  return placeholderRanges(text).filter((p) => p.start >= range.start && p.start < range.end).length;
+}
+
+/**
  * Плейсхолдеры, не считая строк решений человека (метка `DECISION.*` и их продолжения).
  *
  * Нужен стражам дозаполнения по полям: на отчёте разведки плейсхолдер «Решение человека о

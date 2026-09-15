@@ -42,9 +42,16 @@ export function filled(describe: string, file: (c: StageContext) => string): Pre
   };
 }
 
+/**
+ * Секция задачи, которую заполняет разведка, а не этап 1. Имя одно на всех потребителей:
+ * страж `intent` её ИСКЛЮЧАЕТ, страж `explore` — наоборот, требует; разойдись эти две
+ * строки хоть буквой, и секция выпала бы из обеих проверок разом.
+ */
+export const TOUCH_SECTION = 'Что придётся тронуть';
+
 /** Незакрытые места задачи вне законно пустой на первом проходе «Что придётся тронуть». */
 export function intentPlaceholdersOutsideTouch(text: string): number {
-  return countPlaceholdersExceptSections(text, ['Что придётся тронуть']);
+  return countPlaceholdersExceptSections(text, [TOUCH_SECTION]);
 }
 
 /**

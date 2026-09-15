@@ -1,10 +1,10 @@
 /** Этап 2 — разведка: определение этапа и проверка фактичности отчёта разведки. */
 
 import { localResultBytes } from '../../config/limits.ts';
-import { DECISION, pathExistsAny, readArtifact } from '../../artifacts/artifact.ts';
+import { DECISION, countPlaceholdersInSection, pathExistsAny, readArtifact } from '../../artifacts/artifact.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
-import { claimsMinimum, exists, filledExceptTouchSection, isSmallContour, relOf } from './preconditions.ts';
+import { TOUCH_SECTION, claimsMinimum, exists, filledExceptTouchSection, isSmallContour, relOf } from './preconditions.ts';
 import type { Precondition, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 import { autofillTitle } from '../formAutofill.ts';
 import { edgeExampleLines } from '../../artifacts/edgeExample.ts';
@@ -219,6 +219,30 @@ export function explorationPathProblem(c: StageContext): string | null {
  * сочинённой карты. Строка с пометкой «нов…» (новый файл/модуль) законно указывает на
  * ещё не существующий путь и пропускается.
  */
+/**
+ * Секция задачи «Что придётся тронуть» закрыта — проверка в ходу САМОЙ разведки.
+ *
+ * Секция исключена из предусловия входа в разведку (`filledExceptTouchSection`): на первом
+ * проходе она законно пуста, заполнить её обязана разведка. Но предусловие входа в ПЛАН
+ * считает места обычным `filled`, то есть эту секцию уже считает — а требовать её закрытия
+ * было некому: страж `intent` её исключает по построению, у `explore` проверки не было
+ * вовсе. Два счётчика на одном файле давали противоположные решения, и разбор серии v9
+ * (2026-09-15) показал цену: 5 прогонов из 5 закрыли `intent` и `explore` зелёными и
+ * умерли на входе `plan` — «осталось незаполненных мест: 2», всегда одна и та же строка
+ * образца `- ‹path/to/file› — ‹что здесь меняем›`. Виноватым при этом назывался `intent`,
+ * который к незаполненной секции отношения не имеет.
+ *
+ * Тот же приём и та же причина, что у `explorationPathProblem` (r32): находка нужна модели,
+ * пока она ещё здесь, а не после её ухода.
+ */
+export function touchSectionProblem(c: StageContext): string | null {
+  const a = readArtifact(c.paths.intent);
+  if (!a.exists) return null; // отсутствие задачи ловит предусловие входа
+  const n = countPlaceholdersInSection(a.text, TOUCH_SECTION);
+  if (n === 0) return null;
+  return `в секции «${TOUCH_SECTION}» файла задачи осталось незаполненных мест: ${n}`;
+}
+
 export function explorationPathsExist(): Precondition {
   return {
     describe: 'пути из карты кодовой базы существуют в дереве',
@@ -459,11 +483,22 @@ export const exploreModule: StageModule = {
     // тот же приём, которым страж требует заполнить бланк.
     finishProblem: () => {
       const problem = explorationPathProblem(host.ctx());
-      if (problem === null) return null;
-      return (
-        `${problem}. Поправь карту: несуществующий путь либо убери, либо помечай ` +
-        `словом «новый» — файл, который предстоит создать, картой кодовой базы не является.`
-      );
+      if (problem !== null) {
+        return (
+          `${problem}. Поправь карту: несуществующий путь либо убери, либо помечай ` +
+          `словом «новый» — файл, который предстоит создать, картой кодовой базы не является.`
+        );
+      }
+      // Вторая находка того же стража: «Что придётся тронуть» в задаче заполняет разведка,
+      // и спросить об этом больше некого — этап 4 на входе считает эту секцию.
+      const touch = touchSectionProblem(host.ctx());
+      if (touch !== null) {
+        return (
+          `${touch} — эту секцию заполняет разведка. Выпиши в неё строки «путь — что здесь ` +
+          `меняем» по карте кодовой базы и сохрани инструментом Edit: без неё этап 4 не стартует.`
+        );
+      }
+      return null;
     },
 
     // Кэш индекса разведки ключуется по тексту задачи и экосистеме, а не по состоянию
