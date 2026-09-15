@@ -7,7 +7,7 @@
  * набор гейтов, несовпавшую ветку, отсутствующий эталон методологии.
  */
 
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -297,10 +297,14 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   // не прокрутку окна. Файл обнуляется на старте — повтор слага не дописывает к старому логу.
   const progressFile = join(TRACES_DIR, opts.slug, 'progress.log');
   let progressFileOk = true;
+  /** Один дескриптор на прогон: открытие файла на КАЖДУЮ строку (десятки строк на обмен с
+   *  моделью) стоило тысячи синхронных open/close за этап. */
+  let progressFd: number | null = null;
   const writeProgressFile = (line: string): void => {
     if (!progressFileOk) return;
     try {
-      appendFileSync(progressFile, `${line}\n`);
+      progressFd ??= openSync(progressFile, 'a');
+      writeSync(progressFd, `${line}\n`);
     } catch (e) {
       progressFileOk = false;
       console.error(`лог хода прогона не пишется (${progressFile}): ${e instanceof Error ? e.message : String(e)}`);
@@ -587,7 +591,19 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       rawLogDisabled,
     };
+  } catch (e) {
+    // Прогон, упавший исключением, — строкой в логе: без неё по файлу он неотличим от ещё
+    // идущего или убитого процесса.
+    writeProgressFile(`\n# ${new Date().toTimeString().slice(0, 8)} исключение: ${e instanceof Error ? e.message : String(e)}`);
+    throw e;
   } finally {
+    if (progressFd !== null) {
+      try {
+        closeSync(progressFd);
+      } catch {
+        // лог уже дописан; закрытие не должно ронять итог прогона
+      }
+    }
     operatorHandle.detach();
     await run.dispose();
     if (opts.keepWorkspace) console.log(`\nрабочая копия оставлена: ${wsRoot}`);

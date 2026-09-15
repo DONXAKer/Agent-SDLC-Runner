@@ -181,6 +181,37 @@ describe('createCollector', () => {
     }
   });
 
+  it('отказ политики по AskHuman — отказ, а не пропажа: гейт шлёт по нему tool_resolved', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-bench-collector-'));
+    try {
+      const collector = createCollector({ projectRoot: () => root, slug: () => 's' });
+      collector.emit(
+        toolRequest({
+          toolName: 'AskHuman',
+          requestId: 'ask-denied',
+          call: {
+            kind: 'ask_human',
+            questions: [{ id: 'q1', question: 'Можно?', header: 'H', multiSelect: false, options: [] }],
+          },
+          policy: { ok: false, policy: 'stageTools', reason: 'AskHuman не выдан этапу' },
+        }),
+      );
+      collector.emit({
+        type: 'tool_resolved',
+        runId: 'r1',
+        stage: 'chunk',
+        requestId: 'ask-denied',
+        decision: { allowed: false, reason: '[stageTools] AskHuman не выдан этапу', by: 'policy' },
+      });
+      deepStrictEqual(
+        collector.state.denials?.map((d) => [d.requestId, d.kind, d.policy]),
+        [['ask-denied', 'ask_human', 'stageTools']],
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('отмена ожидающего запроса (cancelRun) — не отказ; revalidate помечен автором решения', () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-bench-collector-'));
     try {

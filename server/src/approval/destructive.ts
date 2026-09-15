@@ -301,9 +301,10 @@ export function restoreLostDecisions(before: string, content: string): { content
     // Одинаковых меток несколько, а стёртые по тексту не опознаются однозначно (модель
     // изменила одну запись и стёрла другую; тексты полей совпадают) — угадывать нельзя:
     // поле ушло бы в чужую запись, и проверка по числу меток это пропустила бы.
+    // После этой проверки недостающие — ровно неопознанные по тексту: при одной метке
+    // `need = 1` и `unmatched` из одного поля, при нескольких — `unmatched.length === need`.
     if (inSrc.length > 1 && unmatched.length !== need) return null;
-    const chosen = [...unmatched, ...matched.reverse()].slice(0, need);
-    for (const at of chosen) missing.push({ label, at });
+    for (const at of unmatched.slice(0, need)) missing.push({ label, at });
     restored.push(label);
   }
   if (missing.length === 0) return null;
@@ -322,11 +323,24 @@ export function restoreLostDecisions(before: string, content: string): { content
     // чужая запись, либо её нет, и поле молча ушло бы в конец документа.
     if (h >= 0) {
       const heading = src[h]!.trim();
-      const count = (lines: readonly string[]): number => lines.filter((l) => l.trim() === heading).length;
-      const inSrc = count(src);
+      const positions = (lines: readonly string[]): number[] =>
+        lines.flatMap((l, i) => (l.trim() === heading ? [i] : []));
+      const inSrc = positions(src);
+      const inOut = positions(out);
       // Единственный заголовок, пропавший целиком, — не угадывание: поле уходит в конец
       // документа и по метке читается. Угадывание — только среди одинаковых.
-      if (inSrc > 1 && inSrc !== count(out)) return null;
+      //
+      // Одинаковых заголовков в новом тексте БОЛЬШЕ — законное добавление записи (третий
+      // «### Дефект»): k-я секция остаётся своей, если первые секции совпадают по первой
+      // непустой строке после заголовка. Меньше, или начало секций разошлось, — какая
+      // запись чья, по тексту не сказать.
+      if (inSrc.length > 1) {
+        if (inOut.length < inSrc.length) return null;
+        const firstLine = (lines: readonly string[], at: number): string =>
+          lines.slice(at + 1).find((l) => l.trim() !== '' && !HEADING.test(l))?.trim() ?? '';
+        const aligned = inSrc.every((s, j) => firstLine(src, s) === firstLine(out, inOut[j]!));
+        if (inOut.length !== inSrc.length && !aligned) return null;
+      }
     }
     const hIdx = h < 0 ? -1 : nthIndexOf(out, src[h]!.trim(), ordinalOf(src, h));
 

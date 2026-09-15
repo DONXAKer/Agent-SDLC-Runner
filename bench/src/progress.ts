@@ -19,10 +19,15 @@ export interface ProgressOptions {
   now?: () => Date;
 }
 
-const flat = (text: string, max: number): string => {
-  const s = text.replace(/\s+/g, ' ').trim();
-  return s.length > max ? `${s.slice(0, max)}…` : s;
-};
+/** Обрезка по длине без разреза суррогатной пары: одиночный суррогат в логе читался «�». */
+export function clip(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const code = s.charCodeAt(max - 1);
+  const end = code >= 0xd800 && code <= 0xdbff ? max - 1 : max;
+  return `${s.slice(0, end)}…`;
+}
+
+const flat = (text: string, max: number): string => clip(text.replace(/\s+/g, ' ').trim(), max);
 
 const num = (n: number): string => n.toLocaleString('ru-RU');
 
@@ -147,6 +152,13 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
         return;
       }
       case 'usage': {
+        // Расход мимо исполнителя этапа (рецензент, ансамбль, доборы — другой маршрут и другое
+        // окно) — отдельной строкой: в запросы этапа и в пик его контекста он не идёт, иначе
+        // итог этапа показывал «183% окна» чужой модели.
+        if (e.offPath === true) {
+          write(`  · токены вне хода этапа: вход ${num(e.usage.inputTokens)}, ответ ${num(e.usage.outputTokens)}`);
+          return;
+        }
         requests += 1;
         const input = e.usage.inputTokens;
         // Расход — отдельной строкой «токены», а не «запрос»: запросы дозаполнения идут пачками
@@ -168,7 +180,7 @@ export function createProgressPrinter(o: ProgressOptions): (e: RunEvent) => void
         if (subject.detail !== null) write(`  │   ${subject.detail}`);
         write('  ├ ОТВЕТ');
         const listed = tablesAsLists(e.answer.trimEnd()).join('\n');
-        const answer = listed.length > EXCHANGE_ANSWER_PRINT ? `${listed.slice(0, EXCHANGE_ANSWER_PRINT)}…` : listed;
+        const answer = clip(listed, EXCHANGE_ANSWER_PRINT);
         const lines = answer.trim() === '' ? ['(пустой ответ)'] : answer.split('\n');
         for (const line of lines) write(`  │   ${line}`);
         write('  └');

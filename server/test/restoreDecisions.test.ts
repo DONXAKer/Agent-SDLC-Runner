@@ -113,6 +113,18 @@ describe('restoreLostDecisions: одинаковые метки и заголо�
     strictEqual(restoreLostDecisions(HANDOFF, changedAndErased), null);
   });
 
+  // Дописанная запись — не переименование: k-я секция своя, если начала первых секций совпали
+  // (code-review-all, 2026-09-15: счёт заголовков 2≠3 молча выключал починку).
+  it('дописана третья запись, в первой стёрто поле — поле возвращается в первую', () => {
+    const third = ['## Дефект', '', '### Запись', '', '- Класс: дедлок', ''].join('\n');
+    const erased = HANDOFF.replace(`- **${WHO}:** ‹имя›\n`, '') + third;
+    const r = restoreLostDecisions(HANDOFF, erased);
+    ok(r !== null);
+    const sections = r.content.split('### Запись');
+    ok(sections[1]!.includes(WHO) && sections[1]!.includes('гонка'), r.content);
+    ok(sections[3]!.includes('дедлок') && !sections[3]!.includes(WHO), r.content);
+  });
+
   it('одна из одинаковых секций удалена — номер заголовка не переносится: null', () => {
     const lines = HANDOFF.split('\n');
     const secondDefect = lines.lastIndexOf('## Дефект');

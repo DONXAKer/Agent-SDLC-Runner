@@ -3,6 +3,7 @@
  * субагента-рецензента либо конвейер закрытых вопросов по хункам (`ModelDef.reviewFill`).
  */
 
+import { localResultBytes } from '../../../config/limits.ts';
 import type { PreparedPrompt, ToolName } from '@sdlc-runner/shared';
 
 import { readArtifact } from '../../../artifacts/artifact.ts';
@@ -81,7 +82,7 @@ export async function runReviewFill(host: StageHost, route: ResolvedRoute): Prom
     axes,
     // Тот же потолок, что у среза патча в поклаймовом доборе: фрагмент конкурирует за
     // то же окно локальной модели.
-    hunkBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+    hunkBudgetBytes: localResultBytes(limits),
     signal,
     onProgress: (note) => host.emit({ type: 'warning', runId: host.id, stage: 'verify', message: `ревью по хункам: ${note}` }),
     onUsage: (usage) => host.accountOffPathUsage('verify', usage, route.providerDef.currency),

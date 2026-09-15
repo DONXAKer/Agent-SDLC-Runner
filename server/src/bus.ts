@@ -32,6 +32,10 @@ function weigh(e: RunEvent): number {
     case 'assistant_text':
     case 'thinking':
       return e.text.length + 128;
+    // Вопрос и ответ узкого запроса — до 12 тысяч символов на событие, а дозаполнение шлёт их
+    // десятками: по умолчанию в 256 байт буфер недосчитывал их в десятки раз.
+    case 'model_exchange':
+      return e.question.length + e.answer.length + 256;
     default:
       return 256;
   }

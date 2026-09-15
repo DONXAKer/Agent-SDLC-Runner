@@ -24,7 +24,10 @@ export type SeededArtifact = { path: string; snapshot?: string };
 /**
  * Фасад витка для модулей этапов: ровно то, что им нужно, без доступа к классу `Run`.
  * Модуль этапа импортирует `Run.ts` только как тип — иначе реестр этапов замкнул бы цикл
- * модулей. Всё изменяемое отдаётся функциями, а не значениями, снятыми на входе.
+ * модулей. Изменяемые числа витка (chunk, попытка, решения, файлы) отдаются функциями;
+ * состояние этапов — живыми ссылками на объекты, которые `Run` не пересоздаёт (поля
+ * `Run.state` readonly по типу, иначе хук, держащий `host` в замыкании прохода, писал бы в
+ * старый объект); постоянные проекта (`projectName`, `maxBudgetUsd`) — значением.
  */
 export interface StageHost {
   readonly id: string;
@@ -227,6 +230,8 @@ export interface StageInvocation {
     extraBlock: string | null;
     requireCodeChange: boolean;
     honesty?: () => string | null;
+    /** Изменилось ли рабочее дерево за этап — признак правки кода помимо принятых Write/Edit. */
+    treeChanged?: () => Promise<boolean>;
   } | null;
   /** После дозаполнения по полям (ансамбль рецензентов verify). */
   afterForm?(prompt: PreparedPrompt, def: StageDef, agents: readonly SubagentDef[], hooks: ExecHooks): Promise<void>;

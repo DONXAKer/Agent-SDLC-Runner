@@ -323,8 +323,11 @@ export class LoopExecutor implements StageExecutor {
         !noProgressNudged &&
         turn < req.maxTurns &&
         // Порог не позже предпоследнего хода: при maxTurns 3–4 доля давала последний ход, на
-        // котором напоминание уже не отправляется, — и не приходило ни разу.
-        turnsDone >= Math.min(Math.ceil(req.maxTurns * NO_PROGRESS_BUDGET_FRACTION), req.maxTurns - 1) &&
+        // котором напоминание уже не отправляется, — и не приходило ни разу. `turn < maxTurns`
+        // значит `turnsDone ≤ maxTurns - 2`, поэтому потолок порога — `maxTurns - 2`, а не
+        // `- 1` (с `- 1` поправка была недостижима ровно при 3–4 ходах); пол — один ход:
+        // напоминание до первого хода не о чем.
+        turnsDone >= Math.max(1, Math.min(Math.ceil(req.maxTurns * NO_PROGRESS_BUDGET_FRACTION), req.maxTurns - 2)) &&
         req.progressSignal() === 0
       ) {
         noProgressNudged = true;
@@ -374,13 +377,21 @@ export class LoopExecutor implements StageExecutor {
       // из ответа ЛЯЖЕТ в историю, а не `completion_tokens`: у reasoning-моделей в них входит
       // рассуждение, которое в историю не возвращается, и переоценка на его длину сажала
       // `max_tokens` следующего хода на пол.
-      lastUsedTokens =
-        answer.usage.inputTokens === 0
-          ? null
-          : answer.usage.inputTokens +
-            estimateMessageTokens([
-              { content: answer.text + answer.toolCalls.map((c) => `${c.name}${c.rawArguments}`).join('') },
-            ]);
+      //
+      // Но оценка байтами (4 байта на токен) недосчитывает плотный код и ASCII-JSON: длинный
+      // `Write` на 6k токенов выходил 4.5k, и `max_tokens` следующего хода завышался ровно на
+      // разницу — у границы окна это HTTP 400. Поэтому доля ответа — не меньше
+      // `completion_tokens`, ограниченных сверху ДВУМЯ байтами на токен видимого текста: у
+      // обычной модели это точное число, у reasoning-модели рассуждение сверх видимого текста
+      // срезается этим потолком, а не уходит в историю целиком.
+      if (answer.usage.inputTokens === 0) {
+        lastUsedTokens = null;
+      } else {
+        const visible = answer.text + answer.toolCalls.map((c) => `${c.name}${c.rawArguments}`).join('');
+        const estimated = estimateMessageTokens([{ content: visible }]);
+        const reported = Math.min(answer.usage.outputTokens, Math.ceil(Buffer.byteLength(visible, 'utf8') / 2));
+        lastUsedTokens = answer.usage.inputTokens + Math.max(estimated, reported);
+      }
       hooks.onUsage(answer.usage);
       if (answer.text !== '') {
         finalText = answer.text;

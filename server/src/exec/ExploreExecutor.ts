@@ -595,6 +595,9 @@ export class ExploreExecutor implements StageExecutor {
         finishGuard: null,
         salvageFromText: null,
         maxTurns: Math.max(0, req.maxTurns - calls),
+        // Потолок добора — остаток лимита ходов этапа: вопросы разведки его уже потратили, и
+        // бюджет дозаполнения от числа полей иначе продолжал бы этап сверх лимита.
+        requestCap: Math.max(0, req.maxTurns - calls),
       },
       hooks,
     );

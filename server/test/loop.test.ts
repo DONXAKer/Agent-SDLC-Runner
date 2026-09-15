@@ -591,8 +591,10 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
 
   // Сам ответ уже в истории второго запроса, а `prompt_tokens` его не содержит. Прибавляется
   // оценка того, что ЛЕГЛО в историю, а не `completion_tokens`: у reasoning-модели в них
-  // рассуждение, которое в историю не возвращается (code-review, 2026-09-15).
-  it('второй ход — к prompt_tokens прибавлена оценка сохранённого ответа, а не completion_tokens', async () => {
+  // рассуждение, которое в историю не возвращается (code-review, 2026-09-15). Но и 4 байта на
+  // токен недосчитывали плотный код: доля ответа — не меньше `completion_tokens`, ограниченных
+  // ДВУМЯ байтами на токен сохранённого текста (code-review-all, 2026-09-15).
+  it('второй ход — к prompt_tokens прибавлен сохранённый ответ: completion_tokens под потолком 2 байта на токен', async () => {
     const call = readCall('src/deep/A.ts');
     const p = provider([
       {
@@ -603,7 +605,11 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
       { text: 'готово', finishReason: 'end_turn' },
     ]);
     await executor(p, { contextWindow: 16384 }).run(request(), hooks());
-    const stored = estimateMessageTokens([{ content: `${call.name}${call.rawArguments}` }]);
+    const visible = `${call.name}${call.rawArguments}`;
+    const stored = Math.max(
+      estimateMessageTokens([{ content: visible }]),
+      Math.min(5000, Math.ceil(Buffer.byteLength(visible, 'utf8') / 2)),
+    );
     deepStrictEqual(p.seen[1]?.params, { max_tokens: 16384 - 3000 - stored - 3750 });
   });
 

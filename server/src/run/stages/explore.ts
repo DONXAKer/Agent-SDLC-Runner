@@ -1,5 +1,6 @@
 /** Этап 2 — разведка: определение этапа и проверка фактичности отчёта разведки. */
 
+import { localResultBytes } from '../../config/limits.ts';
 import { DECISION, pathExistsAny, readArtifact } from '../../artifacts/artifact.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
@@ -105,13 +106,15 @@ export function explorationPathProblem(c: StageContext): string | null {
       // красный на честном отчёте. Но и требовать оба слова вместе нельзя: модель,
       // переименовавшая заголовок в «## Кодовая база», выводила таблицу сочинённых путей
       // из-под проверки вовсе (code-review-all, 2026-09-14).
-      // «Кодовая база» — в начале заголовка (после эмодзи и знаков) либо сразу после слова
-      // «карта»: без этого «## Карта кодов ошибок» и «## Что уже есть в кодовой базе»
-      // считались второй картой, и честный отчёт получал красный «несколько секций».
+      // «Кодовая база» — в любом месте заголовка, кроме секции переиспользования («## Что уже
+      // есть в кодовой базе»): она считалась второй картой, и честный отчёт получал красный
+      // «несколько секций». Заякоренный признак отсекал её, но заодно выводил из-под проверки
+      // «## Обзор кодовой базы» с сочинёнными путями (fail-open, code-review-all, 2026-09-15).
+      // «Карта кодов ошибок» не матчится: там нет ни «кодовой базы», ни «карты кода».
       // Окончания перечислены явно: `\b` по кириллице не работает.
       const mapRanges = h2SectionRanges(
         report.text,
-        /^[^\p{L}]*кодов(ая|ой)\s+баз|карта\s+кодов(ая|ой)\s+баз|(^|[^\p{L}])карта\s+кода(\s|$)/iu,
+        /^(?!.*(уже\s+есть|переиспольз)).*(кодов(ая|ой)\s+баз|карта\s+кода(\s|$))/iu,
       );
       // Несколько таких секций, и хотя бы одна БЕЗ таблицы — модель не заполнила
       // поле-образец, а стёрла структуру и завела свой заголовок с прозой. Построчная
@@ -329,7 +332,7 @@ export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecos
   }
   const { built } = exploreIndexFor(host, ecosystem);
   const limits = host.limits();
-  const cardBudget = Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes);
+  const cardBudget = localResultBytes(limits);
   const perCard = cardBudgetPerFile(cardBudget, built.ranked.length);
   const result = await deriveClaimsBlind({
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('explore', 'claimsBlind')),
@@ -385,7 +388,7 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
     params: route.params,
     currency: route.providerDef.currency ?? 'USD',
     ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
-    maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+    maxResultBytes: localResultBytes(limits),
     readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
     bashTimeoutMs: limits.gateTimeoutMs,
     index,
@@ -405,7 +408,7 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
     axesEnabled: host.axesEnabled(),
     fillednessGate: fillednessGateState(host.gatesFile()),
     edgeExample: edgeExampleLines(host.runner().methodologyDir),
-    cardBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+    cardBudgetBytes: localResultBytes(limits),
   });
 }
 
@@ -417,7 +420,7 @@ export const exploreModule: StageModule = {
   checksBranchOnEntry: false,
   begin: (host, route) => ({
     // Слепой вывод листа (агент 2 этапа 2) — шаг РАНТАЙМА до создания исполнителя: конвейер
-    // `exploreFill` забирает его итог из `exploreClaims` при конструировании.
+    // `exploreFill` забирает его итог из `exploreState.claims` при конструировании.
     beforeExecutor: async () => {
       if (usesExploreFill(route)) await runClaimsBlind(host, route, host.ecosystemFor('explore'));
     },

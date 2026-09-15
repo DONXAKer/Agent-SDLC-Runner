@@ -3,6 +3,7 @@
  * шаг без tool-use (`exec/StepExecutor.ts`). Здесь — карта шагов и проверка после шага.
  */
 
+import { localResultBytes } from '../../../config/limits.ts';
 import { readArtifact } from '../../../artifacts/artifact.ts';
 import { extractFilesToTouch } from '../../../artifacts/planFiles.ts';
 import { describeStep, planSteps } from '../../../artifacts/planSteps.ts';
@@ -110,7 +111,7 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
   const checkLabel = [buildRow?.name, testsRow?.name].filter((n): n is string => n !== undefined).join(' + ');
   return new StepExecutor({
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace(stage, 'step')),
-    maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+    maxResultBytes: localResultBytes(limits),
     readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
     bashTimeoutMs: limits.gateTimeoutMs,
     params: route.params,

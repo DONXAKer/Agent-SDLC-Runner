@@ -117,9 +117,11 @@ function parseArguments(raw: unknown): { args: Record<string, unknown> | null; t
  * только закрытые объекты, и обрыв по длине пришёлся уже после вызовов (обычно на
  * хвостовой прозе). Отдавать здесь `max_tokens` значило бы, что цикл выбросит целые
  * вызовы как «обрезан на середине вызова инструмента» (code-review, 2026-09-14).
- * Последовательность, оборванная на незакрытом `Имя[ARGS]`, и JSON-форма (объект ищется
- * после любой скобки — в обрезанной прозе это может быть цитата) исключением не являются:
- * вызывающий передаёт `callsFromText` только для закрытой формы Mistral.
+ * Последовательность, оборванная на незакрытом `Имя[ARGS]` или недописанном следующем
+ * вызове, исключением не является. JSON-форма — только когда объект стоит в самом начале
+ * ответа: объект после прозы ищется по любой скобке и в обрезанной прозе может быть цитатой,
+ * а объект, с которого ответ начинается, — нет, и выбрасывать целый вызов из-за обрезанного
+ * хвоста после него значило бы вернуть дефект 2026-09-14 (code-review-all, 2026-09-15).
  */
 export function mapFinish(reason: string | undefined, hasCalls: boolean, callsFromText = false): FinishReason {
   if (hasCalls && callsFromText) return 'tool_use';
@@ -160,15 +162,25 @@ export function toolCallsFromText(text: string, known: ReadonlySet<string>): Cha
 export interface TextToolCalls {
   calls: ChatToolCall[];
   form: 'mistral' | 'json' | null;
-  /** Последовательность Mistral оборвана на объявленном `Имя[ARGS]` с незакрытым объектом. */
+  /**
+   * Последовательность Mistral оборвана: на объявленном `Имя[ARGS]` с незакрытым объектом
+   * либо на недописанном начале следующего вызова.
+   */
   truncated: boolean;
+  /**
+   * JSON-вызов — первое, что есть в ответе (после блоков `<think>`). Такой объект цитатой
+   * прозы быть не может, и обрыв по длине пришёлся уже после него.
+   */
+  jsonAtStart?: boolean;
 }
 
 export function textToolCalls(text: string, known: ReadonlySet<string>): TextToolCalls {
   const mistral = mistralCallsFromText(text, known);
   if (mistral.calls.length > 0) return { calls: mistral.calls, form: 'mistral', truncated: mistral.truncated };
   const json = jsonCallFromText(text, known);
-  return json === null ? { calls: [], form: null, truncated: mistral.truncated } : { calls: [json], form: 'json', truncated: false };
+  if (json === null) return { calls: [], form: null, truncated: mistral.truncated };
+  const lead = text.slice(0, json.start).replace(/<think>[\s\S]*?<\/think>/g, '');
+  return { calls: [json.call], form: 'json', truncated: false, jsonAtStart: lead.trim() === '' };
 }
 
 const TOOL_CALLS_TOKEN = '[TOOL_CALLS]';
@@ -189,8 +201,11 @@ function textCallId(): string {
 /**
  * Начало последовательности вызовов: после ведущих блоков рассуждения `<think>…</think>`
  * (движок, не отделивший рассуждение, отдаёт его в `content`) либо у явного служебного
- * токена `[TOOL_CALLS]` в любом месте. Токен цитатой не бывает — его пишет шаблон движка, а
- * не модель в прозе; голое `Имя[ARGS]` посреди прозы по-прежнему не вызов.
+ * токена `[TOOL_CALLS]` вне кода. Голое `Имя[ARGS]` посреди прозы по-прежнему не вызов.
+ *
+ * Токен внутри кода (блок ```…``` или `…` в строке) — цитата, а не вывод шаблона движка:
+ * модель, пересказывающая тест или документацию самого раннера, печатает `[TOOL_CALLS]`
+ * буквально, и такой пример исполнялся бы (code-review-all, 2026-09-15).
  */
 function sequenceStart(text: string): number {
   let pos = 0;
@@ -199,10 +214,30 @@ function sequenceStart(text: string): number {
     if (m === null) break;
     pos += m[0].length;
   }
-  const token = text.indexOf(TOOL_CALLS_TOKEN, pos);
+  let token = text.indexOf(TOOL_CALLS_TOKEN, pos);
+  while (token >= 0 && insideCode(text, token)) token = text.indexOf(TOOL_CALLS_TOKEN, token + TOOL_CALLS_TOKEN.length);
   if (token < 0) return pos;
   const between = text.slice(pos, token);
   return /^\s*$/.test(between) || !/^\s*[A-Za-z_][\w-]*\[ARGS\]/.test(text.slice(pos)) ? token : pos;
+}
+
+/** Позиция внутри кода: нечётное число ``` до неё либо нечётное число ` в её строке. */
+function insideCode(text: string, at: number): boolean {
+  const before = text.slice(0, at);
+  if ((before.match(/```/g) ?? []).length % 2 === 1) return true;
+  const line = before.slice(before.lastIndexOf('\n') + 1).replace(/```/g, '');
+  return (line.match(/`/g) ?? []).length % 2 === 1;
+}
+
+/**
+ * Хвост — недописанное начало следующего вызова (`Read[AR`, `Wri`, `[TOOL_CA`): ответ оборван
+ * лимитом посреди последовательности. Без этого признака последовательность отдавалась
+ * «закрытой» — второй вызов пропадал молча, а цикл не узнавал об обрыве.
+ */
+function partialCallHead(rest: string): boolean {
+  if (rest === '' || /\s/.test(rest)) return false;
+  if (TOOL_CALLS_TOKEN.startsWith(rest)) return true;
+  return /^(\[TOOL_CALLS\])?[A-Za-z_][\w-]*(\[(A(R(G(S)?)?)?)?)?$/.test(rest);
 }
 
 /**
@@ -235,7 +270,10 @@ function mistralCallsFromText(text: string, known: ReadonlySet<string>): { calls
     }
     const head = /^([A-Za-z_][\w-]*)\[ARGS\]/.exec(text.slice(pos, pos + 256));
     const name = head?.[1];
-    if (head === null || name === undefined || !known.has(name)) break;
+    if (head === null || name === undefined || !known.has(name)) {
+      if (head === null && calls.length > 0 && partialCallHead(text.slice(pos))) truncated = true;
+      break;
+    }
     let start = pos + head[0].length;
     while (start < text.length && /\s/.test(text[start]!)) start++;
     if (start >= text.length) {
@@ -269,7 +307,7 @@ function mistralCallsFromText(text: string, known: ReadonlySet<string>): { calls
   return { calls, truncated };
 }
 
-function jsonCallFromText(text: string, known: ReadonlySet<string>): ChatToolCall | null {
+function jsonCallFromText(text: string, known: ReadonlySet<string>): { call: ChatToolCall; start: number } | null {
   // Кандидаты ищем по КАЖДОЙ открывающей скобке, а не только по первой: модель часто
   // пишет вызов после прозы, в которой фигурная скобка уже встретилась (пример формата,
   // фрагмент кода), и с фиксированным началом ни одна нарезка не разбиралась.
@@ -295,10 +333,13 @@ function jsonCallFromText(text: string, known: ReadonlySet<string>): ChatToolCal
     if (name === undefined || !known.has(name)) continue;
     const args = r['arguments'] ?? r['parameters'] ?? r['input'] ?? r['args'];
     return {
-      id: textCallId(),
-      name,
-      arguments: typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {},
-      rawArguments: JSON.stringify(args ?? {}),
+      call: {
+        id: textCallId(),
+        name,
+        arguments: typeof args === 'object' && args !== null ? (args as Record<string, unknown>) : {},
+        rawArguments: JSON.stringify(args ?? {}),
+      },
+      start,
     };
   }
   return null;
@@ -562,7 +603,8 @@ export class OpenAiCompatProvider implements ChatProvider {
       const known = new Set(req.tools.map((t) => t.name));
       const fromText = textToolCalls(content, known);
       toolCalls.push(...fromText.calls);
-      callsFromText = fromText.form === 'mistral' && !fromText.truncated;
+      callsFromText =
+        (fromText.form === 'mistral' && !fromText.truncated) || (fromText.form === 'json' && fromText.jsonAtStart === true);
     }
 
     const usage: Usage = {

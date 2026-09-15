@@ -3,6 +3,7 @@
  * патчем, поклаймовый добор, внесение записей в отчёт и автозаполнение отчёта фактами.
  */
 
+import { localResultBytes } from '../../../config/limits.ts';
 import type { NormalizedCall } from '@sdlc-runner/shared';
 
 import { readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
@@ -125,7 +126,7 @@ export async function topUpClaims(host: StageHost, route: ResolvedRoute, system:
     tests: readArtifact(host.paths.chunkTests(host.chunk(), host.attempt())).text,
     // Тот же потолок, что у результата инструмента локального контура: срез патча
     // конкурирует за то же окно, что и всё остальное в вопросе.
-    evidenceBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+    evidenceBudgetBytes: localResultBytes(limits),
     signal: host.signal(),
     onProgress: (note) => host.emit({ type: 'warning', runId: host.id, stage: 'verify', message: `поклаймовый добор: ${note}` }),
     onUsage: (usage) => host.accountOffPathUsage('verify', usage, route.providerDef.currency),

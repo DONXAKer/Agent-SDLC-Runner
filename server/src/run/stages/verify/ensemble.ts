@@ -3,6 +3,7 @@
  * вопросы по пунктам, в которых основной маршрут не уверен.
  */
 
+import { localResultBytes } from '../../../config/limits.ts';
 import type { PreparedPrompt } from '@sdlc-runner/shared';
 
 import { readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
@@ -12,6 +13,7 @@ import type { ExecHooks, SubagentDef } from '../../../exec/StageExecutor.ts';
 import { ProviderEnvError } from '../../../provider/ChatProvider.ts';
 import { createProvider } from '../../../provider/registry.ts';
 import { readReport } from '../../../verdict/collect.ts';
+import { claimTextCell } from '../../../verdict/retryBrief.ts';
 import { fillClaims } from '../../claimFill.ts';
 import type { ClaimAsk } from '../../claimFill.ts';
 import { anchorFound, renderRecords } from '../../verifyReport.ts';
@@ -66,7 +68,7 @@ export async function narrowRoute(
     claims,
     diff: readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt())).text,
     tests: readArtifact(host.paths.chunkTests(host.chunk(), host.attempt())).text,
-    evidenceBudgetBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+    evidenceBudgetBytes: localResultBytes(limits),
     signal: host.signal(),
     onProgress: (note) => host.emit({ type: 'warning', runId: host.id, stage: 'verify', message: `ансамбль, узкий маршрут ${route.modelId}: ${note}` }),
     onUsage: (usage) => host.accountOffPathUsage('verify', usage, route.providerDef.currency),
@@ -155,6 +157,11 @@ export async function runEnsembleReviewers(
     // сочинял таблицу гейтов от себя. Бланка нет (автозаполнение не отработало) —
     // прежнее поведение, пустой файл.
     writeArtifact(canonical, verify.verifyPrefill ?? '');
+    // Записи маршрута — его собственные: без сброса `RecordClaim` полного маршрута смешивался
+    // бы с пунктами основного, а рендер ниже нёс бы в отчёт маршрута чужое мнение.
+    verify.claimRecords = new Map();
+    verify.findingRecords = [];
+    let narrowed = false;
     try {
       // Узкий маршрут: спросить сильную модель ТОЛЬКО о пунктах, в которых слабая не
       // уверена (`⚠`), вместо полного второго ревью. Дешевле в разы — замер r18 назвал
@@ -167,13 +174,16 @@ export async function runEnsembleReviewers(
       // это ровно то, против чего написано правило «худший из двух».
       if (other.claimFill && other.flow === 'loop') {
         const uncertain = uncertainClaims(host, primary);
+        // Без `continue`: он перескакивал перенос канонического файла в файл маршрута ниже, и
+        // ответы узкого маршрута затирались основным отчётом — второе мнение не доходило до
+        // вердикта (code-review-all, 2026-09-15).
         if (uncertain.length > 0) {
+          narrowed = true;
           await narrowRoute(host, other, prompt, canonical, uncertain);
-          continue;
         }
       }
 
-      await host.executorFor('verify', other).run(
+      if (!narrowed) await host.executorFor('verify', other).run(
         {
           prompt,
           cwd: host.projectRoot,
@@ -207,6 +217,19 @@ export async function runEnsembleReviewers(
           `ансамбль: маршрут ${route + 1} (${other.modelId}) не отработал: ` +
           `${(e as Error).message}. Вердикт считается по отчётам остальных.`,
       });
+    }
+    // Записи полного маршрута (`RecordClaim`/`RecordFinding` через общие хуки) вносятся в его
+    // отчёт тем же рендером, что у основного (`applyRecords`): маршрут, отчитавшийся только
+    // инструментами, как велит промпт, иначе оставлял бланк — и свод по худшему считал каждый
+    // пункт `⚠`. Запись напрямую, как у узкого маршрута: канонический файл — рабочая копия
+    // ансамбля, а не артефакт, который правит модель.
+    if (!narrowed && (verify.claimRecords.size > 0 || verify.findingRecords.length > 0)) {
+      const { text } = renderRecords(readArtifact(canonical).text, {
+        claims: [...verify.claimRecords.values()],
+        findings: verify.findingRecords,
+        titles: new Map([...host.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)] as const)),
+      });
+      writeArtifact(canonical, text);
     }
     writeArtifact(host.paths.verificationReport(host.chunk(), host.attempt(), route), readArtifact(canonical).text);
   }

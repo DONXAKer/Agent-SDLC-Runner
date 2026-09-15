@@ -154,9 +154,11 @@ export function createCollector(args: {
     if (e.type === 'tool_request') {
       const request: ToolRequestEvent = e;
       const lost = request.decisionsLost;
-      // Вопрос человеку решается `AskGate`, а не гейтом одобрений: `tool_resolved` по нему
-      // не приходит никогда, и запись висела бы до конца прогона.
-      if (request.call.kind !== 'ask_human') {
+      // Разрешённый политикой вопрос человеку решается `AskGate`, а не гейтом одобрений:
+      // `tool_resolved` по нему не приходит, и запись висела бы до конца прогона. Отклонённый
+      // политикой — приходит (гейт отказывает до проверки «шага человека нет»), и без записи
+      // отказ AskHuman без права на этапе пропадал из отчёта.
+      if (request.call.kind !== 'ask_human' || !request.policy.ok) {
         pending.set(request.requestId, {
           denial: {
             stage: request.stage,

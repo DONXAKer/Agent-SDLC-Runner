@@ -123,6 +123,22 @@ describe('explorationPathProblem: дублированная секция «Ка
     strictEqual(explorationPathProblem(ctx(report)), null);
   });
 
+  // Заякоренный признак выводил «Обзор кодовой базы» из-под проверки (code-review-all, 2026-09-15).
+  it('заголовок «## Обзор кодовой базы» с выдуманным путём — проверка не отключается', () => {
+    const report = [
+      '# Отчёт разведки',
+      '',
+      '## Обзор кодовой базы',
+      '',
+      '| Файл | Что там сейчас | Что меняем |',
+      '|---|---|---|',
+      '| `src/missing.ts` | функция priceFor | добавить surcharge |',
+      '',
+    ].join('\n');
+    const problem = explorationPathProblem(ctx(report));
+    ok(problem !== null && problem.includes('src/missing.ts'), problem ?? 'null');
+  });
+
   it('переименованный заголовок «## Кодовая база» с выдуманным путём — проверка не отключается', () => {
     const report = [
       '# Отчёт разведки',

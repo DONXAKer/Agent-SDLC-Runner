@@ -44,6 +44,16 @@ describe('createProgressPrinter', () => {
     ok(lines[3]?.includes('лимит длины ответа'), lines[3]);
   });
 
+  it('расход вне хода этапа — отдельной строкой, не в запросах этапа и не в пике', () => {
+    const { lines, emit } = printer(8192);
+    emit({ type: 'stage_started', runId: 'r', stage: 'verify', flow: 'loop', provider: 'p', model: 'm', chunk: 1, attempt: 1 });
+    emit({ type: 'usage', runId: 'r', stage: 'verify', usage: { ...emptyUsage(), inputTokens: 60000, outputTokens: 10 }, total: emptyUsage(), offPath: true });
+    emit({ type: 'usage', runId: 'r', stage: 'verify', usage: { ...emptyUsage(), inputTokens: 4096, outputTokens: 10 }, total: emptyUsage() });
+    emit({ type: 'stage_done', runId: 'r', stage: 'verify', ok: true, note: 'готово' });
+    ok(lines[1]?.includes('вне хода этапа') && !lines[1].includes('%'), lines[1]);
+    ok(lines[3]?.includes('запросов к модели 1') && lines[3].includes('(50%)'), lines[3]);
+  });
+
   it('отказ политики печатается один раз — на запросе, без повтора на решении', () => {
     const { lines, emit } = printer(undefined);
     emit({

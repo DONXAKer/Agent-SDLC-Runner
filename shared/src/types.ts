@@ -774,7 +774,19 @@ export type RunEvent =
        */
       detail?: string;
     }
-  | { type: 'usage'; runId: string; stage: StageId; usage: Usage; total: Usage }
+  | {
+      type: 'usage';
+      runId: string;
+      stage: StageId;
+      usage: Usage;
+      total: Usage;
+      /**
+       * Расход мимо исполнителя этапа (`Run.accountOffPathUsage`: рецензент, ансамбль, слепой
+       * лист, доборы) — другой маршрут и другое окно. В счёт и в бюджет идёт, но запросом хода
+       * этапа и мерой его окна не является.
+       */
+      offPath?: boolean;
+    }
   // `stage: null` — артефакт записал человек, а не этап: так выглядит запись решения
   // (одобрение плана, приёмка). Это не «этап неизвестен», это «этап тут ни при чём».
   | {

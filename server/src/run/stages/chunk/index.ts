@@ -98,6 +98,10 @@ export const chunkModule: StageModule = {
         // `notDone` на chunk смотрит только журнал, и заполненный дозаполнением журнал
         // переворачивал бы в ok этап, упавший на лимите ходов с нетронутым кодом.
         requireCodeChange: true,
+        // Правка кода — и по дереву, а не только по принятым Write/Edit: код правят и через
+        // Bash и MCP-запись, и такой этап, упавший на оформлении при изменённом дереве,
+        // оставался красным.
+        treeChanged: async () => (await workingDiff(host.projectRoot, [], host.aborterSignal())) !== diffBefore,
       };
     },
 
@@ -172,6 +176,13 @@ export const chunkModule: StageModule = {
  * сжигает лимит ходов ровно на этих полях. Снимок после подстановки уходит в
  * `SeededArtifact.snapshot` — страж «бланк байт-в-байт» сравнивает с ним, и этап,
  * не сделавший ничего, по-прежнему виден.
+ *
+ * Заполняет механические поля журнала chunk'а фактами рантайма — см. `journalAutofill.ts`.
+ *
+ * Идёт и на попытке K>1 (журнал уже существует и посеян не в этот раз): подстановка
+ * идемпотентна, а незаполненные механические поля с прошлой попытки не должны съедать
+ * ходы и этой. Снимок после подстановки кладётся в `SeededArtifact.snapshot`, чтобы
+ * страж «бланк байт-в-байт» не ослеп от нашей же записи.
  */
 export async function autofillJournal(host: StageHost, seeded: SeededArtifact[]): Promise<void> {
   const path = host.paths.chunkJournal(host.chunk());

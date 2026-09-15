@@ -592,8 +592,10 @@ export class FormFillExecutor implements StageExecutor {
             : modelGroupFields(a.text, p).length)
         );
       }, 0);
-    // Считается один раз, по бланкам на входе: `req.maxTurns` здесь не читается вовсе.
-    const requestBudget = fillRequestBudget(fieldsLeftOnDisk());
+    // Считается один раз, по бланкам на входе. `req.maxTurns` не читается: запрос поля ходом
+    // не является (см. `fillRequestBudget`). Жёсткий потолок ставит только `requestCap` —
+    // остаток ходов вызывающего конвейера, у которого лимит этапа уже потрачен.
+    const requestBudget = Math.min(fillRequestBudget(fieldsLeftOnDisk()), req.requestCap ?? Number.POSITIVE_INFINITY);
 
     /**
      * Запись собранного текста через гейт — тем же путём, что любая запись исполнителя:
@@ -1053,8 +1055,8 @@ export class FormFillExecutor implements StageExecutor {
         for (let batchStart = 0; batchStart < ranges.length; batchStart += FIELD_PARALLEL) {
           if (req.signal.aborted) return { ok: false, finalText: '', usage, note: 'этап отменён' };
 
-          // Потолок вызовов — тот же лимит ходов этапа: поле дешевле хода, но безлимитный
-          // бланк на сотню плейсхолдеров съел бы больше, чем обычный цикл.
+          // Потолок вызовов — бюджет запросов от числа полей (`requestBudget`), а не лимит
+          // ходов этапа: безлимитный бланк на сотню плейсхолдеров съел бы больше, чем цикл.
           const allowed = Math.min(FIELD_PARALLEL, requestBudget - callsSpent);
           const batch = ranges.slice(batchStart, batchStart + FIELD_PARALLEL);
           if (allowed <= 0) continue;

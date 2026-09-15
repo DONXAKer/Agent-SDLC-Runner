@@ -18,15 +18,16 @@
  * даёт человеческое сообщение именно про отсутствие.
  */
 
+import { hostname, networkInterfaces } from 'node:os';
 import { apiOrigin, describeFetchFailure, fetchJson, type FetchJsonFailure } from './http.ts';
 
 export interface OllamaContextCheck {
   ok: boolean;
   /**
    * Проверка неприменима: по этому адресу нет Ollama-шного `/api` (прокси, отдающий только
-   * `/v1`; сервер не отвечает). `ok` при этом `false` — окно не проверено, — но блокировать
-   * прогон нечем: он работал и без преполёта, а недоступный сервер обычный путь запроса
-   * назовёт своей средовой ошибкой.
+   * `/v1`, с ключом только на `/v1` или заглушка — см. `apiAbsent`). `ok` при этом `false` —
+   * окно не проверено, — но блокировать прогон нечем: он работал и без преполёта.
+   * Недоступный сервер (сетевой отказ, таймаут) сюда НЕ относится — это проблема.
    */
   skipped: boolean;
   /** Эффективное окно тега: num_ctx из Modelfile, иначе умолчание сервера. */
@@ -87,13 +88,22 @@ function defaultWindow(
   return { value: OLLAMA_DEFAULT_NUM_CTX, source: 'умолчание Ollama — num_ctx в тег не зашит' };
 }
 
+/**
+ * Сервер на ЭТОЙ машине: петля, «любой адрес» (`0.0.0.0`, `::`), имя машины или адрес одного
+ * из её сетевых интерфейсов. Только петля давала ложный красный «окно 4096» при
+ * `OLLAMA_BASE_URL=http://<LAN-IP этой машины>` — той же тревоге, которую учёт переменной и
+ * закрывал.
+ */
 function isLoopback(origin: string): boolean {
+  let host: string;
   try {
-    const host = new URL(origin).hostname;
-    return host === 'localhost' || host === '::1' || host === '[::1]' || /^127\./.test(host);
+    host = new URL(origin).hostname.replace(/^\[|\]$/g, '').toLowerCase();
   } catch {
     return false;
   }
+  if (host === 'localhost' || host === '::1' || /^127\./.test(host) || host === '0.0.0.0' || host === '::') return true;
+  if (host === hostname().toLowerCase()) return true;
+  return Object.values(networkInterfaces()).some((list) => (list ?? []).some((i) => i.address.toLowerCase() === host));
 }
 
 /**

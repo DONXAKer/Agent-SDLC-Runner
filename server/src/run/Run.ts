@@ -6,6 +6,7 @@
  * а начатый в терминале скиллами `/sdlc-*` продолжается здесь и наоборот.
  */
 
+import { localResultBytes } from '../config/limits.ts';
 import { randomUUID } from 'node:crypto';
 
 import type {
@@ -51,7 +52,7 @@ import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFile
 import { h2SectionRanges } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
-import { relativizeWithin, resolveUserPath } from '../policy/paths.ts';
+import { isWindowsStyle, pathsEqual, relativizeWithin, resolveUserPath } from '../policy/paths.ts';
 import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
 import { effectiveMode } from '../policy/mcp.ts';
@@ -261,6 +262,24 @@ const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
 const EXCHANGE_QUESTION_CHARS = 4000;
 const EXCHANGE_ANSWER_CHARS = 8000;
 
+/** Обрезка по длине без разреза суррогатной пары: одиночный суррогат уходил в ленту и в UI как «�». */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const code = text.charCodeAt(max - 1);
+  const end = code >= 0xd800 && code <= 0xdbff ? max - 1 : max;
+  return `${text.slice(0, end)}…`;
+}
+
+/**
+ * Путь модели лежит в `.sdlc/` проекта — тем же лексическим приведением, что у политики,
+ * включая регистр: на Windows `.SDLC/<slug>/…` — тот же файл журнала, и сравнение с учётом
+ * регистра засчитывало его правку в прогресс кода.
+ */
+function inSdlcDir(root: string, userPath: string): boolean {
+  const rel = relativizeWithin(root, resolveUserPath(root, userPath)) ?? '';
+  return pathsEqual(rel.slice(0, SDLC_DIR.length + 1), `${SDLC_DIR}/`, isWindowsStyle(root));
+}
+
 /**
  * Дописывает к промпту оператора блок фактов, которых на момент правки ещё не было.
  *
@@ -337,7 +356,7 @@ export class Run {
    * классах состояния модулей этапов (`stages/verify/state.ts`, `stages/explore.ts`,
    * `stages/chunk/index.ts`).
    */
-  private readonly state = { verify: new VerifyState(), explore: new ExploreState(), chunk: new ChunkState() };
+  private readonly state: { readonly verify: VerifyState; readonly explore: ExploreState; readonly chunk: ChunkState } = { verify: new VerifyState(), explore: new ExploreState(), chunk: new ChunkState() };
 
   /** Фасад витка для модулей этапов (`StageHost`) — растёт по мере переноса логики этапов. */
   private get host(): StageHost {
@@ -1189,22 +1208,6 @@ export class Run {
   }
 
   /**
-   * Права этапа плюс права на MCP, если оператор выдал этому этапу инструменты.
-   *
-   * Само определение этапа про MCP не знает и знать не должно: набор инструментов задаётся
-   * конфигом ПРОЕКТА, а `stages.ts` общий для всех. Поймано живым прогоном: инструменты
-   * модели выдавались, вызов доходил до политики и отклонялся ею — «читающие вызовы MCP не
-   * разрешены на этапе», потому что права не выдавал никто.
-   */
-  /**
-   * Заполняет механические поля журнала chunk'а фактами рантайма — см. `journalAutofill.ts`.
-   *
-   * Идёт и на попытке K>1 (журнал уже существует и посеян не в этот раз): подстановка
-   * идемпотентна, а незаполненные механические поля с прошлой попытки не должны съедать
-   * ходы и этой. Снимок после подстановки кладётся в `SeededArtifact.snapshot`, чтобы
-   * страж «бланк байт-в-байт» не ослеп от нашей же записи.
-   */
-  /**
    * HEAD проекта: sha либо причина его отсутствия. Одна цепочка на журнал chunk'а и план —
    * две копии разошлись бы при первой же правке (worktree, другой способ чтения HEAD), и
    * база одного витка читалась бы в двух артефактах по-разному.
@@ -1277,7 +1280,7 @@ export class Run {
 
   /**
    * Учёт расхода для запросов ВНЕ `executor.run()` — `reviewFill`/`claimFill` зовут
-   * провайдера напрямую, минуя `hooks.onUsage` (строка ~3703), и без этого метода их
+   * провайдера напрямую, минуя `hooks.onUsage` (`Run.runStage`), и без этого метода их
    * токены/стоимость были бы «бесплатными» для `SpentLedger`/`maxBudgetUsd` и не попадали
    * бы ни в `metrics.json`, ни в событие `usage` — тот же учёт, тем же приёмом.
    */
@@ -1288,7 +1291,7 @@ export class Run {
     if (countsTowardBudget(this.budgetStages, stage)) {
       this.spent.add(currency ?? 'USD', usage.costUsd);
     }
-    this.emit({ type: 'usage', runId: this.id, stage, usage, total: this.totalUsage });
+    this.emit({ type: 'usage', runId: this.id, stage, usage, total: this.totalUsage, offPath: true });
   }
 
   /**
@@ -1316,7 +1319,7 @@ export class Run {
      * заполненный дозаполнением журнал переворачивал в ok этап, упавший на лимите ходов с
      * нетронутым кодом.
      */
-    codeChanged: () => boolean = () => true,
+    codeChanged: () => boolean | Promise<boolean> = () => true,
     /** Проверка добранного артефакта, которую плейсхолдеры не видят (у explore — фактичность карты). */
     honesty: () => string | null = () => null,
   ): Promise<StageResult> {
@@ -1350,7 +1353,11 @@ export class Run {
       const fill = await this.fillFormFields(stage, path, prompt, hooks, signal);
       requests += fill.modelRequests;
       result = { ...result, ...(requests === 0 ? {} : { modelRequests: requests }) };
-      if (!fill.ok) return result;
+      if (!fill.ok) {
+        return fill.envFailure === undefined || result.envFailure !== undefined
+          ? result
+          : { ...result, envFailure: fill.envFailure };
+      }
       const dishonest = explorationHonestyProblem();
       if (dishonest !== null) return dishonest;
     }
@@ -1368,7 +1375,7 @@ export class Run {
     // Переворот исхода по-прежнему сторожит `notDone().length === 0`: пустых обязательных
     // полей быть не должно, иначе красное станет зелёным на недоделанном артефакте.
     const closableFailure = !result.ok && isFormattingFailure(result.note);
-    if (closableFailure && notDone().length === 0 && codeChanged()) {
+    if (closableFailure && notDone().length === 0 && (await codeChanged())) {
       // Рескью нужен своя проверка честности: `remaining` мог быть 0 уже на входе (ход
       // упал не по счётчику плейсхолдеров, а, например, по лимиту длины ответа) — тогда
       // блок выше не запускался вовсе, и это первая проверка для данного прогона.
@@ -1394,7 +1401,7 @@ export class Run {
     prompt: PreparedPrompt,
     hooks: ExecHooks,
     signal: AbortSignal,
-  ): Promise<{ ok: boolean; modelRequests: number }> {
+  ): Promise<{ ok: boolean; modelRequests: number; envFailure?: string }> {
     const route = this.profile.routes[stage];
     const limits = this.config.runner.limits;
     this.emit({
@@ -1406,7 +1413,7 @@ export class Run {
 
     const fill = await new FormFillExecutor({
       provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill')),
-      maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+      maxResultBytes: localResultBytes(limits),
       readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
       bashTimeoutMs: limits.gateTimeoutMs,
       params: route.params,
@@ -1452,9 +1459,23 @@ export class Run {
         message: `дозаполнение артефакта не закрыло поля: ${fill.note}`,
       });
     }
-    return { ok: fill.ok, modelRequests: fill.modelRequests ?? 0 };
+    // Отказ среды внутри дозаполнения — признаком, а не только текстом: без него стенд не
+    // повторял этап, и сбой провайдера на полях записывался провалом модели.
+    return {
+      ok: fill.ok,
+      modelRequests: fill.modelRequests ?? 0,
+      ...(fill.envFailure === undefined ? {} : { envFailure: fill.envFailure }),
+    };
   }
 
+  /**
+   * Права этапа плюс права на MCP, если оператор выдал этому этапу инструменты.
+   *
+   * Само определение этапа про MCP не знает и знать не должно: набор инструментов задаётся
+   * конфигом ПРОЕКТА, а `stages.ts` общий для всех. Поймано живым прогоном: инструменты
+   * модели выдавались, вызов доходил до политики и отклонялся ею — «читающие вызовы MCP не
+   * разрешены на этапе», потому что права не выдавал никто.
+   */
   private toolsFor(stage: StageId): readonly ToolName[] {
     const all = stageById(stage).tools;
     // Урезанный набор для модели с `leanTools` — только на этапах-документах. Это
@@ -1683,7 +1704,7 @@ export class Run {
 
     // Этап 2 конвейером рантайма (`ModelDef.exploreFill`): индекс, карточки, закрытые
     // вопросы, запись через гейт — `exec/ExploreExecutor.ts`. Слепой лист уже посчитан в
-    // `runStage` (`runClaimsBlind`) и лежит в `exploreClaims`.
+    // `runStage` (`runClaimsBlind`, хук модуля explore) и лежит в `exploreState.claims`.
     if (stage === 'explore' && usesExploreFill(route)) return exploreFillExecutor(this.host, route);
 
     // Режим заполнения по полям — только там, где этап и есть заполнение бланка.
@@ -1692,7 +1713,7 @@ export class Run {
     if (this.usesFormFill(stage, route)) {
       return new FormFillExecutor({
         provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill')),
-        maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+        maxResultBytes: localResultBytes(limits),
         readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
         bashTimeoutMs: limits.gateTimeoutMs,
         params: route.params,
@@ -1722,7 +1743,7 @@ export class Run {
       provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'loop')),
       // Свой потолок у локального контура: общий рассчитан на большое окно, а здесь один
       // `Read` по нему забирал почти весь контекст 16K — измерено на прогоне.
-      maxResultBytes: Math.min(limits.maxToolResultBytes, limits.localMaxToolResultBytes),
+      maxResultBytes: localResultBytes(limits),
       readRangeRequiredAboveBytes: limits.readRangeRequiredAboveBytes,
       bashTimeoutMs: limits.gateTimeoutMs,
       // Температуру не задаём: у части серверов «не задано» и «0» ведут себя по-разному,
@@ -1887,8 +1908,8 @@ export class Run {
         problems.push(...configProblems(gates).map(by(gatesBlame)));
         // `REVIEW_GATE` не в BUILTIN и не в кавычках, но НЕ является дырой в наборе: он
         // получает статус не скриптом gates/run.ts, а `externalGateStatuses()` (`stages/verify/gates.ts`) — тем
-        // же путём, каким и реально считается на прогоне (см. `runGates({ externalStatuses:
-        // this.externalGateStatuses() })`). Без этого исключения витки с обычным для
+        // же путём, каким и реально считается на прогоне (см. `runVerifyGates` в
+        // `stages/verify/gates.ts`). Без этого исключения витки с обычным для
         // минимума набором никогда бы не проходили дальше intent.
         problems.push(
           ...unimplementedGates(gates, (name) => builtinFor(name) !== null, [REVIEW_GATE]).map(by(gatesBlame)),
@@ -2308,8 +2329,8 @@ ${block}`;
           type: 'model_exchange',
           runId: this.id,
           stage,
-          question: question.length > EXCHANGE_QUESTION_CHARS ? `${question.slice(0, EXCHANGE_QUESTION_CHARS)}…` : question,
-          answer: answer.length > EXCHANGE_ANSWER_CHARS ? `${answer.slice(0, EXCHANGE_ANSWER_CHARS)}…` : answer,
+          question: clip(question, EXCHANGE_QUESTION_CHARS),
+          answer: clip(answer, EXCHANGE_ANSWER_CHARS),
         }),
 
       onToolRequest: async (call, meta) => {
@@ -2346,9 +2367,7 @@ ${block}`;
           if (
             decision.allowed &&
             (call.kind === 'write' || call.kind === 'edit') &&
-            !(
-              relativizeWithin(this.ctx.paths.projectRoot, resolveUserPath(this.ctx.paths.projectRoot, call.path)) ?? ''
-            ).startsWith(`${SDLC_DIR}/`)
+            !inSdlcDir(this.ctx.paths.projectRoot, call.path)
           ) {
             pendingWrites.add(meta.requestId);
           }
@@ -2557,7 +2576,9 @@ ${block}`;
           hooks,
           notDone,
           this.aborter.signal,
-          finish.requireCodeChange ? () => acceptedWrites > 0 || finish.forced : () => true,
+          finish.requireCodeChange
+            ? async () => acceptedWrites > 0 || finish.forced || (await finish.treeChanged?.()) === true
+            : () => true,
           finish.honesty ?? (() => null),
         );
       }

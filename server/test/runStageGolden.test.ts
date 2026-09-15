@@ -307,10 +307,29 @@ function makeRun(
 
 // ── нормализация ─────────────────────────────────────────────────────────
 
+function runDates(): RegExp {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  const dates = [-1, 0, 1].flatMap((d) => {
+    const t = new Date(Date.now() + d * 86_400_000);
+    return [t.toISOString().slice(0, 10), `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`];
+  });
+  return new RegExp([...new Set(dates)].join('|'), 'g');
+}
+
 const VOLATILE_KEYS = new Set(['durationMs', 'waitMs', 'waitedMs', 'createdAt', 'startedAt', 'finishedAt']);
 
 function normalize(value: unknown, root: string): unknown {
-  const rootForms = [root, root.replace(/\\/g, '/'), root.replace(/\//g, '\\'), root.replace(/\\/g, '\\\\')];
+  // Корень во всех формах, в которых он доезжает до снимка: как есть, POSIX, Windows, один и
+  // два уровня JSON-экранирования (путь в аргументах вызова внутри запроса) — и от нативного
+  // realpath: короткое 8.3-имя TEMP git и дочерние процессы разворачивают в длинное.
+  const bases = [...new Set([root, realpathSync.native(root)])];
+  const rootForms = bases.flatMap((r) => [
+    r,
+    r.replace(/\\/g, '/'),
+    r.replace(/\//g, '\\'),
+    r.replace(/\\/g, '\\\\'),
+    r.replace(/\\/g, '\\\\\\\\'),
+  ]);
   let text = JSON.stringify(value, (key, v: unknown) => (VOLATILE_KEYS.has(key) && typeof v === 'number' ? 0 : v));
   for (const form of rootForms.sort((a, b) => b.length - a.length)) text = text.split(form).join('<ROOT>');
   text = text
@@ -318,7 +337,9 @@ function normalize(value: unknown, root: string): unknown {
     .replace(/\b[0-9a-f]{40}\b/g, '<SHA>')
     .replace(/index [0-9a-f]{7,40}\.\.[0-9a-f]{7,40}/g, 'index <SHA>..<SHA>')
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z/g, '<DATETIME>')
-    .replace(/\d{4}-\d{2}-\d{2}/g, '<DATE>')
+    // Только даты ПРОГОНА (сегодня ± сутки, местные и UTC), а не любая дата: сплошная
+    // замена прятала регрессию «в журнал записана не та дата одобрения плана».
+    .replace(runDates(), '<DATE>')
     .replace(/(?<![\d:])\d{2}:\d{2}(:\d{2})?(?![\d:])/g, '<TIME>')
     // Длительности: `\b` по кириллице не работает (граница считается по ASCII), поэтому конец
     // единицы — явным «не буква и не цифра дальше».
@@ -402,7 +423,13 @@ async function scenario(
     root,
   ) as { events: unknown[]; requests: unknown[] };
   if (opts.unordered === true) {
-    const byJson = (a: unknown, b: unknown): number => JSON.stringify(a).localeCompare(JSON.stringify(b));
+    // По кодовым единицам, а не `localeCompare`: порядок ICU зависит от локали машины, и эталон,
+    // снятый на одной, падал бы на другой без смены поведения.
+    const byJson = (a: unknown, b: unknown): number => {
+      const x = JSON.stringify(a);
+      const y = JSON.stringify(b);
+      return x < y ? -1 : x > y ? 1 : 0;
+    };
     snapshot.events.sort(byJson);
     snapshot.requests.sort(byJson);
   }
