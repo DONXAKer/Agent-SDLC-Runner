@@ -16,6 +16,7 @@ import {
   cleanAnswer,
   foreignScript,
   isSheetError,
+  looksLikeToolCallEcho,
   matchChoice,
   parseFieldValue,
   parseListItems,
@@ -87,6 +88,38 @@ describe('foreignScript', () => {
     const v = parseFieldValue(f, 'sdlc/freeship — проверка边界');
     ok(isSheetError(v));
     ok(v.error.includes('边界'));
+  });
+});
+
+// Разбор логов серии v13 (2026-09-15): рескью-проход принял `{"tool":"Read","arguments":
+// {"file_path":"…"}}` как готовое значение поля «сборка / тесты» — модель спутала «ответить
+// на карточку» с «вызвать инструмент». Ни отказа, ни повторного вопроса не было.
+describe('looksLikeToolCallEcho', () => {
+  it('ловит JSON-конверт вызова целиком — с разными именами ключей', () => {
+    ok(looksLikeToolCallEcho('{"tool":"Read","arguments":{"file_path":"./src/billing/invoices.ts"}}'));
+    ok(looksLikeToolCallEcho('{"tool":"Task","arguments":{"subagent_type":"general-purpose","prompt":"…"}}'));
+    ok(looksLikeToolCallEcho('{"name":"Edit","parameters":{"old_string":"a","new_string":"b"}}'));
+    ok(looksLikeToolCallEcho('  {"function":"Grep","input":{"pattern":"x"}}  '), 'пробелы вокруг не мешают');
+  });
+
+  it('законное содержимое ответа не трогает', () => {
+    const годные = [
+      'сборка: node scripts/build-check.mjs; тесты: node --test',
+      'используется поле `arguments` в вызове инструмента',
+      '{"весы": [1, 2, 3]}',
+      '{"tool": "молоток", "цена": 500}',
+      'src/billing/invoices.ts:42',
+      '',
+    ];
+    for (const s of годные) strictEqual(looksLikeToolCallEcho(s), false, s);
+  });
+
+  it('parseFieldValue отказывает полю, а не вклеивает конверт как значение', () => {
+    const s = deriveSchema('# Задача\n\n- **Сборка / тесты:** ‹команда›\n');
+    const f = findField(s, 'сборка / тесты')!;
+    const v = parseFieldValue(f, '{"tool":"Read","arguments":{"file_path":"./src/billing/invoices.ts"}}');
+    ok(isSheetError(v));
+    ok(v.error.includes('JSON-конверт'), v.error);
   });
 });
 

@@ -57,7 +57,7 @@ import {
   modelFields,
   type FormField as SchemaField,
 } from '../artifacts/formSchema.ts';
-import { foreignScript, isSheetError, parseFieldValue } from '../artifacts/sheet.ts';
+import { foreignScript, isSheetError, looksLikeToolCallEcho, parseFieldValue } from '../artifacts/sheet.ts';
 import { listSourceFiles } from '../gates/builtin/index.ts';
 import { templateNameFor } from '../run/seed.ts';
 import { isSeparatorRow, splitRow } from '../md/table.ts';
@@ -1229,6 +1229,15 @@ export class FormFillExecutor implements StageExecutor {
             if (foreign !== null) {
               const where = range.kind === 'row' ? range.header : range.text;
               notes.push(`ответ на поле ${where.slice(0, 60)} отклонён: чужая письменность («${foreign}»)`);
+              continue;
+            }
+            // Модель спутала «ответить на карточку» с «вызвать инструмент» и вернула JSON-
+            // конверт вызова вместо содержания — тот же класс сбоя, та же нота (см.
+            // `sheet.ts::looksLikeToolCallEcho`; серия v13, 2026-09-15: рескью-проход принял
+            // такой ответ как готовое значение поля без единого отказа).
+            if (looksLikeToolCallEcho(filled)) {
+              const where = range.kind === 'row' ? range.header : range.text;
+              notes.push(`ответ на поле ${where.slice(0, 60)} отклонён: JSON-конверт вызова инструмента вместо значения`);
               continue;
             }
             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому

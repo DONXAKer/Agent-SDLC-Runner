@@ -93,6 +93,42 @@ export function foreignScript(text: string): string | null {
   return FOREIGN_SCRIPT.exec(text)?.[0] ?? null;
 }
 
+const TOOL_ECHO_NAME_KEYS = new Set(['tool', 'name', 'function']);
+const TOOL_ECHO_ARGS_KEYS = new Set(['arguments', 'parameters', 'input', 'args']);
+
+/**
+ * Весь ответ — это JSON-конверт вызова инструмента, а не значение поля: модель спутала
+ * «ответить на карточку» с «вызвать инструмент» и написала вызов текстом вместо содержания.
+ *
+ * Живой случай (серия v13, 2026-09-15): рескью-проход принял `{"tool":"Read","arguments":
+ * {"file_path":"./src/billing/invoices.ts"}}` как готовое значение поля «сборка / тесты» —
+ * ни отказа, ни повторного вопроса, поле «заполнено» дословным огрызком чужого протокола.
+ * Тот же паттерн (`{"tool":"Task","arguments":{"subagent_type":"general-purpose",…}}`) —
+ * на поле «опоры осей/…/механизм проекта» того же прогона.
+ *
+ * Признак узко и осознанно избыточно точный: ВЕСЬ ответ (после `trim`) обязан быть валидным
+ * JSON-объектом (не массивом, не примитивом), и среди его ключей верхнего уровня должны
+ * найтись И что-то похожее на имя инструмента, И что-то похожее на его аргументы — той же
+ * идеей, что уже применяется к id/меткам полей-кандидатов (`FormFillExecutor.ts::debris`),
+ * но там пунктуации достаточно (id полей JSON не несёт по построению), а здесь легитимный
+ * ответ вполне может упоминать JSON или цитировать кусок конфига — грубая проверка по
+ * пунктуации задела бы такие ответы. Инвентаризация шаблонов эталона не нашла ни одной
+ * легитимной формы такого вида ни в одном поле.
+ */
+export function looksLikeToolCallEcho(text: string): boolean {
+  const t = text.trim();
+  if (!t.startsWith('{') || !t.endsWith('}')) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(t);
+  } catch {
+    return false;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const keys = Object.keys(parsed as Record<string, unknown>).map((k) => k.toLowerCase());
+  return keys.some((k) => TOOL_ECHO_NAME_KEYS.has(k)) && keys.some((k) => TOOL_ECHO_ARGS_KEYS.has(k));
+}
+
 /**
  * Эхо метки/id поля, которым модель предваряет ответ («- **Итог:** применено» вместо
  * «применено»), — снимается первой строкой. Живой урок: без этого метка ложилась в файл
@@ -387,6 +423,11 @@ export function parseFieldValue(field: FormField, raw: string): SheetValue | She
   const foreign = foreignScript(text);
   if (foreign !== null) {
     return { error: `поле «${field.id}»: в ответе чужая письменность («${foreign}») — сбой генерации, а не значение` };
+  }
+  // Тем же порядком и по той же причине, что чужая письменность выше: признак сбоя
+  // генерации, а не одного вида поля — проверяется до разбора по `field.kind`.
+  if (looksLikeToolCallEcho(text)) {
+    return { error: `поле «${field.id}»: ответ — JSON-конверт вызова инструмента, а не значение поля` };
   }
   switch (field.kind) {
     case 'scalar':
