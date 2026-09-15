@@ -1,0 +1,2070 @@
+{
+  "results": {
+    "intent": {
+      "ok": true,
+      "finalText": "готово",
+      "note": "модель завершила ход",
+      "turns": 3
+    },
+    "explore": {
+      "ok": true,
+      "finalText": "",
+      "note": "мелкий контур: разведка точечная на этапе 5, отчёт не пишется"
+    },
+    "ask": {
+      "ok": true,
+      "finalText": "",
+      "note": "мелкий контур: этап не запускается"
+    },
+    "plan": {
+      "ok": true,
+      "finalText": "план готов",
+      "note": "модель завершила ход",
+      "turns": 2
+    },
+    "chunk:1": {
+      "ok": true,
+      "finalText": "правка сделана",
+      "note": "модель завершила ход",
+      "turns": 3
+    },
+    "verify:1": {
+      "ok": false,
+      "finalText": "готово",
+      "note": "артефакт этапа не заполнен: <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md, <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md (строка пункта claim-1 содержит незаполненное место). Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.",
+      "turns": 3
+    },
+    "verdict:1": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "гейт «Сборка» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+        "гейт «Тесты» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+        "пункт приёмки claim-1 не проверяем (⚠)",
+        "включённый гейт «Тесты» в отчёте не отчитался ни одной строкой",
+        "включённый гейт «Scope: файлы вне плана» в отчёте не отчитался ни одной строкой",
+        "включённый гейт «Анти-обход тест-гейта» в отчёте не отчитался ни одной строкой",
+        "включённый гейт «Ревью независимым агентом» в отчёте не отчитался ни одной строкой",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "gateResults": {
+      "0": {
+        "name": "Сборка",
+        "status": "⏭",
+        "command": "node -e \"process.exit(0)\"",
+        "exitCode": null,
+        "lastLine": "команда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа.",
+        "durationMs": 0,
+        "envBlocked": false
+      },
+      "1": {
+        "name": "Тесты",
+        "status": "⏭",
+        "command": "node -e \"process.exit(0)\"",
+        "exitCode": null,
+        "lastLine": "команда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа.",
+        "durationMs": 0,
+        "envBlocked": false
+      },
+      "2": {
+        "name": "Scope: файлы вне плана",
+        "status": "✅",
+        "command": null,
+        "exitCode": 0,
+        "lastLine": "все изменения в пределах files_to_touch (файлов: 1)\nвне плана, из базы chunk'а (не работа этапа): .sdlc/demo/intent.md, .sdlc/demo/plan.md, .sdlc/demo/readiness.md",
+        "durationMs": 0,
+        "envBlocked": false
+      },
+      "3": {
+        "name": "Анти-обход тест-гейта",
+        "status": "✅",
+        "command": null,
+        "exitCode": 0,
+        "lastLine": "анти-обход тест-гейта — чисто",
+        "durationMs": 0,
+        "envBlocked": false
+      },
+      "4": {
+        "name": "Ревью независимым агентом",
+        "status": "✅",
+        "command": null,
+        "exitCode": null,
+        "lastLine": "независимый рецензент отработал на этой попытке",
+        "durationMs": 0,
+        "envBlocked": false
+      }
+    }
+  },
+  "events": [
+    {
+      "type": "stage_started",
+      "runId": "<ID>",
+      "stage": "intent",
+      "flow": "loop",
+      "provider": "stub",
+      "model": "m",
+      "chunk": 1,
+      "attempt": 1
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "intent",
+      "message": "рантайм заполнил поле «Ветка витка» фактом дерева (`sdlc/demo`) — модели гадать не о чем"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "intent",
+      "message": "рантайм заполнил механические поля (1): название витка, даты, вход и база плана — модели остались содержательные"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "intent",
+      "message": "форма разложена под артефакт <ROOT>\\.sdlc\\demo\\intent.md — этап заполняет её, а не создаёт заново"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "intent",
+      "message": "форма разложена под артефакт <ROOT>\\.sdlc\\demo\\readiness.md — этап заполняет её, а не создаёт заново"
+    },
+    {
+      "type": "prompt_prepared",
+      "runId": "<ID>",
+      "stage": "intent",
+      "prompt": {
+        "presetNote": null,
+        "system": "СКИЛЛ intent: заполни артефакт этапа по форме.\n\n---\n\n## Как этот этап исполняется здесь\n\nТы работаешь внутри Agent-SDLC Runner, а не в интерактивной сессии Claude Code.\nТекст этапа выше — эталонный; ниже отличия, которые надо учесть.\n\n- Slug витка: `demo`. Артефакты витка: `.sdlc/demo/`, набор гейтов: `.sdlc/gates.md`.\n- Формы артефактов лежат в `<ROOT>/methodology/templates` — это каталог МЕТОДОЛОГИИ, он открыт только на чтение. Артефакты витка пишутся в `.sdlc/demo/` и больше никуда: копировать формы в проект не надо, читай их на месте.\n- Формы уже разложены по местам: <ROOT>\\.sdlc\\demo\\intent.md, <ROOT>\\.sdlc\\demo\\readiness.md. Это пустые бланки, а не чужая работа: открой и заполни поля прямо в них, вместо `‹…›` — своё содержимое. Создавать документ заново не нужно.\n- Вместо `AskUserQuestion` вызывай `AskHuman`: этап встаёт на паузу, пока человек не ответит в интерфейсе. Правила те же — до 4 вопросов за вызов, блокирующие первыми, один вопрос это одна неопределённость, у каждого варианта в описании названа цена ошибки.\n- Вместо `ExitPlanMode` бери одобрение тем же `AskHuman`.\n- Решение человека записывай полем в артефакт: молчание одобрением не считается, а одобрение, оставшееся в переписке, для следующего этапа не существует.\n- Оператор: **Гриц**. Сегодня: **<DATE>**. Эти значения подставляй в поля решений.\n- Текущий chunk: **1**, попытка: **1**.\n- Доступные инструменты на этом этапе: Read, Glob, Grep, Write, Edit, AskHuman, FinalizeArtifact. Других у тебя нет — права выдаются на шаг, а не на прогон.\n- Как выглядит сделанный шаг. Вот настоящая незаполненная строка твоего бланка — правильное действие это ОДИН вызов инструмента с готовым содержимым:\n  ```json\n  {\"tool\":\"Edit\",\"arguments\":{\"file_path\":\".sdlc/demo/intent.md\",\"old_string\":\"# Задача: ‹название›\",\"new_string\":\"# Задача: (твоё содержимое по факту задачи)\"}}\n  ```\n  Когда в артефакте не осталось `‹…›` — вызови `FinalizeArtifact` с путём артефакта.\n- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе (текст никуда не записывается), спрашивать человека о том, что видно из кода, продолжать читать файлы, когда контекста для правки уже достаточно.\n- Запись вне `files_to_touch` одобренного плана отклоняется в момент вызова. Это конструкция, а не сбой: если файл действительно нужен, его сначала добавляют в план — инструментом `RequestScopeExtension` (если он тебе доступен), а не молчаливой попыткой записи или остановкой chunk'а на середине.\n- Решения человека и набор гейтов защищены от записи на этом этапе: одобренный план правит человек, а не ты. Нужна правка плана — это новая редакция и новое одобрение.\n- Входные артефакты приложены ниже целиком. Не пересказывай их по памяти и не догадывайся о содержимом — работай по тексту.",
+        "user": "## Входные артефакты\n\n\n\n````markdown\n<!-- .sdlc/gates.md -->\n# Набор гейтов: demo\n\n## Набор\n\n| Гейт | Вкл | Где отчитывается | Чем реализован |\n|---|---|---|---|\n| Сборка | да — минимум | этап 6 | `node -e \"process.exit(0)\"` |\n| Тесты | да — минимум | этап 6 | `node -e \"process.exit(0)\"` |\n| Scope: файлы вне плана | да — минимум | этап 6 | скрипт сверки diff с files_to_touch |\n| Анти-обход тест-гейта | да — минимум | этап 6 | скрипт |\n| Ревью независимым агентом | да — минимум | этап 6 | агент на более сильной модели |\n\n````\n\n## Что чинить в этой попытке\n\n\n\n## Факт прогона: ветка рабочего дерева\n\nРабочее дерево стоит на ветке `sdlc/demo`.\n\nПоле «Ветка витка» в `intent.md` обязано совпасть с этой строкой дословно. Не выводи\nимя из путей `.sdlc/…` и не придумывай по конвенции: Runner сверяет поле с фактическим\nсостоянием дерева и блокирует этап 4 при расхождении.",
+        "tools": [
+          {
+            "name": "Read",
+            "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "Строка, с которой начать (с 1)"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Сколько строк прочитать"
+                }
+              },
+              "required": [
+                "file_path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Glob",
+            "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Glob-шаблон"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Каталог поиска; по умолчанию корень проекта"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Grep",
+            "description": "Поиск по содержимому файлов регулярным выражением.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Регулярное выражение"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Файл или каталог поиска; по умолчанию корень проекта"
+                },
+                "glob": {
+                  "type": "string",
+                  "description": "Дополнительный фильтр по именам файлов"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Write",
+            "description": "Записать файл целиком. Запись вне files_to_touch одобренного плана отклоняется рантаймом в момент вызова — это конструкция, а не сбой.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Полное содержимое"
+                }
+              },
+              "required": [
+                "file_path",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Edit",
+            "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Фрагмент, который заменяем"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Чем заменяем"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Заменить все вхождения"
+                }
+              },
+              "required": [
+                "file_path",
+                "old_string",
+                "new_string"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "AskHuman",
+            "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "questions": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string",
+                        "description": "Полный текст вопроса"
+                      },
+                      "header": {
+                        "type": "string",
+                        "description": "Короткая метка, до 12 символов"
+                      },
+                      "multiSelect": {
+                        "type": "boolean",
+                        "description": "Можно выбрать несколько"
+                      },
+                      "options": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "description": "Вариант"
+                            },
+                            "description": {
+                              "type": "string",
+                              "description": "Что это значит и чем грозит ошибка"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "description"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "question",
+                      "header",
+                      "multiSelect",
+                      "options"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "questions"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "FinalizeArtifact",
+            "description": "Объявить артефакт этапа готовым. Рантайм проверит, что в нём не осталось незаполненных мест «‹…›», и покажет его человеку.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Путь к артефакту относительно корня проекта"
+                },
+                "note": {
+                  "type": "string",
+                  "description": "Одной строкой: что получилось"
+                }
+              },
+              "required": [
+                "artifact"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "editedByOperator": false
+      }
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "intent",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "tool_result",
+      "runId": "<ID>",
+      "stage": "intent",
+      "requestId": "loop:<ID>",
+      "ok": true,
+      "summary": "перезаписан .sdlc/demo/intent.md (11 строк)",
+      "durationMs": 0
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "intent",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 200,
+        "outputTokens": 20,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "tool_result",
+      "runId": "<ID>",
+      "stage": "intent",
+      "requestId": "loop:<ID>",
+      "ok": true,
+      "summary": "перезаписан .sdlc/demo/readiness.md (4 строк)",
+      "durationMs": 0
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "intent",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 300,
+        "outputTokens": 30,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "intent",
+      "text": "готово"
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "intent",
+      "path": "<ROOT>\\.sdlc\\gates.md",
+      "placeholders": 0
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "intent",
+      "path": "<ROOT>\\.sdlc\\demo\\intent.md",
+      "placeholders": 0
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "intent",
+      "path": "<ROOT>\\.sdlc\\demo\\readiness.md",
+      "placeholders": 0
+    },
+    {
+      "type": "stage_done",
+      "runId": "<ID>",
+      "stage": "intent",
+      "ok": true,
+      "note": "модель завершила ход"
+    },
+    {
+      "type": "stage_done",
+      "runId": "<ID>",
+      "stage": "explore",
+      "ok": true,
+      "note": "мелкий контур: разведка точечная на этапе 5, отчёт не пишется"
+    },
+    {
+      "type": "stage_done",
+      "runId": "<ID>",
+      "stage": "ask",
+      "ok": true,
+      "note": "мелкий контур: этап не запускается"
+    },
+    {
+      "type": "stage_started",
+      "runId": "<ID>",
+      "stage": "plan",
+      "flow": "loop",
+      "provider": "stub",
+      "model": "m",
+      "chunk": 1,
+      "attempt": 1
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "plan",
+      "message": "рантайм заполнил механические поля (1): название витка, даты, вход и база плана — модели остались содержательные"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "plan",
+      "message": "форма разложена под артефакт <ROOT>\\.sdlc\\demo\\plan.md — этап заполняет её, а не создаёт заново"
+    },
+    {
+      "type": "prompt_prepared",
+      "runId": "<ID>",
+      "stage": "plan",
+      "prompt": {
+        "presetNote": null,
+        "system": "СКИЛЛ plan: заполни артефакт этапа по форме.\n\n---\n\n## Как этот этап исполняется здесь\n\nТы работаешь внутри Agent-SDLC Runner, а не в интерактивной сессии Claude Code.\nТекст этапа выше — эталонный; ниже отличия, которые надо учесть.\n\n- Slug витка: `demo`. Артефакты витка: `.sdlc/demo/`, набор гейтов: `.sdlc/gates.md`.\n- Формы артефактов лежат в `<ROOT>/methodology/templates` — это каталог МЕТОДОЛОГИИ, он открыт только на чтение. Артефакты витка пишутся в `.sdlc/demo/` и больше никуда: копировать формы в проект не надо, читай их на месте.\n- Формы уже разложены по местам: <ROOT>\\.sdlc\\demo\\plan.md. Это пустые бланки, а не чужая работа: открой и заполни поля прямо в них, вместо `‹…›` — своё содержимое. Создавать документ заново не нужно.\n- Вместо `AskUserQuestion` вызывай `AskHuman`: этап встаёт на паузу, пока человек не ответит в интерфейсе. Правила те же — до 4 вопросов за вызов, блокирующие первыми, один вопрос это одна неопределённость, у каждого варианта в описании названа цена ошибки.\n- Вместо `ExitPlanMode` бери одобрение тем же `AskHuman`.\n- Решение человека записывай полем в артефакт: молчание одобрением не считается, а одобрение, оставшееся в переписке, для следующего этапа не существует.\n- Оператор: **Гриц**. Сегодня: **<DATE>**. Эти значения подставляй в поля решений.\n- Текущий chunk: **1**, попытка: **1**.\n- Доступные инструменты на этом этапе: Read, Glob, Grep, Write, Edit, AskHuman, FinalizeArtifact. Других у тебя нет — права выдаются на шаг, а не на прогон.\n- Как выглядит сделанный шаг. Вот настоящая незаполненная строка твоего бланка — правильное действие это ОДИН вызов инструмента с готовым содержимым:\n  ```json\n  {\"tool\":\"Edit\",\"arguments\":{\"file_path\":\".sdlc/demo/plan.md\",\"old_string\":\"- **Одобрение:** ‹подпись и дата›\",\"new_string\":\"- **Одобрение:** (твоё содержимое по факту задачи)\"}}\n  ```\n  Когда в артефакте не осталось `‹…›` — вызови `FinalizeArtifact` с путём артефакта.\n- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе (текст никуда не записывается), спрашивать человека о том, что видно из кода, продолжать читать файлы, когда контекста для правки уже достаточно.\n- Запись вне `files_to_touch` одобренного плана отклоняется в момент вызова. Это конструкция, а не сбой: если файл действительно нужен, его сначала добавляют в план — инструментом `RequestScopeExtension` (если он тебе доступен), а не молчаливой попыткой записи или остановкой chunk'а на середине.\n- Решения человека и набор гейтов защищены от записи на этом этапе: одобренный план правит человек, а не ты. Нужна правка плана — это новая редакция и новое одобрение.\n- Входные артефакты приложены ниже целиком. Не пересказывай их по памяти и не догадывайся о содержимом — работай по тексту.\n- В таблице «Последствия шагов» ровно 6 строк канона — по одной на каждую ось: Безопасность, Ресурсы и скорость, Отказы зависимостей, Настройки, Совместимость и данные, Наблюдаемость. Это НЕ то же самое, что лист приёмки: строка таблицы называется словом из этого списка, а не `claim-1`/`claim-2`/… — пункты приёмки заполняют ДРУГУЮ таблицу и упоминаются здесь только как исход (значение колонки, ссылка вида `claim-3`), не как имя строки.",
+        "user": "## Входные артефакты\n\n\n\n````markdown\n<!-- .sdlc/demo/intent.md -->\n# Задача: demo\n\n- **Контур:** мелкий\n- **Ветка витка:** sdlc/demo\n\n## Приёмка\n\n| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | версия поднята до 2 | `version === 2` |\n\n````\n\n````markdown\n<!-- .sdlc/demo/readiness.md -->\n# Готовность: demo\n\n- Прогон 1: готова\n\n````",
+        "tools": [
+          {
+            "name": "Read",
+            "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "Строка, с которой начать (с 1)"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Сколько строк прочитать"
+                }
+              },
+              "required": [
+                "file_path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Glob",
+            "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Glob-шаблон"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Каталог поиска; по умолчанию корень проекта"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Grep",
+            "description": "Поиск по содержимому файлов регулярным выражением.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Регулярное выражение"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Файл или каталог поиска; по умолчанию корень проекта"
+                },
+                "glob": {
+                  "type": "string",
+                  "description": "Дополнительный фильтр по именам файлов"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Write",
+            "description": "Записать файл целиком. Запись вне files_to_touch одобренного плана отклоняется рантаймом в момент вызова — это конструкция, а не сбой.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Полное содержимое"
+                }
+              },
+              "required": [
+                "file_path",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Edit",
+            "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Фрагмент, который заменяем"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Чем заменяем"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Заменить все вхождения"
+                }
+              },
+              "required": [
+                "file_path",
+                "old_string",
+                "new_string"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "AskHuman",
+            "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "questions": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string",
+                        "description": "Полный текст вопроса"
+                      },
+                      "header": {
+                        "type": "string",
+                        "description": "Короткая метка, до 12 символов"
+                      },
+                      "multiSelect": {
+                        "type": "boolean",
+                        "description": "Можно выбрать несколько"
+                      },
+                      "options": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "description": "Вариант"
+                            },
+                            "description": {
+                              "type": "string",
+                              "description": "Что это значит и чем грозит ошибка"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "description"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "question",
+                      "header",
+                      "multiSelect",
+                      "options"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "questions"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "FinalizeArtifact",
+            "description": "Объявить артефакт этапа готовым. Рантайм проверит, что в нём не осталось незаполненных мест «‹…›», и покажет его человеку.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Путь к артефакту относительно корня проекта"
+                },
+                "note": {
+                  "type": "string",
+                  "description": "Одной строкой: что получилось"
+                }
+              },
+              "required": [
+                "artifact"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "editedByOperator": false
+      }
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "plan",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 400,
+        "outputTokens": 40,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "tool_result",
+      "runId": "<ID>",
+      "stage": "plan",
+      "requestId": "loop:<ID>",
+      "ok": true,
+      "summary": "перезаписан .sdlc/demo/plan.md (10 строк)",
+      "durationMs": 0
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "plan",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 500,
+        "outputTokens": 50,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "plan",
+      "text": "план готов"
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "plan",
+      "path": "<ROOT>\\.sdlc\\demo\\plan.md",
+      "placeholders": 1
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "plan",
+      "path": "<ROOT>\\.sdlc\\demo\\readiness.md",
+      "placeholders": 0
+    },
+    {
+      "type": "stage_done",
+      "runId": "<ID>",
+      "stage": "plan",
+      "ok": true,
+      "note": "модель завершила ход"
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": null,
+      "path": "<ROOT>\\.sdlc\\demo\\plan.md",
+      "placeholders": 0
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "message": "не найдены определения субагентов: sdlc-locator (каталог <ROOT>\\agents). Этап пойдёт без независимого агента: ограничение прав держится на промпте, а не на конструкции."
+    },
+    {
+      "type": "stage_started",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "flow": "loop",
+      "provider": "stub",
+      "model": "m",
+      "chunk": 1,
+      "attempt": 1
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "message": "дерево грязное до начала chunk'а: 5 файл(ов) — .sdlc/demo/intent.md, .sdlc/demo/metrics.json, .sdlc/demo/metrics.md, .sdlc/demo/plan.md, .sdlc/demo/readiness.md. Их правки в diff попытки не войдут: база chunk 1 записана. Решение — чинить дерево или продолжать с базой — за вами."
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "message": "форма разложена под артефакт <ROOT>\\.sdlc\\demo\\chunk-1-journal.md — этап заполняет её, а не создаёт заново"
+    },
+    {
+      "type": "prompt_prepared",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "prompt": {
+        "presetNote": null,
+        "system": "СКИЛЛ chunk: заполни артефакт этапа по форме.\n\n---\n\n## Как этот этап исполняется здесь\n\nТы работаешь внутри Agent-SDLC Runner, а не в интерактивной сессии Claude Code.\nТекст этапа выше — эталонный; ниже отличия, которые надо учесть.\n\n- Slug витка: `demo`. Артефакты витка: `.sdlc/demo/`, набор гейтов: `.sdlc/gates.md`.\n- Формы артефактов лежат в `<ROOT>/methodology/templates` — это каталог МЕТОДОЛОГИИ, он открыт только на чтение. Артефакты витка пишутся в `.sdlc/demo/` и больше никуда: копировать формы в проект не надо, читай их на месте.\n- Формы уже разложены по местам: <ROOT>\\.sdlc\\demo\\chunk-1-journal.md. Это пустые бланки, а не чужая работа: открой и заполни поля прямо в них, вместо `‹…›` — своё содержимое. Создавать документ заново не нужно.\n- Вместо `AskUserQuestion` вызывай `AskHuman`: этап встаёт на паузу, пока человек не ответит в интерфейсе. Правила те же — до 4 вопросов за вызов, блокирующие первыми, один вопрос это одна неопределённость, у каждого варианта в описании названа цена ошибки.\n- Вместо `ExitPlanMode` бери одобрение тем же `AskHuman`.\n- Решение человека записывай полем в артефакт: молчание одобрением не считается, а одобрение, оставшееся в переписке, для следующего этапа не существует.\n- Оператор: **Гриц**. Сегодня: **<DATE>**. Эти значения подставляй в поля решений.\n- Текущий chunk: **1**, попытка: **1**.\n- Доступные инструменты на этом этапе: Read, Glob, Grep, Write, Edit, Bash, Task, AskHuman, FinalizeArtifact, RequestScopeExtension. Других у тебя нет — права выдаются на шаг, а не на прогон.\n- Как выглядит сделанный шаг. Вот настоящая незаполненная строка твоего бланка — правильное действие это ОДИН вызов инструмента с готовым содержимым:\n  ```json\n  {\"tool\":\"Edit\",\"arguments\":{\"file_path\":\".sdlc/demo/chunk-1-journal.md\",\"old_string\":\"- **Подтвердил:** ‹подпись и дата›\",\"new_string\":\"- **Подтвердил:** (твоё содержимое по факту задачи)\"}}\n  ```\n  Когда в артефакте не осталось `‹…›` — вызови `FinalizeArtifact` с путём артефакта.\n- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе (текст никуда не записывается), спрашивать человека о том, что видно из кода, продолжать читать файлы, когда контекста для правки уже достаточно.\n- Субагенты этого этапа: sdlc-locator — вызывай их инструментом `Task`, поле `subagent_type`. Их права заданы конструкцией, а не просьбой: разведчик места правки не имеет инструментов записи, рецензент не получает твой рассказ о работе.\n- Запись вне `files_to_touch` одобренного плана отклоняется в момент вызова. Это конструкция, а не сбой: если файл действительно нужен, его сначала добавляют в план — инструментом `RequestScopeExtension` (если он тебе доступен), а не молчаливой попыткой записи или остановкой chunk'а на середине.\n- Решения человека и набор гейтов защищены от записи на этом этапе: одобренный план правит человек, а не ты. Нужна правка плана — это новая редакция и новое одобрение.\n- Входные артефакты приложены ниже целиком. Не пересказывай их по памяти и не догадывайся о содержимом — работай по тексту.\n- Прежде чем закончить этап, просмотри СВОЙ diff по углам ревью: построчно (что ломает каждую изменённую строку), удалённое поведение (какой инвариант держала каждая убранная строка и где он восстановлен), вызывающие изменённых функций, переиспользование (не написал ли ты то, что в кодобазе уже есть). Найденное чини в ЭТОЙ ЖЕ попытке и записывай в `<ROOT>/.sdlc/demo/self-review-1-attempt-1.md`.\n- Этот самопросмотр НЕ заменяет независимого рецензента этапа 6 и в вердикт не входит: автор не рецензирует себя. Он нужен, чтобы не тратить дорогую попытку на то, что видно самому.",
+        "user": "## Входные артефакты\n\n\n\n````markdown\n<!-- .sdlc/demo/plan.md -->\n# План: demo\n\n- **Одобрение:** Гриц · <DATE>\n\n## files_to_touch\n\n| Путь | Что делаем |\n|---|---|\n| src/app.js | поднять версию |\n\n````\n\n````markdown\n<!-- .sdlc/demo/chunk-1-journal.md -->\n# Журнал chunk 1\n\n- **Подтвердил:** ‹подпись и дата›\n\n## Что сделано\n\n‹что сделано›\n\n````\n\n## Файлы плана (files_to_touch) — уже прочитаны\n\n\n\nСодержимое ниже прочитано рантаймом при сборке промпта: не трать ходы на Read этих файлов — правь сразу. Перечитывай файл только после СВОЕЙ правки в нём.\n\n\n\n````markdown\n<!-- src/app.js -->\nexport const version = 1;\n\n````",
+        "tools": [
+          {
+            "name": "Read",
+            "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "Строка, с которой начать (с 1)"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Сколько строк прочитать"
+                }
+              },
+              "required": [
+                "file_path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Glob",
+            "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Glob-шаблон"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Каталог поиска; по умолчанию корень проекта"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Grep",
+            "description": "Поиск по содержимому файлов регулярным выражением.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Регулярное выражение"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Файл или каталог поиска; по умолчанию корень проекта"
+                },
+                "glob": {
+                  "type": "string",
+                  "description": "Дополнительный фильтр по именам файлов"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Write",
+            "description": "Записать файл целиком. Запись вне files_to_touch одобренного плана отклоняется рантаймом в момент вызова — это конструкция, а не сбой.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Полное содержимое"
+                }
+              },
+              "required": [
+                "file_path",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Edit",
+            "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Фрагмент, который заменяем"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Чем заменяем"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Заменить все вхождения"
+                }
+              },
+              "required": [
+                "file_path",
+                "old_string",
+                "new_string"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Bash",
+            "description": "Выполнить команду в корне проекта. Разрушительные команды и запись мимо плана отклоняются рантаймом.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "Команда"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Одной строкой: что делает команда"
+                },
+                "timeout": {
+                  "type": "integer",
+                  "description": "Таймаут в миллисекундах"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Task",
+            "description": "Запустить субагента. Методология требует независимого исполнителя там, где судящий не должен быть автором: `sdlc-claims` на разведке (слепой вывод приёмочного листа), `sdlc-locator` на разведке места правки (у него нет прав записи по построению) и `sdlc-reviewer` на верификации. Доступны только субагенты, объявленные текущим этапом. Вызовы инструментов внутри субагента проходят через тот же гейт одобрений.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "subagent_type": {
+                  "type": "string",
+                  "description": "Имя субагента из объявленных на этапе: sdlc-claims, sdlc-locator или sdlc-reviewer"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Коротко: что поручаем"
+                },
+                "prompt": {
+                  "type": "string",
+                  "description": "Полное задание субагенту"
+                }
+              },
+              "required": [
+                "subagent_type",
+                "prompt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "AskHuman",
+            "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "questions": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string",
+                        "description": "Полный текст вопроса"
+                      },
+                      "header": {
+                        "type": "string",
+                        "description": "Короткая метка, до 12 символов"
+                      },
+                      "multiSelect": {
+                        "type": "boolean",
+                        "description": "Можно выбрать несколько"
+                      },
+                      "options": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "description": "Вариант"
+                            },
+                            "description": {
+                              "type": "string",
+                              "description": "Что это значит и чем грозит ошибка"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "description"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "question",
+                      "header",
+                      "multiSelect",
+                      "options"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "questions"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "FinalizeArtifact",
+            "description": "Объявить артефакт этапа готовым. Рантайм проверит, что в нём не осталось незаполненных мест «‹…›», и покажет его человеку.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Путь к артефакту относительно корня проекта"
+                },
+                "note": {
+                  "type": "string",
+                  "description": "Одной строкой: что получилось"
+                }
+              },
+              "required": [
+                "artifact"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "RequestScopeExtension",
+            "description": "Попросить человека расширить files_to_touch плана на файл, понадобившийся по ходу chunk'а и не бывший в плане. Замена молчаливому нарушению scope и полной остановке chunk'а. Решает человек; одобрение дописывает путь в plan.md с пометкой «расширено на этапе N» и разрешает запись в него на этом же chunk'е. Отказ означает: делай без этого файла или остановись и спроси иначе.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Путь к файлу относительно корня проекта, который нужно добавить в scope"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Почему он понадобился и не был назван в плане"
+                }
+              },
+              "required": [
+                "path",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "editedByOperator": false
+      }
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 600,
+        "outputTokens": 60,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "tool_result",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "requestId": "loop:<ID>",
+      "ok": true,
+      "summary": "перезаписан src/app.js (2 строк)",
+      "durationMs": 0
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 700,
+        "outputTokens": 70,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "tool_result",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "requestId": "loop:<ID>",
+      "ok": true,
+      "summary": "перезаписан .sdlc/demo/chunk-1-journal.md (8 строк)",
+      "durationMs": 0
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 800,
+        "outputTokens": 80,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "text": "правка сделана"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "message": "свидетельства попытки перезаписаны рантаймом · тесты: ⏭ node -e \"process.exit(0)\" (код —)"
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "path": "<ROOT>\\.sdlc\\demo\\chunk-1-journal.md",
+      "placeholders": 1
+    },
+    {
+      "type": "stage_done",
+      "runId": "<ID>",
+      "stage": "chunk",
+      "ok": true,
+      "note": "модель завершила ход"
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": null,
+      "path": "<ROOT>\\.sdlc\\demo\\chunk-1-journal.md",
+      "placeholders": 0
+    },
+    {
+      "type": "stage_started",
+      "runId": "<ID>",
+      "stage": "verify",
+      "flow": "loop",
+      "provider": "stub",
+      "model": "m",
+      "chunk": 1,
+      "attempt": 1
+    },
+    {
+      "type": "gate_result",
+      "runId": "<ID>",
+      "stage": "verify",
+      "gate": {
+        "name": "Сборка",
+        "status": "⏭",
+        "command": "node -e \"process.exit(0)\"",
+        "exitCode": null,
+        "lastLine": "команда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа.",
+        "durationMs": 0,
+        "envBlocked": false
+      }
+    },
+    {
+      "type": "gate_result",
+      "runId": "<ID>",
+      "stage": "verify",
+      "gate": {
+        "name": "Тесты",
+        "status": "⏭",
+        "command": "node -e \"process.exit(0)\"",
+        "exitCode": null,
+        "lastLine": "команда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа.",
+        "durationMs": 0,
+        "envBlocked": false
+      }
+    },
+    {
+      "type": "gate_result",
+      "runId": "<ID>",
+      "stage": "verify",
+      "gate": {
+        "name": "Scope: файлы вне плана",
+        "status": "✅",
+        "command": null,
+        "exitCode": 0,
+        "lastLine": "все изменения в пределах files_to_touch (файлов: 1)\nвне плана, из базы chunk'а (не работа этапа): .sdlc/demo/intent.md, .sdlc/demo/plan.md, .sdlc/demo/readiness.md",
+        "durationMs": 0,
+        "envBlocked": false
+      }
+    },
+    {
+      "type": "gate_result",
+      "runId": "<ID>",
+      "stage": "verify",
+      "gate": {
+        "name": "Анти-обход тест-гейта",
+        "status": "✅",
+        "command": null,
+        "exitCode": 0,
+        "lastLine": "анти-обход тест-гейта — чисто",
+        "durationMs": 0,
+        "envBlocked": false
+      }
+    },
+    {
+      "type": "gate_result",
+      "runId": "<ID>",
+      "stage": "verify",
+      "gate": {
+        "name": "Ревью независимым агентом",
+        "status": "⏭",
+        "command": null,
+        "exitCode": null,
+        "lastLine": "статус получен не скриптом: агент на более сильной модели",
+        "durationMs": 0,
+        "envBlocked": false
+      }
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "verify",
+      "message": "рантайм заполнил отчёт приёмки фактами прогона (2): таблица «Гейты» и механика шапки — рецензенту остались выводы, ревью и вердикт"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "verify",
+      "message": "форма разложена под артефакт <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md — этап заполняет её, а не создаёт заново"
+    },
+    {
+      "type": "prompt_prepared",
+      "runId": "<ID>",
+      "stage": "verify",
+      "prompt": {
+        "presetNote": null,
+        "system": "СКИЛЛ verify: заполни артефакт этапа по форме.\n\n---\n\n## Как этот этап исполняется здесь\n\nТы работаешь внутри Agent-SDLC Runner, а не в интерактивной сессии Claude Code.\nТекст этапа выше — эталонный; ниже отличия, которые надо учесть.\n\n- Slug витка: `demo`. Артефакты витка: `.sdlc/demo/`, набор гейтов: `.sdlc/gates.md`.\n- Формы артефактов лежат в `<ROOT>/methodology/templates` — это каталог МЕТОДОЛОГИИ, он открыт только на чтение. Артефакты витка пишутся в `.sdlc/demo/` и больше никуда: копировать формы в проект не надо, читай их на месте.\n- Формы уже разложены по местам: <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md. Это пустые бланки, а не чужая работа: открой и заполни поля прямо в них, вместо `‹…›` — своё содержимое. Создавать документ заново не нужно.\n- Вместо `AskUserQuestion` вызывай `AskHuman`: этап встаёт на паузу, пока человек не ответит в интерфейсе. Правила те же — до 4 вопросов за вызов, блокирующие первыми, один вопрос это одна неопределённость, у каждого варианта в описании названа цена ошибки.\n- Вместо `ExitPlanMode` бери одобрение тем же `AskHuman`.\n- Решение человека записывай полем в артефакт: молчание одобрением не считается, а одобрение, оставшееся в переписке, для следующего этапа не существует.\n- Оператор: **Гриц**. Сегодня: **<DATE>**. Эти значения подставляй в поля решений.\n- Текущий chunk: **1**, попытка: **1**.\n- Доступные инструменты на этом этапе: Read, Glob, Grep, Write, Edit, Task, AskHuman, FinalizeArtifact, RecordClaim, RecordFinding. Других у тебя нет — права выдаются на шаг, а не на прогон.\n- Как выглядит сделанный шаг. Вот настоящая незаполненная строка твоего бланка — правильное действие это ОДИН вызов инструмента с готовым содержимым:\n  ```json\n  {\"tool\":\"Edit\",\"arguments\":{\"file_path\":\".sdlc/demo/verification-report-1-attempt-1.md\",\"old_string\":\"| claim-1 | ‹пункт› | ‹статус› | ‹чем› | ‹что› |\",\"new_string\":\"| claim-1 | (твоё содержимое по факту задачи) | ‹статус› | ‹чем› | ‹что› |\"}}\n  ```\n  Когда в артефакте не осталось `‹…›` — вызови `FinalizeArtifact` с путём артефакта.\n- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе (текст никуда не записывается), спрашивать человека о том, что видно из кода, продолжать читать файлы, когда контекста для правки уже достаточно.\n- Субагенты этого этапа: sdlc-reviewer — вызывай их инструментом `Task`, поле `subagent_type`. Их права заданы конструкцией, а не просьбой: разведчик места правки не имеет инструментов записи, рецензент не получает твой рассказ о работе.\n- Запись вне `files_to_touch` одобренного плана отклоняется в момент вызова. Это конструкция, а не сбой: если файл действительно нужен, его сначала добавляют в план — инструментом `RequestScopeExtension` (если он тебе доступен), а не молчаливой попыткой записи или остановкой chunk'а на середине.\n- Решения человека и набор гейтов защищены от записи на этом этапе: одобренный план правит человек, а не ты. Нужна правка плана — это новая редакция и новое одобрение.\n- Входные артефакты приложены ниже целиком. Не пересказывай их по памяти и не догадывайся о содержимом — работай по тексту.\n- Часть шагов эталонного текста здесь УЖЕ ВЫПОЛНЕНА рантаймом, и повторять их нечем — оболочки на этом этапе нет: (1) патч попытки перегенерирован из рабочего дерева и сверен с артефактом этапа 5; (2) автоматические гейты набора прогнаны, их фактический итог приложен ниже отдельным блоком; (3) таблица «Гейты» и механические поля шапки отчёта уже заполнены фактами прогона; (4) вердикт по таблице методологии считает рантайм, скрипт `flow-verdict.py` запускать не надо.\n- Пункты приёмки и находки записывай инструментами `RecordClaim` и `RecordFinding`: таблицу §1 и строки §2–§5 рисует из них рантайм, поэтому форма получается правильной без твоих усилий на оформление. «Чем подтверждён» обязано называть МЕСТО — файл и символ, имя теста, хунк диффа: рантайм сверяет ссылку с патчем попытки и помечает запись, если места не нашёл.\n- Твоя работа на этом этапе — §1–§5 отчёта: пункты приёмки со ссылкой на доказательство, независимое ревью, scope в обе стороны, инварианты, регрессии. Статусы гейтов из приложенного блока переноси как есть, своим мнением их не переписывай.",
+        "user": "## Входные артефакты\n\n\n\n````markdown\n<!-- .sdlc/demo/intent.md -->\n# Задача: demo\n\n- **Контур:** мелкий\n- **Ветка витка:** sdlc/demo\n\n## Приёмка\n\n| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | версия поднята до 2 | `version === 2` |\n\n````\n\n````markdown\n<!-- .sdlc/demo/plan.md -->\n# План: demo\n\n- **Одобрение:** Гриц · <DATE>\n\n## files_to_touch\n\n| Путь | Что делаем |\n|---|---|\n| src/app.js | поднять версию |\n\n````\n\n````markdown\n<!-- .sdlc/gates.md -->\n# Набор гейтов: demo\n\n## Набор\n\n| Гейт | Вкл | Где отчитывается | Чем реализован |\n|---|---|---|---|\n| Сборка | да — минимум | этап 6 | `node -e \"process.exit(0)\"` |\n| Тесты | да — минимум | этап 6 | `node -e \"process.exit(0)\"` |\n| Scope: файлы вне плана | да — минимум | этап 6 | скрипт сверки diff с files_to_touch |\n| Анти-обход тест-гейта | да — минимум | этап 6 | скрипт |\n| Ревью независимым агентом | да — минимум | этап 6 | агент на более сильной модели |\n\n````\n\n````markdown\n<!-- .sdlc/demo/chunk-1-attempt-1-diff.patch -->\ndiff --git a/src/app.js b/src/app.js\nindex <SHA>..<SHA> 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1 @@\n-export const version = 1;\n+export const version = 2;\n\n````\n\n````markdown\n<!-- .sdlc/demo/chunk-1-attempt-1-tests.txt -->\n# Запись рантайма о фактическом прогоне тестов этой попытки.\n# Составлена не исполнителем этапа: содержимое, записанное агентом, перезаписано.\n\nКоманда: node -e \"process.exit(0)\"\nСтатус: ⏭\nКод возврата: —\n\nкоманда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа.\n\n````\n\n## Что чинить в этой попытке\n\n\n\n## Итоги автоматических гейтов (прогон рантайма, этот этап)\n\nЭти статусы получены фактическим прогоном до начала ревью. Переписывать их своим\nмнением нельзя: в отчёт они переносятся как есть, а вердикт считается по худшему из\nдвух — твоего и фактического. Твоя работа — §1–§5 отчёта и поиск того, чего гейты\nне видят.\n\n| Гейт | Статус | Результат |\n|---|---|---|\n| Сборка | ⏭ | node -e \"process.exit(0)\" · код — · <DUR> |\n| | | команда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа. |\n| Тесты | ⏭ | node -e \"process.exit(0)\" · код — · <DUR> |\n| | | команда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа. |\n| Scope: файлы вне плана | ✅ | встроенная проверка · код 0 · <DUR> |\n| | | все изменения в пределах files_to_touch (файлов: 1) вне плана, из базы chunk'а (не работа этапа): .sdlc/demo/intent.md, .sdlc/demo/plan.md, .sdlc/demo/readiness.md |\n| Анти-обход тест-гейта | ✅ | встроенная проверка · код 0 · <DUR> |\n| | | анти-обход тест-гейта — чисто |\n| Ревью независимым агентом | ⏭ | встроенная проверка · код — · <DUR> |\n| | | статус получен не скриптом: агент на более сильной модели |",
+        "tools": [
+          {
+            "name": "Read",
+            "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "Строка, с которой начать (с 1)"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Сколько строк прочитать"
+                }
+              },
+              "required": [
+                "file_path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Glob",
+            "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Glob-шаблон"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Каталог поиска; по умолчанию корень проекта"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Grep",
+            "description": "Поиск по содержимому файлов регулярным выражением.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Регулярное выражение"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Файл или каталог поиска; по умолчанию корень проекта"
+                },
+                "glob": {
+                  "type": "string",
+                  "description": "Дополнительный фильтр по именам файлов"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Write",
+            "description": "Записать файл целиком. Запись вне files_to_touch одобренного плана отклоняется рантаймом в момент вызова — это конструкция, а не сбой.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Полное содержимое"
+                }
+              },
+              "required": [
+                "file_path",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Edit",
+            "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Фрагмент, который заменяем"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Чем заменяем"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Заменить все вхождения"
+                }
+              },
+              "required": [
+                "file_path",
+                "old_string",
+                "new_string"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Task",
+            "description": "Запустить субагента. Методология требует независимого исполнителя там, где судящий не должен быть автором: `sdlc-claims` на разведке (слепой вывод приёмочного листа), `sdlc-locator` на разведке места правки (у него нет прав записи по построению) и `sdlc-reviewer` на верификации. Доступны только субагенты, объявленные текущим этапом. Вызовы инструментов внутри субагента проходят через тот же гейт одобрений.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "subagent_type": {
+                  "type": "string",
+                  "description": "Имя субагента из объявленных на этапе: sdlc-claims, sdlc-locator или sdlc-reviewer"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Коротко: что поручаем"
+                },
+                "prompt": {
+                  "type": "string",
+                  "description": "Полное задание субагенту"
+                }
+              },
+              "required": [
+                "subagent_type",
+                "prompt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "AskHuman",
+            "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "questions": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string",
+                        "description": "Полный текст вопроса"
+                      },
+                      "header": {
+                        "type": "string",
+                        "description": "Короткая метка, до 12 символов"
+                      },
+                      "multiSelect": {
+                        "type": "boolean",
+                        "description": "Можно выбрать несколько"
+                      },
+                      "options": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "description": "Вариант"
+                            },
+                            "description": {
+                              "type": "string",
+                              "description": "Что это значит и чем грозит ошибка"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "description"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "question",
+                      "header",
+                      "multiSelect",
+                      "options"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "questions"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "FinalizeArtifact",
+            "description": "Объявить артефакт этапа готовым. Рантайм проверит, что в нём не осталось незаполненных мест «‹…›», и покажет его человеку.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Путь к артефакту относительно корня проекта"
+                },
+                "note": {
+                  "type": "string",
+                  "description": "Одной строкой: что получилось"
+                }
+              },
+              "required": [
+                "artifact"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "RecordClaim",
+            "description": "Записать вывод по одному пункту приёмки. Таблицу §1 отчёта из этих записей рисует рантайм — колонки и форма получаются правильными по построению, а не по аккуратности оформления. Один вызов на пункт; повторный вызов с тем же id заменяет прежнюю запись. «Чем подтверждён» обязано указывать на МЕСТО: файл и символ, имя теста, хунк диффа.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Идентификатор пункта из приёмочного листа задачи, например claim-3"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "✅",
+                    "❌",
+                    "⚠",
+                    "manual"
+                  ],
+                  "description": "Подтверждён / опровергнут / не проверяем / проверяется вручную. `manual` действителен, только если пункт помечен [manual] в задаче человеком."
+                },
+                "evidence": {
+                  "type": "string",
+                  "description": "Чем подтверждён: файл:символ, имя теста, хунк диффа"
+                },
+                "what_to_fix": {
+                  "type": "string",
+                  "description": "Что чинить, если пункт не зелёный"
+                }
+              },
+              "required": [
+                "id",
+                "status",
+                "evidence"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "RecordFinding",
+            "description": "Записать находку ревью в свою секцию отчёта: расхождение (review), выход за границы плана (scope), нарушенный инвариант (invariant), регрессия ранее работавшего поведения (regression). Находка без ссылки на место принимается, но помечается «без привязки» — потерять её нельзя, выдать за доказанную тоже.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "section": {
+                  "type": "string",
+                  "enum": [
+                    "review",
+                    "scope",
+                    "invariant",
+                    "regression"
+                  ],
+                  "description": "Секция отчёта приёмки, к которой относится находка"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "Находка одной-двумя фразами: что именно не так"
+                },
+                "evidence": {
+                  "type": "string",
+                  "description": "Где это видно: файл:строка, символ, хунк диффа"
+                }
+              },
+              "required": [
+                "section",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "editedByOperator": false
+      }
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "verify",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 900,
+        "outputTokens": 90,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "verify",
+      "text": "Расхождений нет: src/app.js — `export const version = 2;` поднимает версию, как требует claim-1."
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "verify",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 1000,
+        "outputTokens": 100,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "verify",
+      "text": "основной маршрут проверил"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "verify",
+      "message": "артефакт этапа не заполнен: <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md, <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md (строка пункта claim-1 содержит незаполненное место). Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit. (напоминание 1 из 2)"
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "verify",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 1100,
+        "outputTokens": 110,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "verify",
+      "text": "второй маршрут проверил"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "verify",
+      "message": "артефакт этапа не заполнен: <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md, <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md (строка пункта claim-1 содержит незаполненное место). Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit. (напоминание 2 из 2)"
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "verify",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 1200,
+        "outputTokens": 120,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "verify",
+      "text": "готово"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "verify",
+      "message": "ансамбль: дополнительный маршрут 2 — m2"
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "verify",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 1300,
+        "outputTokens": 130,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "verify",
+      "text": "готово"
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "verify",
+      "path": "<ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md",
+      "placeholders": 4
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "verify",
+      "path": "<ROOT>\\.sdlc\\demo\\iterations.md",
+      "placeholders": 0
+    },
+    {
+      "type": "verdict",
+      "runId": "<ID>",
+      "stage": "verify",
+      "verdict": {
+        "passed": false,
+        "action": "retry",
+        "reasons": [
+          "гейт «Сборка» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+          "гейт «Тесты» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+          "пункт приёмки claim-1 не проверяем (⚠)",
+          "включённый гейт «Тесты» в отчёте не отчитался ни одной строкой",
+          "включённый гейт «Scope: файлы вне плана» в отчёте не отчитался ни одной строкой",
+          "включённый гейт «Анти-обход тест-гейта» в отчёте не отчитался ни одной строкой",
+          "включённый гейт «Ревью независимым агентом» в отчёте не отчитался ни одной строкой",
+          "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+          "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+        ]
+      }
+    },
+    {
+      "type": "stage_done",
+      "runId": "<ID>",
+      "stage": "verify",
+      "ok": false,
+      "note": "артефакт этапа не заполнен: <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md, <ROOT>\\.sdlc\\demo\\verification-report-1-attempt-1.md (строка пункта claim-1 содержит незаполненное место). Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit."
+    }
+  ],
+  "requests": [
+    {
+      "stage": "intent",
+      "messages": 2,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Write"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "intent",
+      "messages": 4,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Write"
+      ],
+      "lastRole": "tool"
+    },
+    {
+      "stage": "intent",
+      "messages": 6,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Write"
+      ],
+      "lastRole": "tool"
+    },
+    {
+      "stage": "plan",
+      "messages": 2,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Write"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "plan",
+      "messages": 4,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Write"
+      ],
+      "lastRole": "tool"
+    },
+    {
+      "stage": "chunk",
+      "messages": 2,
+      "tools": [
+        "AskHuman",
+        "Bash",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "RequestScopeExtension",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "chunk",
+      "messages": 4,
+      "tools": [
+        "AskHuman",
+        "Bash",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "RequestScopeExtension",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "tool"
+    },
+    {
+      "stage": "chunk",
+      "messages": 6,
+      "tools": [
+        "AskHuman",
+        "Bash",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "RequestScopeExtension",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "tool"
+    },
+    {
+      "stage": "вне этапа",
+      "messages": 2,
+      "tools": [
+        "Glob",
+        "Grep",
+        "Read"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "verify",
+      "messages": 2,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "RecordClaim",
+        "RecordFinding",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "verify",
+      "messages": 4,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "RecordClaim",
+        "RecordFinding",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "verify",
+      "messages": 6,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "RecordClaim",
+        "RecordFinding",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "verify",
+      "messages": 2,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "RecordClaim",
+        "RecordFinding",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "user"
+    }
+  ],
+  "files": {
+    ".chunk-1-baseline.json": "{\n  \".sdlc/demo/intent.md\": \"01ffe55b09cd72f05fb2b46f09f2ed01\",\n  \".sdlc/demo/metrics.json\": \"<HASH>\",\n  \".sdlc/demo/metrics.md\": \"<HASH>\",\n  \".sdlc/demo/plan.md\": \"55308284cdb32a29ab34b0ad4cadbf0c\",\n  \".sdlc/demo/readiness.md\": \"8ef229ef3ce9ad7aa7702a7096146004\"\n}",
+    "chunk-1-attempt-1-diff.patch": "diff --git a/src/app.js b/src/app.js\nindex <SHA>..<SHA> 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1 @@\n-export const version = 1;\n+export const version = 2;\n",
+    "chunk-1-attempt-1-tests.txt": "# Запись рантайма о фактическом прогоне тестов этой попытки.\n# Составлена не исполнителем этапа: содержимое, записанное агентом, перезаписано.\n\nКоманда: node -e \"process.exit(0)\"\nСтатус: ⏭\nКод возврата: —\n\nкоманда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа.\n",
+    "chunk-1-journal.md": "# Журнал chunk 1\n\n- **Подтвердил:** Гриц · <DATE>\n\n## Что сделано\n\nверсия поднята до 2\n",
+    "intent.md": "# Задача: demo\n\n- **Контур:** мелкий\n- **Ветка витка:** sdlc/demo\n\n## Приёмка\n\n| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | версия поднята до 2 | `version === 2` |\n",
+    "iterations.md": "# Журнал итераций витка\n\n> Пишет рантайм по факту посчитанного вердикта. Здесь только то, что рантайм видел сам:\n> исход, причины дословно, статусы фактического прогона гейтов и размер патча. Колонка\n> «Заметка» — место для человека, и пустой она означает ровно «человек не писал», а не\n> «замечаний нет».\n\n| Когда | Chunk | Попытка | Исход | Файлов | Строк | Совпадение с прошлым | Причины | Заметка |\n|---|---|---|---|---|---|---|---|---|\n| <DATE> <TIME> | 1 | 1 | ❌ retry | 1 | 2 | — | гейт «Сборка» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет; гейт «Тесты» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет; пункт приёмки claim-1 не проверяем (⚠); включённый гейт «Тесты» в отчёте не отчитался ни одной строкой; включённый гейт «Scope: файлы вне плана» в отчёте не отчитался ни одной строкой; включённый гейт «Анти-обход тест-гейта» в отчёте не отчитался ни одной строкой; включённый гейт «Ревью независимым агентом» в отчёте не отчитался ни одной строкой; сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает; посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит; ⏭ Сборка; ⏭ Тесты |  |\n",
+    "plan.md": "# План: demo\n\n- **Одобрение:** Гриц · <DATE>\n\n## files_to_touch\n\n| Путь | Что делаем |\n|---|---|\n| src/app.js | поднять версию |\n",
+    "readiness.md": "# Готовность: demo\n\n- Прогон 1: готова\n",
+    "verification-report-1-attempt-1-r1.md": "# Отчёт приёмки: demo\n\n## Гейты\n\n| Гейт | Статус | Результат |\n|---|---|---|\n| Сборка | ⏭ | node -e \"process.exit(0)\" · команда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа. |\n\n## 1. Пункты приёмки\n\n| id | Пункт | passed | Чем подтверждён | Что чинить |\n|---|---|---|---|---|\n| claim-1 | ‹пункт› | ‹статус› | ‹чем› | ‹что› |\n",
+    "verification-report-1-attempt-1.md": "# Отчёт приёмки: demo\n\n## Гейты\n\n| Гейт | Статус | Результат |\n|---|---|---|\n| Сборка | ⏭ | node -e \"process.exit(0)\" · команда гейта отклонена полом безопасности: команда отклонена: однострочник интерпретатора. Этот запрет не снимается настройкой этапа. |\n\n## 1. Пункты приёмки\n\n| id | Пункт | passed | Чем подтверждён | Что чинить |\n|---|---|---|---|---|\n| claim-1 | ‹пункт› | ‹статус› | ‹чем› | ‹что› |\n",
+    "src/app.js": "export const version = 2;\n"
+  }
+}

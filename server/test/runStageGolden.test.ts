@@ -144,7 +144,7 @@ function git(root: string, ...args: string[]): void {
   });
 }
 
-function makeProject(gates: string = GATES): string {
+function makeProject(gates: string = GATES, reviewer = false): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-golden-')));
   roots.push(root);
   for (const stage of STAGE_ORDER) {
@@ -154,6 +154,14 @@ function makeProject(gates: string = GATES): string {
   mkdirSync(join(root, 'methodology', 'templates'), { recursive: true });
   for (const [name, text] of Object.entries(TEMPLATES)) writeFileSync(join(root, 'methodology', 'templates', name), text);
   mkdirSync(join(root, 'agents'), { recursive: true });
+  // Определение рецензента: без него рантайм ревью не запускает, и гейт минимума остаётся ⏭.
+  // Тело — системный промпт рецензента, без метки скилла: у подменной модели очередь «вне этапа».
+  if (reviewer) {
+    writeFileSync(
+      join(root, 'agents', 'sdlc-reviewer.md'),
+      '---\nname: sdlc-reviewer\ndescription: независимый рецензент\ntools: Read, Grep, Glob\n---\nРЕЦЕНЗЕНТ: опровергни, что сделано нужное.\n',
+    );
+  }
   mkdirSync(join(root, 'src'), { recursive: true });
   writeFileSync(join(root, 'src', 'app.js'), 'export const version = 1;\n');
   mkdirSync(join(root, '.sdlc'), { recursive: true });
@@ -222,7 +230,13 @@ async function startModel(queues: Queues): Promise<{ baseUrl: string; requests: 
 
 // ── виток ─────────────────────────────────────────────────────────────────
 
-function makeRun(root: string, baseUrl: string, events: RunEvent[], routeOver: Partial<ResolvedRoute> = {}): Run {
+function makeRun(
+  root: string,
+  baseUrl: string,
+  events: RunEvent[],
+  routeOver: Partial<ResolvedRoute> = {},
+  ensembleOver: readonly Partial<ResolvedRoute>[] = [],
+): Run {
   const route = (stage: StageId): ResolvedRoute => ({
     stage,
     provider: 'stub',
@@ -246,6 +260,8 @@ function makeRun(root: string, baseUrl: string, events: RunEvent[], routeOver: P
   });
   const routes = Object.fromEntries(STAGE_ORDER.map((s) => [s, route(s)])) as Record<StageId, ResolvedRoute>;
   const ensemble = Object.fromEntries(STAGE_ORDER.map((s) => [s, [routes[s]]])) as Record<StageId, ResolvedRoute[]>;
+  // Дополнительные маршруты ансамбля — только у этапа 6: на пишущих этапах рантайм их не запускает.
+  ensemble.verify = [routes.verify, ...ensembleOver.map((o, i) => ({ ...route('verify'), model: `m${i + 2}`, modelId: `m${i + 2}`, ...o }))];
   const profile: ResolvedProfile = { name: 'demo', label: 'demo', routes, ensemble };
   const project: ProjectConfig = { name: 'demo', projectRoot: root, activeProfile: 'demo', maxBudgetUsd: 1, profiles: {} };
   const config = {
@@ -357,13 +373,17 @@ async function scenario(
      * Ответы модели в таких сценариях одинаковы, иначе содержимое зависело бы от порядка.
      */
     unordered?: boolean;
+    /** Положить в проект определение `sdlc-reviewer` — рантайм запустит ревью сам. */
+    reviewer?: boolean;
+    /** Дополнительные маршруты ансамбля этапа 6 поверх основного. */
+    ensemble?: readonly Partial<ResolvedRoute>[];
   } = {},
 ): Promise<void> {
-  const root = makeProject(gates);
+  const root = makeProject(gates, opts.reviewer === true);
   const model = await startModel(queues);
   const events: RunEvent[] = [];
   const results: Record<string, unknown> = {};
-  const run = makeRun(root, model.baseUrl, events, opts.route);
+  const run = makeRun(root, model.baseUrl, events, opts.route, opts.ensemble);
   try {
     await steps(run, results);
   } finally {
@@ -606,6 +626,51 @@ describe('runStage: эталон поведения витка', () => {
       },
       GATES,
       { route: { stepFill: true } },
+    );
+  });
+
+  it('рецензент рантаймом и полный второй маршрут ансамбля', async () => {
+    const queues = {
+      intent: INTENT_REPLIES(),
+      plan: PLAN_REPLIES(),
+      chunk: CHUNK_REPLIES(),
+      verify: [{ text: 'основной маршрут проверил' }, { text: 'второй маршрут проверил' }],
+      'вне этапа': [{ text: 'Расхождений нет: src/app.js — `export const version = 2;` поднимает версию, как требует claim-1.' }],
+    } as Queues;
+    await scenario(
+      'reviewer-ensemble',
+      queues,
+      async (run, results) => {
+        await toChunkDone(run, results);
+        results['verify:1'] = await run.runStage('verify');
+        results['verdict:1'] = run.lastVerdict;
+        results['gateResults'] = run.gateResults;
+      },
+      GATES,
+      { reviewer: true, ensemble: [{}] },
+    );
+  });
+
+  it('ревью по хункам (reviewFill), ⚠ основного маршрута и узкий маршрут ансамбля (claimFill)', async () => {
+    const unsure: Reply = {
+      tool: 'RecordClaim',
+      args: { id: 'claim-1', status: '⚠', evidence: 'src/app.js:1', what_to_fix: 'не проверено тестом' },
+    };
+    await scenario(
+      'review-fill-narrow',
+      {
+        intent: INTENT_REPLIES(),
+        plan: PLAN_REPLIES(),
+        chunk: CHUNK_REPLIES(),
+        verify: [unsure, { text: 'проверено' }],
+      },
+      async (run, results) => {
+        await toChunkDone(run, results);
+        results['verify:1'] = await run.runStage('verify');
+        results['verdict:1'] = run.lastVerdict;
+      },
+      GATES,
+      { reviewer: true, route: { reviewFill: true }, ensemble: [{ claimFill: true }] },
     );
   });
 
