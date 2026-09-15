@@ -1,6 +1,6 @@
 /** Этап 3 — вопросы: определение условного этапа. */
 
-import { artifactExists, readArtifact } from '../../artifacts/artifact.ts';
+import { artifactExists, countPlaceholdersExceptDecisions, readArtifact } from '../../artifacts/artifact.ts';
 import { autofillClarification } from '../formAutofill.ts';
 import { explorationPathsExist } from './explore.ts';
 import { RUNTIME_PROTECTED, hasOpenQuestions, isSmallContour } from './preconditions.ts';
@@ -56,4 +56,27 @@ export const askModule: StageModule = {
   ],
   // `Bash` на этапе нет — сменить ветку внутри хода нечем.
   checksBranchOnEntry: false,
+  begin: (host) => ({
+    // Полнота отчёта — в ходу САМОГО этапа 3, тем же приёмом и по той же причине, что у
+    // `intent` и `explore`: общий страж завершения (`notDone()`) видит только «файл тронут
+    // vs пустой бланк», и этап уходил зелёным с незакрытыми местами. Разбор серии v9
+    // (2026-09-15): `ask ✅ — модель завершила ход` сразу после строки
+    // `✎ clarification-report.md — незаполненных мест: 5`, и отчёт стенда печатал по этому
+    // витку щуп «форма артефактов ✅». Щуп не врал — он берёт готовый исход этапа; ложный
+    // зелёный приходил отсюда.
+    //
+    // Строки решений человека не в счёт (`countPlaceholdersExceptDecisions`): «Решение
+    // человека о полноте» остаётся плейсхолдером всегда — это humanGate, модели он не
+    // отдаётся, и считать его значило бы требовать невыполнимого.
+    finishProblem: () => {
+      const a = readArtifact(host.paths.clarificationReport);
+      if (!a.exists) return null; // условный этап мог не создать артефакт — это законно
+      const n = countPlaceholdersExceptDecisions(a.text);
+      if (n === 0) return null;
+      return (
+        `в отчёте по вопросам осталось незаполненных мест: ${n} — этап 4 на входе считает их ` +
+        `и не стартует. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`
+      );
+    },
+  }),
 };
