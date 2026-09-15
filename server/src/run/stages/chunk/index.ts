@@ -2,7 +2,7 @@
 
 import { DECISION } from '../../../artifacts/artifact.ts';
 import { RUNTIME_PROTECTED, granted } from '../preconditions.ts';
-import type { StageDef } from '../types.ts';
+import type { StageDef, StageModule } from '../types.ts';
 import type { TreeChange } from '../../evidence.ts';
 
 export const chunkStage: StageDef = {
@@ -39,6 +39,12 @@ export const chunkStage: StageDef = {
   protectedArtifacts: RUNTIME_PROTECTED,
   humanGate: { artifact: 'journal', label: DECISION.confirmed },
   skipIf: null,
+};
+
+export const chunkModule: StageModule = {
+  def: chunkStage,
+  formFillExecutor: false,
+  leanDocTools: false,
 };
 
 /** Состояние этапа 5 между вызовами. Владелец — виток (`Run.state.chunk`). */

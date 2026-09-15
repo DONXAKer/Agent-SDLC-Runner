@@ -4,7 +4,8 @@ import { DECISION, pathExistsAny, readArtifact } from '../../artifacts/artifact.
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
 import { claimsMinimum, exists, filledExceptTouchSection, isSmallContour, relOf } from './preconditions.ts';
-import type { Precondition, StageContext, StageDef } from './types.ts';
+import type { Precondition, StageContext, StageDef, StageModule } from './types.ts';
+import { autofillTitle } from '../formAutofill.ts';
 import type { BlindClaimsResult } from '../claimsBlind.ts';
 import type { Keywords } from '../../explore/keywords.ts';
 import type { ExploreIndex } from '../../explore/types.ts';
@@ -226,6 +227,13 @@ export const exploreStage: StageDef = {
     isSmallContour(c)
       ? 'мелкий контур: разведка точечная на этапе 5, отчёт не пишется'
       : null,
+};
+
+export const exploreModule: StageModule = {
+  def: exploreStage,
+  formFillExecutor: false,
+  leanDocTools: false,
+  mechanicalJobs: (host) => [{ path: host.paths.explorationReport, fill: async (t) => autofillTitle(t, host.slug) }],
 };
 
 /** Состояние этапа 2 между вызовами. Владелец — виток (`Run.state.explore`). */

@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { configDir, loadConfig } from '../src/config/load.ts';
+import { stageModule } from '../src/run/stages/index.ts';
 import { withEnv } from './testUtils.ts';
 
 /** Копия закоммиченного каталога конфигов, в которую можно дописать `runner.local.json`. */
@@ -75,11 +76,7 @@ describe('этап 3 не отдаётся режиму заполнения п�
     // «(пропущено)», ни одного вызова AskHuman, весь этап — один Write за 7 секунд.
     // Ставку, которую задача называет незаписанной, никто не спросил, и все три
     // human-кейса скрытых тестов покраснели по нашей конструкции, а не по модели.
-    const src = readFileSync(new URL('../src/run/Run.ts', import.meta.url), 'utf8');
-    const m = /const FORM_FILL_STAGES: ReadonlySet<StageId> = new Set\(\[([^\]]*)\]\)/.exec(src);
-    ok(m !== null, 'объявление FORM_FILL_STAGES не найдено — тест устарел вместе с кодом');
-    const stages = m![1]!;
-    strictEqual(/'ask'/.test(stages), false, stages);
-    ok(/'intent'/.test(stages) && /'plan'/.test(stages), stages);
+    strictEqual(stageModule('ask').formFillExecutor, false);
+    ok(stageModule('intent').formFillExecutor && stageModule('plan').formFillExecutor);
   });
 });

@@ -6,7 +6,69 @@
  */
 
 import type { ArtifactKey, WitokPaths } from '../../artifacts/paths.ts';
-import type { StageId, ToolName } from '@sdlc-runner/shared';
+import type { EventSink, StageId, ToolName } from '@sdlc-runner/shared';
+
+/** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
+export type SeededArtifact = { path: string; snapshot?: string };
+
+/**
+ * Фасад витка для модулей этапов: ровно то, что им нужно, без доступа к классу `Run`.
+ * Модуль этапа импортирует `Run.ts` только как тип — иначе реестр этапов замкнул бы цикл
+ * модулей. Всё изменяемое отдаётся функциями, а не значениями, снятыми на входе.
+ */
+export interface StageHost {
+  readonly id: string;
+  readonly slug: string;
+  readonly paths: WitokPaths;
+  readonly projectRoot: string;
+  readonly emit: EventSink;
+  /** Запись автозаполнения с обновлением снимка бланка (`Run.writeAutofilled`). */
+  writeAutofilled(path: string, text: string, seeded: SeededArtifact[]): void;
+  /** HEAD проекта: sha либо причина его отсутствия (`Run.head`). */
+  head(): Promise<{ sha: string | null; why: string }>;
+}
+
+/** Механическое поле артефакта, которое заполняет рантайм до модели (`formAutofill.ts`). */
+export interface MechanicalJob {
+  path: string;
+  fill(text: string): Promise<{ text: string; filled: number }>;
+  /**
+   * Звать и при нуле плейсхолдеров. Меню «Разведка» отчёта по вопросам плейсхолдера не
+   * несёт по построению: счётчик пропускал его, когда прочие места уже закрыты, и обе
+   * ветки оставались навсегда.
+   */
+  evenWithoutPlaceholders?: boolean;
+}
+
+/** Модуль этапа витка: определение и то, чем этап отличается в рантайме. */
+export interface StageModule {
+  def: StageDef;
+  /**
+   * Исполняется ли этап режимом заполнения по полям (`ModelDef.formFill`). Только этапы,
+   * чей результат целиком выводится из входов промпта: у explore источник — разведка
+   * субагентами, у chunk/verify — работа с деревом, им режим не подходит по построению.
+   *
+   * У этапа 3 — нет, и это не пропуск. У `FormFillExecutor` нет `AskHuman` по построению
+   * (вопрос человеку требует цикла) — а этап 3 состоит ровно из вопроса человеку. Живой
+   * виток на `ministral-8b` показал, во что это обходится: в `clarification-report.md`
+   * записан вопрос «как обрабатывать сумму измерений ровно 300 см?» и тут же собственный
+   * ответ «(пропущено)», ни одного вызова `AskHuman`, весь этап — один `Write` за 7 секунд.
+   * Ставку, которую задача прямо называет незаписанной, никто не спросил, и все три
+   * human-кейса скрытых тестов покраснели — щуп мерил нашу конструкцию, а не модель.
+   */
+  formFillExecutor: boolean;
+  /**
+   * Действует ли урезанный набор инструментов (`ModelDef.leanTools`): этапы-документы.
+   * Их результат — заполненный бланк, и Write/Glob/Grep там лишние: формы уже разложены
+   * рантаймом (Edit достаточно), а поиск по дереву съедает ходы, не давая записи.
+   * У chunk и verify — нет намеренно: там весь набор нужен по делу. У explore тоже:
+   * права субагентов — ПЕРЕСЕЧЕНИЕ с правами этапа, и урезанный explore оставил бы
+   * разведчиков (`sdlc-claims`, Grep/Glob) с одним Read — разведка калечилась бы молча.
+   */
+  leanDocTools: boolean;
+  /** Механические поля артефактов этапа, закрываемые рантаймом до модели. */
+  mechanicalJobs?(host: StageHost): MechanicalJob[];
+}
 
 export interface StageContext {
   paths: WitokPaths;

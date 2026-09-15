@@ -161,6 +161,10 @@ import {
 } from './stages.ts';
 import { ChunkState } from './stages/chunk/index.ts';
 import { ExploreState } from './stages/explore.ts';
+import { profileCurrency } from './stages/handoff.ts';
+import { stageModule } from './stages/index.ts';
+import { autofillBranchField, branchFactBlock } from './stages/intent.ts';
+import type { StageHost } from './stages/types.ts';
 import { VerifyState } from './stages/verify/state.ts';
 
 export interface RunOptions {
@@ -191,36 +195,6 @@ export interface RunStageOptions {
   extra?: string;
   /** Оператор объявил обрыв витка — handoff оформляется без зелёного вердикта. */
   abortHandoff?: boolean;
-}
-
-/**
- * Факт прогона для этапа 1: на какой ветке РЕАЛЬНО стоит рабочее дерево.
- *
- * Тем же приёмом и по той же причине, что итоги гейтов на этапе 6 и пост-виток отчёт на
- * этапе 7: рантайм подкладывает то, что знает сам, вместо того чтобы модель это угадывала.
- *
- * Пойман живым свипом 2026-09-08: четыре прогона `gpt-oss-20b` встали на этапе 4 со сверкой
- * ветки — в `intent.md` записан слаг прогона (`sdlc/n2-gptoss-silent-contract`) вместо ветки,
- * названной задачей (`sdlc/silent-contract`). Модель вывела имя из пути `.sdlc/<слаг>/`, и
- * подсказка формы её к этому подталкивает: «‹sdlc/слаг или по конвенции проекта›».
- *
- * Важно, чего блок НЕ делает: он не заполняет поле за модель и не ослабляет сверку
- * (`branchMismatchBlocker` остаётся на месте). Он только лишает модель повода гадать —
- * ровно как блок гейтов лишает её повода сочинять статусы прогона.
- */
-async function branchFactBlock(root: string): Promise<string | null> {
-  if (!(await isRepo(root))) return null;
-  const branch = await currentBranch(root);
-  if (branch === null || branch.trim() === '') return null;
-  return [
-    '## Факт прогона: ветка рабочего дерева',
-    '',
-    `Рабочее дерево стоит на ветке \`${branch}\`.`,
-    '',
-    'Поле «Ветка витка» в `intent.md` обязано совпасть с этой строкой дословно. Не выводи',
-    'имя из путей `.sdlc/…` и не придумывай по конвенции: Runner сверяет поле с фактическим',
-    'состоянием дерева и блокирует этап 4 при расхождении.',
-  ].join('\n');
 }
 
 /**
@@ -271,15 +245,8 @@ export function isFormattingFailure(note: string): boolean {
 /** Этапы, после которых запись ограничена одобренным планом. */
 const PLAN_SCOPED_STAGES: readonly StageId[] = ['chunk', 'verify', 'handoff'];
 
-/**
- * Где действует урезанный набор инструментов (`ModelDef.leanTools`): этапы-документы.
- * Их результат — заполненный бланк, и Write/Glob/Grep там лишние: формы уже разложены
- * рантаймом (Edit достаточно), а поиск по дереву съедает ходы, не давая записи.
- * Chunk и verify в списке нет намеренно — там весь набор нужен по делу. Explore тоже:
- * права субагентов — ПЕРЕСЕЧЕНИЕ с правами этапа, и урезанный explore оставил бы
- * разведчиков (`sdlc-claims`, Grep/Glob) с одним Read — разведка калечилась бы молча.
- */
-const LEAN_DOC_STAGES: ReadonlySet<StageId> = new Set(['intent', 'ask', 'plan']);
+// Урезанный набор (`ModelDef.leanTools`) действует на этапах-документах — флаг модуля этапа
+// `StageModule.leanDocTools`, там же объяснение, почему не на chunk/verify/explore.
 // `Write` в списке обязателен, хотя формы уже разложены и Edit'а хватает модели:
 // нормализованным Write пишут РАНТАЙМОВЫЕ пути — спасение напечатанного артефакта
 // (salvageFromText) и режим заполнения по полям (FormFillExecutor). Урезание сужает
@@ -296,21 +263,6 @@ const LEAN_TOOLS: ReadonlySet<ToolName> = new Set([
   // прав тихо зависел бы от порядка, в котором применяются два независимых фильтра.
   'FillField',
 ]);
-
-/**
- * Где действует режим заполнения по полям (`ModelDef.formFill`). Только этапы, чей
- * результат целиком выводится из входов промпта: у explore источник — разведка
- * субагентами, у chunk/verify — работа с деревом, им режим не подходит по построению.
- *
- * Этапа 3 здесь НЕТ, и это не пропуск. У `FormFillExecutor` нет `AskHuman` по построению
- * (вопрос человеку требует цикла) — а этап 3 состоит ровно из вопроса человеку. Живой
- * виток на `ministral-8b` показал, во что это обходится: в `clarification-report.md`
- * записан вопрос «как обрабатывать сумму измерений ровно 300 см?» и тут же собственный
- * ответ «(пропущено)», ни одного вызова `AskHuman`, весь этап — один `Write` за 7 секунд.
- * Ставку, которую задача прямо называет незаписанной, никто не спросил, и все три
- * human-кейса скрытых тестов покраснели — щуп мерил нашу конструкцию, а не модель.
- */
-const FORM_FILL_STAGES: ReadonlySet<StageId> = new Set(['intent', 'plan']);
 
 /**
  * Потолки длины события `model_exchange`: лента пишется на диск на каждый узкий запрос, а
@@ -560,6 +512,19 @@ export class Run {
    * `stages/chunk/index.ts`).
    */
   private readonly state = { verify: new VerifyState(), explore: new ExploreState(), chunk: new ChunkState() };
+
+  /** Фасад витка для модулей этапов (`StageHost`) — растёт по мере переноса логики этапов. */
+  private get host(): StageHost {
+    return {
+      id: this.id,
+      slug: this.slug,
+      paths: this.paths,
+      projectRoot: this.project.projectRoot,
+      emit: this.emit,
+      writeAutofilled: (path, text, seeded) => this.writeAutofilled(path, text, seeded),
+      head: () => this.head(),
+    };
+  }
   /**
    * Выжимка причин прошлого красного, ждущая следующей попытки chunk'а.
    *
@@ -1464,17 +1429,6 @@ export class Run {
    * разрешены на этапе», потому что права не выдавал никто.
    */
   /**
-   * Единая валюта маршрутов профиля. Смешанный профиль честно отдаёт USD как было:
-   * выдумать общую валюту для рублёвого и долларового маршрута нельзя.
-   */
-  private profileCurrency(): string {
-    const set = new Set(
-      Object.values(this.profile.routes).map((r) => r.providerDef.currency ?? 'USD'),
-    );
-    return set.size === 1 ? [...set][0]! : 'USD';
-  }
-
-  /**
    * Заполняет механические поля журнала chunk'а фактами рантайма — см. `journalAutofill.ts`.
    *
    * Идёт и на попытке K>1 (журнал уже существует и посеян не в этот раз): подстановка
@@ -1525,48 +1479,6 @@ export class Run {
   }
 
   /**
-   * Заполняет поле «Ветка витка» в `intent.md` фактом рантайма — тем же приёмом, что
-   * `autofillJournal` у механических полей журнала chunk'а.
-   *
-   * `branchFactBlock` в промпте только СООБЩАЛ модели факт и оставлял заполнение ей —
-   * поле оставалось местом, где модель гадает или выводит имя из путей `.sdlc/…`, хотя
-   * ответ детерминирован и рантайму известен ДО хода (`docs/proposals/
-   * model-flow-improvements.md` §1.7/§2.1 п.3: «прямое нарушение собственного принципа
-   * методологии „механические поля заполняет программа“»). `branchMismatchBlocker`
-   * остаётся на месте без изменений — сверка поля с фактическим деревом на входе
-   * `plan`/`chunk`/`verify`/`handoff` не ослабляется, здесь лишь снимается сам повод
-   * гадать. Молча выходит, если поля нет в шаблоне (не git-репозиторий, поле уже
-   * заполнено моделью, или задача принесла артефакт без этого поля вовсе) — поле по
-   * форме опционально, тем же условием, что уже сторожит `branchMismatchBlocker`.
-   */
-  private async autofillBranchField(seeded: { path: string; snapshot?: string }[]): Promise<void> {
-    const path = this.paths.intent;
-    const artifact = readArtifact(path);
-    if (!artifact.exists) return;
-    if (!(await isRepo(this.project.projectRoot))) return;
-    const branch = await currentBranch(this.project.projectRoot);
-    if (branch === null) return;
-    // Поле уже заполнено (моделью на прошлой попытке, или задачей заранее) — не трогаем:
-    // тот же приём, что у `readField`/`branchMismatchBlocker`, «плейсхолдер или пусто»
-    // не считается заполнением.
-    if (readField(artifact.text, 'Ветка витка') !== null) return;
-    let text: string;
-    try {
-      text = setDecision(artifact.text, 'Ветка витка', branch);
-    } catch (e) {
-      if (e instanceof DecisionFormError) return; // поля нет в этом шаблоне — законно
-      throw e;
-    }
-    this.writeAutofilled(path, text, seeded);
-    this.emit({
-      type: 'warning',
-      runId: this.id,
-      stage: 'intent',
-      message: `рантайм заполнил поле «Ветка витка» фактом дерева (\`${branch}\`) — модели гадать не о чем`,
-    });
-  }
-
-  /**
    * HEAD проекта: sha либо причина его отсутствия. Одна цепочка на журнал chunk'а и план —
    * две копии разошлись бы при первой же правке (worktree, другой способ чтения HEAD), и
    * база одного витка читалась бы в двух артефактах по-разному.
@@ -1601,43 +1513,16 @@ export class Run {
     stage: StageId,
     seeded: { path: string; snapshot?: string }[],
   ): Promise<void> {
-    const title = this.slug;
-    const date = new Date().toISOString().slice(0, 10);
-    const jobs: { path: string; fill: (text: string) => Promise<{ text: string; filled: number }> }[] = [];
-    if (stage === 'intent') {
-      jobs.push({ path: this.paths.readiness, fill: async (t) => autofillReadiness(t, { title, date, run: 1 }) });
-    }
-    if (stage === 'explore') {
-      jobs.push({ path: this.paths.explorationReport, fill: async (t) => autofillTitle(t, title) });
-    }
-    if (stage === 'ask') {
-      jobs.push({
-        path: this.paths.clarificationReport,
-        fill: async (t) => autofillClarification(t, { title, explorationDone: artifactExists(this.paths.explorationReport) }),
-      });
-    }
-    if (stage === 'plan') {
-      jobs.push({
-        path: this.paths.plan,
-        fill: async (t) => {
-          const head = await this.head();
-          return autofillPlan(t, {
-            title,
-            explorationDone: artifactExists(this.paths.explorationReport),
-            clarificationDone: artifactExists(this.paths.clarificationReport),
-            base: head.sha ?? head.why,
-          });
-        },
-      });
-      jobs.push({ path: this.paths.readiness, fill: async (t) => autofillReadiness(t, { title, date, run: 2 }) });
-    }
+    // Задания — у модулей этапов (`StageModule.mechanicalJobs`); у chunk/verify/handoff их
+    // нет, и повторный вызов из `finishFormArtifact` для них ничего не делает.
+    const jobs = stageModule(stage).mechanicalJobs?.(this.host) ?? [];
 
     let total = 0;
     for (const job of jobs) {
       const artifact = readArtifact(job.path);
-      // Меню «Разведка» отчёта по вопросам плейсхолдера не несёт по построению: счётчик
-      // пропускал его, когда прочие места уже закрыты, и обе ветки оставались навсегда.
-      if (!artifact.exists || (artifact.placeholders === 0 && stage !== 'ask')) continue;
+      // Задание, которому плейсхолдер не нужен (меню «Разведка», `evenWithoutPlaceholders`),
+      // зовётся и при нуле мест — остальным закрывать нечего.
+      if (!artifact.exists || (artifact.placeholders === 0 && job.evenWithoutPlaceholders !== true)) continue;
       const { text, filled } = await job.fill(artifact.text);
       if (filled === 0) continue;
       this.writeAutofilled(job.path, text, seeded);
@@ -2160,7 +2045,7 @@ export class Run {
     // На chunk/verify набор не трогаем: там Write/Bash нужны по делу.
     const route = this.profile.routes[stage];
     const leaned =
-      route.leanTools && LEAN_DOC_STAGES.has(stage)
+      route.leanTools && stageModule(stage).leanDocTools
         ? all.filter((t) => LEAN_TOOLS.has(t))
         : all;
     // FillField выдаётся ТОЛЬКО при включённой ручке (compactForms 'fill'|'all') — иначе
@@ -2730,7 +2615,7 @@ export class Run {
    * это кончается (`BuildPromptInput.formFill`).
    */
   private usesFormFill(stage: StageId, route: ResolvedRoute): boolean {
-    return route.formFill && FORM_FILL_STAGES.has(stage);
+    return route.formFill && stageModule(stage).formFillExecutor;
   }
 
   /**
@@ -4049,7 +3934,7 @@ export class Run {
     // Пост-виток отчёт — вход этапа 7, тем же механизмом, что и итоги гейтов на этапе 6:
     // модель переносит числа в артефакт, но не сочиняет их.
     if (stage === 'handoff') {
-      const block = postmortemBlock(this.metrics, this.profileCurrency());
+      const block = postmortemBlock(this.metrics, profileCurrency(this.profile));
       if (block !== null) {
         appended = block;
         extra = extra === undefined ? block : `${extra}\n\n${block}`;
@@ -4093,7 +3978,7 @@ export class Run {
     // «Ветка витка» — та же логика: рантайм знает ответ детерминированно (git-дерево),
     // модели гадать не о чем. Только на intent — это единственный этап, где поле ещё не
     // заполнено (`branchMismatchBlocker` сверяет его на входе plan/chunk/verify/handoff).
-    if (stage === 'intent') await this.autofillBranchField(seeded);
+    if (stage === 'intent') await autofillBranchField(this.host, seeded);
 
     // Отчёт приёмки: механику шапки и таблицу «Гейты» заполняет рантайм фактами только
     // что прогнанных гейтов — рецензенту остаются выводы и ревью. Замер r9: все

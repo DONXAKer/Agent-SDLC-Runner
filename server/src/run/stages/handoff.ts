@@ -1,8 +1,21 @@
 /** Этап 7 — передача: определение этапа и проверка зелёного отчёта приёмки. */
 
 import { DECISION, artifactExists, readArtifact } from '../../artifacts/artifact.ts';
+import type { ResolvedProfile } from '../../config/schema.ts';
 import { relOf } from './preconditions.ts';
-import type { StageContext, StageDef } from './types.ts';
+import type { StageContext, StageDef, StageModule } from './types.ts';
+
+/**
+ * Единая валюта маршрутов профиля — для пост-виток отчёта на входе этапа 7. Смешанный
+ * профиль честно отдаёт USD как было: выдумать общую валюту для рублёвого и долларового
+ * маршрута нельзя.
+ */
+export function profileCurrency(profile: ResolvedProfile): string {
+  const set = new Set(
+    Object.values(profile.routes).map((r) => r.providerDef.currency ?? 'USD'),
+  );
+  return set.size === 1 ? [...set][0]! : 'USD';
+}
 
 /** Отчёт приёмки последней попытки говорит, что виток принят. */
 function verificationPassed(c: StageContext): boolean {
@@ -48,4 +61,10 @@ export const handoffStage: StageDef = {
   protectedArtifacts: (c) => [relOf(c, c.paths.plan), relOf(c, c.paths.intent)],
   humanGate: { artifact: 'handoff', label: DECISION.accepted },
   skipIf: null,
+};
+
+export const handoffModule: StageModule = {
+  def: handoffStage,
+  formFillExecutor: false,
+  leanDocTools: false,
 };

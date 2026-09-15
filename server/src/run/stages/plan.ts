@@ -3,9 +3,10 @@
 import { DECISION, artifactExists, readArtifact } from '../../artifacts/artifact.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { extractFilesToTouch } from '../../artifacts/planFiles.ts';
+import { autofillPlan, autofillReadiness } from '../formAutofill.ts';
 import { explorationPathsExist } from './explore.ts';
 import { claimsMinimum, filled, isSmallContour, relOf } from './preconditions.ts';
-import type { StageContext, StageDef } from './types.ts';
+import type { StageContext, StageDef, StageModule } from './types.ts';
 
 /**
  * `files_to_touch` плана пуст — та же находка, что уже ловит `Run.blockers()` на входе в
@@ -62,4 +63,28 @@ export const planStage: StageDef = {
   protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.intent)],
   humanGate: { artifact: 'plan', label: DECISION.approval },
   skipIf: null,
+};
+
+export const planModule: StageModule = {
+  def: planStage,
+  formFillExecutor: true,
+  leanDocTools: true,
+  mechanicalJobs: (host) => {
+    const date = new Date().toISOString().slice(0, 10);
+    return [
+      {
+        path: host.paths.plan,
+        fill: async (t) => {
+          const head = await host.head();
+          return autofillPlan(t, {
+            title: host.slug,
+            explorationDone: artifactExists(host.paths.explorationReport),
+            clarificationDone: artifactExists(host.paths.clarificationReport),
+            base: head.sha ?? head.why,
+          });
+        },
+      },
+      { path: host.paths.readiness, fill: async (t) => autofillReadiness(t, { title: host.slug, date, run: 2 }) },
+    ];
+  },
 };

@@ -2,7 +2,7 @@
 
 import { DECISION } from '../../../artifacts/artifact.ts';
 import { RUNTIME_PROTECTED, exists, granted } from '../preconditions.ts';
-import type { StageDef } from '../types.ts';
+import type { StageDef, StageModule } from '../types.ts';
 
 export const verifyStage: StageDef = {
   id: 'verify',
@@ -53,4 +53,10 @@ export const verifyStage: StageDef = {
   protectedArtifacts: RUNTIME_PROTECTED,
   humanGate: null,
   skipIf: null,
+};
+
+export const verifyModule: StageModule = {
+  def: verifyStage,
+  formFillExecutor: false,
+  leanDocTools: false,
 };

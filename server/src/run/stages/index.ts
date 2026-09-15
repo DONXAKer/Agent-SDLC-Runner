@@ -4,18 +4,33 @@
  */
 
 import type { StageId } from '@sdlc-runner/shared';
-import { askStage } from './ask.ts';
-import { chunkStage } from './chunk/index.ts';
-import { exploreStage } from './explore.ts';
-import { handoffStage } from './handoff.ts';
-import { intentStage } from './intent.ts';
-import { planStage } from './plan.ts';
-import type { PreconditionOptions, PreconditionProblem, PreconditionReport, StageContext, StageDef } from './types.ts';
-import { verifyStage } from './verify/index.ts';
+import { askModule, askStage } from './ask.ts';
+import { chunkModule, chunkStage } from './chunk/index.ts';
+import { exploreModule, exploreStage } from './explore.ts';
+import { handoffModule, handoffStage } from './handoff.ts';
+import { intentModule, intentStage } from './intent.ts';
+import { planModule, planStage } from './plan.ts';
+import type { PreconditionOptions, PreconditionProblem, PreconditionReport, StageContext, StageDef, StageModule } from './types.ts';
+import { verifyModule, verifyStage } from './verify/index.ts';
 
 // ── этапы ──────────────────────────────────────────────────────────────────
 
 export const STAGES: readonly StageDef[] = [intentStage, exploreStage, askStage, planStage, chunkStage, verifyStage, handoffStage];
+
+/** Модули этапов по id: отличия этапа в рантайме — здесь, а не ветвлениями по имени этапа. */
+export const STAGE_MODULES: Readonly<Record<StageId, StageModule>> = {
+  intent: intentModule,
+  explore: exploreModule,
+  ask: askModule,
+  plan: planModule,
+  chunk: chunkModule,
+  verify: verifyModule,
+  handoff: handoffModule,
+};
+
+export function stageModule(id: StageId): StageModule {
+  return STAGE_MODULES[id];
+}
 
 export function stageById(id: StageId): StageDef {
   const s = STAGES.find((x) => x.id === id);
