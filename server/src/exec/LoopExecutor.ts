@@ -36,7 +36,7 @@ import type {
 } from './StageExecutor.ts';
 import { REVIEWER_AGENTS } from './StageExecutor.ts';
 import { trimHistory } from './history.ts';
-import { executeTool, type ToolContext } from './tools/index.ts';
+import { cap, executeTool, type ToolContext } from './tools/index.ts';
 import { isToolName, specsFor } from './toolSpecs.ts';
 import { finalizeRejection } from '../artifacts/finalizeCheck.ts';
 import { budgetParams, estimateMessageTokens, marginFor } from './contextBudget.ts';
@@ -137,19 +137,6 @@ const READY_STREAK_REMINDERS = 2;
  * не должно быть.
  */
 const NO_PROGRESS_BUDGET_FRACTION = 0.6;
-
-/**
- * Сколько результатов инструментов, добавленных СВЕРХ прошлого измерения, покрывает
- * запас `max_tokens` (см. `paramsFor`) — кратно потолку одного результата
- * (`LoopOptions.maxResultBytes`), а не фиксированному числу токенов.
- *
- * Прежний фиксированный запас (512 токенов) был на порядок меньше одного результата у
- * потолка `localMaxToolResultBytes` (12 000 байт ≈ 3000 токенов) — один крупный `Read`/
- * `Grep`/`Bash` уже выбивал его с большим запасом (code-review-all, 2026-09-11). Три —
- * не «весь ход», а «несколько вызовов подряд без ответа модели»: ровно столько, сколько
- * `trimHistory` (`history.ts`, `HISTORY_KEEP_LAST`) держит целиком независимо от бюджета.
- */
-const TOOL_RESULTS_MARGIN_FACTOR = 3;
 
 /**
  * Служебное замечание модели user-сообщением. Если история уже кончается user-сообщением
@@ -788,15 +775,33 @@ export class LoopExecutor implements StageExecutor {
    * `params` запроса, с `max_tokens` по остатку окна вместо константы провайдера — когда
    * `contextWindow` задан конфигом (общая обвязка — `budgetParams`).
    *
-   * Два источника «занято» — и два разных запаса:
-   *  - `measured` (измерение сервера за прошлый ответ) отстаёт на результаты инструментов,
-   *    добавленные ПОСЛЕ него, — отсюда запас в `TOOL_RESULTS_MARGIN_FACTOR` результатов;
-   *  - оценка исходящего запроса (первый ход, ответ без usage) уже СОДЕРЖИТ всю историю
-   *    со схемами инструментов, неучтённого прироста нет. Запас в три результата здесь
-   *    вычитал результаты, которых ещё нет: на окне 16K первый ход садился на пол 256 и
-   *    обрезал первый же `Write`. Оценка по байтам и так завышает (~18% по `prompt_tokens`
-   *    relog серии v5), поэтому — множитель 1, а не ноль: один результат покрывает обёртку
-   *    чат-шаблона и схемы, сериализованные сервером иначе, чем нашим `JSON.stringify`.
+   * `promptTokens` — БОЛЬШЕЕ из измерения сервера за прошлый ответ (`measured`) и свежей
+   * оценки того, что реально уходит СЕЙЧАС (`outgoing` — тот же массив, что через строку
+   * ляжет в запрос, вместе с результатами ВСЕХ вызовов прошлого хода — они в него уже
+   * попали, `handleCall` дописывает их ДО следующего вызова `paramsFor`). Раньше при
+   * наличии `measured` свежая оценка не считалась вовсе, и margin (запас «на N
+   * результатов, которых `measured` ещё не видел») был единственной защитой от их
+   * реального веса — при одном результате за ход этого хватало, но:
+   *  - **ползучий пол** (разбор серии v11, 2026-09-15, `security-bait`/`two-right-answers`):
+   *    фиксированный запас в 3 результата (≈9000 токенов на maxResultBytes 12000) был
+   *    ЩЕДРЕЕ, чем реальный прирост 1–3 КБ/ход, — `max_tokens` садился на пол `MIN_MAX_TOKENS`
+   *    уже на 72% окна, когда реально было свободно ещё 28%;
+   *  - **всплеск** (там же, `freeship`): 8 вызовов в ОДНОМ ходу (модель семь раз подряд
+   *    неудачно правила один файл, каждый провал эхом вернул файл целиком) дали прирост
+   *    ~90 КБ — margin на 3 результата покрыл едва треть, `promptTokens`, посчитанный по
+   *    устаревшему `measured`, соврал почти вдвое (20 640 вместо фактических 32 120), и
+   *    сервер оборвал ответ физическим потолком окна, а не вычисленным `max_tokens`.
+   *
+   * Раз `outgoing` уже содержит ВСЮ историю дословно, оценивать неучтённый прирост
+   * незачем — можно измерить его напрямую, тем же приёмом, что и на первом ходу
+   * (`measured === null`), где так было устроено всегда: «оценка исходящего запроса уже
+   * СОДЕРЖИТ всю историю, неучтённого прироста нет» — и запас там был ровно в один
+   * результат (`resultsFactor: 1`), а не в несколько заранее угаданных. Эта же причина
+   * теперь верна для ЛЮБОГО хода, а не только первого: `Math.max(measured, оценка)`
+   * подстраховывает на случай, если наша оценка почему-то ниже последнего серверного
+   * измерения (оценка по байтам и так завышает, ~18% по `prompt_tokens` relog серии v5, —
+   * пойти НИЖЕ `measured` она может только на сильно урезанной `trimHistory` истории, и
+   * тогда `measured` как более консервативное число и должно победить).
    *
    * Остаток ушёл ниже пола — предупреждение оператору тем же путём, что у `trimHistory`:
    * тихий пол выглядел бы как рабочий расчёт, хотя переполнение всё ещё вероятно.
@@ -810,9 +815,9 @@ export class LoopExecutor implements StageExecutor {
     onClamp: () => void,
   ): Record<string, unknown> | null {
     if (this.o.contextWindow === undefined) return this.o.params ?? null;
-    const promptTokens =
-      measured ?? estimateMessageTokens([{ content: JSON.stringify({ outgoing, tools }) }]);
-    const margin = marginFor(this.o.maxResultBytes, measured === null ? 1 : TOOL_RESULTS_MARGIN_FACTOR);
+    const estimated = estimateMessageTokens([{ content: JSON.stringify({ outgoing, tools }) }]);
+    const promptTokens = measured === null ? estimated : Math.max(measured, estimated);
+    const margin = marginFor(this.o.maxResultBytes, 1);
     const window = this.o.contextWindow;
     return budgetParams({
       contextWindow: window,
@@ -1010,9 +1015,14 @@ export class LoopExecutor implements StageExecutor {
       // Провал субагента не выдаётся за успех: иначе несостоявшееся ревью зажгло бы гейт.
       throw new SubagentUnavailable(`субагент «${def.name}» не завершил работу: ${result.note}`);
     }
+    // Тот же потолок, что у Read/Grep/Glob/Bash (`tools/index.ts`) — субагент возвращает
+    // результат в ИСТОРИЮ родительского хода, ровно как их результаты, и без общего
+    // потолка мог превысить `maxResultBytes` (разбор серии v11, 2026-09-15: результат
+    // `Task` на 16 096 байт против потолка 12 000 — единственный из пяти путей результата,
+    // где `cap()` не стоял).
     return result.finalText === ''
       ? `субагент «${def.name}» вернул пустой ответ`
-      : result.finalText;
+      : cap(result.finalText, this.o.maxResultBytes);
   }
 
   private async execute(

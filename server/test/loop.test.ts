@@ -610,7 +610,50 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
       estimateMessageTokens([{ content: visible }]),
       Math.min(5000, Math.ceil(Buffer.byteLength(visible, 'utf8') / 2)),
     );
-    deepStrictEqual(p.seen[1]?.params, { max_tokens: 16384 - 3000 - stored - 3750 });
+    // Запас — один результат у потолка `maxResultBytes` (5000): ceil(5000/4)=1250, а не
+    // три (code-review-all, 2026-09-15 — серия v11 показала: прежний запас в 3 результата
+    // был ЩЕДРЕЕ реального прироста между ходами и сажал `max_tokens` на пол на 72% окна,
+    // когда реально было свободно ещё 28%). `promptTokens` здесь остаётся `measured`
+    // (3000+stored): реальный `outgoing` этого теста — крошечная синтетика, оценка её
+    // размера меньше инжектированного измерения, и `Math.max` берёт большее.
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 16384 - 3000 - stored - 1250 });
+  });
+
+  // Регрессия на класс «всплеск» (серия v11, 2026-09-15, `freeship`): 8 вызовов в ОДНОМ
+  // ходу дали прирост истории ~90 КБ, а запас, рассчитанный на «до 3 результатов сверх
+  // измерения», покрыл едва треть — `max_tokens` следующего хода вышел вдвое оптимистичнее
+  // реальности, и сервер оборвал ответ физическим потолком окна. Здесь — тот же механизм
+  // в миниатюре: 4 результата, каждый БОЛЬШЕ старого запаса на 1 результат.
+  it('несколько результатов за один ход раздувают историю сильнее измерения прошлого хода — бюджет следующего хода это видит напрямую', async () => {
+    // 6000 байт/файл: больше потолка `maxResultBytes` (5000) тестового исполнителя, каждый
+    // режется до потолка — четыре результата у потолка суммарно кратно перекрывают запас,
+    // рассчитанный на ОДИН такой результат (маленькие тестовые файлы 1500 байт этого не
+    // показывали: оценка байтами делит на 4, и инжектированное `measured=3000` этого теста
+    // их перевешивало через `Math.max` — тест не различал старую и новую формулу).
+    const names = ['bulk-a.txt', 'bulk-b.txt', 'bulk-c.txt', 'bulk-d.txt'];
+    for (const name of names) writeFileSync(join(root, name), 'x'.repeat(6000));
+    const calls = names.map((f, i) => ({
+      id: `c${i}`,
+      name: 'Read',
+      arguments: { file_path: f },
+      rawArguments: JSON.stringify({ file_path: f }),
+    }));
+    const p = provider([
+      // Сам ход дёшев (usage измеряет только компактные АРГУМЕНТЫ вызовов) — их РЕЗУЛЬТАТЫ
+      // (четыре файла по 1500 байт) в это измерение не попадают вовсе, ровно как в живом
+      // случае: `measured` знает только то, что было ДО исполнения вызовов этого хода.
+      { toolCalls: calls, finishReason: 'tool_use', usage: { ...emptyUsage(), inputTokens: 3000, outputTokens: 50 } },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    await executor(p, { contextWindow: 32768 }).run(request(), hooks());
+    const sent = p.seen[1]!;
+    const estimate = estimateMessageTokens([{ content: JSON.stringify({ outgoing: sent.messages, tools: sent.tools }) }]);
+    const margin = Math.ceil(5000 / 4);
+    ok(
+      estimate > 3000 + margin,
+      `оценка исходящего (${estimate}) обязана перекрыть измерение прошлого хода + старый запас на 1 результат (${3000 + margin}) — иначе тест не различает старую и новую формулу`,
+    );
+    deepStrictEqual(sent.params, { max_tokens: 32768 - estimate - margin });
   });
 
   it('второй ход — max_tokens посчитан по prompt_tokens первого ответа и запасу', async () => {
@@ -624,14 +667,15 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
       { text: 'готово', finishReason: 'end_turn' },
     ]);
     const h = hooks();
-    // Запас — TOOL_RESULTS_MARGIN_FACTOR (3) результатов у потолка `maxResultBytes`
-    // тестового исполнителя (5000 байт): ceil(5000/4)×3 = 3750 (code-review-all,
-    // 2026-09-11 — прежний фиксированный запас 512 был на порядок меньше одного
-    // крупного результата инструмента). Окно взято большим специально, чтобы остаток
-    // остался положительным при таком запасе: 16384 − 3000 − ответ − 3750.
+    // Запас — один результат у потолка `maxResultBytes` тестового исполнителя (5000
+    // байт): ceil(5000/4) = 1250 (code-review-all, 2026-09-15 — `promptTokens` теперь
+    // измеряет РЕАЛЬНЫЙ исходящий запрос напрямую, а не угадывает прирост фиксированным
+    // запасом на несколько результатов; см. регрессию на класс «всплеск» выше). Окно
+    // взято большим специально, чтобы остаток остался положительным: 16384 − 3000 −
+    // ответ − 1250.
     await executor(p, { contextWindow: 16384 }).run(request(), h);
     const stored = estimateMessageTokens([{ content: `${call.name}${call.rawArguments}` }]);
-    deepStrictEqual(p.seen[1]?.params, { max_tokens: 16384 - 3000 - stored - 3750 });
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 16384 - 3000 - stored - 1250 });
     ok(!h.warns.some((w) => /почти исчерпано/.test(w)), 'предупреждения при незажатом расчёте быть не должно');
   });
 
@@ -645,7 +689,7 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
       { text: 'готово', finishReason: 'end_turn' },
     ]);
     const h = hooks();
-    // 4096 − 3000 − 3750 (запас) < 0 — пол MIN_MAX_TOKENS = 256 забирает верх.
+    // 4096 − 3000 − 1250 (запас) < 0 — пол MIN_MAX_TOKENS = 256 забирает верх.
     await executor(p, { contextWindow: 4096 }).run(request(), h);
     deepStrictEqual(p.seen[1]?.params, { max_tokens: 256 });
     ok(
