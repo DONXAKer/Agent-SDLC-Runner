@@ -6,7 +6,11 @@
  */
 
 import type { ArtifactKey, WitokPaths } from '../../artifacts/paths.ts';
-import type { EventSink, StageId, ToolName } from '@sdlc-runner/shared';
+import type { ApprovalGate } from '../../approval/gate.ts';
+import type { LoadedConfig } from '../../config/load.ts';
+import type { GatesFile } from '../../gates/gatesFile.ts';
+import type { TraceLabel } from '../../provider/rawLog.ts';
+import type { Decision, EventSink, PolicyContext, StageId, ToolName, Usage } from '@sdlc-runner/shared';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
 export type SeededArtifact = { path: string; snapshot?: string };
@@ -26,6 +30,24 @@ export interface StageHost {
   writeAutofilled(path: string, text: string, seeded: SeededArtifact[]): void;
   /** HEAD проекта: sha либо причина его отсутствия (`Run.head`). */
   head(): Promise<{ sha: string | null; why: string }>;
+  /** Разобранный набор гейтов проекта; `null` — файла нет (`Run.gatesFile`). */
+  gatesFile(): GatesFile | null;
+  /** Пункты приёмочного листа задачи по id (`Run.intentClaimLines`). */
+  intentClaimLines(intentText?: string): Map<string, string>;
+  policyContext(stage: StageId): PolicyContext;
+  trace(stage: StageId, mode: TraceLabel['mode']): TraceLabel;
+  /** Расход вызовов модели мимо исполнителя этапа — в метрики и бюджет (`Run.accountOffPathUsage`). */
+  accountOffPathUsage(stage: StageId, usage: Usage, currency: string | undefined): void;
+  /**
+   * Идентификатор синтетического вызова рантайма (`salvage-N`, `records-N`, `axis-fill-N`).
+   * Счётчик один на виток: разнесённые по модулям счётчики сдвинули бы id событий шины.
+   */
+  syntheticRequestId(prefix: 'salvage' | 'records' | 'axis-fill'): string;
+  /** Запись рантайма через гейт одобрения — тем же путём, что любая запись исполнителя. */
+  requestApproval(req: Parameters<ApprovalGate['request']>[0]): Promise<Decision>;
+  /** Сигнал отмены текущего этапа; без этапа — свежий, никогда не отменяемый. */
+  signal(): AbortSignal;
+  limits(): LoadedConfig['runner']['limits'];
 }
 
 /** Механическое поле артефакта, которое заполняет рантайм до модели (`formAutofill.ts`). */

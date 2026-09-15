@@ -163,6 +163,7 @@ import { ChunkState } from './stages/chunk/index.ts';
 import { ExploreState } from './stages/explore.ts';
 import { profileCurrency } from './stages/handoff.ts';
 import { stageModule } from './stages/index.ts';
+import { axesGateRow as axesGateRowOf, axisProblems as axisProblemsOf, topUpAxes } from './stages/plan.ts';
 import { autofillBranchField, branchFactBlock } from './stages/intent.ts';
 import type { StageHost } from './stages/types.ts';
 import { VerifyState } from './stages/verify/state.ts';
@@ -523,6 +524,15 @@ export class Run {
       emit: this.emit,
       writeAutofilled: (path, text, seeded) => this.writeAutofilled(path, text, seeded),
       head: () => this.head(),
+      gatesFile: () => this.gatesFile,
+      intentClaimLines: (intentText) => this.intentClaimLines(intentText),
+      policyContext: (stage) => this.policyContext(stage),
+      trace: (stage, mode) => this.trace(stage, mode),
+      accountOffPathUsage: (stage, usage, currency) => this.accountOffPathUsage(stage, usage, currency),
+      syntheticRequestId: (prefix) => `${prefix}-${this.salvageSeq++}`,
+      requestApproval: (req) => this.gate.request(req),
+      signal: () => this.aborter?.signal ?? new AbortController().signal,
+      limits: () => this.config.runner.limits,
     };
   }
   /**
@@ -1233,60 +1243,14 @@ export class Run {
     return parsed;
   }
 
-  /**
-   * Проблемы разбора последствий (гейт «Разбор последствий», этап 4).
-   *
-   * Гейт выключен — проверять нечего: строка набора и есть решение проекта о том, ведётся
-   * ли разбор. Пустой массив у включённого гейта означает «разбор доведён», а не «оси не
-   * затронуты»: второе записывается исходом «н/п» с причиной, и это тоже решение.
-   */
-  /**
-   * Строка набора для гейта «Разбор последствий», если он включён и отчитывается на этапе 4.
-   *
-   * Одно место на оба потребителя (страж этапа 4 и перенос статуса в отчёт приёмки).
-   * Пока условие было выписано дважды, статус гейта решался в двух местах и в два разных
-   * момента — ровно то, от чего сторожит «единственная точка решения» (ревью).
-   *
-   * Этап строки уважается наравне с включённостью: гейт, перенесённый проектом на другой
-   * этап, отчитывается там, и требовать секцию на четвёртом значило бы держать проверку,
-   * о которой набор не просил.
-   */
+  /** Строка набора гейта «Разбор последствий» — решение живёт в модуле этапа 4 (`stages/plan.ts`). */
   private axesGateRow(): { name: string } | null {
-    const gates = this.gatesFile;
-    if (gates === null) return null;
-    const row = gates.rows.find(
-      (r) => gateKey(r.name) === gateKey('Разбор последствий') && r.enabled,
-    );
-    if (row === undefined || row.reportsAt !== 'этап 4') return null;
-    return row;
+    return axesGateRowOf(this.gatesFile);
   }
 
+  /** Проблемы разбора последствий — модуль этапа 4 (`stages/plan.ts`); здесь делегат для тестов и verify. */
   axisProblems(): string[] {
-    const gates = this.gatesFile;
-    if (gates === null || this.axesGateRow() === null) return [];
-    const plan = readArtifact(this.paths.plan);
-    // Пустой массив означает «разбор доведён», поэтому отсутствие артефакта им быть не
-    // может: молчание тут зеленило гейт по несуществующему плану.
-    if (!plan.exists) return [`${this.paths.plan} не прочитан — разбор последствий проверять не по чему`];
-    // Адресат исхода проверяется по РЕАЛЬНЫМ артефактам витка, иначе «claim-99» и
-    // «гейт „Такого нет“» закрывают разбор за один ход (ревью).
-    const intent = readArtifact(this.paths.intent);
-    // Без задачи проверяются только имена гейтов — три адресата из четырёх не проверяются
-    // вовсе, и гейт проходится словарём. Это отказ проверки, а не её зелёный исход.
-    if (!intent.exists) {
-      return [`${this.paths.intent} не прочитан — адресатов исходов проверять не по чему`];
-    }
-    // Пункты берём готовым `intentClaimLines()` — тем же разбором, которым живут выжимка
-    // ретрая и добор клеймов: вторая копия «пробегись по строкам задачи» разошлась бы с
-    // первой при первой же правке формы листа. Текст задачи ему передаётся, чтобы файл
-    // не читался вторым разом внутри той же функции.
-    const claimIds = [...this.intentClaimLines(intent.text).keys()];
-    return planAxisProblems(plan.text, {
-      claimIds,
-      hasOpenQuestion: hasOpenQuestions(intent.text),
-      hasInvariants: hasNamedInvariants(intent.text),
-      enabledGates: gates.rows.filter((r) => r.enabled).map((r) => r.name),
-    });
+    return axisProblemsOf(this.host);
   }
 
   /**
@@ -1698,95 +1662,6 @@ export class Run {
     // `Promise.allSettled` эту метку внутри пачки гасит — здесь она возвращается тем же
     // классом ошибки, уже ПОСЛЕ того как успевшие ответы приняты (не теряя частичный
     // прогресс, которого до батчинга не было вовсе).
-    if (envFailure !== null) throw new ProviderEnvError(envFailure);
-  }
-
-  /**
-   * Топ-ап осей плана: спросить модель ОДНИМ запросом по каждой оси, о которой секция
-   * «Последствия шагов» ничего не сказала — см. докстринг `run/planAxisFill.ts`.
-   *
-   * Оси берутся из `unansweredAxes`, а не из `axisProblems()`: та ловит и СЕМАНТИЧЕСКИ
-   * неверный ответ (ссылка на несуществующий claim/гейт) — топ-ап не переписывает решение,
-   * которое модель уже приняла, пусть и сославшись на несуществующий адресат; такую строку
-   * `finishGuard` укажет модели как прежде, а решать её человек должен видеть сам.
-   */
-  private async topUpAxes(route: ResolvedRoute, system: string): Promise<void> {
-    if (this.axesGateRow() === null) return;
-    const plan = readArtifact(this.paths.plan);
-    if (!plan.exists) return;
-    // План уже одобрен человеком (поле «Одобрение» в шапке) — топ-ап не переписывает
-    // строки решения задним числом: одобрение принимается по прочитанному тексту, и
-    // переписать таблицу осей после него значило бы подменить то, что человек одобрил.
-    if (readDecision(plan.text, DECISION.approval).state === 'granted') return;
-    const axes = unansweredAxes(plan.text);
-    if (axes.length === 0) return;
-
-    const intent = readArtifact(this.paths.intent);
-    const claimIds = intent.exists ? [...this.intentClaimLines(intent.text).keys()] : [];
-    const gates = this.gatesFile;
-    const enabledGates = gates === null ? [] : gates.rows.filter((r) => r.enabled).map((r) => r.name);
-    const exploration = readArtifact(this.paths.explorationReport);
-    const axisSupportText = exploration.exists
-      ? h2SectionRanges(exploration.text, /^опоры\s+осей$/i)
-          .map((r) => exploration.text.slice(r.start, r.end).trim())
-          .join('\n\n')
-      : '';
-
-    const limits = this.config.runner.limits;
-    const { answers, envFailure } = await fillPlanAxes({
-      provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace('plan', 'planAxisFill')),
-      model: route.model,
-      params: route.params,
-      system,
-      axes,
-      planText: plan.text,
-      axisSupportText,
-      claimIds,
-      enabledGates,
-      hasOpenQuestion: intent.exists ? hasOpenQuestions(intent.text) : false,
-      hasInvariants: intent.exists ? hasNamedInvariants(intent.text) : false,
-      signal: this.aborter?.signal ?? new AbortController().signal,
-      onProgress: (note) => this.emit({ type: 'warning', runId: this.id, stage: 'plan', message: `топ-ап осей: ${note}` }),
-      onUsage: (usage) => this.accountOffPathUsage('plan', usage, route.providerDef.currency),
-    });
-
-    if (answers.length > 0) {
-      // Перечитываем план ПОСЛЕ `fillPlanAxes` — тот только что сделал долгий сетевой
-      // запрос (минуты для локальных моделей), а `plan.text` снят ДО него. Строить запись
-      // на устаревшей копии значило бы молча затереть ручную правку человека, внесённую,
-      // пока модель отвечала (ревью) — та же причина, по которой одобрение плана тоже
-      // проверяется заново, а не доверяет проверке в начале метода.
-      const fresh = readArtifact(this.paths.plan);
-      if (!fresh.exists || readDecision(fresh.text, DECISION.approval).state === 'granted') {
-        if (envFailure !== null) throw new ProviderEnvError(envFailure);
-        return;
-      }
-      const updated = applyAxisAnswers(fresh.text, answers);
-      if (updated !== fresh.text) {
-        // Запись — тем же путём, что у `applyRecords`: нормализованный `Write` через
-        // политику и гейт одобрения. Второго места решения о доступе не появляется.
-        const call: NormalizedCall = { kind: 'write', path: this.paths.plan, content: updated };
-        const decision = await this.gate.request({
-          runId: this.id,
-          stage: 'plan',
-          requestId: `axis-fill-${this.salvageSeq++}`,
-          toolName: 'Write',
-          rawInput: { file_path: this.paths.plan, content: updated },
-          call,
-          ctx: this.policyContext('plan'),
-        });
-        if (decision.allowed) {
-          const edited = (decision.updatedInput as Record<string, unknown> | null)?.['content'];
-          writeArtifact(this.paths.plan, typeof edited === 'string' ? edited : updated);
-          this.emit({
-            type: 'warning',
-            runId: this.id,
-            stage: 'plan',
-            message: `топ-ап осей: дописано ${answers.length} из ${axes.length}`,
-          });
-        }
-      }
-    }
     if (envFailure !== null) throw new ProviderEnvError(envFailure);
   }
 
@@ -4428,7 +4303,7 @@ export class Run {
         route.planAxisFill &&
         !this.aborter.signal.aborted
       ) {
-        await this.topUpAxes(route, stagePrompt.system);
+        await topUpAxes(this.host, route, stagePrompt.system);
       }
 
       // Записи рецензента вносятся в отчёт ДО дозаполнения по полям и до ансамбля:
