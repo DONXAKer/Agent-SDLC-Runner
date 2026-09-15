@@ -13,6 +13,7 @@ import type { EcosystemLine } from '../../explore/view.ts';
 import type { GatesFile } from '../../gates/gatesFile.ts';
 import type { TraceLabel } from '../../provider/rawLog.ts';
 import type { ExploreState } from './explore.ts';
+import type { VerifyState } from './verify/state.ts';
 import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, StageId, ToolName, Usage } from '@sdlc-runner/shared';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
@@ -59,6 +60,8 @@ export interface StageHost {
   axesEnabled(): boolean;
   /** Состояние этапа 2 между вызовами — живая ссылка на `Run.state.explore`. */
   readonly exploreState: ExploreState;
+  /** Состояние попытки этапа 6 — живая ссылка на `Run.state.verify`. */
+  readonly verifyState: VerifyState;
   /** Имя проекта — ключ реестра песочниц (`ensureSandboxFor`). */
   readonly projectName: string;
   /** Описание модулей проекта из конфига; `undefined` — модули определяет детект. */

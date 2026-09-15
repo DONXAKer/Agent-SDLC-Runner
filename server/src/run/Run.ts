@@ -14,7 +14,6 @@ import type {
   EventSink,
   ChunkEvidenceMetric,
   GateRunResult,
-  GateStatus,
   McpServerInfo,
   ToolName,
   PolicyContext,
@@ -88,14 +87,13 @@ import type { GatesFile } from '../gates/gatesFile.ts';
 import {
   configProblems,
   gateKey,
-  gatesExpectedInReport,
   parseGates,
   uncalibratedGates,
   unimplementedGates,
 } from '../gates/gatesFile.ts';
 import { builtinFor, describeBuild } from '../gates/builtin/index.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
-import { runGateByName, runGates } from '../gates/run.ts';
+import { runGateByName } from '../gates/run.ts';
 import { git, hasCommits, workingDiff } from '../gates/git.ts';
 import { autofillClarification, autofillPlan, autofillReadiness, autofillTitle } from './formAutofill.ts';
 import { autofillVerificationReport } from './verifyAutofill.ts';
@@ -166,6 +164,15 @@ import { axesGateRow as axesGateRowOf, axisProblems as axisProblemsOf, topUpAxes
 import { autofillBranchField, branchFactBlock } from './stages/intent.ts';
 import type { StageHost } from './stages/types.ts';
 import { VerifyState } from './stages/verify/state.ts';
+import {
+  REVIEW_GATE,
+  diffStillMatchesTree,
+  earlyGateRows as earlyGateRowsOf,
+  earlyGatesForModel,
+  gateReportBlock,
+  gateResultsForVerdict,
+  runVerifyGates as runVerifyGatesOf,
+} from './stages/verify/gates.ts';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -273,39 +280,6 @@ const EXCHANGE_QUESTION_CHARS = 4000;
 const EXCHANGE_ANSWER_CHARS = 8000;
 
 /**
- * Итоги прогона гейтов для входа рецензента.
- *
- * Дословный вывод команды не подклеиваем: сборка печатает мегабайты, а рецензенту нужен
- * статус и последняя содержательная строка. Полный вывод остаётся в шине событий.
- */
-function gateReportBlock(results: readonly GateRunResult[]): string {
-  // Вертикальная черта экранируется, как требует форма набора. Без этого команда или
-  // строка ошибки с трубой (`grep 'a|b'`, вывод junit) разъезжает по колонкам, а
-  // разъехавшуюся таблицу рецензент переносит в отчёт — там сдвинутая колонка «Статус»
-  // читается как `⏭` и роняет вердикт по несуществующей причине.
-  const cell = (v: string): string => v.split('\n').join(' ').split('|').join('\\|');
-
-  const rows = results.map(
-    (r) =>
-      `| ${cell(r.name)} | ${r.status} | ${cell(r.command ?? 'встроенная проверка')} · код ${
-        r.exitCode ?? '—'
-      } · ${r.durationMs} мс |\n| | | ${cell(r.lastLine)} |`,
-  );
-  return [
-    '## Итоги автоматических гейтов (прогон рантайма, этот этап)',
-    '',
-    'Эти статусы получены фактическим прогоном до начала ревью. Переписывать их своим',
-    'мнением нельзя: в отчёт они переносятся как есть, а вердикт считается по худшему из',
-    'двух — твоего и фактического. Твоя работа — §1–§5 отчёта и поиск того, чего гейты',
-    'не видят.',
-    '',
-    '| Гейт | Статус | Результат |',
-    '|---|---|---|',
-    ...rows,
-  ].join('\n');
-}
-
-/**
  * Отчёт независимого рецензента, прогнанного рантаймом, — блоком во вход этапа.
  *
  * Текст рецензента подаётся как ФАКТ прогона, а не как мнение, которое можно
@@ -337,9 +311,6 @@ function withExtra(prompt: PreparedPrompt, block: string | undefined): PreparedP
   if (block === undefined || block === '' || prompt.user.includes(block)) return prompt;
   return { ...prompt, user: `${prompt.user}\n\n${block}` };
 }
-
-/** Гейт минимума, который рантайм не исполняет скриптом. */
-const REVIEW_GATE = 'Ревью независимым агентом';
 
 /** Пустая строка трения. Функция, а не константа: объект здесь мутируется на месте. */
 function EMPTY_FRICTION(): {
@@ -431,6 +402,7 @@ export class Run {
       ecosystemFor: (stage) => this.ecosystemFor(stage),
       axesEnabled: () => this.axesGateRow() !== null,
       exploreState: this.state.explore,
+      verifyState: this.state.verify,
       projectName: this.project.name,
       projectModules: () => this.project.modules,
       planFilesFor: (stage) => this.planFilesFor(stage),
@@ -586,7 +558,7 @@ export class Run {
    * ложный зелёный, выглядел невыполненным на штатном витке.
    */
   get gateResults(): GateRunResult[] {
-    return this.gateResultsForVerdict();
+    return gateResultsForVerdict(this.host);
   }
 
   /**
@@ -868,7 +840,7 @@ export class Run {
         chunk: this.chunk,
         attempt: this.attempt,
         verdict,
-        gates: this.gateResultsForVerdict(),
+        gates: gateResultsForVerdict(this.host),
         patch: patch.exists ? patch.text : '',
         closeness: this.state.verify.closeness,
         // Флагом, а не грепом по тексту причины: формулировка в `verdict.ts` — текст для
@@ -1160,47 +1132,9 @@ export class Run {
     return axisProblemsOf(this.host);
   }
 
-  /**
-   * Строки гейтов РАННИХ этапов, статус которых рантайм знает своими глазами.
-   *
-   * Сегодня такой один — «Разбор последствий» (этап 4): его исход это результат
-   * `axisProblems()`, посчитанный по плану той же программой. Всё остальное из ранних
-   * этапов по-прежнему переносит модель: у рантайма нет своего измерения для «Готовности
-   * задачи» или «Заполненности артефактов», и выдумывать его здесь значило бы ровно то,
-   * против чего заведено автозаполнение.
-   */
-  /**
-   * Включённые гейты ранних этапов, статуса которых у рантайма нет: их переносит модель,
-   * и строка-образец в отчёте нужна ровно ради них.
-   */
-  private earlyGatesForModel(): string[] {
-    const gates = this.gatesFile;
-    if (gates === null) return [];
-    const mine = new Set(this.earlyGateRows().map((g) => gateKey(g.name)));
-    return gatesExpectedInReport(gates)
-      .filter((r) => r.reportsAt !== 'этап 6' && !mine.has(gateKey(r.name)))
-      .map((r) => r.name);
-  }
-
+  /** Строки гейтов ранних этапов со статусом рантайма — `stages/verify/gates.ts`; делегат для тестов. */
   earlyGateRows(): { name: string; stage: string; status: string; seenIn: string }[] {
-    const row = this.axesGateRow();
-    if (row === null) return [];
-    const problems = this.axisProblems();
-    return [
-      {
-        name: row.name,
-        stage: '4',
-        // `❌`, а не `⏭`: рантайм знает не «не запускалось», а «проверено и провалено», и
-        // разница у этих глифов не косметическая — `⏭` снимается подписанной строкой
-        // неприменимости (`verdict.ts`), то есть измеренный провал разбора можно было
-        // закрыть подписью, а `❌` так не снимается (ревью).
-        status: problems.length === 0 ? '✅' : '❌',
-        seenIn:
-          problems.length === 0
-            ? 'plan.md, секция «Последствия шагов»'
-            : `plan.md — разбор не доведён: ${problems[0] ?? ''}`,
-      },
-    ];
+    return earlyGateRowsOf(this.host);
   }
 
   /** Бюджет попыток из набора гейтов, умолчание методологии — 3. */
@@ -1592,7 +1526,7 @@ export class Run {
       slug: this.slug,
       attemptBudget: this.attemptBudget,
       earlyGates: this.earlyGateRows(),
-      earlyGatesForModel: this.earlyGatesForModel(),
+      earlyGatesForModel: earlyGatesForModel(this.host),
     });
     // Заполненный рантаймом бланк запоминается для ансамбля: дополнительные маршруты
     // стартуют с него, а не с пустого файла — иначе класс расхождений «отчёт/факт» r9,
@@ -2605,7 +2539,7 @@ export class Run {
       } else {
         problems.push(...configProblems(gates).map(by(gatesBlame)));
         // `REVIEW_GATE` не в BUILTIN и не в кавычках, но НЕ является дырой в наборе: он
-        // получает статус не скриптом gates/run.ts, а `externalGateStatuses()` ниже — тем
+        // получает статус не скриптом gates/run.ts, а `externalGateStatuses()` (`stages/verify/gates.ts`) — тем
         // же путём, каким и реально считается на прогоне (см. `runGates({ externalStatuses:
         // this.externalGateStatuses() })`). Без этого исключения витки с обычным для
         // минимума набором никогда бы не проходили дальше intent.
@@ -2630,54 +2564,9 @@ export class Run {
     return problems;
   }
 
-  /**
-   * Прогон автоматических гейтов этапа 6.
-   *
-   * Порядок из методологии: автоматические гейты идут ПЕРЕД ревью, а не держатся на
-   * промпте рецензента — поэтому это шаг рантайма, который модель не может пропустить.
-   * Результаты уходят в шину по одному, чтобы длинная сборка была видна по ходу, а не
-   * появлялась разом в конце.
-   */
+  /** Прогон автоматических гейтов этапа 6 рантаймом до ревью — `stages/verify/gates.ts`. */
   async runVerifyGates(signal?: AbortSignal): Promise<GateRunResult[]> {
-    const gates = this.gatesFile;
-    if (gates === null) return [];
-
-    // Итоги копятся по одному, а не присваиваются разом в конце: интерфейс перечитывает
-    // состояние по событию `gate_result`, и при позднем присваивании каждый такой запрос
-    // возвращал таблицу ПРЕДЫДУЩЕГО прогона — зелёную, пока текущий уже краснел.
-    this.state.verify.lastGateResults = [];
-    this.state.verify.lastGatesAborted = false;
-
-    const results = await runGates({
-      gates,
-      projectRoot: this.project.projectRoot,
-      projectName: this.project.name,
-      planFiles: this.planFilesFor('verify') ?? [],
-      baseline: readBaseline(this.host),
-      timeoutMs: this.config.runner.limits.gateTimeoutMs,
-      // Описание модулей проекта: человек знает про свой моно-репо больше, чем детект.
-      ...(this.project.modules === undefined ? {} : { modules: this.project.modules }),
-      // Вход гейта «Ответы человека в коде»: слаг витка знает только рантайм.
-      clarificationPath: this.paths.clarificationReport,
-      ...(signal === undefined ? {} : { signal }),
-      externalStatuses: this.externalGateStatuses(),
-      onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage: 'verify', message }),
-      onResult: (gate) => {
-        this.state.verify.lastGateResults.push(gate);
-        // В метрики результат идёт не отсюда: гейты прогоняются ДО вызова рецензента,
-        // поэтому «Ревью независимым агентом» здесь всегда `⏭`, и каждый зелёный виток
-        // копил «гейт включён, но проверка не состоялась» (ревью). Учёт — по итоговым
-        // статусам, там же, где считается вердикт.
-        this.emit({ type: 'gate_result', runId: this.id, stage: 'verify', gate });
-      },
-    });
-
-    // Отмена прерывает цикл гейтов и возвращает то, что успело прогнаться. Без этой
-    // отметки частичный набор выглядел в интерфейсе полным: две зелёные строки читались
-    // как «весь набор пройден», хотя обязательная пятёрка не запускалась.
-    this.state.verify.lastGatesAborted = signal?.aborted === true;
-    this.state.verify.lastGateResults = results;
-    return results;
+    return runVerifyGatesOf(this.host, signal);
   }
 
   /**
@@ -2750,32 +2639,6 @@ export class Run {
   }
 
   /**
-   * Статусы гейтов, которые рантайм не исполняет скриптом.
-   *
-   * «Ревью независимым агентом» — единственный такой в минимальной пятёрке, и зелёный он
-   * получает ТОЛЬКО по факту состоявшегося прогона субагента-рецензента на этой попытке.
-   *
-   * Раньше статус выводился из наличия файла `sdlc-reviewer.md` на диске и вычислялся до
-   * запуска исполнителя. Пока флоу `loop` не умел субагентов, это давало ложный зелёный
-   * на каждом витке профиля `local`: определение лежит в каталоге, ревью не было — а гейт,
-   * ради которого построен принцип «автор не рецензирует себя», отчитывался `✅`. Теперь
-   * оба флоу запускают рецензента по-настоящему (loop — вложенным циклом), но правило
-   * не изменилось: зелёный ставит только факт прогона, не файл на диске.
-   */
-  private externalGateStatuses(): Record<string, GateStatus> {
-    const { missing } = loadSubagents(this.config.runner.agentsDir, REVIEWER_AGENTS);
-
-    const status: GateStatus =
-      missing.length === REVIEWER_AGENTS.length
-        ? '⏭' // ни одного определения субагента нет — рецензировать некому
-        : this.state.verify.reviewerRan
-          ? '✅'
-          : '⏭'; // прогона ещё не было либо субагент не вызывался
-
-    return { [gateKey(REVIEW_GATE)]: status };
-  }
-
-  /**
    * Отмечает, что независимый рецензент отработал на этой попытке.
    *
    * Ставится исполнителем при фактическом вызове субагента, а не наличием файла: это
@@ -2783,50 +2646,6 @@ export class Run {
    */
   markReviewerRan(): void {
     this.state.verify.reviewerRan = true;
-  }
-
-  /**
-   * Совпадает ли патч попытки с фактическим деревом — ФАКТ рантайма, не слова отчёта.
-   *
-   * `null` — проверить нечем (патча нет, дерево не репозиторий): тогда действует прежнее
-   * правило «сказано в отчёте». Сравнение — по тому же `workingDiff`, которым патч и
-   * снимался, поэтому расхождение означает ровно одно: дерево изменилось ПОСЛЕ снятия
-   * улики, и артефакт этапа 5 устарел по-настоящему.
-   */
-  private async diffStillMatchesTree(): Promise<boolean | null> {
-    const patchPath = this.paths.chunkDiff(this.chunk, this.attempt);
-    const saved = readArtifact(patchPath);
-    if (!saved.exists) return null;
-    try {
-      if (!(await isRepo(this.project.projectRoot))) return null;
-      const now = await workingDiff(
-        this.project.projectRoot,
-        [],
-        ...(this.aborter === null ? [] : [this.aborter.signal]),
-      );
-      return now.trim() === saved.text.trim();
-    } catch {
-      // Сверка не состоялась — это «не знаю», а не «разошлось»: превращать сбой git в
-      // красный вердикт значило бы ронять виток из-за среды.
-      return null;
-    }
-  }
-
-  /** Итоги прогона с пересчитанными статусами «не скриптовых» гейтов. */
-  private gateResultsForVerdict(): GateRunResult[] {
-    const external = this.externalGateStatuses();
-    return this.state.verify.lastGateResults.map((r) => {
-      const fresh = external[gateKey(r.name)];
-      if (fresh === undefined || fresh === r.status) return r;
-      return {
-        ...r,
-        status: fresh,
-        lastLine:
-          fresh === '✅'
-            ? 'независимый рецензент отработал на этой попытке'
-            : 'независимый рецензент на этой попытке не запускался',
-      };
-    });
   }
 
   /**
@@ -2852,7 +2671,7 @@ export class Run {
       // Статусы гейтов, которые рантайм не исполняет скриптом, пересчитываются здесь:
       // прогон идёт ДО ревью, и на его момент рецензент заведомо не отработал. Без
       // пересчёта гейт ревью навсегда оставался бы `⏭` даже после честного прогона.
-      gateResults: this.gateResultsForVerdict(),
+      gateResults: gateResultsForVerdict(this.host),
       // Факт запуска рецензента рантайм знает достовернее отчёта: `⏭` («не запускался»)
       // в отчёте не может опровергнуть состоявшийся вызов субагента. Красный отчёта при
       // этом всё равно побеждает — см. `collectVerdictInput`.
@@ -2933,7 +2752,7 @@ export class Run {
       this.state.verify.verdictCountedFor = key;
       // Гейт-агрегаты — по тем же статусам, что ушли в вердикт: рантайм видел прогон
       // рецензента своими глазами, и `⏭`, стоявшее там до его вызова, метрикой не является.
-      for (const g of this.gateResultsForVerdict()) this.recordGateResult(g);
+      for (const g of gateResultsForVerdict(this.host)) this.recordGateResult(g);
       this.recordIteration(withNotes, noProgress);
       this.verdictCount += 1;
       if (!withNotes.passed) this.redCount += 1;
@@ -3787,7 +3606,7 @@ export class Run {
       if (stage === 'verify') {
         // Сверку патча с деревом делает рантайм и делает её ЗДЕСЬ — после ревью, но до
         // подсчёта вердикта: раньше это условие держалось на фразе рецензента (r31).
-        this.state.verify.diffFactMatchesTree = await this.diffStillMatchesTree();
+        this.state.verify.diffFactMatchesTree = await diffStillMatchesTree(this.host);
         this.computeStageVerdict(this.detectNoProgress());
       }
 
