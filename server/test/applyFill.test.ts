@@ -235,8 +235,37 @@ describe('applyFill: раунд-трип по реальным шаблонам 
   // ключа поля «точка правки» («изменения», «что_меняем_где» — словарь из шаблона intent,
   // не exploration-report), а подсказка «доступные поля» после отказа показывала только
   // первые 8 по порядку схемы — уже заполненные к тому моменту поля вытесняли из подсказки
-  // как раз то незаполненное поле, которое искала модель.
-  it('exploration-report: уже заполненное поле уступает в подсказке ещё не заполненным', () => {
+  // как раз то незаполненное поле, которое искала модель. На девственно чистом шаблоне все
+  // поля равно незаполнены и сортировать нечего — свойство «незаполненные впереди
+  // заполненных» проверяют два теста ниже: «Контур» (голое choice-меню) и «гейт» (choice
+  // остаётся в подсказке и отвеченным — намеренно, см. его комментарий).
+
+  // Разбор серии v15 (2026-09-16): голое choice-меню без `‹…›` (методология пишет варианты
+  // словом — `MENU_TOKENS`, «Контур: полный / мелкий», «Действие: н/п / конструкция / …») не
+  // несёт НИ ОДНОГО плейсхолдера даже нетронутым — сортировка «незаполненные вперёд» по
+  // одним плейсхолдерам сочла бы такое поле «уже заполненным» и роняла его из подсказки на
+  // девственно чистом шаблоне, где оно как раз ждёт ответа. `choice`-поля поэтому считаются
+  // кандидатом на ответ всегда, независимо от плейсхолдеров.
+  it('intent: голое choice-меню («Контур») не пропадает из подсказки на чистом шаблоне', () => {
+    const name = 'intent.template.md';
+    const original = readFileSync(join(templatesDir, name), 'utf8');
+    const schema = deriveSchema(original, name);
+    const contour = findField(schema, 'контур');
+    ok(contour !== undefined, 'поле «контур» пропало из шаблона');
+    strictEqual(contour.kind, 'choice');
+    ok(!countPlaceholders(original.slice(contour.valueRange.start, contour.valueRange.end)), 'поле «контур» неожиданно несёт ‹…› — тест перестал бить в цель');
+    const r = applyFill(original, 'совсем-незнакомое-поле-xyz', 'x', 'set', name);
+    ok(!r.ok);
+    ok(r.problem.includes(contour.id), `«${contour.id}» пропало из подсказки: ${r.problem}`);
+  });
+
+  // Оборотная сторона предыдущего теста: раз `choice` всегда «кандидат на ответ», уже
+  // отвеченное choice-поле подсказку не покидает. Плата за находку v15 (выше) — принята
+  // осознанно: единственная реально известная альтернатива, «уже отвеченное choice-поле
+  // выпадает», ломается там же, где ломался разбор голого меню (`formSchema.ts` —
+  // `menuOptionsOfValue` теряет хвост меню за вложенным примером `‹…›` и поле «воскресает»
+  // под тем же id — отдельный, не этой правкой заведённый дефект).
+  it('exploration-report: уже отвеченное choice-поле («гейт») остаётся в подсказке — так и задумано', () => {
     const name = 'exploration-report.template.md';
     const original = readFileSync(join(templatesDir, name), 'utf8');
     const schema0 = deriveSchema(original, name);
@@ -244,11 +273,35 @@ describe('applyFill: раунд-трип по реальным шаблонам 
     ok(gate !== undefined, 'поле «гейт «заполненность артефактов»»» пропало из шаблона');
     const filled = applyFill(original, gate.id, (gate.options ?? [])[0]?.key ?? 'да', 'set', name);
     ok(filled.ok, filled.ok ? '' : filled.problem);
-    const model = deriveSchema(filled.text, name).fields.filter((f) => f.owner === 'model');
-    ok(model.length > 8, `сценарий не воспроизведён — полей модели всего ${model.length}, обрезка на 8 не сработает`);
     const r = applyFill(filled.text, 'совсем-незнакомое-поле-которого-нет', 'x', 'set', name);
     ok(!r.ok);
-    ok(!r.problem.includes(gate.id), `заполненное поле «${gate.id}» не должно вытеснять незаполненные из подсказки: ${r.problem}`);
+    ok(r.problem.includes(gate.id), `«${gate.id}» неожиданно пропало — choice больше не считается кандидатом всегда: ${r.problem}`);
+  });
+
+  // Разбор v15: общая метка колонки таблицы («статус» — у каждой строки readiness одна и
+  // та же) даёт `near` того же размера, что и общий список «доступные поля», и раньше не
+  // сортировалась и не считала остаток вовсе.
+  it('readiness: общая метка «статус» (12 строк) — near тоже обрезается с «(и ещё N)»', () => {
+    const name = 'readiness.template.md';
+    const original = readFileSync(join(templatesDir, name), 'utf8');
+    const r = applyFill(original, 'статус', 'да', 'set', name);
+    ok(!r.ok);
+    ok(r.problem.includes('под другим id'), r.problem);
+    ok(r.problem.includes('(и ещё 4)'), `ожидалось «(и ещё 4)» из 12 совпадений по метке «статус»: ${r.problem}`);
+  });
+
+  // handoff: заголовок «### Запись N» — group-поле с owner:'model', но заполняется не через
+  // FillField (нулевой valueRange). Канонический modelFields() его исключает, локальный
+  // фильтр — нет; подсказка не должна предлагать заведомо неработающий id.
+  it('handoff: group-поле «запись N» не предлагается в подсказке «доступные поля»', () => {
+    const name = 'handoff.template.md';
+    const original = readFileSync(join(templatesDir, name), 'utf8');
+    const schema = deriveSchema(original, name);
+    const group = schema.fields.find((f) => f.kind === 'group');
+    ok(group !== undefined, 'group-поле «### Запись N» пропало из шаблона');
+    const r = applyFill(original, 'совсем-незнакомое-поле-которого-нет', 'x', 'set', name);
+    ok(!r.ok);
+    ok(!r.problem.includes(group.id), `group-поле «${group.id}» не должно попадать в подсказку: ${r.problem}`);
   });
 
   // Тот же прогон v14: третья по счёту догадка модели была «точка_правки» (подчёркивание

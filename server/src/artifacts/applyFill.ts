@@ -9,7 +9,6 @@
  * заменяет значение, а не дублирует его.
  */
 
-import { hasPlaceholder } from './artifact.ts';
 import { escapeCell, isSeparatorRow } from '../md/table.ts';
 import { deriveSchema, findField, type FormField } from './formSchema.ts';
 import { isSheetError, matchChoice, parseFieldValue, type SheetValue } from './sheet.ts';
@@ -183,7 +182,11 @@ export function applyFill(
     // «необходимое/единичное»» и печатала следом шестнадцать идентификаторов, среди
     // которых стояли `необходимое/1`, `необходимое/однозначное` — то есть подсказка
     // была, но утонула в списке.
-    const model = schema.fields.filter((f) => f.owner === 'model');
+    // `group` («### Запись N») не заполняется через `FillField` в принципе (см. ниже,
+    // ветка `field.owner !== 'model'` аналог — тут тот же класс, только `kind`, а не
+    // `owner`) — как и канонический `modelFields()`, список подсказки его не предлагает:
+    // предложенный id всё равно откажет второй, не относящейся к делу причиной.
+    const model = schema.fields.filter((f) => f.owner === 'model' && f.kind !== 'group');
     // Модель пишет id словом из своей головы, не из бланка: «точка_правки» вместо
     // «точка правки» (та же серия v14) — подчёркивание/дефис вместо пробела считаем тем
     // же самым словом, иначе именно этот, самый частый в живых логах, промах в near не
@@ -195,18 +198,31 @@ export function applyFill(
         .replace(/[_-]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
-    const near = model.filter((f) => label(f.id) === label(fieldId)).map((f) => f.id);
-    // Когда догадка модели не совпадает даже по метке (не «id сдвинулся», а промах мимо
-    // словаря методологии — разбор v14, 2026-09-15: модель трижды подряд мимо «точка
-    // правки» — «изменения», «что_меняем_где» — искала слово из шаблона intent, а поле
-    // называется иначе), список по порядку схемы прячет нужное поле за «(и ещё N)» так же
-    // легко, как и раньше. Незаполненные поля показываем первыми: догадка почти всегда
-    // целится в то, чего ещё нет в документе, а не в то, что уже стоит.
-    const unfilled = (f: FormField): boolean => hasPlaceholder(text.slice(f.valueRange.start, f.valueRange.end));
-    const ordered = near.length > 0 ? near : [...model].sort((a, b) => Number(unfilled(b)) - Number(unfilled(a))).map((f) => f.id);
-    const shown = ordered.slice(0, 8);
+    const targetLabel = label(fieldId);
+    const near = model.filter((f) => label(f.id) === targetLabel);
+    // Поле, ждущее ответа, — то, что несёт хоть один плейсхолдер (`f.placeholders`, тот же
+    // массив, что уже посчитал `deriveSchema` — ср. `finalizeCheck.ts`). Для `choice` этот
+    // сигнал ненадёжен: часть меню бланк пишет голым словом без `‹…›` (`MENU_TOKENS`,
+    // «Контур: полный / мелкий», «Действие: н/п / конструкция / …») — такое поле не покажет
+    // ни одного плейсхолдера, даже нетронутое, а незаполненный выбор — обычное дело на
+    // каждом первом проходе. Оставлять его в подсказке рискованно (заслонит собой РЕАЛЬНО
+    // заполненные поля), а прятать — куда хуже (разбор v15, 2026-09-16: «Контур» на
+    // девственно чистом intent.template.md пропадал из подсказки вовсе). Поэтому `choice`
+    // считается открытым всегда; жертвуем только редким обратным случаем — когда `choice`
+    // уже ответили, но разбор меню не удержал вложенный плейсхолдер-пример в одной из
+    // веток и поле «воскресло» с обрывком старой ветки (`formSchema.ts::menuOptionsOfValue`,
+    // отдельный, не этой правкой заведённый дефект) — там сортировка не поможет, как и до
+    // неё.
+    const unfilled = (f: FormField): boolean => f.kind === 'choice' || f.placeholders.length > 0;
+    // Та же теснота — не только в общем списке: общая метка колонки таблицы (например
+    // «статус» у каждой строки readiness.template.md, 12 совпадений) даёт `near` того же
+    // размера, что и «доступные поля», и раньше не сортировалась и не считала остаток
+    // вовсе — разбор v15, 2026-09-16.
+    const candidates = near.length > 0 ? near : model;
+    const ordered = [...candidates].sort((a, b) => Number(unfilled(b)) - Number(unfilled(a)));
+    const shown = ordered.slice(0, 8).map((f) => f.id);
     const what = near.length > 0 ? 'поле с такой меткой есть под другим id' : 'доступные поля';
-    const more = near.length === 0 && model.length > shown.length ? ` (и ещё ${model.length - shown.length})` : '';
+    const more = candidates.length > shown.length ? ` (и ещё ${candidates.length - shown.length})` : '';
     return { ok: false, problem: `нет поля «${fieldId}» — ${what}: ${shown.join(', ') || '(нет)'}${more}` };
   }
   if (field.owner !== 'model') {
