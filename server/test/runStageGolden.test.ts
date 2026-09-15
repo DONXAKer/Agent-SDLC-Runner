@@ -132,7 +132,7 @@ function git(root: string, ...args: string[]): void {
   });
 }
 
-function makeProject(): string {
+function makeProject(gates: string = GATES): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-golden-')));
   roots.push(root);
   for (const stage of STAGE_ORDER) {
@@ -145,7 +145,7 @@ function makeProject(): string {
   mkdirSync(join(root, 'src'), { recursive: true });
   writeFileSync(join(root, 'src', 'app.js'), 'export const version = 1;\n');
   mkdirSync(join(root, '.sdlc'), { recursive: true });
-  writeFileSync(join(root, '.sdlc', 'gates.md'), GATES);
+  writeFileSync(join(root, '.sdlc', 'gates.md'), gates);
   writeFileSync(join(root, '.gitignore'), 'skills/\nmethodology/\nagents/\n');
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'add', '-A');
@@ -335,8 +335,9 @@ async function scenario(
   name: string,
   queues: Queues,
   steps: (run: Run, results: Record<string, unknown>) => Promise<void>,
+  gates: string = GATES,
 ): Promise<void> {
-  const root = makeProject();
+  const root = makeProject(gates);
   const model = await startModel(queues);
   const events: RunEvent[] = [];
   const results: Record<string, unknown> = {};
@@ -444,6 +445,47 @@ describe('runStage: эталон поведения витка', () => {
         results['verify:1'] = await run.runStage('verify');
         results['handoff'] = await run.runStage('handoff', { abortHandoff: true });
       },
+    );
+  });
+
+  it('гейт «Разбор последствий»: план без осей → напоминание стража → каноничная таблица → verify', async () => {
+    const planWithoutAxes = [
+      '# План: demo',
+      '',
+      '- **Одобрение:** ‹подпись и дата›',
+      '',
+      '## files_to_touch',
+      '',
+      '| Путь | Что делаем |',
+      '|---|---|',
+      '| src/app.js | поднять версию |',
+      '',
+    ].join('\n');
+    const axes = ['Безопасность', 'Ресурсы и скорость', 'Отказы зависимостей', 'Настройки', 'Совместимость и данные', 'Наблюдаемость'];
+    const planWithAxes = [
+      planWithoutAxes,
+      '## Последствия шагов',
+      '',
+      '| Ось | Затронута шагами | Что именно в шагах | Исход |',
+      '|---|---|---|---|',
+      ...axes.map((a) => `| ${a} | нет | шаг 1: не трогаем | н/п — ось не затронута |`),
+      '',
+    ].join('\n');
+    await scenario(
+      'plan-axes',
+      {
+        intent: INTENT_REPLIES(),
+        plan: [write('.sdlc/demo/plan.md', planWithoutAxes), { text: 'план готов' }, write('.sdlc/demo/plan.md', planWithAxes), { text: 'оси разобраны' }],
+        chunk: CHUNK_REPLIES(),
+        verify: [{ text: 'проверено' }],
+      },
+      async (run, results) => {
+        await toChunkDone(run, results);
+        results['axisProblems'] = run.axisProblems();
+        results['earlyGateRows'] = run.earlyGateRows();
+        results['verify:1'] = await run.runStage('verify');
+      },
+      GATES.replace('| Сборка |', '| Разбор последствий | да | этап 4 | проза |\n| Сборка |'),
     );
   });
 
