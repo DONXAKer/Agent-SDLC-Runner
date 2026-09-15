@@ -114,6 +114,18 @@ const TEMPLATES: Record<string, string> = {
     '',
   ].join('\n'),
   'handoff.template.md': '# Передача: ‹название витка›\n\n- **Приёмка:** ‹подпись и дата›\n\n## Итог\n\n‹итог›\n',
+  'exploration-report.template.md': [
+    '# Отчёт разведки: ‹название витка›',
+    '',
+    '## Карта кодовой базы',
+    '',
+    '| Файл | Что там сейчас | Что меняем |',
+    '|---|---|---|',
+    '| ‹путь› | ‹что› | ‹что› |',
+    '',
+    '**Решение человека о полноте:** ‹подпись и дата›',
+    '',
+  ].join('\n'),
 };
 
 function git(root: string, ...args: string[]): void {
@@ -210,7 +222,7 @@ async function startModel(queues: Queues): Promise<{ baseUrl: string; requests: 
 
 // ── виток ─────────────────────────────────────────────────────────────────
 
-function makeRun(root: string, baseUrl: string, events: RunEvent[]): Run {
+function makeRun(root: string, baseUrl: string, events: RunEvent[], routeOver: Partial<ResolvedRoute> = {}): Run {
   const route = (stage: StageId): ResolvedRoute => ({
     stage,
     provider: 'stub',
@@ -230,6 +242,7 @@ function makeRun(root: string, baseUrl: string, events: RunEvent[]): Run {
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,
+    ...routeOver,
   });
   const routes = Object.fromEntries(STAGE_ORDER.map((s) => [s, route(s)])) as Record<StageId, ResolvedRoute>;
   const ensemble = Object.fromEntries(STAGE_ORDER.map((s) => [s, [routes[s]]])) as Record<StageId, ResolvedRoute[]>;
@@ -336,32 +349,44 @@ async function scenario(
   queues: Queues,
   steps: (run: Run, results: Record<string, unknown>) => Promise<void>,
   gates: string = GATES,
+  opts: {
+    route?: Partial<ResolvedRoute>;
+    /**
+     * Порядок событий и запросов не сравнивается — для сценариев с параллельными пачками
+     * запросов (вложенное дозаполнение по полям), где порядок ответов сети не определён.
+     * Ответы модели в таких сценариях одинаковы, иначе содержимое зависело бы от порядка.
+     */
+    unordered?: boolean;
+  } = {},
 ): Promise<void> {
   const root = makeProject(gates);
   const model = await startModel(queues);
   const events: RunEvent[] = [];
   const results: Record<string, unknown> = {};
-  const run = makeRun(root, model.baseUrl, events);
+  const run = makeRun(root, model.baseUrl, events, opts.route);
   try {
     await steps(run, results);
   } finally {
     await run.dispose();
     model.close();
   }
-  compareWithGolden(
-    name,
-    normalize(
-      {
-        results: Object.fromEntries(
-          Object.entries(results).map(([k, r]) => (typeof r === 'string' ? [k, r] : [k, { ...(r as object), usage: undefined }])),
-        ),
-        events,
-        requests: model.requests,
-        files: sdlcFiles(root),
-      },
-      root,
-    ),
-  );
+  const snapshot = normalize(
+    {
+      results: Object.fromEntries(
+        Object.entries(results).map(([k, r]) => (typeof r === 'string' ? [k, r] : [k, { ...(r as object), usage: undefined }])),
+      ),
+      events,
+      requests: model.requests,
+      files: sdlcFiles(root),
+    },
+    root,
+  ) as { events: unknown[]; requests: unknown[] };
+  if (opts.unordered === true) {
+    const byJson = (a: unknown, b: unknown): number => JSON.stringify(a).localeCompare(JSON.stringify(b));
+    snapshot.events.sort(byJson);
+    snapshot.requests.sort(byJson);
+  }
+  compareWithGolden(name, snapshot);
 }
 
 function decide(run: Run, results: Record<string, unknown>, artifact: 'plan' | 'journal', label: string): void {
@@ -445,6 +470,81 @@ describe('runStage: эталон поведения витка', () => {
         results['verify:1'] = await run.runStage('verify');
         results['handoff'] = await run.runStage('handoff', { abortHandoff: true });
       },
+    );
+  });
+
+  const INTENT_FULL = (): Reply[] => [
+    write(
+      '.sdlc/demo/intent.md',
+      [
+        '# Задача: demo',
+        '',
+        '- **Контур:** полный',
+        '- **Ветка витка:** sdlc/demo',
+        '',
+        '## Коротко',
+        '',
+        'Поднять версию приложения до 2.',
+        '',
+        '## Что делаем',
+        '',
+        '- меняем константу версии в `src/app.js`',
+        '',
+        '## Приёмка',
+        '',
+        '| id | Пункт | Как проверить |',
+        '|---|---|---|',
+        '| claim-1 | версия поднята до 2 | `version === 2` |',
+        '| claim-2 [edge] | версия — число, а не строка | `typeof version === "number"` |',
+        '| claim-3 [edge] | других экспортов не появилось | список экспортов модуля |',
+        '',
+      ].join('\n'),
+    ),
+    write('.sdlc/demo/readiness.md', '# Готовность: demo\n\n- Прогон 1: готова\n'),
+    { text: 'готово' },
+  ];
+  const report = (path: string): string =>
+    [
+      '# Отчёт разведки: demo',
+      '',
+      '## Карта кодовой базы',
+      '',
+      '| Файл | Что там сейчас | Что меняем |',
+      '|---|---|---|',
+      `| ${path} | константа версии | поднять до 2 |`,
+      '',
+      '**Решение человека о полноте:** ‹подпись и дата›',
+      '',
+    ].join('\n');
+
+  it('полный контур: разведка с сочинённым путём в карте → страж → исправленная карта → ask пропущен', async () => {
+    await scenario(
+      'full-contour-explore',
+      {
+        intent: INTENT_FULL(),
+        explore: [
+          write('.sdlc/demo/exploration-report.md', report('src/missing.js')),
+          { text: 'разведка готова' },
+          write('.sdlc/demo/exploration-report.md', report('src/app.js')),
+          { text: 'карта исправлена' },
+        ],
+      },
+      async (run, results) => {
+        for (const stage of ['intent', 'explore', 'ask'] as const) results[stage] = await run.runStage(stage);
+      },
+    );
+  });
+
+  it('полный контур, конвейер разведки (exploreFill): слепой лист, индекс, вложенное дозаполнение', async () => {
+    await scenario(
+      'explore-fill',
+      { intent: INTENT_FULL() },
+      async (run, results) => {
+        results['intent'] = await run.runStage('intent');
+        results['explore'] = await run.runStage('explore');
+      },
+      GATES,
+      { route: { exploreFill: true }, unordered: true },
     );
   });
 

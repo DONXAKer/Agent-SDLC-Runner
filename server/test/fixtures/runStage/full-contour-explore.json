@@ -1,0 +1,921 @@
+{
+  "results": {
+    "intent": {
+      "ok": true,
+      "finalText": "готово",
+      "note": "модель завершила ход",
+      "turns": 3
+    },
+    "explore": {
+      "ok": true,
+      "finalText": "карта исправлена",
+      "note": "модель завершила ход",
+      "turns": 4
+    },
+    "ask": {
+      "ok": true,
+      "finalText": "",
+      "note": "открытых вопросов нет — этап условный, артефакт не создаётся"
+    }
+  },
+  "events": [
+    {
+      "type": "stage_started",
+      "runId": "<ID>",
+      "stage": "intent",
+      "flow": "loop",
+      "provider": "stub",
+      "model": "m",
+      "chunk": 1,
+      "attempt": 1
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "intent",
+      "message": "рантайм заполнил поле «Ветка витка» фактом дерева (`sdlc/demo`) — модели гадать не о чем"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "intent",
+      "message": "рантайм заполнил механические поля (1): название витка, даты, вход и база плана — модели остались содержательные"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "intent",
+      "message": "форма разложена под артефакт <ROOT>\\.sdlc\\demo\\intent.md — этап заполняет её, а не создаёт заново"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "intent",
+      "message": "форма разложена под артефакт <ROOT>\\.sdlc\\demo\\readiness.md — этап заполняет её, а не создаёт заново"
+    },
+    {
+      "type": "prompt_prepared",
+      "runId": "<ID>",
+      "stage": "intent",
+      "prompt": {
+        "presetNote": null,
+        "system": "СКИЛЛ intent: заполни артефакт этапа по форме.\n\n---\n\n## Как этот этап исполняется здесь\n\nТы работаешь внутри Agent-SDLC Runner, а не в интерактивной сессии Claude Code.\nТекст этапа выше — эталонный; ниже отличия, которые надо учесть.\n\n- Slug витка: `demo`. Артефакты витка: `.sdlc/demo/`, набор гейтов: `.sdlc/gates.md`.\n- Формы артефактов лежат в `<ROOT>/methodology/templates` — это каталог МЕТОДОЛОГИИ, он открыт только на чтение. Артефакты витка пишутся в `.sdlc/demo/` и больше никуда: копировать формы в проект не надо, читай их на месте.\n- Формы уже разложены по местам: <ROOT>\\.sdlc\\demo\\intent.md, <ROOT>\\.sdlc\\demo\\readiness.md. Это пустые бланки, а не чужая работа: открой и заполни поля прямо в них, вместо `‹…›` — своё содержимое. Создавать документ заново не нужно.\n- Вместо `AskUserQuestion` вызывай `AskHuman`: этап встаёт на паузу, пока человек не ответит в интерфейсе. Правила те же — до 4 вопросов за вызов, блокирующие первыми, один вопрос это одна неопределённость, у каждого варианта в описании названа цена ошибки.\n- Вместо `ExitPlanMode` бери одобрение тем же `AskHuman`.\n- Решение человека записывай полем в артефакт: молчание одобрением не считается, а одобрение, оставшееся в переписке, для следующего этапа не существует.\n- Оператор: **Гриц**. Сегодня: **<DATE>**. Эти значения подставляй в поля решений.\n- Текущий chunk: **1**, попытка: **1**.\n- Доступные инструменты на этом этапе: Read, Glob, Grep, Write, Edit, AskHuman, FinalizeArtifact. Других у тебя нет — права выдаются на шаг, а не на прогон.\n- Как выглядит сделанный шаг. Вот настоящая незаполненная строка твоего бланка — правильное действие это ОДИН вызов инструмента с готовым содержимым:\n  ```json\n  {\"tool\":\"Edit\",\"arguments\":{\"file_path\":\".sdlc/demo/intent.md\",\"old_string\":\"# Задача: ‹название›\",\"new_string\":\"# Задача: (твоё содержимое по факту задачи)\"}}\n  ```\n  Когда в артефакте не осталось `‹…›` — вызови `FinalizeArtifact` с путём артефакта.\n- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе (текст никуда не записывается), спрашивать человека о том, что видно из кода, продолжать читать файлы, когда контекста для правки уже достаточно.\n- Запись вне `files_to_touch` одобренного плана отклоняется в момент вызова. Это конструкция, а не сбой: если файл действительно нужен, его сначала добавляют в план — инструментом `RequestScopeExtension` (если он тебе доступен), а не молчаливой попыткой записи или остановкой chunk'а на середине.\n- Решения человека и набор гейтов защищены от записи на этом этапе: одобренный план правит человек, а не ты. Нужна правка плана — это новая редакция и новое одобрение.\n- Входные артефакты приложены ниже целиком. Не пересказывай их по памяти и не догадывайся о содержимом — работай по тексту.",
+        "user": "## Входные артефакты\n\n\n\n````markdown\n<!-- .sdlc/gates.md -->\n# Набор гейтов: demo\n\n## Набор\n\n| Гейт | Вкл | Где отчитывается | Чем реализован |\n|---|---|---|---|\n| Сборка | да — минимум | этап 6 | `node -e \"process.exit(0)\"` |\n| Тесты | да — минимум | этап 6 | `node -e \"process.exit(0)\"` |\n| Scope: файлы вне плана | да — минимум | этап 6 | скрипт сверки diff с files_to_touch |\n| Анти-обход тест-гейта | да — минимум | этап 6 | скрипт |\n| Ревью независимым агентом | да — минимум | этап 6 | агент на более сильной модели |\n\n````\n\n## Что чинить в этой попытке\n\n\n\n## Факт прогона: ветка рабочего дерева\n\nРабочее дерево стоит на ветке `sdlc/demo`.\n\nПоле «Ветка витка» в `intent.md` обязано совпасть с этой строкой дословно. Не выводи\nимя из путей `.sdlc/…` и не придумывай по конвенции: Runner сверяет поле с фактическим\nсостоянием дерева и блокирует этап 4 при расхождении.",
+        "tools": [
+          {
+            "name": "Read",
+            "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "Строка, с которой начать (с 1)"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Сколько строк прочитать"
+                }
+              },
+              "required": [
+                "file_path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Glob",
+            "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Glob-шаблон"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Каталог поиска; по умолчанию корень проекта"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Grep",
+            "description": "Поиск по содержимому файлов регулярным выражением.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Регулярное выражение"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Файл или каталог поиска; по умолчанию корень проекта"
+                },
+                "glob": {
+                  "type": "string",
+                  "description": "Дополнительный фильтр по именам файлов"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Write",
+            "description": "Записать файл целиком. Запись вне files_to_touch одобренного плана отклоняется рантаймом в момент вызова — это конструкция, а не сбой.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Полное содержимое"
+                }
+              },
+              "required": [
+                "file_path",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Edit",
+            "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Фрагмент, который заменяем"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Чем заменяем"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Заменить все вхождения"
+                }
+              },
+              "required": [
+                "file_path",
+                "old_string",
+                "new_string"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "AskHuman",
+            "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "questions": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string",
+                        "description": "Полный текст вопроса"
+                      },
+                      "header": {
+                        "type": "string",
+                        "description": "Короткая метка, до 12 символов"
+                      },
+                      "multiSelect": {
+                        "type": "boolean",
+                        "description": "Можно выбрать несколько"
+                      },
+                      "options": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "description": "Вариант"
+                            },
+                            "description": {
+                              "type": "string",
+                              "description": "Что это значит и чем грозит ошибка"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "description"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "question",
+                      "header",
+                      "multiSelect",
+                      "options"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "questions"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "FinalizeArtifact",
+            "description": "Объявить артефакт этапа готовым. Рантайм проверит, что в нём не осталось незаполненных мест «‹…›», и покажет его человеку.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Путь к артефакту относительно корня проекта"
+                },
+                "note": {
+                  "type": "string",
+                  "description": "Одной строкой: что получилось"
+                }
+              },
+              "required": [
+                "artifact"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "editedByOperator": false
+      }
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "intent",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "tool_result",
+      "runId": "<ID>",
+      "stage": "intent",
+      "requestId": "loop:<ID>",
+      "ok": true,
+      "summary": "перезаписан .sdlc/demo/intent.md (21 строк)",
+      "durationMs": 0
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "intent",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 200,
+        "outputTokens": 20,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "tool_result",
+      "runId": "<ID>",
+      "stage": "intent",
+      "requestId": "loop:<ID>",
+      "ok": true,
+      "summary": "перезаписан .sdlc/demo/readiness.md (4 строк)",
+      "durationMs": 0
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "intent",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 300,
+        "outputTokens": 30,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "intent",
+      "text": "готово"
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "intent",
+      "path": "<ROOT>\\.sdlc\\gates.md",
+      "placeholders": 0
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "intent",
+      "path": "<ROOT>\\.sdlc\\demo\\intent.md",
+      "placeholders": 0
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "intent",
+      "path": "<ROOT>\\.sdlc\\demo\\readiness.md",
+      "placeholders": 0
+    },
+    {
+      "type": "stage_done",
+      "runId": "<ID>",
+      "stage": "intent",
+      "ok": true,
+      "note": "модель завершила ход"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "explore",
+      "message": "не найдены определения субагентов: sdlc-claims (каталог <ROOT>\\agents). Этап пойдёт без независимого агента: ограничение прав держится на промпте, а не на конструкции."
+    },
+    {
+      "type": "stage_started",
+      "runId": "<ID>",
+      "stage": "explore",
+      "flow": "loop",
+      "provider": "stub",
+      "model": "m",
+      "chunk": 1,
+      "attempt": 1
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "explore",
+      "message": "рантайм заполнил механические поля (1): название витка, даты, вход и база плана — модели остались содержательные"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "explore",
+      "message": "форма разложена под артефакт <ROOT>\\.sdlc\\demo\\exploration-report.md — этап заполняет её, а не создаёт заново"
+    },
+    {
+      "type": "prompt_prepared",
+      "runId": "<ID>",
+      "stage": "explore",
+      "prompt": {
+        "presetNote": null,
+        "system": "СКИЛЛ explore: заполни артефакт этапа по форме.\n\n---\n\n## Как этот этап исполняется здесь\n\nТы работаешь внутри Agent-SDLC Runner, а не в интерактивной сессии Claude Code.\nТекст этапа выше — эталонный; ниже отличия, которые надо учесть.\n\n- Slug витка: `demo`. Артефакты витка: `.sdlc/demo/`, набор гейтов: `.sdlc/gates.md`.\n- Формы артефактов лежат в `<ROOT>/methodology/templates` — это каталог МЕТОДОЛОГИИ, он открыт только на чтение. Артефакты витка пишутся в `.sdlc/demo/` и больше никуда: копировать формы в проект не надо, читай их на месте.\n- Формы уже разложены по местам: <ROOT>\\.sdlc\\demo\\exploration-report.md. Это пустые бланки, а не чужая работа: открой и заполни поля прямо в них, вместо `‹…›` — своё содержимое. Создавать документ заново не нужно.\n- Вместо `AskUserQuestion` вызывай `AskHuman`: этап встаёт на паузу, пока человек не ответит в интерфейсе. Правила те же — до 4 вопросов за вызов, блокирующие первыми, один вопрос это одна неопределённость, у каждого варианта в описании названа цена ошибки.\n- Вместо `ExitPlanMode` бери одобрение тем же `AskHuman`.\n- Решение человека записывай полем в артефакт: молчание одобрением не считается, а одобрение, оставшееся в переписке, для следующего этапа не существует.\n- Оператор: **Гриц**. Сегодня: **<DATE>**. Эти значения подставляй в поля решений.\n- Текущий chunk: **1**, попытка: **1**.\n- Доступные инструменты на этом этапе: Read, Glob, Grep, Write, Edit, Task, AskHuman, FinalizeArtifact. Других у тебя нет — права выдаются на шаг, а не на прогон.\n- Как выглядит сделанный шаг. Вот настоящая незаполненная строка твоего бланка — правильное действие это ОДИН вызов инструмента с готовым содержимым:\n  ```json\n  {\"tool\":\"Edit\",\"arguments\":{\"file_path\":\".sdlc/demo/exploration-report.md\",\"old_string\":\"| ‹путь› | ‹что› | ‹что› |\",\"new_string\":\"| (твоё содержимое по факту задачи) | ‹что› | ‹что› |\"}}\n  ```\n  Когда в артефакте не осталось `‹…›` — вызови `FinalizeArtifact` с путём артефакта.\n- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе (текст никуда не записывается), спрашивать человека о том, что видно из кода, продолжать читать файлы, когда контекста для правки уже достаточно.\n- Субагенты этого этапа: sdlc-claims — вызывай их инструментом `Task`, поле `subagent_type`. Их права заданы конструкцией, а не просьбой: разведчик места правки не имеет инструментов записи, рецензент не получает твой рассказ о работе.\n- Запись вне `files_to_touch` одобренного плана отклоняется в момент вызова. Это конструкция, а не сбой: если файл действительно нужен, его сначала добавляют в план — инструментом `RequestScopeExtension` (если он тебе доступен), а не молчаливой попыткой записи или остановкой chunk'а на середине.\n- Решения человека и набор гейтов защищены от записи на этом этапе: одобренный план правит человек, а не ты. Нужна правка плана — это новая редакция и новое одобрение.\n- Входные артефакты приложены ниже целиком. Не пересказывай их по памяти и не догадывайся о содержимом — работай по тексту.\n- В карте кодовой базы — только пути, которые СЕЙЧАС есть в дереве: она про то, что прочитано, а не про то, что появится. Файл, который предстоит создать, называй в разделе о будущих правках и помечай словом «новый» — рантайм проверяет существование путей карты и считает несуществующий путь без такой пометки признаком сочинённого отчёта.\n- Роль «Агент 1 — sdlc-explorer» из текста этапа НЕ заведена в этом раннере отдельным типом субагента — вызов `Task` с ней получит отказ. Её работу (стек и конвенции, карта кодовой базы, найденное для переиспользования, точка правки, риски) делай сама напрямую инструментами `Read`/`Glob`/`Grep` в этом же ходе. `Task` на этом этапе годится только для роли «Агент 2 — sdlc-claims» — единственного заведённого субагента, см. пункт выше.",
+        "user": "## Входные артефакты\n\n\n\n````markdown\n<!-- .sdlc/demo/intent.md -->\n# Задача: demo\n\n- **Контур:** полный\n- **Ветка витка:** sdlc/demo\n\n## Коротко\n\nПоднять версию приложения до 2.\n\n## Что делаем\n\n- меняем константу версии в `src/app.js`\n\n## Приёмка\n\n| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | версия поднята до 2 | `version === 2` |\n| claim-2 [edge] | версия — число, а не строка | `typeof version === \"number\"` |\n| claim-3 [edge] | других экспортов не появилось | список экспортов модуля |\n\n````\n\n````markdown\n<!-- .sdlc/demo/readiness.md -->\n# Готовность: demo\n\n- Прогон 1: готова\n\n````\n\n````markdown\n<!-- .sdlc/gates.md -->\n# Набор гейтов: demo\n\n## Набор\n\n| Гейт | Вкл | Где отчитывается | Чем реализован |\n|---|---|---|---|\n| Сборка | да — минимум | этап 6 | `node -e \"process.exit(0)\"` |\n| Тесты | да — минимум | этап 6 | `node -e \"process.exit(0)\"` |\n| Scope: файлы вне плана | да — минимум | этап 6 | скрипт сверки diff с files_to_touch |\n| Анти-обход тест-гейта | да — минимум | этап 6 | скрипт |\n| Ревью независимым агентом | да — минимум | этап 6 | агент на более сильной модели |\n\n````",
+        "tools": [
+          {
+            "name": "Read",
+            "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "Строка, с которой начать (с 1)"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Сколько строк прочитать"
+                }
+              },
+              "required": [
+                "file_path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Glob",
+            "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Glob-шаблон"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Каталог поиска; по умолчанию корень проекта"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Grep",
+            "description": "Поиск по содержимому файлов регулярным выражением.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Регулярное выражение"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Файл или каталог поиска; по умолчанию корень проекта"
+                },
+                "glob": {
+                  "type": "string",
+                  "description": "Дополнительный фильтр по именам файлов"
+                }
+              },
+              "required": [
+                "pattern"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Write",
+            "description": "Записать файл целиком. Запись вне files_to_touch одобренного плана отклоняется рантаймом в момент вызова — это конструкция, а не сбой.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Полное содержимое"
+                }
+              },
+              "required": [
+                "file_path",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Edit",
+            "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "Путь к файлу"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Фрагмент, который заменяем"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Чем заменяем"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Заменить все вхождения"
+                }
+              },
+              "required": [
+                "file_path",
+                "old_string",
+                "new_string"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "Task",
+            "description": "Запустить субагента. Методология требует независимого исполнителя там, где судящий не должен быть автором: `sdlc-claims` на разведке (слепой вывод приёмочного листа), `sdlc-locator` на разведке места правки (у него нет прав записи по построению) и `sdlc-reviewer` на верификации. Доступны только субагенты, объявленные текущим этапом. Вызовы инструментов внутри субагента проходят через тот же гейт одобрений.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "subagent_type": {
+                  "type": "string",
+                  "description": "Имя субагента из объявленных на этапе: sdlc-claims, sdlc-locator или sdlc-reviewer"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Коротко: что поручаем"
+                },
+                "prompt": {
+                  "type": "string",
+                  "description": "Полное задание субагенту"
+                }
+              },
+              "required": [
+                "subagent_type",
+                "prompt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "AskHuman",
+            "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "questions": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string",
+                        "description": "Полный текст вопроса"
+                      },
+                      "header": {
+                        "type": "string",
+                        "description": "Короткая метка, до 12 символов"
+                      },
+                      "multiSelect": {
+                        "type": "boolean",
+                        "description": "Можно выбрать несколько"
+                      },
+                      "options": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 4,
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "description": "Вариант"
+                            },
+                            "description": {
+                              "type": "string",
+                              "description": "Что это значит и чем грозит ошибка"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "description"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "question",
+                      "header",
+                      "multiSelect",
+                      "options"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "questions"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "FinalizeArtifact",
+            "description": "Объявить артефакт этапа готовым. Рантайм проверит, что в нём не осталось незаполненных мест «‹…›», и покажет его человеку.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "artifact": {
+                  "type": "string",
+                  "description": "Путь к артефакту относительно корня проекта"
+                },
+                "note": {
+                  "type": "string",
+                  "description": "Одной строкой: что получилось"
+                }
+              },
+              "required": [
+                "artifact"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ],
+        "editedByOperator": false
+      }
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "explore",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 400,
+        "outputTokens": 40,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "tool_result",
+      "runId": "<ID>",
+      "stage": "explore",
+      "requestId": "loop:<ID>",
+      "ok": true,
+      "summary": "перезаписан .sdlc/demo/exploration-report.md (10 строк)",
+      "durationMs": 0
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "explore",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 500,
+        "outputTokens": 50,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "explore",
+      "text": "разведка готова"
+    },
+    {
+      "type": "warning",
+      "runId": "<ID>",
+      "stage": "explore",
+      "message": "карта кодовой базы в отчёте разведки называет несуществующие пути: src/missing.js — отчёт сочинён, а не прочитан из кода. Разведку нужно переделать по реальным файлам. Поправь карту: несуществующий путь либо убери, либо помечай словом «новый» — файл, который предстоит создать, картой кодовой базы не является. (напоминание 1 из 2)"
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "explore",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 600,
+        "outputTokens": 60,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "tool_result",
+      "runId": "<ID>",
+      "stage": "explore",
+      "requestId": "loop:<ID>",
+      "ok": true,
+      "summary": "перезаписан .sdlc/demo/exploration-report.md (10 строк)",
+      "durationMs": 0
+    },
+    {
+      "type": "usage",
+      "runId": "<ID>",
+      "stage": "explore",
+      "usage": {
+        "inputTokens": 100,
+        "outputTokens": 10,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      },
+      "total": {
+        "inputTokens": 700,
+        "outputTokens": 70,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "costUsd": null,
+        "durationMs": 0
+      }
+    },
+    {
+      "type": "assistant_text",
+      "runId": "<ID>",
+      "stage": "explore",
+      "text": "карта исправлена"
+    },
+    {
+      "type": "artifact_written",
+      "runId": "<ID>",
+      "stage": "explore",
+      "path": "<ROOT>\\.sdlc\\demo\\exploration-report.md",
+      "placeholders": 1
+    },
+    {
+      "type": "stage_done",
+      "runId": "<ID>",
+      "stage": "explore",
+      "ok": true,
+      "note": "модель завершила ход"
+    },
+    {
+      "type": "stage_done",
+      "runId": "<ID>",
+      "stage": "ask",
+      "ok": true,
+      "note": "открытых вопросов нет — этап условный, артефакт не создаётся"
+    }
+  ],
+  "requests": [
+    {
+      "stage": "intent",
+      "messages": 2,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Write"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "intent",
+      "messages": 4,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Write"
+      ],
+      "lastRole": "tool"
+    },
+    {
+      "stage": "intent",
+      "messages": 6,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Write"
+      ],
+      "lastRole": "tool"
+    },
+    {
+      "stage": "explore",
+      "messages": 2,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "explore",
+      "messages": 4,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "tool"
+    },
+    {
+      "stage": "explore",
+      "messages": 6,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "user"
+    },
+    {
+      "stage": "explore",
+      "messages": 8,
+      "tools": [
+        "AskHuman",
+        "Edit",
+        "FinalizeArtifact",
+        "Glob",
+        "Grep",
+        "Read",
+        "Task",
+        "Write"
+      ],
+      "lastRole": "tool"
+    }
+  ],
+  "files": {
+    "exploration-report.md": "# Отчёт разведки: demo\n\n## Карта кодовой базы\n\n| Файл | Что там сейчас | Что меняем |\n|---|---|---|\n| src/app.js | константа версии | поднять до 2 |\n\n**Решение человека о полноте:** ‹подпись и дата›\n",
+    "intent.md": "# Задача: demo\n\n- **Контур:** полный\n- **Ветка витка:** sdlc/demo\n\n## Коротко\n\nПоднять версию приложения до 2.\n\n## Что делаем\n\n- меняем константу версии в `src/app.js`\n\n## Приёмка\n\n| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | версия поднята до 2 | `version === 2` |\n| claim-2 [edge] | версия — число, а не строка | `typeof version === \"number\"` |\n| claim-3 [edge] | других экспортов не появилось | список экспортов модуля |\n",
+    "readiness.md": "# Готовность: demo\n\n- Прогон 1: готова\n",
+    "src/app.js": "export const version = 1;\n"
+  }
+}
