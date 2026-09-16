@@ -30,7 +30,12 @@ import type {
   ChatTurn,
   FinishReason,
 } from './ChatProvider.ts';
-import { ENGINE_UNAVAILABLE_SUBSTRINGS, ProviderEnvError, applyParams } from './ChatProvider.ts';
+import {
+  ENGINE_UNAVAILABLE_SUBSTRINGS,
+  PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS,
+  ProviderEnvError,
+  applyParams,
+} from './ChatProvider.ts';
 import { dumpExchange, type TraceLabel } from './rawLog.ts';
 
 interface OpenAiChoice {
@@ -574,7 +579,24 @@ export class OpenAiCompatProvider implements ChatProvider {
           return null;
         }
       };
-      const engineCrash = status === 400 && ENGINE_UNAVAILABLE_SUBSTRINGS.test(engineCrashText() ?? '');
+      // Структурная форма OpenRouter/polza: `error` — объект с `code`, а не строка.
+      // `engineCrashText` его намеренно не разбирает (см. её докстринг и тест «ВНУТРИ
+      // структурированного error.message — обычная ошибка») — здесь свой, более узкий
+      // разбор ровно под один код ошибки, см. `PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS`.
+      const routingExhaustedText = (): string | null => {
+        try {
+          const parsed = JSON.parse(text) as { error?: { code?: unknown; message?: unknown } };
+          if (typeof parsed.error !== 'object' || parsed.error === null) return null;
+          if (parsed.error.code !== 'BAD_REQUEST') return null;
+          return typeof parsed.error.message === 'string' ? parsed.error.message : null;
+        } catch {
+          return null;
+        }
+      };
+      const engineCrash =
+        status === 400 &&
+        (ENGINE_UNAVAILABLE_SUBSTRINGS.test(engineCrashText() ?? '') ||
+          PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS.test(routingExhaustedText() ?? ''));
       const envStatus =
         status === 429 || status >= 500 || status === 401 || status === 402 || status === 403 || engineCrash;
       throw envStatus ? new ProviderEnvError(message) : new Error(message);

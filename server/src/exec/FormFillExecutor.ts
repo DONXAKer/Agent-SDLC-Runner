@@ -64,6 +64,7 @@ import { isSeparatorRow, splitRow } from '../md/table.ts';
 import { RUNTIME_AUTOFILLED_TEMPLATES } from '../run/formAutofill.ts';
 import {
   ENGINE_UNAVAILABLE_SUBSTRINGS,
+  PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS,
   ProviderEnvError,
   type ChatMessage,
   type ChatProvider,
@@ -579,7 +580,8 @@ export class FormFillExecutor implements StageExecutor {
     // признаки (econnrefused/econnreset/socket hang up) — своё, этому потребителю: диагноз
     // ставится по тексту уже брошенного исключения, а не по полю HTTP-тела.
     const PROVIDER_UNAVAILABLE_RE = new RegExp(
-      `econnrefused|econnreset|socket hang up|${ENGINE_UNAVAILABLE_SUBSTRINGS.source}`,
+      `econnrefused|econnreset|socket hang up|${ENGINE_UNAVAILABLE_SUBSTRINGS.source}|` +
+        PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS.source,
       'i',
     );
     let lastRejectionReason: string | null = null;

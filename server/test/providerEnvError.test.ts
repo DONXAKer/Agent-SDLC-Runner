@@ -12,7 +12,12 @@ import { ok, rejects, strictEqual } from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { describe, it } from 'node:test';
 
-import { ENGINE_UNAVAILABLE_SUBSTRINGS, ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
+import {
+  ENGINE_UNAVAILABLE_SUBSTRINGS,
+  PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS,
+  ProviderEnvError,
+  type ChatProvider,
+} from '../src/provider/ChatProvider.ts';
 import { OpenAiCompatProvider } from '../src/provider/OpenAiCompatProvider.ts';
 
 /** Сервер, отвечающий одним и тем же статусом. Повторы провайдера тоже придут сюда. */
@@ -176,6 +181,50 @@ describe('OpenAiCompatProvider: среда против модели', () => {
     }
   });
 
+  it('400 «All providers have been ignored» (polza/OpenRouter, structured error.code) — среда, не модель (sweep5-ministral14b, 2026-09-16)', async () => {
+    const s = await stub(
+      400,
+      JSON.stringify({
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'All providers have been ignored. To change your default ignored providers, visit: https://openrouter.ai/settings/privacy',
+          trace_id: 'abc123',
+        },
+      }),
+    );
+    try {
+      await rejects(
+        () => chatWith(s.url),
+        (e: Error) => {
+          ok(e instanceof ProviderEnvError, `ожидался ProviderEnvError, пришёл ${e.name}`);
+          return true;
+        },
+      );
+    } finally {
+      s.server.close();
+    }
+  });
+
+  it('400 с тем же текстом, но БЕЗ `error.code: BAD_REQUEST» — обычная ошибка, не среда (узкий матч, не по всему телу)', async () => {
+    const s = await stub(
+      400,
+      JSON.stringify({
+        error: { message: 'схема инструмента упомянула: All providers have been ignored — пример из документации' },
+      }),
+    );
+    try {
+      await rejects(
+        () => chatWith(s.url),
+        (e: Error) => {
+          ok(!(e instanceof ProviderEnvError), `не должен читаться как отказ среды, пришёл ${e.name}`);
+          return true;
+        },
+      );
+    } finally {
+      s.server.close();
+    }
+  });
+
   it('400 «Unterminated string in JSON» — ошибка разбора, не падение движка (code-review, 2026-09-14)', async () => {
     // Подстрока `terminated` без границ слова совпадала с `Unterminated` и красила
     // отказ разбора — про модель — средовым.
@@ -203,6 +252,11 @@ describe('OpenAiCompatProvider: среда против модели', () => {
     ok(combined.test('HTTP 400 {"error":"Terminated"}'));
     ok(combined.test('ECONNREFUSED 127.0.0.1'));
     ok(!combined.test('Unterminated string in JSON'));
+  });
+
+  it('PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS: граница слова, не ловит соседние фразы', () => {
+    ok(PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS.test('All providers have been ignored.'));
+    ok(!PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS.test('some providers have been ignored'));
   });
 
   it('адрес, где никто не слушает, — тоже отказ среды: до модели запрос не дошёл', async () => {

@@ -126,3 +126,22 @@ export class ProviderEnvError extends Error {
  * захвата намеренно — `FormFillExecutor` вклеивает её `.source` в свою через `|`.
  */
 export const ENGINE_UNAVAILABLE_SUBSTRINGS = /\bterminated\b|\bfetch failed\b/i;
+
+/**
+ * OpenRouter и агрегаторы поверх него (`polza` — тот же `"provider":"openrouter"` в теле
+ * успешного ответа) отдают structured `HTTP 400
+ * {"error":{"code":"BAD_REQUEST","message":"All providers have been ignored…"}}`, когда ни
+ * один апстрим-хост модели маршруту временно не подходит — не про сам запрос, а про ёмкость
+ * маршрута в моменте. Живой замер (серия `sweep5-ministral14b`, 2026-09-16,
+ * `docs/model-runs.md`): у `mistralai/ministral-14b-2512` на polza ровно один провайдер без
+ * резерва, и 9 из 10 прогонов подряд упёрлись в эту ошибку на `intent`/`explore`, не
+ * восстановившись до конца этапа — до фикса это красило МОДЕЛЬ (`envFailure` не
+ * заполнялся), хотя отказ целиком средовой.
+ *
+ * Матчится ТОЛЬКО вместе с `error.code === 'BAD_REQUEST'` (см. `OpenAiCompatProvider`), а
+ * не по сырому телу целиком: фраза достаточно необычна, чтобы не путать её со случайной
+ * цитатой внутри сообщения об ошибке схемы инструмента — тот же риск ложного срабатывания,
+ * что уже поймал `ENGINE_UNAVAILABLE_SUBSTRINGS` на `fetch failed` (code-review-all,
+ * 2026-09-14), поэтому здесь та же осторожность, а не слепой матч по `error.message`.
+ */
+export const PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS = /\ball providers have been ignored\b/i;
