@@ -1766,7 +1766,7 @@ export class Run {
       temperature: null,
       params: route.params,
       currency: route.providerDef.currency ?? 'USD',
-      historyBudgetBytes: limits.localHistoryBudgetBytes,
+      historyBudgetBytes: route.historyBudgetBytes ?? limits.localHistoryBudgetBytes,
       // Расчёт `max_tokens` по остатку окна (`LoopExecutor.paramsFor`) — то же поле,
       // которым уже сверяется загрузка LM Studio (`lmstudioContext.ts`), не второе знание.
       ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),

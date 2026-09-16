@@ -54,6 +54,7 @@ function resolveRoute(
     stepFill: def.stepFill ?? false,
     compactForms: def.compactForms ?? 'off',
     ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),
+    ...(def.historyBudgetBytes === undefined ? {} : { historyBudgetBytes: def.historyBudgetBytes }),
     exploreIndex: def.exploreIndex ?? false,
     exploreFill: def.exploreFill ?? false,
   };
