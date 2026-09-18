@@ -150,8 +150,14 @@ function checkTaskFiles(deps: PreflightDeps, task: string): PreflightCheck {
 
 /**
  * Банк ответов человека. Вопрос мимо правил уходит в fallback, а на задачах, где ответ
- * человека и есть предмет измерения (`security-bait`, `two-right-answers`), fallback ломает
- * само измерение — серия v4 дала 21 такой вопрос, и видно это было только после прогона.
+ * человека и есть предмет измерения, fallback ломает само измерение — серия v4 дала 21 такой
+ * вопрос, и видно это было только после прогона. НЕ блокирует: 16 из 30 фикстур на
+ * 2026-09-17 несут пустой `rules` НАМЕРЕННО (комментарий «Пусто по дизайну» прямо в файле) —
+ * весь ответ добывается из кода/теста/текста задачи, и это большинство, не исключение.
+ * Раньше 0 правил било КРАСНЫМ по среде даже для задач, где сама фикстура называет пустой
+ * банк своим правильным устройством (`two-right-answers`, `refuse-dangerous`,
+ * `silent-contract` и другие — у каждой комментарий «Пусто по дизайну» на месте `rules`),
+ * и серия `--all`/`--repeat` на них не стартовала без `--no-preflight`.
  */
 function checkAnswerBank(deps: PreflightDeps, task: string): PreflightCheck {
   const started = Date.now();
@@ -161,7 +167,7 @@ function checkAnswerBank(deps: PreflightDeps, task: string): PreflightCheck {
     const script = readHumanScript(files.humanFile);
     const rules = script.answers.rules.length;
     if (rules === 0) {
-      return bad(name, true, `в ${files.humanFile} нет ни одного правила ответа — каждый вопрос модели уйдёт в fallback`, Date.now() - started);
+      return ok(name, true, `правил ответа 0 — каждый вопрос модели уйдёт в fallback; число таких — в отчёте`, Date.now() - started);
     }
     return ok(
       name,
