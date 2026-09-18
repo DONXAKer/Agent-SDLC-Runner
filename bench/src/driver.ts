@@ -317,7 +317,12 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     envRetriedStage = null;
 
     const def = stageById(stage);
-    if (def.humanGate !== null) {
+    // `skipped` (выше) — этап пропущен `skipIf` (например, «мелкий контур» на `explore`):
+    // артефакт `humanGate` физически не создавался, и `recordDecision` бросил бы
+    // `DecisionFormError` не по вине модели, а по устройству пропуска — живой пример:
+    // 3 из 5 прогонов `qwen3-8b-stepfill-compactfill` (серия test21) шли в `blocked`
+    // ровно так, хотя мелкий контур — легитимный, не имеющий отношения к модели пропуск.
+    if (def.humanGate !== null && !skipped) {
       // Испорченное моделью поле решения — провал ЭТАПА, а не крах бенчмарка: пока
       // исключение летело наружу, прогон падал без result.json и отчёта (живой прогон —
       // модель заполнила «Подтвердил» за человека, и настоящему решению стало некуда лечь).

@@ -103,6 +103,84 @@ describe('runBench: бухгалтерия stages[] при retry-stage-env', () 
   });
 });
 
+/**
+ * `explore` — единственный этап, у которого одновременно есть `skipIf` (мелкий контур) и
+ * `humanGate`: пропуск не создаёт артефакт (`finalText:'', usage.durationMs:0`), и
+ * `recordDecision`, вызванный по-прежнему, бросал бы `DecisionFormError` не по вине модели.
+ * Живой пример — серия test21, 2026-09-17: 3 из 5 прогонов `qwen3-8b-stepfill-compactfill`
+ * шли в `blocked` ровно так.
+ */
+describe('runBench: пропуск этапа (skipIf) не зовёт recordDecision', () => {
+  it('мелкий контур — этап пропущен, recordDecision не вызывается, remains ok', async () => {
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      blockerDetails: () => [],
+      cancel: () => {},
+      recordDecision: () => {
+        throw new Error('recordDecision не должен был вызываться при пропуске этапа');
+      },
+      runStage: async (): Promise<StageResult> => ({
+        ok: true,
+        finalText: '',
+        usage: emptyUsage(),
+        note: 'мелкий контур: разведка точечная на этапе 5, отчёт не пишется',
+      }),
+    } as unknown as Run;
+
+    const result = await runBench({
+      run: fakeRun,
+      stageTimeoutMs: 10_000,
+      runTimeoutMs: 60_000,
+      attempts: 3,
+      startStage: 'explore',
+      stopAfterStage: 'explore',
+    });
+
+    strictEqual(result.stopped, 'snapshot-point', JSON.stringify(result));
+    const [explore] = result.stages;
+    strictEqual(explore?.ok, true);
+    strictEqual(explore?.skipped, true);
+  });
+
+  it('обычный (не пропущенный) успешный explore по-прежнему зовёт recordDecision', async () => {
+    let recordDecisionCalls = 0;
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      lastVerdict: null,
+      blockers: () => [],
+      blockerDetails: () => [],
+      cancel: () => {},
+      recordDecision: () => {
+        recordDecisionCalls++;
+        return 'Гриц · 2026-09-17';
+      },
+      runStage: async (): Promise<StageResult> => ({
+        ok: true,
+        finalText: '# Разведка\n\nготово',
+        usage: { ...emptyUsage(), durationMs: 1200 },
+        note: 'готово',
+      }),
+    } as unknown as Run;
+
+    const result = await runBench({
+      run: fakeRun,
+      stageTimeoutMs: 10_000,
+      runTimeoutMs: 60_000,
+      attempts: 3,
+      startStage: 'explore',
+      stopAfterStage: 'explore',
+    });
+
+    strictEqual(result.stopped, 'snapshot-point', JSON.stringify(result));
+    strictEqual(result.stages[0]?.skipped, false);
+    strictEqual(recordDecisionCalls, 1, 'обычный ход обязан записать решение человека');
+  });
+});
+
 describe('runBench: запись блокировки и признаки этапа', () => {
   it('блокировка входа несёт этап-виновника; прошедший этап — ходы и «закрыт рантаймом»', async () => {
     const blocker = 'в intent.md осталось незаполненных мест: 1 — артефакт не готов';
