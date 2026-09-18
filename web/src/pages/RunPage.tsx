@@ -428,9 +428,14 @@ export function RunPage({
 
   // «Ждёт приёмки» — это слот decision И то, что он ещё не записан: decision сам по себе
   // статичен (метаданные этапа), decisionRecorded читает артефакт тем же разбором, что и
-  // предусловие следующего этапа.
+  // предусловие следующего этапа. `!stageInfo.skipped` — тот же случай, что чинил Фикс 1
+  // в bench-драйвере (`bench/src/driver.ts`), но на живом сервере: у легитимно пропущенного
+  // этапа (`skipIf`, «мелкий контур») артефакт решения физически не создаётся, и попытка
+  // его записать даёт `DecisionFormError` → 400 (code-review-all, 2026-09-18).
   const decision =
-    stageInfo?.decision != null && !stageInfo.decisionRecorded ? stageInfo.decision : null;
+    stageInfo?.decision != null && !stageInfo.decisionRecorded && !stageInfo.skipped
+      ? stageInfo.decision
+      : null;
 
   // Что на «Сейчас» главное — считает чистая машина фокуса; здесь только рендер по ней.
   const focus = computeNowFocus({

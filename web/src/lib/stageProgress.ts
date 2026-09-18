@@ -32,7 +32,12 @@ export function computeStageStates(
   const out: Partial<Record<StageId, StageState>> = {};
   for (const s of stages) {
     if (s.id === runningStage) out[s.id] = 'running';
-    else if (s.produced) out[s.id] = 'done';
+    // Пропущенный этап (`skipIf`, «мелкий контур») не произведёт артефакт никогда —
+    // `produced` у него так и останется `false`. Без этой ветки кружок висел бы
+    // «доступен» (`blockers.length === 0`) до конца витка, приглашая запустить то, что
+    // рантайм уже прошёл (code-review-all, 2026-09-18; та же природа, что у `suggestedStage`
+    // ниже, которая `skipped` уже учитывала).
+    else if (s.produced || s.skipped) out[s.id] = 'done';
     else if (s.blockers.length === 0) out[s.id] = 'available';
     else out[s.id] = 'blocked';
   }

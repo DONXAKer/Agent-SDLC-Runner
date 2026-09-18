@@ -88,6 +88,13 @@ describe('состояние этапов из produced и блокеров', ()
     const st = computeStageStates(stages([]), null);
     for (const id of ORDER) strictEqual(st[id], 'blocked', id);
   });
+
+  it('пропущенный этап (skipIf) — done, а не available: артефакта не будет никогда (code-review-all, 2026-09-18)', () => {
+    const input = stages(['intent', 'explore', 'ask', 'plan'], ['intent', 'explore'], ['ask']);
+    const st = computeStageStates(input, null);
+    strictEqual(st.ask, 'done');
+    strictEqual(st.plan, 'available');
+  });
 });
 
 describe('сид выбранного этапа', () => {
