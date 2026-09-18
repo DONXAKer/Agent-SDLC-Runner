@@ -446,6 +446,50 @@ describe('цикл tool-use', () => {
     ok(/прогресса нет/.test(r.note), r.note);
   });
 
+  // Симметрично ветке «прогресс есть» (2026-09-17): один явный шанс перед остановом,
+  // а не немедленный обрыв на 3-м повторе.
+  it('повтор без прогресса: сначала одно предупреждение, обрыв — только на следующем таком же повторе', async () => {
+    const h = hooks();
+    const r = await executor(
+      provider([
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+      ]),
+    ).run(request(), h);
+
+    strictEqual(r.ok, false);
+    ok(/прогресса нет/.test(r.note), r.note);
+    // Ровно ОДНО предупреждение до финального обрыва — не ноль (было бы регрессом к
+    // немедленному обрыву) и не два (кредит на предупреждение выдавался бы повторно).
+    const warnings = h.warns.filter((w) => /вызов не исполнен/.test(w));
+    strictEqual(warnings.length, 1, h.warns.join(' | '));
+    // Только самый первый (не повторный) вызов реально доходит до гейта — `handleCall`
+    // отказывает повторам ДО гейта, это не задето фиксом 5.
+    strictEqual(h.calls.length, 1);
+  });
+
+  it('серия повторов, прерванная другим вызовом, получает НОВЫЙ кредит на предупреждение', async () => {
+    const h = hooks();
+    const r = await executor(
+      provider([
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' }, // предупреждение №1
+        { toolCalls: [readCall('src/deep/B.ts')], finishReason: 'tool_use' }, // серия прервана
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' },
+        { toolCalls: [readCall('src/deep/A.ts')], finishReason: 'tool_use' }, // предупреждение №2, не обрыв
+        { text: 'готово', finishReason: 'end_turn' },
+      ]),
+    ).run(request(), h);
+
+    strictEqual(r.ok, true, r.note);
+    const warnings = h.warns.filter((w) => /вызов не исполнен/.test(w));
+    strictEqual(warnings.length, 2, h.warns.join(' | '));
+  });
+
   it('сломанный JSON в аргументах объясняется модели, а не роняет этап', async () => {
     const p = provider([
       {

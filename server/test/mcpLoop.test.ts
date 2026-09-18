@@ -181,7 +181,11 @@ describe('флоу loop: внешние MCP-инструменты', () => {
   it('обычный инструмент, повторённый подряд, по-прежнему обрывает этап', async () => {
     const m = access();
     const h = hooks();
+    // Четыре одинаковых хода, не три: третий теперь даёт ОДНО явное предупреждение вместо
+    // немедленного обрыва (симметрично ветке «прогресс есть», 2026-09-17) — обрывает только
+    // повтор СВЕРХ предупреждения.
     const p = provider([
+      { toolCalls: [mcpCall('spawn_actor')], finishReason: 'tool_use' },
       { toolCalls: [mcpCall('spawn_actor')], finishReason: 'tool_use' },
       { toolCalls: [mcpCall('spawn_actor')], finishReason: 'tool_use' },
       { toolCalls: [mcpCall('spawn_actor')], finishReason: 'tool_use' },
@@ -191,6 +195,24 @@ describe('флоу loop: внешние MCP-инструменты', () => {
     strictEqual(r.ok, false);
     ok(r.note.includes('прогресса нет'));
     ok(h.friction.includes('repeat'));
+  });
+
+  it('обычный инструмент, повторённый подряд, — предупреждение на третьем разрывает серию, не роняет этап сразу', async () => {
+    const m = access();
+    const h = hooks();
+    const p = provider([
+      { toolCalls: [mcpCall('spawn_actor')], finishReason: 'tool_use' },
+      { toolCalls: [mcpCall('spawn_actor')], finishReason: 'tool_use' },
+      { toolCalls: [mcpCall('spawn_actor')], finishReason: 'tool_use' },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    const r = await executor(p).run(request(m), h);
+    strictEqual(r.ok, true, r.note);
+    // `handleCall` не исполняет ПОВТОРНЫЙ вызов вовсе (свой более ранний короткий отказ —
+    // `repeats > 0`), поэтому реально доходит до `access.call` только самый первый; второй
+    // и третий получают ответ без исполнения. Здесь важно, что этап НЕ упал — не сколько
+    // раз вызван инструмент.
+    strictEqual(m.calls.length, 1);
   });
 
   it('отказ политики не роняет этап и считается трением', async () => {

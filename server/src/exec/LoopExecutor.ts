@@ -263,6 +263,17 @@ export class LoopExecutor implements StageExecutor {
     let repeats = 0;
     /** Сколько работы было зафиксировано, когда началась текущая серия повторов. */
     let progressAtStreakStart = req.progressSignal?.() ?? 0;
+    /**
+     * Отпечаток серии, уже получившей ОДНО явное предупреждение об остановке — симметрично
+     * ветке «прогресс есть» (строки ниже, `progressAtStreakStart`): там модель тоже получает
+     * предупреждение и шанс продолжить вместо немедленного обрыва. Раньше ветка «прогресса
+     * нет» обрывала этап на 3-м повторе без единого предупреждающего хода (класс #10
+     * таксономии, docs/model-error-taxonomy.md). Сбрасывается вместе с началом новой серии
+     * (`firstOfStreak`) — кредит на предупреждение даётся один раз за НЕПРЕРЫВНУЮ серию
+     * одинаковых вызовов, а не один раз на весь этап.
+     */
+    let noProgressWarnedFor: string | null = null;
+    let noProgressWarnedForTurn: string | null = null;
     let reminders = 0;
     let readStreak = 0;
     let readNudges = 0;
@@ -580,13 +591,34 @@ export class LoopExecutor implements StageExecutor {
         // безусловно, модель, повторяющая одну и ту же пару `Task`, крутилась до
         // `maxTurns`, и каждый ход стоил двух полных вложенных прогонов.
         const turnFingerprint = answer.toolCalls.map(callFingerprint).join('\u0000');
-        repeats = turnFingerprint === lastFingerprint ? repeats + 1 : 0;
+        // Отпечаток изменился — прежнее предупреждение (если было) устарело. НЕ `repeats
+        // === 0`: тот же ноль бывает и от нашего же сброса ПОСЛЕ предупреждения ниже, и
+        // сравнение по нему стирало бы память о предупреждении на следующей же итерации,
+        // превращая единственный кредит в бесконечный цикл «предупреждение вместо провала».
+        const isNewTurnFingerprint = turnFingerprint !== lastFingerprint;
+        repeats = isNewTurnFingerprint ? 0 : repeats + 1;
         lastFingerprint = turnFingerprint;
+        if (isNewTurnFingerprint) noProgressWarnedForTurn = null;
         if (repeats > 0) hooks.onFriction('repeat');
 
         if (repeats + 1 >= REPEAT_LIMIT) {
           const doneAnyway = finishedByDisk();
           if (doneAnyway !== null) return doneAnyway;
+          if (noProgressWarnedForTurn !== turnFingerprint) {
+            // `repeats` НЕ сбрасывается: следующий же одинаковый ход обязан попасть в ветку
+            // ниже (уже предупреждали) и остановить этап, а не получить ещё REPEAT_LIMIT-1
+            // ходов форы, которые дал бы сброс.
+            noProgressWarnedForTurn = turnFingerprint;
+            const note =
+              `ход из ${answer.toolCalls.length} субагентов повторён ${REPEAT_LIMIT} раза подряд, ` +
+              `прогресса нет — ход не исполнен. Смени аргументы или заверши ход явно: ещё один ` +
+              `такой повтор без прогресса завершит этап отказом.`;
+            hooks.onWarn(note);
+            answer.toolCalls.forEach((call) => {
+              messages.push({ role: 'tool', toolCallId: call.id, name: call.name, content: note });
+            });
+            continue;
+          }
           const note =
             `цикл остановлен: ход из ${answer.toolCalls.length} субагентов повторён ` +
             `${repeats + 1} раза подряд с теми же аргументами — прогресса нет`;
@@ -619,6 +651,7 @@ export class LoopExecutor implements StageExecutor {
         // она засчитывала запись самого первого вызова как «прогресс за серию», и
         // одинаковый `Write` исполнялся каждый третий раз до самого `maxTurns`.
         const firstOfStreak = repeats === 0;
+        if (firstOfStreak) noProgressWarnedFor = null;
 
         if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
 
@@ -647,6 +680,23 @@ export class LoopExecutor implements StageExecutor {
               content:
                 'этот вызов уже был с теми же аргументами. Он не повторён; работа с начала серии ' +
                 'продвинулась, поэтому этап продолжается. Смени аргументы или заверши ход.',
+            });
+            continue;
+          } else if (noProgressWarnedFor !== fingerprint) {
+            // `repeats` НЕ сбрасывается — см. комментарий у аналогичной ветки для
+            // параллельных субагентов выше: следующий же повтор обязан попасть в конечный
+            // `else` и остановить этап, а не получить лишнюю фору.
+            noProgressWarnedFor = fingerprint;
+            const note =
+              `«${call.name}» повторён ${REPEAT_LIMIT} раза подряд, прогресса нет — вызов не ` +
+              `исполнен. Смени аргументы или заверши ход явно: ещё один такой повтор без ` +
+              `прогресса завершит этап отказом.`;
+            hooks.onWarn(note);
+            messages.push({
+              role: 'tool',
+              toolCallId: call.id,
+              name: call.name,
+              content: note,
             });
             continue;
           } else {
