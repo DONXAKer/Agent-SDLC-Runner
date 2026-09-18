@@ -1,0 +1,586 @@
+{
+  "run": {
+    "slug": "test21-gemma-4-e4b-selfreview-freeship",
+    "model": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "explore": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "ask": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "plan": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "chunk": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "verify": "lmstudio:gemma-4-e4b-stepfill-compactfill-selfreview",
+      "handoff": "lmstudio:gemma-4-e4b-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-17T15:18:54.220Z",
+    "finishedAt": "2026-09-17T15:45:04.956Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 42, осталось на диске 0 полей модели; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить, прогон 2/2/статус (и ещё 8)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 43
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "артефакт этапа не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-TOdFUj\\.sdlc\\test21-gemma-4-e4b-selfreview-freeship\\exploration-report.md. Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit. — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 13, осталось на диске 9 полей модели; ответ на поле гейт «заполненность артефактов» отклонён: поле «гейт «заполненность артефактов»»: комментарий несёт плейсхолдер бланка ‹…›; ответ на поле сборка / тесты отклонён: поле «сборка / тесты»: ответ — JSON-конверт вызова инструмента, а не значение поля; ответ на поле карта кодовой базы отклонён: поле «карта кодовой базы»: записей нет, а альтернативы «пусто» у него нет; ответ на поле найдено для переиспользования отклонён: поле «найдено для переиспользования»: записей нет, а альтернативы «пусто» у него нет; ответ на поле опоры осей отклонён: поле «опоры осей»: записей нет, а альтернативы «пусто» у него нет; ответ на поле точка правки отклонён: поле «точка правки»: ответ — JSON-конверт вызова инструмента, а не значение поля; ответ на поле карта кодовой базы отклонён: поле «карта кодовой базы»: записей нет, а альтернативы «пусто» у него нет; ответ на поле найдено для переиспользования отклонён: поле «найдено для переиспользования»: ответ — JSON-конверт вызова инструмента, а не значение поля",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 11,
+        "modelRequests": 21
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 227254,
+          "outputTokens": 46993,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1664133
+        },
+        "durationMs": 702375
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 304108,
+          "outputTokens": 45389,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1527432
+        },
+        "durationMs": 868334
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 11,
+        "truncated": 0,
+        "toolCalls": 18,
+        "reminders": 2
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 12
+      },
+      {
+        "stage": "explore",
+        "questions": 2,
+        "approvals": 3,
+        "waitMs": 14
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 17
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:7fd89661-231c-43a2-9579-d62fd88c72a9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:d7181a42-5fe6-4d80-9027-dc0d4aec9f33",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:1e73288f-f11e-4d90-8b8d-f4b3c625645c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:835a9b60-79ae-499d-accd-8a25dbb3e818",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:30337392-6d37-49c5-be92-0a46234f949d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:638e80df-153a-4fa7-8d91-5bb3fb21d3a8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "На основе сверки листов выявлена неточность: требуется покрыть поведение клиентов других уровней лояльности (кроме Gold) для новой бесплатной доставки. Должны ли мы включить проверки для всех существующих типов клиентов?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Учитывая расхождения в требованиях (claim-5), необходимо определить scope проверки: должна ли льготная бесплатная доставка применяться только для клиентов Gold или мы должны включить проверку ее отсутствия для всех остальных типов лояльности?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": [
+      {
+        "stage": "explore",
+        "requestId": "loop:6712da07-1c97-425c-a544-f60752457009",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b7f0173d-eaec-4abf-ae35-8e159715207c",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7c57ec55-23da-4051-a697-71b3d4a1cf3b",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:08b8cca0-2b83-4ffc-acf3-e1f55e222a82",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:84619ceb-2f29-44af-a01b-ebcb79929b78",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4c18e1cf-6d97-431a-826f-c023441ec381",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e945f97d-4ac0-437a-8921-8ea8bcf1c7b2",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d483f91a-b8e0-4ddc-83ad-c70ba39f547c",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:96a9b270-6321-4564-8e9c-b39735aef415",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b2b5d8cf-66fd-4d7e-9954-005a952790a2",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:55138ab9-2c1b-474b-a8a3-0f937ff3686c",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10350,
+        "userChars": 5340,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10460,
+        "userChars": 11889,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-115faf8f-1755-4458-86c7-aa38b6527d22-1",
+        "questionId": "q1",
+        "text": "На основе сверки листов выявлена неточность: требуется покрыть поведение клиентов других уровней лояльности (кроме Gold) для новой бесплатной доставки. Должны ли мы включить проверки для всех существующих типов клиентов?"
+      },
+      {
+        "stage": "explore",
+        "requestId": "ask-115faf8f-1755-4458-86c7-aa38b6527d22-2",
+        "questionId": "q1",
+        "text": "Учитывая расхождения в требованиях (claim-5), необходимо определить scope проверки: должна ли льготная бесплатная доставка применяться только для клиентов Gold или мы должны включить проверку ее отсутствия для всех остальных типов лояльности?"
+      }
+    ],
+    "denials": [
+      {
+        "stage": "explore",
+        "requestId": "loop:6712da07-1c97-425c-a544-f60752457009",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b7f0173d-eaec-4abf-ae35-8e159715207c",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7c57ec55-23da-4051-a697-71b3d4a1cf3b",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:08b8cca0-2b83-4ffc-acf3-e1f55e222a82",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:84619ceb-2f29-44af-a01b-ebcb79929b78",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4c18e1cf-6d97-431a-826f-c023441ec381",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e945f97d-4ac0-437a-8921-8ea8bcf1c7b2",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d483f91a-b8e0-4ddc-83ad-c70ba39f547c",
+        "toolName": "Write",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «Write» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:96a9b270-6321-4564-8e9c-b39735aef415",
+        "toolName": "FillField",
+        "kind": "fill_field",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] этап explore не производит артефакт «intent». Доступны: exploration."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b2b5d8cf-66fd-4d7e-9954-005a952790a2",
+        "toolName": "Write",
+        "kind": "write",
+        "policy": "planScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[planScope] запись в «exploration-report.md» отклонена: одобренного плана ещё нет, а до него этап пишет только артефакты процесса своего витка (.sdlc/test21-gemma-4-e4b-selfreview-freeship/). Продуктовый код и тесты правятся на этапе реализации по плану, который человек одобрил, — не раньше и не побочным эффектом другого этапа."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:55138ab9-2c1b-474b-a8a3-0f937ff3686c",
+        "toolName": "Write",
+        "kind": "write",
+        "policy": "planScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[planScope] запись в «exploration-report.md» отклонена: одобренного плана ещё нет, а до него этап пишет только артефакты процесса своего витка (.sdlc/test21-gemma-4-e4b-selfreview-freeship/). Продуктовый код и тесты правятся на этапе реализации по плану, который человек одобрил, — не раньше и не побочным эффектом другого этапа."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 11"
+    }
+  ]
+}

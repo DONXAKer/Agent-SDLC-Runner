@@ -1,0 +1,320 @@
+{
+  "run": {
+    "slug": "test16-ollama-gpt-oss-20b-compactfill-two-right-answers",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill-selfreview",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-15T23:35:19.770Z",
+    "finishedAt": "2026-09-15T23:47:48.390Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 41, осталось на диске 0 полей модели; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить, прогон 2/2/статус (и ещё 8); ответ на поле прогон 2/3/где видно / что чинить отклонён: поле «прогон 2/3/где видно / что чинить»: пустой ответ; ответ на поле вердикт прогона 2 отклонён: ответ не совпал ни с одним из вариантов поля «вердикт прогона 2»: готова, не готова —",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 44
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "ответ обрезан лимитом длины, который выставил сам рантайм: история этапа не уместилась в окно, max_tokens садился на пол на 3 ходах — это предел окна, а не отказ модели — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 14, осталось на диске 4 полей модели; ответ на поле сборка / тесты отклонён: поле «сборка / тесты»: пустой ответ; ответ на поле карта кодовой базы отклонён: поле «карта кодовой базы»: записей нет, а альтернативы «пусто» у него нет; ответ на поле найдено для переиспользования/найдено для переиспользования отклонён: ответ не совпал ни с одним из вариантов поля «найдено для переиспользования»: да, нет; ответ на поле опоры осей отклонён: поле «опоры осей»: записей нет, а альтернативы «пусто» у него нет; ответ на поле точка правки отклонён: поле «точка правки»: записей нет, а альтернативы «пусто» у него нет; ответ на поле карта кодовой базы отклонён: поле «карта кодовой базы»: записей нет, а альтернативы «пусто» у него нет; ответ на поле найдено для переиспользования отклонён: ответ не совпал ни с одним из вариантов поля «найдено для переиспользования»: да, нет; ответ на поле опоры осей отклонён: поле «опоры осей»: записей нет, а альтернативы «пусто» у него нет; ответ на поле точка правки отклонён: поле «точка правки»: записей нет, а альтернативы «пусто» у него нет",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 5,
+        "modelRequests": 23
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 213908,
+          "outputTokens": 27493,
+          "cacheReadTokens": 192750,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1028283
+        },
+        "durationMs": 490434
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 204722,
+          "outputTokens": 13940,
+          "cacheReadTokens": 178419,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 445313
+        },
+        "durationMs": 258160
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 5,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 11
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 13
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:b21fad38-f1f5-4425-9239-57b4ee80b66f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-gpt-oss-20b-compactfill-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:f6fcddaa-a6b3-4282-afd7-5ca4bfa57ace",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-gpt-oss-20b-compactfill-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:2f84477f-676c-42c7-a368-38ef4338d0e4",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-gpt-oss-20b-compactfill-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:8bf59a2b-b1d4-4c75-9ce1-beabc13c0cb2",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:/Users/Root/AppData/Local/Temp/sdlc-bench-UsAuEE/.sdlc/test16-ollama-gpt-oss-20b-compactfill-two-right-answers/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:eafac057-a9e0-45de-b14c-1b8609358b9c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-gpt-oss-20b-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:3c9da8dd-9ef7-41d4-9bdf-676cc33db1f4",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-gpt-oss-20b-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10435,
+        "userChars": 4192,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10528,
+        "userChars": 10851,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

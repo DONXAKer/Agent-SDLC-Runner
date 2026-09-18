@@ -1,0 +1,448 @@
+{
+  "run": {
+    "slug": "test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill-selfreview",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-15T19:28:06.807Z",
+    "finishedAt": "2026-09-15T19:54:10.692Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 42, осталось на диске 1 полей модели; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить, прогон 2/2/статус (и ещё 8)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 43
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "ход обрезан лимитом длины на середине вызова инструмента — не исполняем — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 26, осталось на диске 12 полей модели; ответ на поле гейт «заполненность артефактов» отклонён: поле «гейт «заполненность артефактов»»: комментарий несёт плейсхолдер бланка ‹…›; ответ на поле конвенции отклонён: поле «конвенции»: ответ — JSON-конверт вызова инструмента, а не значение поля; ответ на поле конвенции отклонён: поле «конвенции»: ответ — JSON-конверт вызова инструмента, а не значение поля",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 10,
+        "modelRequests": 29
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 247866,
+          "outputTokens": 5304,
+          "cacheReadTokens": 233458,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 426733
+        },
+        "durationMs": 225687
+      },
+      {
+        "stage": "explore",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 500648,
+          "outputTokens": 26308,
+          "cacheReadTokens": 459194,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2041247
+        },
+        "durationMs": 1338166
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 2,
+        "toolCalls": 21,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 12
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 10,
+        "waitMs": 41
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 13
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:ea3225c7-f1b5-4436-869a-e966230d2885",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:4f6a508e-a7ce-4506-9c23-c30d7de44861",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:c5028f82-1df1-4e6b-8f5a-cb090f92e56f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1e990da8-8222-41df-8cf1-74c410105ee1",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:72f6db23-ab48-4c82-8d8c-7f7918e03f91",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a11d782e-66b8-45c9-a8e4-a0c9cc8eaede",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-8YBp2v\\.sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7897e9a9-e8d9-462a-ac63-8aff3e8ca7e2",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-8YBp2v\\.sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6822bdb9-71ad-4ecc-8f4c-d5cc209bbec7",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-8YBp2v\\.sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7d0ec5f4-a842-453d-8b10-29943aa42432",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-8YBp2v\\.sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5e43ca72-2ad4-470c-9562-22aa8c5cf8af",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-8YBp2v\\.sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d411ac2e-0898-4f3e-8e4b-a08cf0bf487e",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-8YBp2v\\.sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:85552533-16ec-47d4-9862-14f475bbe74c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:4ae6b8c0-0309-4848-8ee8-7c56d6f30fae",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test14-ollama-ministral3-14b-instruct-ctx32k-compactfill-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10485,
+        "userChars": 5340,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10568,
+        "userChars": 16885,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10248,
+        "userChars": 16885,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

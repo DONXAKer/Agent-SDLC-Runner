@@ -1,0 +1,320 @@
+{
+  "run": {
+    "slug": "test16-lmstudio-qwen3-8b-stepfill-compactfill-two-right-answers",
+    "model": "lmstudio:qwen3-8b-stepfill-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "explore": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "ask": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "plan": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "chunk": "lmstudio:qwen3-8b-stepfill-compactfill",
+      "verify": "lmstudio:qwen3-8b-stepfill-compactfill-selfreview",
+      "handoff": "lmstudio:qwen3-8b-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-16T02:44:52.134Z",
+    "finishedAt": "2026-09-16T02:57:21.632Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 43, осталось на диске 0 полей модели; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить, прогон 2/2/статус (и ещё 8)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 44
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "цикл остановлен: «Read» вызван 3 раза подряд с теми же аргументами — прогресса нет — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 18, осталось на диске 2 полей модели; ответ на поле опоры осей отклонён: поле «опоры осей»: записей нет, а альтернативы «пусто» у него нет; ответ на поле требования к окружению прогона отклонён: поле «требования к окружению прогона»: ответ — JSON-конверт вызова инструмента, а не значение поля; ответ на поле опоры осей отклонён: поле «опоры осей»: записей нет, а альтернативы «пусто» у него нет",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 4,
+        "modelRequests": 21
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 243048,
+          "outputTokens": 21228,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 909771
+        },
+        "durationMs": 377562
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 229611,
+          "outputTokens": 15928,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 800406
+        },
+        "durationMs": 371910
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 2,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 5,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 13
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 8
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:5bf53488-e9b2-4c61-8954-4e2713a47034",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-lmstudio-qwen3-8b-stepfill-compactfill-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:d382c1d7-d4bd-43da-95ba-8917cff0acb5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-lmstudio-qwen3-8b-stepfill-compactfill-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:df17c7b1-0061-417f-8efb-8a30c72b0acb",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-lmstudio-qwen3-8b-stepfill-compactfill-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:53495033-48c7-48b1-b74d-ba173f761c12",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-lmstudio-qwen3-8b-stepfill-compactfill-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:f43ca2c0-88ee-428b-9f95-1e9bda88a6be",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-lmstudio-qwen3-8b-stepfill-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:0d14472a-27e5-4db7-a3b4-7d92244e9962",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-lmstudio-qwen3-8b-stepfill-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10475,
+        "userChars": 4192,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10560,
+        "userChars": 12393,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

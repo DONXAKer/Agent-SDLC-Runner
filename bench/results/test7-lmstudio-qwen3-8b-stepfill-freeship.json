@@ -1,0 +1,474 @@
+{
+  "run": {
+    "slug": "test7-lmstudio-qwen3-8b-stepfill-freeship",
+    "model": "lmstudio:qwen3-8b-stepfill",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:qwen3-8b-stepfill",
+      "explore": "lmstudio:qwen3-8b-stepfill",
+      "ask": "lmstudio:qwen3-8b-stepfill",
+      "plan": "lmstudio:qwen3-8b-stepfill",
+      "chunk": "lmstudio:qwen3-8b-stepfill",
+      "verify": "lmstudio:qwen3-8b-stepfill-selfreview",
+      "handoff": "lmstudio:qwen3-8b-stepfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-14T22:31:01.724Z",
+    "finishedAt": "2026-09-14T22:47:20.026Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 25, осталось на диске 9; добор листа приёмки (попытка 1): модель вернула 2 строк, добавлено 2 — теперь пунктов 5, [edge] 2",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 40
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап зациклился на правке «.sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/exploration-report.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (26 → 26 → 26) — застряло: «отчет разведки: test7-lmstudio-qwen3-8b-stepfill-freeship»: гейт «заполненность артефактов»; «стек и конвенции»: сборка / тесты; «стек и конвенции»: конвенции; «стек и конвенции»: требования к окружению прогона; «карта кодовой базы»: Только файлы, относящиеся к задаче, пути от корня репозитория. Отсюда они идут в «Что придётся тронуть» в задаче. ‹path/to/File› · ‹классы/методы› · ‹что добавить или изменить›; и ещё 10 мест — правки идут, но не закрывают нужные места",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 12,
+        "modelRequests": 17
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 238928,
+          "outputTokens": 28490,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1183556
+        },
+        "durationMs": 506989
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 330131,
+          "outputTokens": 18918,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 811442
+        },
+        "durationMs": 471302
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 13,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 12
+      },
+      {
+        "stage": "explore",
+        "questions": 3,
+        "approvals": 10,
+        "waitMs": 29
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 19
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 3
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:b9f5e87b-d00d-44e9-b058-5f602dea8c97",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test7-lmstudio-qwen3-8b-stepfill-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:52f34f50-5801-4e11-98d0-e1103ff9c4eb",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test7-lmstudio-qwen3-8b-stepfill-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:eff77479-b228-45c8-9652-6872ff1cc795",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9e06774e-03f8-4c7a-ab87-2c0557beea29",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e1c17756-2580-45e7-a27a-645a7c841f2f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2133484e-f2ed-43ad-b09f-a3974f762f30",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2599714d-7c7a-4ce1-b11e-3b2c4f6fe024",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d11015ae-b4e1-4005-bb6b-fdae51043800",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:cf46fc00-08dc-49cf-bb8b-b49a0d9d3ef5",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0dffc8e5-97dd-44ad-930e-92408be25888",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:537da519-e6b0-45c8-bf33-8f75de50036c",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:43355a2d-7aef-4e57-b4c8-3daa062e11e8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test7-lmstudio-qwen3-8b-stepfill-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Пожалуйста, заполните разделы \"Что делаем\", \"Чего не делаем\" и \"Инварианты\" в файле .sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/intent.md, чтобы задача могла считаться готовой для разведки."
+          },
+          {
+            "id": "q2",
+            "question": "Подтверждаете ли вы, что \"Что придётся тронуть\" в .sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/intent.md уже заполнено корректно?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      },
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Пожалуйста, заполните отсутствующие разделы «Что делаем», «Чего не делаем» и «Инварианты» в файле .sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/intent.md, чтобы задача могла считаться готовой для разведки."
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10222,
+        "userChars": 5340,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10640,
+        "userChars": 14748,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-0bb071a0-3c09-4525-9575-8039e37fbc4d-1",
+        "questionId": "q1",
+        "text": "Пожалуйста, заполните разделы \"Что делаем\", \"Чего не делаем\" и \"Инварианты\" в файле .sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/intent.md, чтобы задача могла считаться готовой для разведки."
+      },
+      {
+        "stage": "explore",
+        "requestId": "ask-0bb071a0-3c09-4525-9575-8039e37fbc4d-1",
+        "questionId": "q2",
+        "text": "Подтверждаете ли вы, что \"Что придётся тронуть\" в .sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/intent.md уже заполнено корректно?"
+      },
+      {
+        "stage": "explore",
+        "requestId": "ask-0bb071a0-3c09-4525-9575-8039e37fbc4d-2",
+        "questionId": "q1",
+        "text": "Пожалуйста, заполните отсутствующие разделы «Что делаем», «Чего не делаем» и «Инварианты» в файле .sdlc/test7-lmstudio-qwen3-8b-stepfill-freeship/intent.md, чтобы задача могла считаться готовой для разведки."
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

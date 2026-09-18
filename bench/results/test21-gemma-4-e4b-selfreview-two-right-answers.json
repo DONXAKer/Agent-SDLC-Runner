@@ -1,0 +1,694 @@
+{
+  "run": {
+    "slug": "test21-gemma-4-e4b-selfreview-two-right-answers",
+    "model": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "explore": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "ask": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "plan": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "chunk": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "verify": "lmstudio:gemma-4-e4b-stepfill-compactfill-selfreview",
+      "handoff": "lmstudio:gemma-4-e4b-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-17T17:09:01.494Z",
+    "finishedAt": "2026-09-17T17:39:03.512Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 41, осталось на диске 1 полей модели; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить, прогон 2/2/статус (и ещё 8); ответ на поле выбор реализации movehold отклонён: ответ не совпал ни с одним из вариантов поля «выбор реализации movehold»: поправить слот у существующей брони или собрать новую с тем же идентификатором и сроком, н/п",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 43
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап зациклился на правке «C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-y50E7A\\.sdlc\\test21-gemma-4-e4b-selfreview-two-right-answers\\exploration-report.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (28 → 28 → 28) — застряло: «отчет разведки: test21-gemma-4-e4b-selfreview-two-right-answers»: задача; «стек и конвенции»: язык / стек; «стек и конвенции»: сборка / тесты; «стек и конвенции»: конвенции; «стек и конвенции»: требования к окружению прогона; и ещё 11 мест — правки идут, но не закрывают нужные места — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 20, осталось на диске 2 полей модели; ответ на поле карта кодовой базы отклонён: поле «карта кодовой базы»: записей нет, а альтернативы «пусто» у него нет; ответ на поле найдено для переиспользования/найдено для переиспользования отклонён: поле «найдено для переиспользования»: ответ — JSON-конверт вызова инструмента, а не значение поля; ответ на поле опоры осей/ось: отказы зависимостей/механизм проекта отклонён: поле «опоры осей/ось: отказы зависимостей/механизм проекта»: ответ — JSON-конверт вызова инструмента, а не значение поля",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 15,
+        "modelRequests": 23
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 213223,
+          "outputTokens": 43637,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1510610
+        },
+        "durationMs": 678883
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 370053,
+          "outputTokens": 60841,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2020559
+        },
+        "durationMs": 1123109
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 12,
+        "truncated": 0,
+        "toolCalls": 25,
+        "reminders": 2
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 13
+      },
+      {
+        "stage": "explore",
+        "questions": 2,
+        "approvals": 9,
+        "waitMs": 21
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 6
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:19e35dc8-44c1-49e8-a01f-3545dbdfa542",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:30f0dc38-c498-4a19-86d2-8f969e1cf384",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:a8e837e6-21ff-4198-a513-1de3714e9af0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:c18d9539-42ee-433d-b0c3-d0b31859366f",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4908b3d6-9781-42b1-9b50-a3436100c0e8",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:97d0ef5e-2da5-47aa-96b7-e894129c817e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test21-gemma-4-e4b-selfreview-two-right-answers/intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b86615f5-1ad9-4265-8650-4ecd65ba0040",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6b7e86bb-904e-4b38-a176-ad08b82756a3",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:3873c635-3e9f-4608-8bbf-219457762127",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-y50E7A\\.sdlc\\test21-gemma-4-e4b-selfreview-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f29f8bdf-6d46-4102-acc6-d20b044532bc",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:cd5d41f9-1f7a-4cd7-98ad-2f2e437470bd",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:72097791-9094-4c52-ad1b-016c9b03e589",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-gemma-4-e4b-selfreview-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Выбор реализации moveHold: поправить слот у существующей брони или собрать новую с тем же идентификатором и сроком? (Пожалуйста, выберите один вариант)"
+          },
+          {
+            "id": "q2",
+            "question": "Поведение при занятом слоте: что должно произойти, если целевой слот `newSlot` уже занят? (Пожалуйста, выберите один вариант)"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": [
+      {
+        "stage": "explore",
+        "requestId": "loop:08352e9d-6800-44c7-8e8b-ac02cb0b4f41",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:44ea18cc-0a36-43f1-b2ae-fcadc0bd10f0",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f495241e-a0c7-407d-8bdc-44ec866e85a1",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a7a9c5bd-68ad-478a-8658-9877d9be5203",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a0fd4759-3519-497a-94b4-8e52d7327341",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0ecde3b5-2fd7-4b9e-97f3-336e9c19869d",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2aa3be08-d4e5-4d09-92fb-34c5f21777b8",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:341f86b6-c6b5-43bc-bc05-2c9d98e64ffb",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2838b863-8544-4968-b9ae-3fa46d131afa",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1284a86d-6cba-44ae-8753-ad28b7bf94ff",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1340f0c4-de25-437a-b98c-612266aec9fa",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d7955885-68e5-42a8-b5ff-5dcd5b80300b",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10395,
+        "userChars": 4192,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10496,
+        "userChars": 10678,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-87e44bc5-ba55-427b-b1de-07428e708550-1",
+        "questionId": "q1",
+        "text": "Выбор реализации moveHold: поправить слот у существующей брони или собрать новую с тем же идентификатором и сроком? (Пожалуйста, выберите один вариант)"
+      },
+      {
+        "stage": "explore",
+        "requestId": "ask-87e44bc5-ba55-427b-b1de-07428e708550-1",
+        "questionId": "q2",
+        "text": "Поведение при занятом слоте: что должно произойти, если целевой слот `newSlot` уже занят? (Пожалуйста, выберите один вариант)"
+      }
+    ],
+    "denials": [
+      {
+        "stage": "explore",
+        "requestId": "loop:08352e9d-6800-44c7-8e8b-ac02cb0b4f41",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:44ea18cc-0a36-43f1-b2ae-fcadc0bd10f0",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:f495241e-a0c7-407d-8bdc-44ec866e85a1",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a7a9c5bd-68ad-478a-8658-9877d9be5203",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a0fd4759-3519-497a-94b4-8e52d7327341",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:0ecde3b5-2fd7-4b9e-97f3-336e9c19869d",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2aa3be08-d4e5-4d09-92fb-34c5f21777b8",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:341f86b6-c6b5-43bc-bc05-2c9d98e64ffb",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2838b863-8544-4968-b9ae-3fa46d131afa",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1284a86d-6cba-44ae-8753-ad28b7bf94ff",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1340f0c4-de25-437a-b98c-612266aec9fa",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:d7955885-68e5-42a8-b5ff-5dcd5b80300b",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 12"
+    }
+  ]
+}

@@ -1,0 +1,442 @@
+{
+  "run": {
+    "slug": "test8-ollama-ministral3-14b-instruct-ctx32k-freeship",
+    "model": "ollama:ministral3-14b-instruct-ctx32k",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-selfreview",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-15T09:14:51.126Z",
+    "finishedAt": "2026-09-15T09:47:06.045Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 32, осталось на диске 2; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 43
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель упёрлась в лимит длины ответа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 12,
+        "modelRequests": 17
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 248785,
+          "outputTokens": 25745,
+          "cacheReadTokens": 234361,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1955615
+        },
+        "durationMs": 989051
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 407786,
+          "outputTokens": 18025,
+          "cacheReadTokens": 367501,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1307963
+        },
+        "durationMs": 945843
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 1,
+        "toolCalls": 27,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 14
+      },
+      {
+        "stage": "explore",
+        "questions": 1,
+        "approvals": 9,
+        "waitMs": 26
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 5
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 3
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:2d78681b-2ad5-4a78-acbd-953b690215a0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test8-ollama-ministral3-14b-instruct-ctx32k-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:0df25a9f-0680-4998-a11e-068d4968ad16",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test8-ollama-ministral3-14b-instruct-ctx32k-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:e8e21b39-17ce-4c46-821c-0bfa7653b4ee",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test8-ollama-ministral3-14b-instruct-ctx32k-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:cd058a59-5411-417a-ab9a-f64abe79cf72",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9a059ea6-22d7-4f28-b785-4632f419fbf1",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:23d8870f-f5bc-48a2-b7eb-5c4839417d85",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:00572348-f406-4c3d-a704-00bcff4a8dcf",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test8-ollama-ministral3-14b-instruct-ctx32k-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:bbceeb84-c539-4d32-92a3-eb950891a425",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test8-ollama-ministral3-14b-instruct-ctx32k-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6e6989ea-bf63-4187-94c7-0db69d86661f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test8-ollama-ministral3-14b-instruct-ctx32k-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:215c025d-5c2b-405e-a560-546c86140696",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test8-ollama-ministral3-14b-instruct-ctx32k-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:19b82eaf-3ef5-446e-98bb-c765ef0a0bc8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test8-ollama-ministral3-14b-instruct-ctx32k-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:125ac610-6160-4149-b2b4-50fde24a72f0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test8-ollama-ministral3-14b-instruct-ctx32k-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [
+      {
+        "stage": "explore",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Что делать с логикой модульного разделения акции на `src/freeship.ts`, учитывая требование к `tariffs.ts`?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10277,
+        "userChars": 5340,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10717,
+        "userChars": 17557,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "explore",
+        "requestId": "ask-2b23d92f-55c5-4eef-9052-47726c6cd765-1",
+        "questionId": "q1",
+        "text": "Что делать с логикой модульного разделения акции на `src/freeship.ts`, учитывая требование к `tariffs.ts`?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

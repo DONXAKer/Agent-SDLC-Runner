@@ -1,0 +1,697 @@
+{
+  "run": {
+    "slug": "test22-gemma-4-e4b-selfreview-silent-contract",
+    "model": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+    "task": "silent-contract",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "explore": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "ask": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "plan": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "chunk": "lmstudio:gemma-4-e4b-stepfill-compactfill",
+      "verify": "lmstudio:gemma-4-e4b-stepfill-compactfill-selfreview",
+      "handoff": "lmstudio:gemma-4-e4b-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-18T03:08:59.981Z",
+    "finishedAt": "2026-09-18T03:33:16.060Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 41, осталось на диске 0 полей модели; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить, прогон 2/2/статус (и ещё 8); ответ на поле прогон 2/3/где видно / что чинить отклонён: поле «прогон 2/3/где видно / что чинить»: пустой ответ",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 43
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 14
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "модель завершила ход",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 18
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "провайдер вернул одну и ту же ошибку 3 раз подряд на разных полях (lmstudio: HTTP 400 от http://localhost:1434/v1 — {\"error\":\"Engine protocol predict stream returned an error: {\\\"code\\\":500,\\\"message\\\":\\\"Context size has been exceeded.\\\",\\\"type\\\":\\\"server_error\\\"}\"}) — похоже, базовый промпт этой формы не помещается в окно контекста модели — дело не в бланке и не в конфиге, а в размере запроса (наибольший вход ≈13897 токенов при окне 32768); дальнейшие поля не спрашивались",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 209080,
+          "outputTokens": 42181,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1499143
+        },
+        "durationMs": 636788
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 124828,
+          "outputTokens": 25359,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 851681
+        },
+        "durationMs": 502971
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 189967,
+          "outputTokens": 10440,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 284885
+        },
+        "durationMs": 284955
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": 0,
+          "durationMs": 0
+        },
+        "durationMs": 31231
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "ask",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 5,
+        "truncated": 0,
+        "toolCalls": 15,
+        "reminders": 3
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 11
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 16
+      },
+      {
+        "stage": "ask",
+        "questions": 0,
+        "approvals": 10,
+        "waitMs": 21
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 3
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 33
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:6b3a1293-e23d-4df0-9814-ccaee729b8bb",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:96c831e5-1ffe-4983-b4c5-22763381848b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:94f2789b-7c51-48e8-8402-7e2ab8d9afe9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:b163d784-cbbd-4422-942c-3ec811e092f2",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:87577318-1227-4a13-aa67-52515ed44c59",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:e19540ab-7c4d-4c4e-ae68-17ad3fad7759",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:21087443-3a9e-4b23-86f5-64806fdd65ca",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:d1d40b4e-120e-4a43-a8a3-9110ac0f7a8d",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:bd55b75f-9255-4d0e-996b-a443a1f064c1",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-tSXiiv\\.sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:a29ffc62-a1a7-479e-a56a-fe0a2558601a",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-tSXiiv\\.sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:1df140b0-1e4c-4658-921d-67f61036de95",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-tSXiiv\\.sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:9ce1cfbe-1c29-4dc1-a02c-277e163a3c97",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-tSXiiv\\.sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:afbcd430-ad6f-4446-b051-43f352d748c5",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:29e173d5-e361-40e5-9684-1b23e1872029",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-tSXiiv\\.sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:ff5b87ec-0218-42ea-8d3a-8c44fd5d5f79",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-tSXiiv\\.sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:ca790ac2-ff2b-40aa-a829-b041261cd2f4",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-tSXiiv\\.sdlc\\test22-gemma-4-e4b-selfreview-silent-contract\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:a8209edf-5a8b-4564-83a3-98017ab3c252",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "ask",
+        "requestId": "loop:85f7d392-c39a-4575-bf44-aedecceedc13",
+        "reason": "policy"
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:8917d893-8aa2-470d-b9dd-0f7745910018",
+        "reason": "policy"
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:ebcdee55-f19a-4004-b75e-a4146ea5f0ae",
+        "reason": "policy"
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:9b7f798c-ffc0-409b-aea5-5ba8c0314a9f",
+        "reason": "policy"
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:71ed9201-b40c-4026-85fb-ad2ca7c58f67",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "unknown"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10385,
+        "userChars": 3955,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9493,
+        "userChars": 15278,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 6159,
+        "userChars": 13253,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 14659,
+        "userChars": 18003,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [
+      {
+        "stage": "ask",
+        "requestId": "loop:85f7d392-c39a-4575-bf44-aedecceedc13",
+        "toolName": "Edit",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «Edit» не разобран: инструмент на этапе ask объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:8917d893-8aa2-470d-b9dd-0f7745910018",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе ask объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:ebcdee55-f19a-4004-b75e-a4146ea5f0ae",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе ask объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:9b7f798c-ffc0-409b-aea5-5ba8c0314a9f",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе ask объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:71ed9201-b40c-4026-85fb-ad2ca7c58f67",
+        "toolName": "Edit",
+        "kind": "edit",
+        "policy": "planScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[planScope] запись в «clarification-report.md» отклонена: одобренного плана ещё нет, а до него этап пишет только артефакты процесса своего витка (.sdlc/test22-gemma-4-e4b-selfreview-silent-contract/). Продуктовый код и тесты правятся на этапе реализации по плану, который человек одобрил, — не раньше и не побочным эффектом другого этапа."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 5"
+    }
+  ]
+}

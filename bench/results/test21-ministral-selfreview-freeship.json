@@ -1,0 +1,552 @@
+{
+  "run": {
+    "slug": "test21-ministral-selfreview-freeship",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill-selfreview",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-17T10:26:16.512Z",
+    "finishedAt": "2026-09-17T11:28:11.847Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 42, осталось на диске 0 полей модели; ответ на поле прогон 1/6/где видно / что чинить отклонён: поле «прогон 1/6/где видно / что чинить»: ответ несёт плейсхолдер бланка ‹…› вместо значения; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: прогон 1/6/где видно / что чинить, необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус, прогон 2/1/где видно / что чинить (и ещё 9); ответ на поле вердикт прогона 1 отклонён: ответ не совпал ни с одним из вариантов поля «вердикт прогона 1»: готова, не готова —",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 45
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 17
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ход не завершён — этап закрыт по диску",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 7,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "секция «Последствия шагов» плана не доведена:\n- ось «Безопасность»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «Ресурсы и скорость»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «Ресурсы и скорость»: исход не из словаря (следствие решается зафиксированными тарифами в тестах) — нужен claim-N, инвариант, гейт «имя», риск, следующий виток либо «н/п — почему». Свободный текст исходом не является: у рекомендации нет исполнителя\n- ось «Отказы зависимостей»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «Настройки»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «Настройки»: исход не из словаря (параметры жестко закодированы) — нужен claim-N, инвариант, гейт «имя», риск, следующий виток либо «н/п — почему». Свободный текст исходом не является: у рекомендации нет исполнителя\n- ось «Совместимость и данные»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «Наблюдаемость»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»\n- ось «Наблюдаемость»: исход не из словаря (**пропущен`, требует создание ручного теста по шаблону `claim-N`.) — нужен claim-N, инвариант, гейт «имя», риск, следующий виток либо «н/п — почему». Свободный текст исходом не является: у рекомендации нет исполнителя\n- в таблице принятых рисков есть строка «Безопасность», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Ресурсы и скорость», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Отказы зависимостей», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Настройки», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Совместимость и данные», но исход этой оси — не «риск»\n- в таблице принятых рисков есть строка «Наблюдаемость», но исход этой оси — не «риск»\nИсход — из закрытого словаря: claim-N, инвариант, гейт «имя», принятый риск (с причиной и сроком возврата), следующий виток либо «н/п — почему». Совет свободным текстом исходом не является: у него нет исполнителя.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 26
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 255563,
+          "outputTokens": 5237,
+          "cacheReadTokens": 240886,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1474290
+        },
+        "durationMs": 783746
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 197560,
+          "outputTokens": 39246,
+          "cacheReadTokens": 171836,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 3345086
+        },
+        "durationMs": 2414886
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 83881,
+          "outputTokens": 5103,
+          "cacheReadTokens": 54229,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 242364
+        },
+        "durationMs": 242415
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 356970,
+          "outputTokens": 5608,
+          "cacheReadTokens": 336214,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 423203
+        },
+        "durationMs": 274113
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "ask",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 5,
+        "reminders": 4
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 16
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 16
+      },
+      {
+        "stage": "ask",
+        "questions": 1,
+        "approvals": 4,
+        "waitMs": 13
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 11
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 4
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:01100829-01a7-4eaa-8e18-5c0196cf2955",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-ministral-selfreview-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:9157615d-3fb9-4120-aabc-5e483bf86385",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-ministral-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:ece23d94-c956-47d0-9c72-421a7bd098af",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-ministral-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:0535272e-b2f7-43c8-a543-0266b9def466",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-ministral-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:74914bc7-fae3-45ca-ac16-dadd5a0479b8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-ministral-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:f79aa9e2-b6e5-4d12-b1da-2c8c46005d66",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-ministral-selfreview-freeship\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:a04845fa-6c66-48cb-a160-167fd7265d5e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-ministral-selfreview-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:a31729ed-97b7-4218-b8a5-cb7027d7799a",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-y12krs\\.sdlc\\test21-ministral-selfreview-freeship\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:06b4173d-411b-45a2-a920-3478e79fceec",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-y12krs\\.sdlc\\test21-ministral-selfreview-freeship\\clarification-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:9c41505e-1139-4c48-a087-d925d8507d0f",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "ask",
+        "requestId": "loop:205176aa-5ef2-43ca-ae26-8209190f1f77",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:f4adfd74-a3c8-4638-b943-5bfa15b6672e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-ministral-selfreview-freeship\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:4e175fe3-89d7-4690-a769-1adea4968104",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test21-ministral-selfreview-freeship\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Уточнить границы весового диапазона 2000-5000 грамм для условия бесплатной доставки: включительно ли значение 5000 грамм?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "ask",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "ask",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10340,
+        "userChars": 5340,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9457,
+        "userChars": 21126,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 6123,
+        "userChars": 15213,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 14623,
+        "userChars": 23901,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "ask",
+        "requestId": "ask-22128530-d73d-4ac5-a5b4-e19835278263-1",
+        "questionId": "q1",
+        "text": "Уточнить границы весового диапазона 2000-5000 грамм для условия бесплатной доставки: включительно ли значение 5000 грамм?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

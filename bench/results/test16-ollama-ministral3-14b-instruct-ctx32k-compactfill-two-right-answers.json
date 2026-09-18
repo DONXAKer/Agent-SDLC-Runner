@@ -1,0 +1,862 @@
+{
+  "run": {
+    "slug": "test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill-selfreview",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-15T22:29:18.273Z",
+    "finishedAt": "2026-09-15T22:44:34.216Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 42, осталось на диске 0 полей модели; добор поля приемочный лист (попытка 1): запрошен и добавлен; ответ на поле приемочный лист отклонён: поле «приемочный лист»: в ответе чужая письменность («契约») — сбой генерации, а не значение; ответ на поле прогон 1/4/где видно / что чинить отклонён: поле «прогон 1/4/где видно / что чинить»: ответ несёт плейсхолдер бланка ‹…› вместо значения; ответ на поле прогон 1/7/статус отклонён: поле «прогон 1/7/статус»: комментарий несёт плейсхолдер бланка ‹…›; поле необходимое/единичное не найдено в бланке: нет поля «необходимое/единичное» — доступные поля: прогон 1/4/где видно / что чинить, прогон 1/7/статус, необходимое/1, необходимое/однозначное, необходимое/проверяемое, примеры пересчитаны, вердикт прогона 1, прогон 2/1/статус (и ещё 10)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 47
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "вызов инструмента обрезан лимитом длины, который выставил сам рантайм: история этапа не уместилась в окно, max_tokens садился на пол на 1 ходах — не исполняем незавершённый вызов — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 19, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 20,
+        "modelRequests": 19
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 252987,
+          "outputTokens": 6392,
+          "cacheReadTokens": 240335,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 441895
+        },
+        "durationMs": 251629
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 570934,
+          "outputTokens": 11693,
+          "cacheReadTokens": 502572,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 898835
+        },
+        "durationMs": 664288
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 5,
+        "truncated": 0,
+        "toolCalls": 37,
+        "reminders": 3
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 16
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 27,
+        "waitMs": 87
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 4
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:684194eb-2e16-4051-aa7d-d4ee57f23ed9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:ccf000fa-0e5b-4a8c-bc26-e83c39c4ee81",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:bee59bf2-6258-4cbf-ad2a-c545e612e77a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:11b9a96f-8b63-4c7d-80af-8b05b4abdc6d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:911015e2-5ccb-4bf7-b641-279dcc595ca1",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:25e3b9be-316e-47cb-aa60-9747c67255d5",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:92eaadbe-18c4-4ba4-8a65-0004ce1d0107",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6ec54cff-bb99-41cf-a023-adb5940f5404",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:81aa5d25-b688-4cb3-97d2-a6f3a1cf7095",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:857b2b58-a5cc-4242-a8eb-e0626526f242",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ef246225-3372-4da0-a5fd-7cf03a03b33d",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b20f42aa-2acb-4896-a800-2e4bd1229ef9",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:2757c054-2dee-406f-9d51-afea22d0a0da",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:05d14260-db2f-4c4c-8633-64be1de5626f",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:84e96ca7-8ba8-4c48-8800-01b65d64fc4e",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:b2c41298-b972-4492-83fe-4d8d084c719e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:03db5197-1db7-4a78-8b50-e255f32d63d3",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7afcb1e1-3144-4392-a384-c77f07cfa652",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:52c580f7-56af-4325-bb37-cfac77471163",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5ac9dcb2-2356-4d74-8eda-8e7c29b70f52",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:55712fd2-1d69-4137-a150-f32235a933a5",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:55607844-ebf4-4b3c-9ede-08bc2cdeef1d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:06e027c5-0bba-4d46-ad18-4679309897a4",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1fbc4746-6fda-49a5-9e91-cf0f575272d9",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e8c6101a-3056-4a44-adff-bd55d8d6593a",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ad6a645a-e06c-4990-b9e1-c9311a2d0c01",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:35347138-7bca-4860-8f31-e772fa6b1655",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6ac81955-8bf2-432e-83cc-83031a3f28f3",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:86c2361e-fccf-429a-b945-e25d04e5cbd5",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:47bfcc0d-f684-4e71-921e-ac2a49695dd5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:65054a2b-7076-476f-b877-646281e9948b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "explore",
+        "requestId": "loop:77c5578b-8927-4b5c-be6c-7ece325f8d49",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ddd0db5a-4d15-4df0-a293-0b26540e2c19",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e5d0ea89-147b-4ead-82b8-6931464a905e",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:68ea4aed-4630-490a-9a4d-88d3d94b424e",
+        "reason": "policy"
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7b3c72a0-0b7e-4a2d-a796-3307f36ecfd0",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "unknown"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10530,
+        "userChars": 4192,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10604,
+        "userChars": 15682,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [
+      {
+        "stage": "explore",
+        "requestId": "loop:77c5578b-8927-4b5c-be6c-7ece325f8d49",
+        "toolName": "FillField",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «FillField» не разобран: инструмент на этапе explore объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:ddd0db5a-4d15-4df0-a293-0b26540e2c19",
+        "toolName": "Edit",
+        "kind": "edit",
+        "policy": "planScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[planScope] запись в «C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollamaministral3-14b-instruct-ctx32k-compactfill-two-right-answers\\exploration-report.md» отклонена: одобренного плана ещё нет, а до него этап пишет только артефакты процесса своего витка (.sdlc/test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers/). Продуктовый код и тесты правятся на этапе реализации по плану, который человек одобрил, — не раньше и не побочным эффектом другого этапа."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e5d0ea89-147b-4ead-82b8-6931464a905e",
+        "toolName": "FillField",
+        "kind": "fill_field",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] этап explore не производит артефакт «intent». Доступны: exploration."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:68ea4aed-4630-490a-9a4d-88d3d94b424e",
+        "toolName": "Edit",
+        "kind": "edit",
+        "policy": "planScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[planScope] запись в «./sdlc/test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers/intent.md» отклонена: одобренного плана ещё нет, а до него этап пишет только артефакты процесса своего витка (.sdlc/test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers/). Продуктовый код и тесты правятся на этапе реализации по плану, который человек одобрил, — не раньше и не побочным эффектом другого этапа."
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7b3c72a0-0b7e-4a2d-a796-3307f36ecfd0",
+        "toolName": "Edit",
+        "kind": "edit",
+        "policy": "planScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[planScope] запись в «C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-ZLSQGO\\.sdlc\\test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers(intent.md)» отклонена: одобренного плана ещё нет, а до него этап пишет только артефакты процесса своего витка (.sdlc/test16-ollama-ministral3-14b-instruct-ctx32k-compactfill-two-right-answers/). Продуктовый код и тесты правятся на этапе реализации по плану, который человек одобрил, — не раньше и не побочным эффектом другого этапа."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 5"
+    }
+  ]
+}
