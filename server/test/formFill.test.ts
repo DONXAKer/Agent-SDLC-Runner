@@ -202,6 +202,25 @@ describe('заполнение бланка по полям', () => {
     ok(result.finalText.includes('отклонена'), result.finalText);
   });
 
+  it('JSON-конверт вместо значения — второй проход получает подсказку и заполняет поле', async () => {
+    const { root, artifact } = setup();
+    const result = await exec(
+      fieldProvider({
+        'что должно стать правдой': '- **Итог:** цена считается на границе 300 см',
+        // Ключ раньше 'почему сейчас' в словаре: на втором проходе строка-плейсхолдер
+        // ('почему сейчас') всё ещё в промпте карточки, но подсказка о прошлом отказе
+        // обязана матчиться первой — иначе тест проверял бы старое поведение.
+        'Прошлая попытка': '- **Зачем:** обновлённая причина после подсказки',
+        'почему сейчас': '{"tool":"Read","arguments":{"file_path":"./x.ts"}}',
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('обновлённая причина'), text);
+    ok(!text.includes('‹'), 'плейсхолдеры не должны остаться');
+  });
+
   it('пустой ответ и ответ с плейсхолдером полем не считаются', async () => {
     const { root, artifact } = setup();
     const seen = { writes: [] as NormalizedCall[] };
@@ -601,6 +620,120 @@ describe('заполнение бланка по полям', () => {
     ok(text.includes('‹path/to/file›'), 'плейсхолдер остаётся, когда и добор пуст');
   });
 
+  it('files_to_touch: путь похож по форме, но файла нет и он не помечен новым — добор срабатывает', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    const result = await exec(
+      fieldProvider({
+        'Добор files_to_touch': '| `src/real.ts` | добавить проверку |',
+        'ОБРАЗЕЦ': '| `src/does-not-exist.ts` | поправить валидацию |',
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('src/real.ts'), text);
+    ok(!text.includes('does-not-exist'), 'выдуманный путь не должен остаться после добора');
+  });
+
+  it('files_to_touch: путь не существует, но помечен как новый файл — добор НЕ срабатывает', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    // Если бы добор всё же случился, провайдер отдал бы этот путь — тест ловит его в тексте,
+    // не считая вызовы (значения объекта вычисляются сразу, а не по обращению к ключу).
+    const result = await exec(
+      fieldProvider({
+        'Добор files_to_touch': '| `src/should-not-be-asked.ts` | х |',
+        'ОБРАЗЕЦ': '| `src/new-module.ts` | создать новый модуль расчёта |',
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('src/new-module.ts'), text);
+    ok(!text.includes('should-not-be-asked'), 'файл, явно помеченный новым, не должен провоцировать добор');
+  });
+
+  it('files_to_touch: путь реально существует на диске — добор НЕ срабатывает', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src', 'real.ts'), 'export {};\n');
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    const result = await exec(
+      fieldProvider({
+        'Добор files_to_touch': '| `src/should-not-be-asked.ts` | х |',
+        'ОБРАЗЕЦ': '| `src/real.ts` | добавить проверку |',
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(!text.includes('should-not-be-asked'), 'существующий путь не должен провоцировать добор');
+  });
+
+  it('files_to_touch: нумерованная таблица — путь ищется по ВСЕМ ячейкам строки, не только по первой (code-review-all, 2026-09-18)', async () => {
+    // `filesToTouchInventedPaths` изначально брала `cells[0]` — на нумерованной таблице
+    // это номер строки («1»), не путь, и проверка молча пропускала строку целиком. Тот же
+    // класс регресса уже когда-то чинился в `extractFilesToTouch`/`pathFromRow`
+    // (`planFiles.ts`, докстринг файла) — вторая копия наивного разбора вернула его назад.
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    const result = await exec(
+      fieldProvider({
+        'Добор files_to_touch': '| `src/real.ts` | добавить проверку |',
+        'ОБРАЗЕЦ': '| 1 | `src/does-not-exist.ts` | поправить валидацию |',
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('src/real.ts'), text);
+    ok(!text.includes('does-not-exist'), 'выдуманный путь в нумерованной строке должен был найтись и обменяться добором');
+  });
+
+  it('files_to_touch: мусор класса «не похоже на путь» не попадает в новую ветку добора', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    const result = await exec(
+      fieldProvider({
+        'Добор files_to_touch': '| `src/should-not-be-asked.ts` | х |',
+        'ОБРАЗЕЦ': '| `/sendNotification.*to,phone,text/` | х |',
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const text = readFileSync(artifact, 'utf8');
+    ok(
+      !text.includes('should-not-be-asked'),
+      'явный не-путь (класс looksLikePath) — не предмет фикса 3, добор не должен реагировать',
+    );
+  });
+
   it('без списка артефактов режим честно отказывается', async () => {
     const { root, artifact } = setup();
     const result = await exec(fieldProvider({})).run(
@@ -669,7 +802,7 @@ function compactProvider(answers: Record<string, string>): ChatProvider {
   } as unknown as ChatProvider;
 }
 
-const execCompact = (provider: ChatProvider, stage: 'intent' | 'explore' = 'intent'): FormFillExecutor =>
+const execCompact = (provider: ChatProvider, stage: 'intent' | 'explore' | 'plan' = 'intent'): FormFillExecutor =>
   new FormFillExecutor({
     provider,
     maxResultBytes: 10_000,
@@ -738,6 +871,50 @@ describe('режим compact: поля из схемы, ответ рисует 
 
     await execCompact(spy).run(request(root, artifact), hooks({ writes: [] }, true));
     ok(!asked.some((u) => u.includes('одобрение')));
+  });
+
+  it('compact: JSON-конверт вместо значения — второй запрос несёт подсказку о прошлом отказе', async () => {
+    const { root, artifact } = setupCompact();
+    let branchCalls = 0;
+    let secondCallPrompt = '';
+    const provider: ChatProvider = {
+      name: 'echo-then-fix',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        if (user.includes('`ветка витка`')) {
+          branchCalls++;
+          if (branchCalls === 1) {
+            return {
+              text: '{"tool":"Read","arguments":{"file_path":"./x.ts"}}',
+              toolCalls: [],
+              usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+              finishReason: 'end_turn' as const,
+            };
+          }
+          secondCallPrompt = user;
+          return {
+            text: 'sdlc/oversize',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+          };
+        }
+        return {
+          text: '',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execCompact(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(branchCalls, 2, 'поле обязано быть переспрошено на втором проходе');
+    ok(secondCallPrompt.includes('Прошлая попытка'), secondCallPrompt);
+    ok(secondCallPrompt.includes('JSON-конверт'), secondCallPrompt);
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('sdlc/oversize'), text);
   });
 
   it('лист приёмки ниже минимума добирается повторным запросом (compact)', async () => {
@@ -820,5 +997,54 @@ describe('режим compact: поля из схемы, ответ рисует 
     ok(result.finalText.includes('не закрыл минимум за 2 попытки'), result.finalText);
     const text = readFileSync(artifact, 'utf8');
     ok(!text.includes('[edge]'), 'в тексте не должно быть тега [edge] — ни одна попытка его не дала');
+  });
+
+  it('compact: files_to_touch — выдуманный путь переспрашивается (до фикса эта проверка в compact вообще не исполнялась, code-review-all, 2026-09-18)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-compact-'));
+    roots.push(root);
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src', 'real.ts'), 'export {};\n');
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    let topUpCalls = 0;
+    const provider: ChatProvider = {
+      name: 'invented-then-fix',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        if (user.includes('Добор поля')) {
+          topUpCalls++;
+          return {
+            text: '| `src/real.ts` | добавить проверку |',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+          };
+        }
+        if (user.includes('`filestotouch`')) {
+          return {
+            text: '| `src/does-not-exist.ts` | поправить валидацию |',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+          };
+        }
+        return {
+          text: '',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execCompact(provider, 'plan').run(request(root, artifact, { maxTurns: 20 }), hooks({ writes: [] }, true));
+
+    strictEqual(topUpCalls, 1, 'выдуманный путь обязан вызвать один добор');
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('src/real.ts'), text);
+    ok(!text.includes('does-not-exist'), 'выдуманный путь не должен остаться в артефакте');
   });
 });

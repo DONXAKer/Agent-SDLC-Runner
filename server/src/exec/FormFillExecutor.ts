@@ -37,7 +37,7 @@
  * правкой кода, а не незаметной подстановкой данных.
  */
 
-import { relative } from 'node:path';
+import { join, relative } from 'node:path';
 
 import type { StageId, Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
@@ -47,10 +47,12 @@ import {
   isDecisionCell,
   isDecisionLine,
   lineAt,
+  pathExistsAny,
   placeholderRanges,
   readArtifact,
 } from '../artifacts/artifact.ts';
 import { applyFill } from '../artifacts/applyFill.ts';
+import { declaredAsNew, pathFromCells, pathFromRow } from '../artifacts/planFiles.ts';
 import { CLAIMS_MINIMUM, claimIdOf, countClaims } from '../artifacts/claims.ts';
 import {
   deriveSchema,
@@ -83,6 +85,71 @@ const FIELD_PARALLEL = 3;
 
 /** Шапка таблицы `files_to_touch` плана (`plan.template.md`) — узнаётся по колонкам. */
 const FILES_TO_TOUCH_HEADER = /\|\s*Путь\s*\|\s*Что делаем\s*\|/;
+
+/**
+ * Строки заполненного `files_to_touch`, где `pathFromRow` находит ячейку, ПОХОЖУЮ на путь
+ * по форме, но такого файла нет на диске и он не объявлен новым (`declaredAsNew`).
+ *
+ * Мишень — класс, соседний с уже отсеиваемым мусором «не похоже на путь вообще»
+ * (`planFiles.ts::looksLikePath`, символы `* , ;`): там строка вида
+ * `/sendNotification.*to,phone,text/` отклоняется по форме. Здесь — строка, которая по
+ * форме сойдёт за путь, но ссылается в никуда (опечатка, несуществующий модуль, будущий
+ * файл без пометки). Раньше это ловилось только на этапе `chunk` политикой `pathScope` —
+ * на ход дороже (серия test21, 2026-09-17). Ложное срабатывание (модель законно назвала
+ * будущий файл, забыв это пометить) стоит один лишний запрос, а не потерю данных: ответ
+ * добора принимается как есть, без повторной проверки (см. вызов ниже).
+ */
+function filesToTouchInventedPaths(filled: string, cwd: string): string[] {
+  const invented: string[] = [];
+  for (const line of filled.split('\n')) {
+    const cells = splitRow(line).filter((c) => c !== '');
+    if (cells.length === 0 || declaredAsNew(cells)) continue;
+    // `pathFromRow`, не «первая непустая ячейка»: наивный разбор ломается на нумерованной
+    // таблице (`| 1 | src/a.ts | … |`) — ровно тот класс, от которого `pathFromRow` уже
+    // защищает `extractFilesToTouch` (см. её докстринг в `planFiles.ts`); вторая, более
+    // простая копия той же логики здесь была бы регрессией к уже пойманному дефекту.
+    const candidate = pathFromRow(line);
+    if (candidate === null || candidate.includes('..')) continue;
+    if (!pathExistsAny(join(cwd, candidate))) invented.push(candidate);
+  }
+  return invented;
+}
+
+/**
+ * Ключ секции `files_to_touch` после нормализации `formSchema.ts::sectionKey` (символы
+ * `` ` * _ `` вырезаются) — используется для узнавания поля-таблицы в компактном режиме,
+ * своего заголовка-регэкспа для этого пути там нет: карточка поля несёт `id`/`section`,
+ * а не саму строку бланка, которую проверяет `FILES_TO_TOUCH_HEADER`.
+ */
+const FILES_TO_TOUCH_SECTION = 'filestotouch';
+
+/**
+ * То же самое, что `filesToTouchInventedPaths`, но для компактного режима: ответ модели —
+ * не сырые строки markdown-таблицы, а разобранные записи (`sheet.ts::parseRecordRows`,
+ * значения колонок через `Object.values`). Раздельная функция, а не общий код с
+ * `filesToTouchInventedPaths`, потому что источники cells разные (`splitRow` сырой строки
+ * против уже готового `Record<string, string>`) — общая часть, выбор ячейки-пути, уже
+ * вынесена в `planFiles.ts::pathFromCells`.
+ *
+ * До фикса эта проверка вообще не исполнялась в компактном режиме (`compactForms: 'fill'`)
+ * — включая модель, замер которой её и мотивировал (`ministral3-14b-instruct-ctx32k-
+ * compactfill`, test21, 2026-09-17): добор срабатывал только в режиме диапазонов
+ * (code-review-all, 2026-09-18).
+ */
+function filesToTouchInventedPathsCompact(field: SchemaField, answerText: string, cwd: string): string[] {
+  if (field.section !== FILES_TO_TOUCH_SECTION || field.kind !== 'records') return [];
+  const peek = parseFieldValue(field, answerText);
+  if (isSheetError(peek) || peek.kind !== 'records') return [];
+  const invented: string[] = [];
+  for (const row of peek.rows) {
+    const cells = Object.values(row);
+    if (cells.length === 0 || declaredAsNew(cells)) continue;
+    const candidate = pathFromCells(cells);
+    if (candidate === null || candidate.includes('..')) continue;
+    if (!pathExistsAny(join(cwd, candidate))) invented.push(candidate);
+  }
+  return invented;
+}
 
 /**
  * Шапка таблицы «Карта кодовой базы» (`exploration-report.template.md`) — узнаётся по
@@ -128,16 +195,33 @@ function cardSection(field: SchemaField): string | null {
   return norm(section) === norm(label) ? null : section;
 }
 
+/**
+ * Ключ ИДЕНТИЧНОСТИ поля — устойчив к пересчёту схемы между проходами `sweep()`, в отличие
+ * от `field.id` (несёт порядковый суффикс раздела, который у соседа смещается, когда
+ * заполненное поле исчезает из схемы — см. `currentFieldId` ниже). Вынесена из тела
+ * `currentFieldId`, чтобы `fieldRejectionMemo` (фикс 4) опознавала поле ТЕМ ЖЕ способом,
+ * что и запись готового ответа, а не по дрейфующему `id` напрямую.
+ */
+function fieldIdentityKey(f: SchemaField): string {
+  return [f.section, f.label ?? '', f.kind, f.shape, f.placeholders[0]?.text ?? ''].join('|');
+}
+
+/**
+ * id поля в схеме ТЕКУЩЕГО текста. Схема пересчитывается после каждого заполнения, и id с
+ * суффиксом раздела (`uniqueId`) у ещё не заполненного соседа смещается: plan
+ * «последствия шагов/статус» после заполнения «статус» не находился вовсе. Поле узнаётся
+ * по устойчивому ключу (`fieldIdentityKey`) и порядку среди ещё не заполненных полей с тем
+ * же ключом; заполненные из схемы уходят (плейсхолдера нет).
+ */
 function currentFieldId(
   fresh: readonly SchemaField[],
   original: readonly SchemaField[],
   field: SchemaField,
   filled: ReadonlySet<SchemaField>,
 ): string {
-  const key = (f: SchemaField): string => [f.section, f.label ?? '', f.kind, f.shape, f.placeholders[0]?.text ?? ''].join('\u0000');
-  const wanted = key(field);
-  const ordinal = original.slice(0, original.indexOf(field)).filter((f) => !filled.has(f) && key(f) === wanted).length;
-  const matches = fresh.filter((f) => key(f) === wanted);
+  const wanted = fieldIdentityKey(field);
+  const ordinal = original.slice(0, original.indexOf(field)).filter((f) => !filled.has(f) && fieldIdentityKey(f) === wanted).length;
+  const matches = fresh.filter((f) => fieldIdentityKey(f) === wanted);
   return (matches[ordinal] ?? matches[0])?.id ?? field.id;
 }
 
@@ -539,6 +623,28 @@ export class FormFillExecutor implements StageExecutor {
     let fieldsFilled = 0;
     let callsSpent = 0;
     const notes: string[] = [];
+    /**
+     * Причина отказа последнего ответа по полю — только для классов, где второй проход
+     * (`sweep()`, второй заход) спрашивает ТУ ЖЕ карточку с нуля, без единого напоминания
+     * о том, что было не так («чужая письменность», JSON-конверт вызова инструмента вместо
+     * значения). Классы с уже существующим добором В ТОМ ЖЕ проходе (пустой/мусорный
+     * `files_to_touch`, короткий лист приёмки) сюда не пишутся — у них добор уже есть.
+     * Коллизия ключа у двух буквально одинаковых плейсхолдеров в одном файле возможна и
+     * некритична: карта используется только для подсказки в промпте, не для решения об
+     * исходе этапа.
+     */
+    const fieldRejectionMemo = new Map<string, string>();
+    // `field.id` дрейфует между проходами `sweep()` (суффикс раздела у соседа смещается,
+    // когда заполненное поле пропадает из схемы — см. `currentFieldId`) — ключ памяти
+    // строится тем же устойчивым `fieldIdentityKey`, а не `id` напрямую.
+    const compactFieldKey = (field: SchemaField): string => `compact::${fieldIdentityKey(field)}`;
+    // `range.header` один на ВСЕ строки-образцы таблицы с такой шапкой: два поля-образца с
+    // одинаковой шапкой в разных таблицах одного файла (например, план с двумя секциями
+    // `| Путь | Что делаем |`) иначе делили бы одну запись в карте. `range.text` — сама
+    // строка-образец — различает их; коллизия остаётся возможной только при буквально
+    // одинаковых шапке И тексте-образце, что уже не критично для подсказки.
+    const rangeFieldKey = (path: string, text: string, range: FormField): string =>
+      range.kind === 'row' ? `row::${path}::${range.header}::${range.text}` : `cell::${path}::${lineAt(text, range.start)}`;
     // Отказ среды копится ОТДЕЛЬНО от notes: заметка объясняет человеку, что случилось,
     // а это поле решает, считать ли прогон измерением вообще (см. StageResult.envFailure).
     // Раньше 503 апстрима попадал только в notes, этап отчитывался `ok`, и bench красил
@@ -686,6 +792,7 @@ export class FormFillExecutor implements StageExecutor {
     const askField = async (path: string, text: string, range: FormField): ReturnType<ChatProvider['chat']> => {
       const needsCodeMap = range.kind === 'row' && CODE_MAP_HEADER.test(range.header);
       const codeMapText = needsCodeMap ? await codeMapGrounding() : '';
+      const priorRejection = fieldRejectionMemo.get(rangeFieldKey(path, text, range));
       const messages: ChatMessage[] = [
           { role: 'system', content: req.prompt.system },
           {
@@ -703,6 +810,9 @@ export class FormFillExecutor implements StageExecutor {
               range.kind === 'row' ? sectionAt(text, range.start) : lineAt(text, range.start),
               '```',
               '',
+              ...(priorRejection === undefined
+                ? []
+                : [`Прошлая попытка этого поля отклонена: ${priorRejection}. Не повтори эту же ошибку.`, '']),
               // Заземление ТОЛЬКО для карты кодовой базы: у режима нет Read/Task (см. шапку
               // файла), и без списка реальных путей это единственное поле бланка, где модель
               // вынуждена либо угадывать пути по памяти, либо честно писать «новый» —
@@ -814,7 +924,16 @@ export class FormFillExecutor implements StageExecutor {
       path: string,
       text: string,
       range: FormField & { kind: 'row' },
+      invented: readonly string[] = [],
     ): ReturnType<ChatProvider['chat']> => {
+      const reason =
+        invented.length > 0
+          ? `Эти пути не найдены в проекте и не помечены как новые: ${invented.map((p) => `\`${p}\``).join(', ')}. ` +
+            'Укажи реальный путь к затрагиваемому файлу либо явно пометь строку как новый ' +
+            'файл (слово «новый»/«создать» в описании).'
+          : 'Список путей пуст или не заполнен, а он обязателен: без него проверка ' +
+            '«запись только в план» отключится молча. Верни ТОЛЬКО строки таблицы того ' +
+            'же формата — хотя бы один путь, который реально будет затронут.';
       const messages: ChatMessage[] = [
           { role: 'system', content: req.prompt.system },
           {
@@ -830,9 +949,7 @@ export class FormFillExecutor implements StageExecutor {
               sectionAt(text, range.start),
               '```',
               '',
-              'Список путей пуст или не заполнен, а он обязателен: без него проверка ' +
-                '«запись только в план» отключится молча. Верни ТОЛЬКО строки таблицы того ' +
-                'же формата — хотя бы один путь, который реально будет затронут.',
+              reason,
             ].join('\n'),
           },
         ];
@@ -861,9 +978,13 @@ export class FormFillExecutor implements StageExecutor {
       // некомпактного пути: у режима нет Read/Task, и без него пути угадываются по памяти.
       const needsCodeMap = field.kind === 'records' && CODE_MAP_HEADER.test(field.header ?? '');
       const codeMapText = needsCodeMap ? await codeMapGrounding() : '';
+      const priorRejection = fieldRejectionMemo.get(compactFieldKey(field));
       const card = [
         `## Сейчас — ровно одно поле`,
         '',
+        ...(priorRejection === undefined
+          ? []
+          : [`Прошлая попытка этого поля отклонена: ${priorRejection}. Не повтори эту же ошибку.`, '']),
         `- id: \`${field.id}\``,
         `- вид: ${field.kind}`,
         // Раздел бланка — контекст поля без подсказки; когда пользы в нём нет, строки не
@@ -960,6 +1081,41 @@ export class FormFillExecutor implements StageExecutor {
     };
 
     /**
+     * То же, что `askFilesToTouchTopUp` (режим диапазонов), для компактной карточки поля:
+     * ответ заменяется целиком (`applyFill('set')`, как первый ответ), а не дополняется —
+     * список путей короткий, и просить модель «пришли только исправленную строку» без
+     * позиции строки в самом ответе (в отличие от диапазона, где есть текст-образец) было
+     * бы отдельным протоколом ради экономии одного запроса.
+     */
+    const askFilesToTouchTopUpCompact = (
+      field: SchemaField,
+      already: string,
+      invented: readonly string[],
+    ): ReturnType<ChatProvider['chat']> => {
+      const reason = `Эти пути не найдены в проекте и не помечены как новые: ${invented.map((p) => `\`${p}\``).join(', ')}. ` +
+        'Укажи реальный путь к затрагиваемому файлу либо явно пометь строку как новый файл ' +
+        '(слово «новый»/«создать» в описании).';
+      const messages: ChatMessage[] = [
+          { role: 'system', content: req.prompt.system },
+          {
+            role: 'user',
+            content: [
+              req.prompt.user,
+              '',
+              `## Добор поля \`${field.id}\``,
+              '',
+              `Прошлый ответ:\n\`\`\`\n${already}\n\`\`\``,
+              '',
+              reason,
+              '',
+              'Верни ответ на это поле ЗАНОВО целиком, в том же формате.',
+            ].join('\n'),
+          },
+        ];
+      return this.ask(req, messages, hooks);
+    };
+
+    /**
      * Бюджет исчерпан — общая проверка для обоих режимов, после каждой пачки.
      */
     const budgetHit = (): string | null => {
@@ -1018,6 +1174,50 @@ export class FormFillExecutor implements StageExecutor {
           resetRejectionStreak();
 
           let answerText = a.value.text;
+
+          // Прямая проверка сбоя генерации ДО applyFill — тем же порядком, что range-режим
+          // (строки ниже, `foreignScript`/`looksLikeToolCallEcho` на `filled`), а не разбор
+          // текста отказа applyFill по подстроке: тот текст задаёт `sheet.ts` для человека,
+          // и совпадение с ним здесь было случайным — сменившаяся формулировка молча выключила
+          // бы память об отказе (code-review-all, 2026-09-18).
+          const foreign = foreignScript(answerText);
+          if (foreign !== null) {
+            const rejection = `ответ на поле ${field.id} отклонён: чужая письменность («${foreign}»)`;
+            notes.push(rejection);
+            fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            continue;
+          }
+          if (looksLikeToolCallEcho(answerText)) {
+            const rejection = `ответ на поле ${field.id} отклонён: JSON-конверт вызова инструмента вместо значения`;
+            notes.push(rejection);
+            fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            continue;
+          }
+
+          // Тот же класс, что у режима диапазонов (`filesToTouchInventedPaths` ниже по
+          // файлу) — путь по форме похож на настоящий, но такого файла нет и он не заявлен
+          // новым. До этого фикса компактный режим (`compactForms: 'fill'`) эту проверку не
+          // исполнял вовсе.
+          const inventedCompact = filesToTouchInventedPathsCompact(field, answerText, req.cwd);
+          if (inventedCompact.length > 0 && callsSpent < requestBudget) {
+            callsSpent++;
+            try {
+              const more = await askFilesToTouchTopUpCompact(field, answerText, inventedCompact);
+              usage = addUsage(usage, more.usage);
+              if (more.text.trim() !== '' && !more.text.includes('‹')) {
+                answerText = more.text;
+                notes.push(
+                  `добор ${field.id}: похоже на путь, но не найдено на диске (${inventedCompact.join(', ')}) — переспрошено`,
+                );
+              } else {
+                notes.push(`добор ${field.id} не удался: ответ снова пуст`);
+              }
+            } catch (e) {
+              const why = e instanceof Error ? e.message : String(e);
+              noteEnvFailure(e);
+              notes.push(`добор ${field.id} не удался: ${why.slice(0, 160)}`);
+            }
+          }
 
           // Добор ДО commit'а: минимум листа проверяется по СЫРОМУ ответу, вопрос
           // задаётся один раз, оба текста склеиваются, и только тогда — единственный
@@ -1083,6 +1283,9 @@ export class FormFillExecutor implements StageExecutor {
                 ? `поле ${field.id} не найдено в бланке: ${applied.problem}`
                 : `ответ на поле ${field.id} отклонён: ${applied.problem}`,
             );
+            // Классы «сбой генерации» (чужая письменность, JSON-конверт) отсечены раньше,
+            // прямой проверкой ответа выше — сюда доходят только отказы `applyFill` по
+            // другим причинам (поле не найдено, формат значения), для которых памяти нет.
             continue;
           }
           text = applied.text;
@@ -1196,20 +1399,23 @@ export class FormFillExecutor implements StageExecutor {
             resetRejectionStreak();
             let filled = cleanFieldAnswer(a.value.text);
             if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
-            if (
-              (filled === '' || filled.includes('‹')) &&
-              range.kind === 'row' &&
-              FILES_TO_TOUCH_HEADER.test(range.header) &&
-              callsSpent < requestBudget
-            ) {
+            const isFilesToTouchRow = range.kind === 'row' && FILES_TO_TOUCH_HEADER.test(range.header);
+            const empty = filled === '' || filled.includes('‹');
+            const invented =
+              !empty && isFilesToTouchRow ? filesToTouchInventedPaths(filled, req.cwd) : [];
+            if ((empty || invented.length > 0) && isFilesToTouchRow && range.kind === 'row' && callsSpent < requestBudget) {
               callsSpent++;
               try {
-                const more = await askFilesToTouchTopUp(path, text, range);
+                const more = await askFilesToTouchTopUp(path, text, range, invented);
                 usage = addUsage(usage, more.usage);
                 const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
                 if (extra !== '' && !extra.includes('‹')) {
                   filled = extra;
-                  notes.push(`добор files_to_touch: список был пуст, добавлено ${extra.split('\n').length} строк`);
+                  notes.push(
+                    invented.length > 0
+                      ? `добор files_to_touch: похоже на путь, но не найдено на диске (${invented.join(', ')}) — переспрошено`
+                      : `добор files_to_touch: список был пуст, добавлено ${extra.split('\n').length} строк`,
+                  );
                 } else {
                   notes.push('добор files_to_touch не удался: список снова пуст');
                 }
@@ -1230,7 +1436,9 @@ export class FormFillExecutor implements StageExecutor {
             const foreign = foreignScript(filled);
             if (foreign !== null) {
               const where = range.kind === 'row' ? range.header : range.text;
-              notes.push(`ответ на поле ${where.slice(0, 60)} отклонён: чужая письменность («${foreign}»)`);
+              const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: чужая письменность («${foreign}»)`;
+              notes.push(rejection);
+              fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
               continue;
             }
             // Модель спутала «ответить на карточку» с «вызвать инструмент» и вернула JSON-
@@ -1239,7 +1447,9 @@ export class FormFillExecutor implements StageExecutor {
             // такой ответ как готовое значение поля без единого отказа).
             if (looksLikeToolCallEcho(filled)) {
               const where = range.kind === 'row' ? range.header : range.text;
-              notes.push(`ответ на поле ${where.slice(0, 60)} отклонён: JSON-конверт вызова инструмента вместо значения`);
+              const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: JSON-конверт вызова инструмента вместо значения`;
+              notes.push(rejection);
+              fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
               continue;
             }
             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому

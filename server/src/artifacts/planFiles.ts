@@ -65,6 +65,17 @@ function clean(s: string): string {
   return s.trim().replace(/^`|`$/g, '').trim();
 }
 
+/**
+ * Символы, которых не бывает в путях этого проекта, но которые проходили прежнюю проверку
+ * только потому, что строка содержала `/` где-то ещё. Живой пример (`security-bait`,
+ * серия `test21`, 2026-09-17): `ministral` вписал в `files_to_touch` куски сигнатуры вызова
+ * вместо путей — `/sendNotification.*to,phone,text/` и `/logEvent/;logEvent` — оба приняты
+ * старой проверкой (есть `/`), оба отклонены политикой `pathScope` уже на этапе `chunk`, на
+ * ход дороже. Список — не полный алфавит «плохих» символов, а ровно то, что уже наблюдалось
+ * в мусоре: регэксп-мета (`*`) и разделители перечисления/аргументов (`,` `;`).
+ */
+const NOT_PATH_CHARS = /[*,;]/;
+
 /** Похоже ли на путь, а не на номер строки, прозу или имя символа. */
 function looksLikePath(raw: string): boolean {
   const t = clean(raw);
@@ -72,6 +83,7 @@ function looksLikePath(raw: string): boolean {
   if (t.includes('‹') || t.includes('›')) return false;
   if (/^[#\d.,)]+$/.test(t)) return false; // номер строки таблицы
   if (t.includes('::')) return false; // `путь:символ` — форма отчёта разведки
+  if (NOT_PATH_CHARS.test(t)) return false; // обрывок сигнатуры/перечисления, не путь
   if (t === '.sdlc' || t.startsWith('.sdlc/')) return false; // артефакты процесса
   const base = t.slice(t.lastIndexOf('/') + 1).toLowerCase();
   if (WITOK_ARTIFACTS.has(base) || WITOK_ARTIFACT_RE.test(base)) return false;
@@ -80,12 +92,52 @@ function looksLikePath(raw: string): boolean {
   return EXTENSIONLESS.has(t.toLowerCase());
 }
 
-/** Из строки таблицы берём ячейку, похожую на путь; закавыченная имеет приоритет. */
-function pathFromRow(line: string): string | null {
+/**
+ * Объявлен ли путь строки как будущий — то есть его отсутствие в дереве законно.
+ *
+ * Перенесена сюда из `server/src/run/stages/explore.ts` (`declaredAsNew`, до 2026-09-17):
+ * `FormFillExecutor.ts` нуждается в той же проверке для добора `files_to_touch`, но
+ * `explore.ts` импортирует `ExploreExecutor.ts`, который импортирует `FormFillExecutor.ts`
+ * — прямой импорт создал бы цикл. `stages/explore.ts` теперь ре-экспортирует эту функцию
+ * без изменения тела; внешний API (`server/src/run/stages.ts`) не меняется.
+ *
+ * Словарь — формы, которыми это пишут люди и модели: «новый», «отсутствует»,
+ * «не существует», «будет создан», «создать», «создаётся». Проверяется каждая ячейка
+ * строки: пометка стоит там, где автору удобно, а не в колонке, которую мы назначили.
+ */
+export function declaredAsNew(row: readonly string[]): boolean {
+  return row.some((cell) => {
+    const t = (cell ?? '').toLowerCase().replace(/ё/g, 'е');
+    if (/(^|[^\p{L}])нов/u.test(t)) return true;
+    if (/(^|[^\p{L}])создат|(^|[^\p{L}])создан|(^|[^\p{L}])создает/u.test(t)) return true;
+    return /отсутству|не\s+существу|нет\s+в\s+дереве|пока\s+нет/u.test(t);
+  });
+}
+
+/**
+ * Из строки таблицы берём ячейку, похожую на путь; закавыченная имеет приоритет.
+ *
+ * Экспортирована для `FormFillExecutor.ts` (добор `files_to_touch` на «путь по форме, но
+ * несуществующий», серия test21): наивный разбор «первая непустая ячейка» ломается на той
+ * же нумерованной таблице (`| 1 | src/a.ts | … |`), от которой этот разборщик и защищает —
+ * см. докстринг файла выше. Второй копии той же логики заводить нельзя.
+ */
+export function pathFromRow(line: string): string | null {
   // Общий разборщик, а не split('|'): экранированная `\|` в ячейке рвала колонку —
   // тот же класс, что чинился в humanFacts (ревью, class sweep).
   const cells = splitRow(line).filter((c) => c !== '');
+  return pathFromCells(cells);
+}
 
+/**
+ * То же правило выбора ячейки, что у `pathFromRow`, но для уже разобранных ячеек —
+ * нужно `FormFillExecutor.ts` в компактном режиме, где строка `files_to_touch` приходит
+ * не сырой markdown-строкой, а разобранной записью (`Record<string, string>` из
+ * `sheet.ts::parseRecordRows`, значения через `Object.values`), закавыченной ячейки в ней
+ * не бывает — но правило «первая похожая на путь» то же самое, и заводить для него
+ * второй разборщик не нужно.
+ */
+export function pathFromCells(cells: readonly string[]): string | null {
   const backticked = cells.find((c) => c.startsWith('`') && looksLikePath(c));
   if (backticked !== undefined) return clean(backticked);
 

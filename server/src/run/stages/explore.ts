@@ -2,6 +2,7 @@
 
 import { localResultBytes } from '../../config/limits.ts';
 import { DECISION, countPlaceholdersInSection, pathExistsAny, readArtifact } from '../../artifacts/artifact.ts';
+import { declaredAsNew } from '../../artifacts/planFiles.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
 import { TOUCH_SECTION, claimsMinimum, exists, filledExceptTouchSection, isSmallContour, relOf } from './preconditions.ts';
@@ -29,21 +30,12 @@ import type { Keywords } from '../../explore/keywords.ts';
 import type { ExploreIndex } from '../../explore/types.ts';
 import type { BuiltView } from '../../explore/view.ts';
 
-/**
- * Объявлен ли путь строки как будущий — то есть его отсутствие в дереве законно.
- *
- * Словарь — формы, которыми это пишут люди и модели: «новый», «отсутствует»,
- * «не существует», «будет создан», «создать», «создаётся». Проверяется каждая ячейка
- * строки: пометка стоит там, где автору удобно, а не в колонке, которую мы назначили.
- */
-export function declaredAsNew(row: readonly string[]): boolean {
-  return row.some((cell) => {
-    const t = (cell ?? '').toLowerCase().replace(/ё/g, 'е');
-    if (/(^|[^\p{L}])нов/u.test(t)) return true;
-    if (/(^|[^\p{L}])создат|(^|[^\p{L}])создан|(^|[^\p{L}])создает/u.test(t)) return true;
-    return /отсутству|не\s+существу|нет\s+в\s+дереве|пока\s+нет/u.test(t);
-  });
-}
+// `declaredAsNew` живёт в `artifacts/planFiles.ts` (импортирована выше, перенесена
+// 2026-09-17, тело не менялось) — `FormFillExecutor.ts` тоже нуждается в ней для добора
+// `files_to_touch`, а прямой импорт оттуда сюда дал бы цикл (`explore.ts` →
+// `ExploreExecutor.ts` → `FormFillExecutor.ts`). Внешний API (`server/src/run/stages.ts`)
+// не меняется — ре-экспорт ниже.
+export { declaredAsNew };
 
 /**
  * Слова, которые выглядят путями и путями не являются: «н/п» проходит любой фильтр со
