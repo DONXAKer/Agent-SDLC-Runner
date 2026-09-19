@@ -5,7 +5,13 @@ import type { NormalizedCall } from '@sdlc-runner/shared';
 import { DECISION, artifactExists, hasNamedInvariants, readArtifact, readDecision, writeArtifact } from '../../artifacts/artifact.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { planAxisProblems, unansweredAxes } from '../../artifacts/planAxes.ts';
-import { extractFilesToTouch } from '../../artifacts/planFiles.ts';
+import {
+  addedBeyondPlanPaths,
+  excludedFromPlanPaths,
+  extractFilesToTouch,
+  seedFilesToTouch,
+  touchListEntries,
+} from '../../artifacts/planFiles.ts';
 import { applyAxisAnswers } from '../../artifacts/renderAxes.ts';
 import type { ResolvedRoute } from '../../config/schema.ts';
 import { gateKey } from '../../gates/gatesFile.ts';
@@ -40,6 +46,48 @@ export function filesToTouchProblem(c: StageContext): string | null {
     `этапе 5, и запись перестанет быть ограниченной планом. Впиши хотя бы один путь строкой ` +
     `таблицы.`
   );
+}
+
+/**
+ * `files_to_touch` плана против «Что придётся тронуть» разведки (4.1): каждое расхождение
+ * обязано быть объяснено строкой плана, а не молча — план вправе сузить или расширить
+ * список (шаблон говорит это прямо), но не вправе разойтись с разведкой БЕЗ причины.
+ *
+ * Пустой список разведки не проверяется (мелкий контур, разведки не было — сверять не с
+ * чем, это законно). Путь разведки, отсутствующий в `files_to_touch`, обязан быть назван в
+ * «Из задачи исключено»; путь `files_to_touch`, которого нет в разведке, — в «Добавлено
+ * сверх разведки». Оба скана — общим `planFiles.ts::pathsAfterLabel`, второй копии не
+ * заводится.
+ */
+export function planTouchDiscrepancyProblem(c: StageContext): string | null {
+  const intent = readArtifact(c.paths.intent);
+  if (!intent.exists) return null; // отсутствие задачи ловит соседнее предусловие
+  const touch = touchListEntries(intent.text).map((e) => e.path);
+  if (touch.length === 0) return null;
+
+  const plan = readArtifact(c.paths.plan);
+  if (!plan.exists) return null; // отсутствие плана ловит соседнее предусловие
+  const files = extractFilesToTouch(plan.text);
+  const excluded = excludedFromPlanPaths(plan.text);
+  const added = addedBeyondPlanPaths(plan.text);
+
+  const droppedSilently = touch.filter((p) => !files.includes(p) && !excluded.includes(p));
+  const addedSilently = files.filter((p) => !touch.includes(p) && !added.includes(p));
+  if (droppedSilently.length === 0 && addedSilently.length === 0) return null;
+
+  const parts: string[] = [];
+  if (droppedSilently.length > 0) {
+    parts.push(
+      `в files_to_touch нет и в «Из задачи исключено» не названы: ${droppedSilently.join(', ')}`,
+    );
+  }
+  if (addedSilently.length > 0) {
+    parts.push(
+      `в files_to_touch есть, а в «Что придётся тронуть» и в «Добавлено сверх разведки» — нет: ` +
+        addedSilently.join(', '),
+    );
+  }
+  return `files_to_touch разошёлся с «Что придётся тронуть» разведки без объяснения — ${parts.join('; ')}.`;
 }
 
 /**
@@ -190,10 +238,11 @@ export const planStage: StageDef = {
   id: 'plan',
   skill: 'sdlc-plan',
   title: 'План витка',
-  // Bash — для `git rev-parse HEAD` в поле «База».
-  // Оболочки нет по той же причине, что на этапе 1: план — это документ, а не прогон
-  // команд. Разведка, которой нужно смотреть в дерево, идёт этапом раньше и своими
-  // инструментами чтения.
+  // `Bash` в списке нет: поле «База» пишет рантайм (`autofillPlan`, `git rev-parse HEAD`
+  // мимо модели), а остальное — та же причина, что на этапе 1: план — это документ, а не
+  // прогон команд. Разведка, которой нужно смотреть в дерево, идёт этапом раньше и своими
+  // инструментами чтения. (Устаревший комментарий «Bash — для git rev-parse HEAD в поле
+  // «База»» утверждал обратное — найдено ревью `stage-review-2026-09-18.md`, S7.)
   tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact', 'FillField'],
   subagents: [],
   produces: (c) => [c.paths.plan, c.paths.readiness],
@@ -231,12 +280,19 @@ export const planModule: StageModule = {
         path: host.paths.plan,
         fill: async (t) => {
           const head = await host.head();
-          return autofillPlan(t, {
+          const autofilled = autofillPlan(t, {
             title: host.slug,
             explorationDone: artifactExists(host.paths.explorationReport),
             clarificationDone: artifactExists(host.paths.clarificationReport),
             base: head.sha ?? head.why,
           });
+          // Засев files_to_touch (4.1, «П»-половина): модель решает по готовой строке
+          // (оставить/исключить/добавить), а не составляет список с нуля. Идемпотентно —
+          // см. докстринг `seedFilesToTouch`.
+          const intent = readArtifact(host.paths.intent);
+          const touch = intent.exists ? touchListEntries(intent.text) : [];
+          const seeded = seedFilesToTouch(autofilled.text, touch);
+          return { text: seeded.text, filled: autofilled.filled + seeded.seeded };
         },
       },
       { path: host.paths.readiness, fill: async (t) => autofillReadiness(t, { title: host.slug, date, run: 2 }) },
@@ -264,6 +320,8 @@ export const planModule: StageModule = {
       // проверке находка (см. filesToTouchProblem).
       const filesProblem = filesToTouchProblem(host.ctx());
       if (filesProblem !== null) return filesProblem;
+      const touchProblem = planTouchDiscrepancyProblem(host.ctx());
+      if (touchProblem !== null) return touchProblem;
       const problems = axisProblems(host);
       if (problems.length === 0) return null;
       return [

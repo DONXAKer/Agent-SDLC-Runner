@@ -3,7 +3,7 @@
  * из слов исполнителя; и сравнение патчей соседних попыток для детекта «нет прогресса».
  */
 
-import type { GateRunResult } from '@sdlc-runner/shared';
+import type { GateRunResult, StageId } from '@sdlc-runner/shared';
 
 import { readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
 import type { WitokPaths } from '../../../artifacts/paths.ts';
@@ -78,8 +78,18 @@ export async function ensureBaseline(host: StageHost): Promise<void> {
  * `rawDiffCache`) ключуются именно по идентичности `ctx`, так что кэш никогда не
  * подхватывался, вопреки соседнему комментарию, который это утверждал (code-review-all,
  * 2026-09-14).
+ *
+ * `stage` — умолчание `'chunk'` ради всех прежних вызывающих (все были внутри этапа 5), но
+ * параметр, а не жёсткая константа: вызов с этапа 7 (`handoff.ts::publishGateLineFacts`)
+ * без него давал предупреждение о непроднявшейся песочнице с `stage: 'chunk'`, хотя дело
+ * было в handoff, — вводящая в заблуждение диагностика (ревью code-review-all, 2026-09-18).
  */
-export async function runNamedGate(host: StageHost, name: string, ctx?: GateContext): Promise<GateRunResult | null> {
+export async function runNamedGate(
+  host: StageHost,
+  name: string,
+  ctx?: GateContext,
+  stage: StageId = 'chunk',
+): Promise<GateRunResult | null> {
   const gates = host.gatesFile();
   if (gates === null) return null;
   const modules = host.projectModules();
@@ -89,7 +99,7 @@ export async function runNamedGate(host: StageHost, name: string, ctx?: GateCont
     host.emit({
       type: 'warning',
       runId: host.id,
-      stage: 'chunk',
+      stage,
       message: `песочница для гейта «${name}» не поднялась: ${(e as Error).message}`,
     });
   }
@@ -97,9 +107,10 @@ export async function runNamedGate(host: StageHost, name: string, ctx?: GateCont
   const gateCtx: GateContext =
     ctx ?? {
       projectRoot: host.projectRoot,
-      planFiles: host.planFilesFor('chunk') ?? [],
+      planFiles: host.planFilesFor(stage) ?? [],
       baseline: readBaseline(host),
       timeoutMs: host.limits().gateTimeoutMs,
+      slug: host.slug,
       ...(modules === undefined ? {} : { modules }),
       ...(signal === undefined ? {} : { signal }),
     };
@@ -137,6 +148,7 @@ export async function recordEvidence(host: StageHost, diffBefore: string): Promi
     planFiles: host.planFilesFor('chunk') ?? [],
     baseline: readBaseline(host),
     timeoutMs: host.limits().gateTimeoutMs,
+    slug: host.slug,
     ...(modules === undefined ? {} : { modules }),
     ...(aborterSignal === undefined ? {} : { signal: aborterSignal }),
   };

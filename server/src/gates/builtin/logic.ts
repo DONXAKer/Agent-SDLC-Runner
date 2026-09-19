@@ -143,7 +143,7 @@ export interface InvariantViolation {
  * кириллице, а закрытый список расширений в этом файле был четвёртым местом, куда надо
  * было не забыть дописать новый язык.
  */
-function isCode(file: string): boolean {
+export function isCode(file: string): boolean {
   const dot = file.lastIndexOf('.');
   return dot >= 0 && CODE_EXTENSIONS.has(file.slice(dot).toLowerCase());
 }
@@ -188,6 +188,28 @@ function hasAny(text: string, needles: readonly string[]): boolean {
  */
 export const TEST_FILE =
   /(^|\/)(test|tests|spec)\/|[._-](test|spec)s?\.[a-z]+$|Tests?\.(java|kt|cs)$/i;
+
+/**
+ * Разбор списка изменённых путей на тестовые и продуктовые — вход гейта «Тест ловит
+ * правку» (`mutationCheckGate`, `builtin/index.ts`). Чистая функция без I/O: сам гейт
+ * решает, у каких путей запрашивать содержимое и как их мутировать, а классификация —
+ * общий вопрос «что это за файл», проверяемый без диска и без git.
+ *
+ * `.sdlc/` исключён из ОБЕИХ веток безусловно: это служебный каталог витка (журналы,
+ * планы, отчёты), не код проекта, и он всегда «изменён» на живом витке — включить его в
+ * продуктовые значило бы откатывать собственные артефакты этапов при мутационной
+ * проверке. Не-код (`isCode`) исключён из продуктовых по той же причине, по которой
+ * `invariantViolations` фильтрует по нему: откат `package.json`/конфига может сам
+ * сломать прогон тестов, а не только скрыть продуктовую правку.
+ */
+export function mutationCheckTargets(
+  changed: readonly string[],
+): { testFiles: string[]; productFiles: string[] } {
+  const inWitok = (f: string): boolean => f === '.sdlc' || f.startsWith('.sdlc/');
+  const testFiles = changed.filter((f) => !inWitok(f) && TEST_FILE.test(f));
+  const productFiles = changed.filter((f) => !inWitok(f) && !TEST_FILE.test(f) && isCode(f));
+  return { testFiles, productFiles };
+}
 
 const SECRET =
   /BEGIN [A-Z ]*PRIVATE KEY|(api[_-]?key|apikey|secret|password|passwd|access[_-]?token)\s*[:=]\s*["'][A-Za-z0-9/+_.=-]{16,}/i;

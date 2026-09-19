@@ -16,6 +16,7 @@ import { groupFields, modelGroupFields } from '../src/exec/FormFillExecutor.ts';
 import {
   RUNTIME_AUTOFILLED_TEMPLATES,
   autofillClarification,
+  autofillHandoff,
   autofillPlan,
   autofillReadiness,
   autofillTitle,
@@ -132,11 +133,119 @@ describe('autofillClarification', () => {
   });
 });
 
+describe('autofillHandoff', () => {
+  const HANDOFF = [
+    '# Передача контекста: ‹название витка›',
+    '',
+    '- **Задача:** ‹id или название — то же на всех витках этой задачи›',
+    '- **Приёмка:** принял ‹имя› · ‹дата› / **не принималась — обрыв: ‹почему›**',
+    '',
+    '## Состояние (машиночитаемое)',
+    '',
+    '```yaml',
+    'slug: ‹slug›',
+    'repo: ‹имя репозитория или remote URL›',
+    'branch: ‹sdlc/слаг› # н/п если ветки нет',
+    'base_sha: ‹sha›',
+    "commit: ‹sha›        # н/п — коммита не было",
+    'gates_date: ‹дата последнего изменения набора›',
+    'chunk: ‹N›',
+    "attempts: ‹K›        # из журнала chunk'а",
+    'verdict: ‹passed/failed/aborted›',
+    'published: ‹да/нет›',
+    '```',
+    '',
+    '## Гейт «Проверка предусловий публикации»',
+    '',
+    '- Статус: ‹✅/❌/⏭ — гейт в долге› · ветка: ‹та / не та›; есть что коммитить: ‹да/нет›;',
+    '  мусор в коммите: ‹нет / что именно›',
+    '',
+  ].join('\n');
+
+  const facts = {
+    title: 'demo',
+    slug: 'demo',
+    repo: 'git@github.com:acme/demo.git',
+    branch: 'sdlc/demo',
+    baseSha: 'abc123',
+    commit: 'def456',
+    gatesDate: '2026-09-18',
+    chunk: 2,
+    attempts: 3,
+    verdict: 'passed' as const,
+    published: 'нет' as const,
+    publishGate: { status: '✅', branchOk: 'та', hasCommit: 'да', junk: 'нет' },
+  };
+
+  it('закрывает название, «Состояние» целиком и строку «Статус»; решение человека не трогает', () => {
+    const { text, filled } = autofillHandoff(HANDOFF, facts);
+    strictEqual(filled, 15);
+    ok(text.includes('# Передача контекста: demo'), text);
+    ok(text.includes('slug: demo'), text);
+    ok(text.includes('repo: git@github.com:acme/demo.git'), text);
+    ok(text.includes('branch: sdlc/demo'), text);
+    ok(text.includes('base_sha: abc123'), text);
+    ok(text.includes('commit: def456'), text);
+    ok(text.includes('gates_date: 2026-09-18'), text);
+    ok(text.includes('chunk: 2'), text);
+    ok(text.includes('attempts: 3'), text);
+    ok(text.includes('verdict: passed'), text);
+    ok(text.includes('published: нет'), text);
+    ok(text.includes('Статус: ✅ · ветка: та; есть что коммитить: да;'), text);
+    ok(text.includes('мусор в коммите: нет'), text);
+    ok(text.includes('- **Приёмка:** принял ‹имя›'), 'решение человека обязано остаться нетронутым');
+  });
+
+  it('base_sha и commit несут одинаковый текст плейсхолдера, но не путаются', () => {
+    const { text } = autofillHandoff(HANDOFF, facts);
+    ok(text.includes('base_sha: abc123'), text);
+    ok(text.includes('commit: def456'), text);
+  });
+
+  it('«есть что коммитить» и `published` несут одинаковый текст плейсхолдера, но не путаются', () => {
+    const { text } = autofillHandoff(HANDOFF, { ...facts, published: 'нет', publishGate: { ...facts.publishGate, hasCommit: 'да' } });
+    ok(text.includes('есть что коммитить: да'), text);
+    ok(text.includes('published: нет'), text);
+  });
+
+  it('идемпотентно', () => {
+    const once = autofillHandoff(HANDOFF, facts).text;
+    deepStrictEqual(autofillHandoff(once, facts), { text: once, filled: 0 });
+  });
+
+  it('реальный sha коммита — поясняющий комментарий шаблона «н/п — коммита не было» снимается', () => {
+    // Регрессия ревью (2026-09-18): комментарий верен только пока значение н/п;
+    // `fillMechanicalPlaceholders` трогает лишь `‹sha›`, и строка читалась самопротиворечиво
+    // («commit: def456  # н/п — коммита не было»).
+    const { text } = autofillHandoff(HANDOFF, facts);
+    ok(text.includes('commit: def456'), text);
+    ok(!text.includes('н/п — коммита не было'), text);
+  });
+
+  it('коммита не было (обрыв витка) — комментарий остаётся, он всё ещё верен', () => {
+    const { text } = autofillHandoff(HANDOFF, { ...facts, commit: 'н/п — коммита не было' });
+    ok(text.includes('commit: н/п — коммита не было'), text);
+  });
+
+  it('реальная ветка — поясняющий комментарий «н/п если ветки нет» снимается', () => {
+    const { text } = autofillHandoff(HANDOFF, facts);
+    ok(text.includes('branch: sdlc/demo'), text);
+    ok(!text.includes('н/п если ветки нет'), text);
+  });
+
+  it('не git-репозиторий — комментарий у ветки остаётся, значение само н/п', () => {
+    const { text } = autofillHandoff(HANDOFF, { ...facts, branch: 'н/п — не git-репозиторий' });
+    ok(text.includes('branch: н/п — не git-репозиторий'), text);
+    ok(text.includes('н/п если ветки нет'), text);
+  });
+});
+
 describe('RUNTIME_AUTOFILLED_TEMPLATES', () => {
-  it('набор покрытых шаблонов — ровно четыре формы с автозаполнением этого файла', () => {
+  it('набор покрытых шаблонов — ровно пять форм с автозаполнением этого файла', () => {
     deepStrictEqual([...RUNTIME_AUTOFILLED_TEMPLATES].sort(), [
       'clarification-report.template.md',
       'exploration-report.template.md',
+      'handoff.template.md',
       'plan.template.md',
       'readiness.template.md',
     ]);
@@ -174,6 +283,21 @@ describe('скрепа: поля рантайма реальных шаблон�
       }).text,
     'clarification-report.template.md': (t) => autofillClarification(t, { title: 'demo', explorationDone: true }).text,
     'exploration-report.template.md': (t) => autofillTitle(t, 'demo').text,
+    'handoff.template.md': (t) =>
+      autofillHandoff(t, {
+        title: 'demo',
+        slug: 'demo',
+        repo: 'git@github.com:acme/demo.git',
+        branch: 'sdlc/demo',
+        baseSha: 'abc123',
+        commit: 'def456',
+        gatesDate: '2026-09-18',
+        chunk: 1,
+        attempts: 1,
+        verdict: 'passed',
+        published: 'нет',
+        publishGate: { status: '✅', branchOk: 'та', hasCommit: 'да', junk: 'нет' },
+      }).text,
   };
 
   it('набор скрепы совпадает с RUNTIME_AUTOFILLED_TEMPLATES — непроверенный шаблон в наборе не живёт', () => {

@@ -32,6 +32,7 @@ import type {
 import { buildPreview } from './preview.ts';
 import { destructiveNote, destructiveOverwrite, repairErasedDecisions } from './destructive.ts';
 import type { DestructiveOverwrite } from './destructive.ts';
+import { decisionFabricationProblem } from './humanDecision.ts';
 import { symlinkEscape } from './symlink.ts';
 
 export interface PendingApproval {
@@ -398,7 +399,17 @@ export class ApprovalGate {
    * `vendor/cache` — симлинк наружу) проходила лексически: политика видела путь внутри
    * проекта, а канонизировать его было некому.
    */
-  private checkAll(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
+  /**
+   * `skipFabricationCheck` — только для правки ОПЕРАТОРА в очереди одобрений
+   * (`revalidate`, `decision.by === 'operator'`): фабрикация ловит МОДЕЛЬ, пытающуюся
+   * записать поле решения человека инструментом записи, а не человека, вписывающего своё
+   * же решение через правку аргументов — второй легитимный канал того же решения (наравне
+   * с `Run.recordDecision`), который иначе самоблокировался бы собственной защитой от
+   * фабрикации (ревью code-review-all, 2026-09-19). Остальные уровни (symlink, pathScope,
+   * planScope, denyList — весь `evaluate`) по-прежнему проходятся: правка не может вывести
+   * запись за пределы, которые оператор снять не вправе.
+   */
+  private checkAll(call: NormalizedCall, ctx: PolicyContext, opts?: { skipFabricationCheck?: boolean }): PolicyVerdict {
     const verdict = evaluate(call, ctx);
     if (!verdict.ok) return verdict;
 
@@ -412,6 +423,14 @@ export class ApprovalGate {
       const escape = symlinkEscape(ctx.projectRoot, path, ctx.readOnlyRoots);
       if (escape !== null) return policyDeny('pathScope', escape);
     }
+
+    if (opts?.skipFabricationCheck !== true) {
+      // Фабрикация поля решения человека — та же причина жить вне `policy/index.ts`, что у
+      // проверки symlink: требует чтения файла с диска, а политика обязана оставаться чистой.
+      const fabrication = decisionFabricationProblem(call, ctx);
+      if (fabrication !== null) return policyDeny('humanDecision', fabrication);
+    }
+
     return verdict;
   }
 
@@ -467,7 +486,7 @@ export class ApprovalGate {
         by: 'policy',
       };
     }
-    const verdict = this.checkAll(edited, w.ctx);
+    const verdict = this.checkAll(edited, w.ctx, { skipFabricationCheck: decision.by === 'operator' });
     if (verdict.ok) return { ...decision, updatedInput: merged };
 
     return {

@@ -130,3 +130,43 @@ export function renderClaimsNa(reportText: string, reason: string): string {
 function writeRazhozhdenie(text: string, value: string): string {
   return spliceFieldValue(text, TEMPLATE, 'расхождение', value) ?? replaceAfterLabel(text, 'Расхождение', value) ?? text;
 }
+
+/** Классическое расстояние Левенштейна — по именам файлов они короткие, квадратичная цена не заметна. */
+function levenshtein(a: string, b: string): number {
+  const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) dp[i]![0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0]![j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i]![j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1]![j - 1]!
+          : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
+    }
+  }
+  return dp[a.length]![b.length]!;
+}
+
+/**
+ * Пути индекса, чьё ИМЯ ФАЙЛА (не полный путь — каталоги называть незачем) близко к
+ * названному, — подсказка «нет такого; похожие: …» для сочинённого/опечатанного пути (2.1,
+ * класс #4 «выдуманные пути»). Порог — доля от длины имени, а не фиксированное число:
+ * короткое имя («db.ts») требует почти точного совпадения, длинное («discountFor.ts»)
+ * терпит одну-две опечатки без разбухания списка предложений неродственными файлами.
+ */
+export function suggestSimilarPaths(path: string, files: readonly { path: string }[], limit = 3): string[] {
+  const name = (path.split('/').pop() ?? path).toLowerCase();
+  if (name === '') return [];
+  const threshold = Math.max(2, Math.ceil(name.length * 0.4));
+  const scored = files
+    .filter((f) => f.path !== path)
+    .map((f) => {
+      const fname = (f.path.split('/').pop() ?? f.path).toLowerCase();
+      return { path: f.path, dist: levenshtein(name, fname) };
+    })
+    // Совпадение по ИМЕНИ файла при разных каталогах (dist 0, но путь другой) — не
+    // исключается: тот же файл в другом месте не менее подозрителен, чем опечатка.
+    .filter((s) => s.dist <= threshold)
+    .sort((a, b) => a.dist - b.dist);
+  return scored.slice(0, limit).map((s) => s.path);
+}

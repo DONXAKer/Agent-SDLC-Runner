@@ -27,7 +27,7 @@ const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-eco-prompt-')));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const skillsDir = join(root, 'skills');
-for (const skill of ['sdlc-chunk', 'sdlc-plan']) {
+for (const skill of ['sdlc-chunk', 'sdlc-plan', 'sdlc-ask', 'sdlc-handoff']) {
   mkdirSync(join(skillsDir, skill), { recursive: true });
   writeFileSync(join(skillsDir, skill, 'SKILL.md'), `# ${skill}\nтело этапа\n`);
 }
@@ -61,6 +61,17 @@ function systemOf(ecosystem?: EcoLine[]): string {
     slug: 'demo',
     now: new Date('2026-01-01T00:00:00Z'),
     ...(ecosystem === undefined ? {} : { ecosystem }),
+  }).system;
+}
+
+function systemOfStage(stageId: 'chunk' | 'plan' | 'ask' | 'handoff'): string {
+  return buildPrompt({
+    runner,
+    stage: stageById(stageId),
+    ctx: { paths: new WitokPaths(root, 'demo'), chunk: 1, attempt: 1 },
+    flow: 'sdk',
+    slug: 'demo',
+    now: new Date('2026-01-01T00:00:00Z'),
   }).system;
 }
 
@@ -130,5 +141,31 @@ describe('языковой контекст в adapter-блоке', () => {
     // «Пиши идиоматично» — не проверяемое утверждение; «гейт прогоняет вот эту команду» —
     // проверяемое прогоном. В блоке должно быть второе.
     strictEqual(/пиши идиоматично|соблюдай стиль/i.test(s), false);
+  });
+});
+
+describe('intent.md на этапе 3 (3.1)', () => {
+  it('этап ask: модели явно сказано не редактировать intent.md — рантайм закрывает чек-бокс сам', () => {
+    const s = systemOfStage('ask');
+    ok(s.includes('`intent.md` защищён от записи'), s);
+    ok(s.includes('рантайм сам'), s);
+  });
+
+  it('на других этапах этой строки нет', () => {
+    ok(!systemOfStage('chunk').includes('закроет соответствующий чек-бокс задачи ответом'));
+    ok(!systemOfStage('plan').includes('закроет соответствующий чек-бокс задачи ответом'));
+  });
+});
+
+describe('коммит на этапе 7 (регрессия ревью, 2026-09-19)', () => {
+  it('этап handoff: модели сказано, что коммит уже сделан рантаймом — не пытайся коммитить сама', () => {
+    const s = systemOfStage('handoff');
+    ok(s.includes('уже сделан рантаймом'), s);
+    ok(s.includes('не пытайся коммитить сама'), s);
+  });
+
+  it('на других этапах этой строки нет', () => {
+    ok(!systemOfStage('chunk').includes('уже сделан рантаймом'));
+    ok(!systemOfStage('ask').includes('уже сделан рантаймом'));
   });
 });

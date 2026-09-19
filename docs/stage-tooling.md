@@ -55,7 +55,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 | Фаза скилла | Механика | Диалог | Готовые данные | Только модель / человек |
 |---|---|---|---|---|
 | P0: вход | предусловия (`filledExceptTouchSection`, `readiness`, `claimsMinimum`); гейт claims — `stages/explore.ts::claimsGateRow` ✓ | — | — | — |
-| P1, агент 1 (разведчик): стек, карта, переиспользование, опоры осей | ✓ индекс проекта `explore/*` (`readTree`, `declaredSymbols`, `callersOf`, `intentKeywords`, `rankFiles`, `reuseCandidates`, `axisMechanismCandidates`); ✓ `autofillExplorationReport` (название, цель, стек, команды, гейт заполненности); страж `explorationPathProblem` | ✓ `exploreFill` (`ExploreExecutor`): один закрытый вопрос на карту (по карточкам файлов-кандидатов), один — на переиспользование, один — на шесть осей, один — на вопросы; свободные поля — вложенный `FormFillExecutor` со `skipFields` | ✓ блок «Индекс проекта» в промпте (`exploreIndex`, оба флоу, потолок по флоу `INDEX_BLOCK_BYTES`); карточки файлов (`fileCard`/`symbolCard`/`packCards`) | **модель**: «что там сейчас», «что меняем», точка правки, границы, риски |
+| P1, агент 1 (разведчик): стек, карта, переиспользование, опоры осей | ✓ индекс проекта `explore/*` (`readTree`, `declaredSymbols`, `callersOf`, `intentKeywords`, `rankFiles`, `reuseCandidates`, `axisMechanismCandidates`); ✓ `autofillExplorationReport` (название, цель, стек, команды, гейт заполненности); страж `explorationPathProblem`; ✓ 2026-09-18: подсказка «похожие: …» на сочинённый/опечатанный путь карты (`suggestSimilarPaths`, нота рантайма, не жёсткий реджект) | ✓ `exploreFill` (`ExploreExecutor`): один закрытый вопрос на карту (по карточкам файлов-кандидатов), ✓ 2026-09-18 — по одному вопросу НА КАЖДОГО кандидата переиспользования (было — один вопрос на все сразу), один — на шесть осей, один — на вопросы; свободные поля — вложенный `FormFillExecutor` со `skipFields` | ✓ блок «Индекс проекта» в промпте (`exploreIndex`, оба флоу, потолок по флоу `INDEX_BLOCK_BYTES`); карточки файлов (`fileCard`/`symbolCard`/`packCards`) | **модель**: «что там сейчас», «что меняем», точка правки, границы, риски |
 | P1, агент 2 (`sdlc-claims`) | ✓ `stages/explore.ts::runClaimsBlind` — запуск рантаймом до хода модели, слепота ВХОДОМ (четыре секции задачи, индекс, карточки; без инструментов; `.sdlc` в индексе нет) | — | — | **модель-агент**: лист от нуля |
 | P2: сверка листов | ✓ `explore/compare.ts` — предсортировка «совпало / кандидат / вне scope» по значимым словам, обратное расхождение; рендер таблицы и «Расхождение» построчно | — | — | **человек**: «Решение человека о полноте» (humanGate, поле не трогается) |
 | P3: артефакты | ✓ «Всплывшие вопросы» рендер `- [ ] **[блокирующий]**` (иначе этап 3 их не увидит); ✓ гейт «Заполненность артефактов» по факту; ✓ «Что придётся тронуть» в задаче из карты; запись — `writeThroughGate` (тот же гейт, что у любой записи) | — | — | — |
@@ -91,7 +91,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 |---|---|---|---|---|
 | P0: прогон 2 | предусловия plan. **→ `readinessAutofill` прогон 2**: пп. 1, 2, 3 (`extractFilesToTouch`), 5 (`countClaims`) | — | — | п. 4 пересчёт |
 | P1: шаги | `planSteps.ts`; **→ `planStepsProblem`** (страж рядом с `axisProblems`): файл существует/«новый», символ найден в файле, `закрывает:` — существующий claim; **→** каждая строка «Найдено для переиспользования» упомянута в шагах или «решено не использовать — причина» | — | секции отчёта во входе | **модель**: подход, шаги, порядок «тест до реализации» |
-| P2: `files_to_touch` | `extractFilesToTouch`; пустой список блокирует chunk; добор в `formFill`. **→ `planDiffVsExploration`**: сравнение с «Что придётся тронуть», кандидаты «Добавлено/Исключено» — модели остаётся причина | **→ `callersFill`**: на вызывающего вне списка — «добавить / совместим без правок — почему» | **→ `callersBlock`**: вызывающие символов шагов (`callersOf` индекса волны 1) готовой таблицей | **модель**: меняется ли контракт |
+| P2: `files_to_touch` | `extractFilesToTouch`; пустой список блокирует chunk; добор в `formFill`. ✓ `planTouchDiscrepancyProblem` (2026-09-18, `stages/plan.ts`): расхождение с «Что придётся тронуть» без строки в «Добавлено сверх разведки»/«Из задачи исключено» роняет ход — страж есть, механического ЗАСЕВА строк таблицы до хода модели ещё нет | **→ `callersFill`**: на вызывающего вне списка — «добавить / совместим без правок — почему» | **→ `callersBlock`**: вызывающие символов шагов (`callersOf` индекса волны 1) готовой таблицей | **модель**: меняется ли контракт |
 | P3: чем закрывается | **→** ожидаемый набор `claim-id`; страж: пункт без строки и без «уходит chunk'у» | **→ `claimCoverageFill`** (симметрично `claimFill`): «тест / место / следующий chunk»; адресат сверяется с `files_to_touch` | тексты пунктов | **модель**: чем именно |
 | P3.6: оси | `axisProblems()`; `axesGateRow`; **→ страж** «риск на оси с „Затронута = нет“» | `planAxisFill` | «Опоры осей», id, гейты | **модель**: исход; **человек**: риск полем «Одобрение» |
 | P5 | `autofillPlan` (`run/formAutofill.ts`): название, «Вход», «База» — HEAD либо «н/п — причина»; эти поля модель не спрашивается (`modelGroupFields`; relog v5 выдумал `base_sha`); дата прогона 2 готовности; `humanGate` «Одобрение» | — | — | **человек**: одобрение |
@@ -104,7 +104,7 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 
 | Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
 |---|---|---|---|---|
-| P0 | `granted()`; `autofillJournal`; `detectNoProgress` + `diffDistance`; `retryBrief`; `suggestEscalation` | — | бриф ретрая | — |
+| P0 | `granted()`; `autofillJournal`; `detectNoProgress` + `diffDistance` | — | бриф ретрая (собран на ВЫХОДЕ с этапа 6, `Run.nextAttempt`, а не механикой самого chunk'а — уточнено S7, `stage-review-2026-09-18.md`) | — |
 | P1: разведка | `Task sdlc-locator`. **→ `planMapCheck`**: сверка «символ на месте / файл существует» по `planSteps` рантаймом до старта (`declaredSymbols` индекса); расхождение → возврат на план | — | prefetch файлов плана; `stepFill` — один файл | — |
 | P2: место, база | humanGate «Подтвердил»; `snapshotBaseline` | — | — | **человек** |
 | P4: реализация | `stepFill` + гейты после шага; `verifyTsImports`; `editMatch`; `humanAnswersGate`; `planConstantsMissingFromDiff` | `stepFill`; **→ `testScaffold`** (§1.5а) | `humanFactsBlock`; `ecosystem`; **→ `testExampleBlock`** | **модель**: код |
@@ -128,30 +128,37 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 ### Этап 6 — verify
 
 Измерено: «оформитель» (три дыры закрыты); лимит длины (`reviewFill`); находимость 3/8 при
-чистом контроле (контроль `opus` на тех же посевах не снят); ложные находки из пустых полей;
-адрес строки врёт (`:154` при `:158`).
+чистом контроле; ложные находки из пустых полей; адрес строки врёт (`:154` при `:158`).
+✓ Контроль `opus`/`haiku` на осевых посевах — СДЕЛАН (2026-09-07/08, `bench/results/axes-
+{opus,haiku}-axis-*`): оба ловят, `sonnet` (ранг 70) пропускал оба — причина завести
+`claude-sdk:haiku-reviewer`. ✓ Все шесть осей всегда (не только «не затронута» по плану) —
+в `reviewFill` уже было («Трек 1а», 2026-09-08), в свободном ходе — добавлено 2026-09-18
+(`axisVerificationBlock`, `stages/verify/reviewer.ts`); живой контроль на `sonnet` — 1 из 2
+осевых посевов (был 0 из 2), см. `docs/model-runs.md`, n=1 на посев.
 
 | Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
 |---|---|---|---|---|
 | P0 | `diffStillMatchesTree`; `preflightBlockers`; `readDenied` | — | патч, tests | — |
 | P1: гейты | `runVerifyGates`; `BUILTIN`; `earlyGates`. **→** перенос «Готовность задачи» и «Заполненность» тоже рантаймом | — | `gateReportBlock` | **человек**: неприменимость |
-| P2: рецензент | `runReviewerDirectly`; `anchorFound`; `acceptRecord` | `reviewFill`, `claimFill`, `skipTurnAfterReviewFill`; **→ кап** по времени/хункам; **→ `lineFix`**: цитата из находки ищется в патче, номер строки переписывает рантайм | срез патча, `AXIS_HINTS`; **→** вызывающие изменённых символов (угол 3) — `callersOf` индекса | **рецензент**: четыре угла |
+| P2: рецензент | `runReviewerDirectly`; `anchorFound`; `acceptRecord`; ✓ `axisVerificationBlock` (свободный ход, все шесть осей фактом) | `reviewFill` (✓ все шесть осей, не только «не затронута» — трек 1а), `claimFill`, `skipTurnAfterReviewFill`; **→ кап** по времени/хункам; **→ `lineFix`**: цитата из находки ищется в патче, номер строки переписывает рантайм | срез патча, `AXIS_HINTS`; **→** вызывающие изменённых символов (угол 3) — `callersOf` индекса | **рецензент**: четыре угла |
 | P3: вердикт | `verdict.ts`, `collect.ts`, `classify.ts`; **→** классификатор «проверка плоха vs код плох» | — | — | — |
 | P4 | `autofillVerificationReport`; `renderRecords`. **→ `journalOutcomeAutofill`**: колонку «Итог» журнала пишет рантайм (сегодня — `Edit` рецензента); **→** гейт «Сверка отчёта с набором» как обёртка над `collectVerdictInput` | `formFill`-дозаполнение | — | — |
 | P5 | **→** предзаполнение «Кандидаты в запись о дефекте» из `RecordFinding` | — | — | **модель**: «какой гейт должен был поймать» |
 
 ### Этап 7 — handoff
 
-Данных почти нет (два прогона). Девять механических полей объявлены в `SCHEMA_OVERRIDES`,
-`autofillHandoff` не написан.
+✓ Девять механических полей `SCHEMA_OVERRIDES` — плюс шесть подполей публикации/коммита —
+закрывает `autofillHandoff` (2026-09-18); `commitByRuntime` и гейт «Проверка предусловий
+публикации» на входе этапа — тоже; политика теперь отклоняет запись, фабрикующую поле
+решения человека («Приёмка», «Кто утвердил»), а не только теряющую его.
 
 | Фаза | Механика | Диалог | Готовые данные | Только модель / человек |
 |---|---|---|---|---|
-| P1: приёмка | humanGate «Приёмка»; **→ спросить человека рантаймом** | — | отчёт, журнал | **человек** |
-| P2: публикация | `publishGate` есть; **→ `runNamedGate('Проверка предусловий публикации')` на входе handoff** | — | — | — |
-| P3: коммит | **→ `commitByRuntime`**: `git add` (`files_to_touch` + `.sdlc/<slug>/`) и commit после приёмки, состав через тот же гейт, что `Bash` | — | — | **человек**: одобрить состав |
-| P4: дефект | **→** кандидаты по всем `verification-report-*`; **→** список «Класс» из `.sdlc/*/handoff.md`; «Кто утвердил» — только из ответа человека | — | кандидаты, классы | **человек**: класс, «чем закреплено» |
-| P5 | **→ `autofillHandoff`**: yaml-блок, таблица «Готовность» копией статусов, пункты ❌/⚠/[manual] из `collect.ts` | `formFill` | `postmortemBlock` | **модель**: «Что сделано», «С чего начинать» |
+| P1: приёмка | humanGate «Приёмка»; ✓ политика отклоняет запись модели в это поле (`approval/humanDecision.ts`); **→ спросить человека рантаймом при отсутствии ответа** | — | отчёт, журнал | **человек** |
+| P2: публикация | ✓ `publishGate`/`publishPreconditionCheck`, вызывается `runNamedGate('Проверка предусловий публикации')` на входе handoff (`stages/handoff.ts::publishGateLineFacts`) | — | — | — |
+| P3: коммит | ✓ `commitByRuntime`: `git add` (`files_to_touch` + `.sdlc/<slug>/`) и commit на входе этапа (после зелёного вердикта, не после «Приёмки» — обрыв коммита не делает), состав через тот же гейт одобрения, что `Bash` | — | — | **человек**: одобрить состав (через ту же очередь) |
+| P4: дефект | **→** кандидаты по всем `verification-report-*`; **→** список «Класс» из `.sdlc/*/handoff.md`; ✓ «Кто утвердил» модель фабриковать не может (политика), но рантайм ещё не пишет дефолт за неотвеченное поле | — | кандидаты, классы | **человек**: класс, «чем закреплено» |
+| P5 | ✓ `autofillHandoff`: yaml-блок «Состояние» целиком (`slug`…`published`), строка «Статус» гейта публикации; таблица «Готовность»/пункты ❌/⚠/[manual] из `collect.ts` — **не сделано** | `formFill` | `postmortemBlock` | **модель**: «Что сделано», «С чего начинать» |
 | P6–P7 | флаг обрыва | — | — | **человек**: публикация — никогда инструментом |
 
 ## 2. Предлагаемые инструменты — сводно
@@ -167,11 +174,11 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 | `callersBlock` + `callersFill` | 4 | Grep вызывающих не делается; `silent-contract` | `callersOf`, `planSteps` | `callersFill` | `silent-contract`: секция непуста, совпадает с `sdlc-locator` |
 | `claimCoverageFill` | 4 | пункты без строки | `claimFill`-конвейер, `countClaims` | `claimCoverageFill` (или под `planAxisFill`) | снимок `oversize-ask` |
 | `planStepsProblem`, `planDiffVsExploration`, страж риска | 4 | «карта разошлась», пустой список, риск на 6 осей | `planSteps`, `planFiles`, `planAxes` | нет | снимок `oversize-ask` |
-| ✓ `autofillPlan`, `autofillReadiness`, `autofillTitle` (отчёты 2–3); → `autofillHandoff`, `journalOutcomeAutofill` | 4, 1, 2, 3; → 7, 6 | объявлено `runtime`, не заполнялось — модель писала сама | `journalAutofill.ts` | нет | 0 плейсхолдеров в механических полях (скрепа `formAutofill.test.ts` по реальным шаблонам); `Edit` снять из verify |
+| ✓ `autofillPlan`, `autofillReadiness`, `autofillTitle` (отчёты 2–3), ✓ `autofillHandoff`; → `journalOutcomeAutofill` | 4, 1, 2, 3, 7; → 6 | объявлено `runtime`, не заполнялось — модель писала сама | `journalAutofill.ts` | нет | 0 плейсхолдеров в механических полях (скрепа `formAutofill.test.ts` по реальным шаблонам); `Edit` снять из verify |
 | `testScaffold`, гейты «Сверка тестов с claims», «Литерал в ассерте», `testExampleBlock` | 5 | §1.5а | §1.5а | `testScaffold` под `stepFill`; гейты — строки набора | снимок `oversize-plan`, серия ≥3, щуп «тест-разрыв» |
 | `planMapCheck` | 5 | локатора нет в `stepFill` | `planSteps`, `declaredSymbols` | нет | доля возвратов на план до первого запроса |
 | `lineFix`, кап `reviewFill`, регрессия между попытками, классификатор | 6 | адрес врёт; effort-high таймаут; эскалация по своим тестам | `anchorFound`, `collect.ts`, `classify.ts` | нет | посевы + `none` |
-| `commitByRuntime`, гейт публикации на входе 7, кандидаты дефекта | 7 | коммит — единственный `Bash` этапа | `gates/git.ts`, `publishGate`, `collect.ts` | нет | снимок после зелёного verify |
+| ✓ `commitByRuntime`, ✓ гейт публикации на входе 7; → кандидаты дефекта | 7 | коммит — единственный `Bash` этапа | `gates/git.ts`, `publishGate`, `collect.ts` | нет | снимок после зелёного verify |
 
 ## 3. Очередь волн
 
@@ -181,9 +188,11 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
 
 - **Волна 0 — механика без ручки, поштучно, в любой момент:** ✓ ветка витка
   (`autofillBranchField`), ✓ механика плана, дат готовности и названий отчётов 2–3
-  (`formAutofill.ts`, поля рантайма модели не отдаются — `modelGroupFields`), таблица
-  готовности рантаймом, `autofillHandoff`, `journalOutcomeAutofill`,
-  `closeAnsweredQuestions`, гейт публикации на handoff, `planCoverageGate` в наборе фикстуры.
+  (`formAutofill.ts`, поля рантайма модели не отдаются — `modelGroupFields`), ✓ `autofillHandoff`,
+  ✓ гейт публикации на handoff (`publishGateLineFacts` + `commitByRuntime`), ✓ политика
+  отклоняет фабрикацию поля решения человека (`approval/humanDecision.ts`, все этапы, не
+  только handoff); таблица готовности рантаймом, `journalOutcomeAutofill`,
+  `closeAnsweredQuestions`, `planCoverageGate` в наборе фикстуры — ещё нет.
 - **Волна 1 — explore** — ✓ написана (§5), не замерена.
 - **Волна 2 — chunk, тесты (§1.5а).** Единственный этап с воспроизводимым снимко-замером
   (`--stage chunk --from-snapshot oversize-plan`), класс на трёх моделях, отравляет этап 6.
@@ -192,8 +201,11 @@ denyList → pathScope → planScope`; `protectedArtifacts`; окно истор
   как образец. `callersBlock` → стражи → `claimCoverageFill`/`callersFill`.
 - **Волна 4 — ask (`askFill`).** После волны 0 остаётся Phase 1 и фильтр; до ask доходит
   меньше моделей, чем встаёт на plan.
-- **Волна 5 — verify-пакет и handoff.** Сначала контроль `opus` на пяти пропущенных посевах
-  (отделить потолок модели от пробела промпта), потом механика; `commitByRuntime` — последним.
+- **Волна 5 — verify-пакет и handoff.** ✓ Контроль `opus`/`haiku` — снят (2026-09-07/08, см.
+  §6 выше): причина в модели (`sonnet` пропускал), не в промпте — `reviewFill` уже получил
+  фикс («Трек 1а»), свободный ход — 2026-09-18. ✓ `commitByRuntime` и гейт публикации на
+  входе 7 — сделаны 2026-09-18 (см. этап 7). Механика P1/P4/P5 verify и P4 handoff (кандидаты
+  дефекта, `journalOutcomeAutofill`) — ещё нет.
 
 ## 4. Чего инструментом не делать
 

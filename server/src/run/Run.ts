@@ -141,6 +141,7 @@ import {
   usesExploreFill,
 } from './stages/explore.ts';
 import { stageModule } from './stages/index.ts';
+import type { CommitOutcome } from './commitByRuntime.ts';
 import { axesGateRow as axesGateRowOf, axisProblems as axisProblemsOf } from './stages/plan.ts';
 import type { StageHost } from './stages/types.ts';
 import { VerifyState } from './stages/verify/state.ts';
@@ -358,6 +359,14 @@ export class Run {
    */
   private readonly state: { readonly verify: VerifyState; readonly explore: ExploreState; readonly chunk: ChunkState } = { verify: new VerifyState(), explore: new ExploreState(), chunk: new ChunkState() };
 
+  /**
+   * Итог последнего `commitByRuntime` за текущий вход в этап `handoff` — мост между
+   * `afterStart` (делает коммит) и `mechanicalJobs` (заполняет поле «Коммит» отчёта),
+   * которые видят РАЗНЫЕ объекты `this.host` (геттер пересоздаёт литерал на каждый вызов),
+   * но оба читают/пишут это одно поле экземпляра `Run` (ревью code-review-all, 2026-09-19).
+   */
+  private lastCommitOutcome: CommitOutcome | null = null;
+
   /** Фасад витка для модулей этапов (`StageHost`) — растёт по мере переноса логики этапов. */
   private get host(): StageHost {
     return {
@@ -368,6 +377,10 @@ export class Run {
       emit: this.emit,
       writeAutofilled: (path, text, seeded) => this.writeAutofilled(path, text, seeded),
       head: () => this.head(),
+      commitOutcome: () => this.lastCommitOutcome,
+      recordCommitOutcome: (outcome) => {
+        this.lastCommitOutcome = outcome;
+      },
       gatesFile: () => this.gatesFile,
       intentClaimLines: (intentText) => this.intentClaimLines(intentText),
       policyContext: (stage) => this.policyContext(stage),
@@ -375,6 +388,19 @@ export class Run {
       accountOffPathUsage: (stage, usage, currency) => this.accountOffPathUsage(stage, usage, currency),
       syntheticRequestId: (prefix) => `${prefix}-${this.salvageSeq++}`,
       requestApproval: (req) => this.gate.request(req),
+      askHuman: async (stage, questions) => {
+        // Тот же переход статуса, что и у модельного `onAskHuman` (ниже по файлу): без
+        // него `run.status` остаётся `'running'` на всё время ожидания ответа человека, и
+        // бейдж интерфейса показывает «этап идёт» вместо «ждёт человека» ровно там, где
+        // ответ оператора действительно нужен прямо сейчас (ревью code-review-all,
+        // 2026-09-19).
+        this.status = 'awaiting';
+        try {
+          return await this.askGate.ask({ runId: this.id, stage, questions: [...questions] });
+        } finally {
+          this.status = 'running';
+        }
+      },
       signal: () => this.aborter?.signal ?? new AbortController().signal,
       limits: () => this.config.runner.limits,
       runner: () => this.config.runner,

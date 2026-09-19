@@ -13,14 +13,13 @@
  *    намертво с сообщением «files_to_touch пуст».
  */
 
-import { splitRow } from '../md/table.ts';
+import { hasPlaceholder } from './artifact.ts';
+import { LEADING_PIPE_SEPARATOR_RE, h2SectionRanges, splitRow } from '../md/table.ts';
 
 const SECTION_RE = /^#{1,6}\s.*files_to_touch/im;
 const NEXT_HEADING_RE = /^#{1,6}\s/m;
 /** Строка, с которой начинается перечисление исключённых путей. */
 const EXCLUDED_RE = /^.*Из задачи исключено/im;
-/** Разделительная строка markdown-таблицы: `|---|---|`. */
-const TABLE_SEPARATOR = /^\|[\s|:-]+\|?$/;
 
 /**
  * Артефакты витка, названные КОРОТКИМ именем: в прозе плана они поминаются постоянно
@@ -208,6 +207,97 @@ export function appendScopeExtension(planText: string, path: string, note: strin
   return `${planText.slice(0, insertAt)}\n${line}${planText.slice(insertAt)}`;
 }
 
+/** Заголовок секции задачи, откуда разведка сеет `files_to_touch` (`preconditions.ts::TOUCH_SECTION`). */
+const TOUCH_HEADING_RE = /Что придётся тронуть/i;
+/** Пункт маркированного списка `- …`/`* …` — общая форма, используется и в `handoff.ts::postponedItems`. */
+export const BULLET_RE = /^[-*]\s+(.+)$/;
+
+export interface TouchEntry {
+  /** Путь как записала разведка, без обратных кавычек. */
+  path: string;
+  /** Остаток строки после пути — что там менять по мнению разведки. */
+  note: string;
+}
+
+/**
+ * Пути «Что придётся тронуть» задачи — вход `planDiffProblem` (план обязан объяснить
+ * каждое расхождение с ними) и будущего засева `files_to_touch` до хода модели (4.1).
+ *
+ * Строка-образец `‹path/to/file› — ‹что здесь меняем›` (плейсхолдер) законно пуста на
+ * форме и пропускается — `hasPlaceholder` тот же предикат, что и у стража заполненности
+ * задачи, второй копии словаря плейсхолдера не заводим.
+ */
+export function touchListEntries(intentText: string): TouchEntry[] {
+  const out: TouchEntry[] = [];
+  for (const range of h2SectionRanges(intentText, TOUCH_HEADING_RE)) {
+    const section = intentText.slice(range.start, range.end);
+    for (const raw of section.split('\n')) {
+      const m = BULLET_RE.exec(raw.trim());
+      if (m === null) continue;
+      const rest = m[1]!.trim();
+      if (hasPlaceholder(rest)) continue;
+      const [pathPart, ...noteParts] = rest.split(/\s+[—–]\s+/);
+      const path = clean(pathPart ?? '');
+      if (path === '' || !looksLikePath(path)) continue;
+      out.push({ path, note: noteParts.join(' — ').trim() });
+    }
+  }
+  return out;
+}
+
+/**
+ * Начало СЛЕДУЮЩЕГО пункта списка ВЕРХНЕГО УРОВНЯ `- **…` — та же форма, что несут обе
+ * метки-соседи («Добавлено сверх разведки», «Из задачи исключено»). Граница региона
+ * обязана останавливаться и на этом, не только на следующем заголовке: до этой правки
+ * (ревью code-review-all, 2026-09-18, воспроизведено живым прогоном по реальному
+ * `plan.template.md`) регион «Добавлено сверх разведки» дотягивался до «Из задачи
+ * исключено» ЦЕЛИКОМ — путь, упомянутый в объяснении исключения, засчитывался как уже
+ * объяснённое ДОБАВЛЕНИЕ, и наоборот. Строка-продолжение (перенос текста метки на
+ * следующую строку с отступом, без нового «- **») этим не задевается: `-\s+\*\*`
+ * требует дефиса-маркера списка, отступ один без него не матчит.
+ *
+ * Якорь — БЕЗ ведущего `\s*`: пункт обязан начинаться с НУЛЕВОГО отступа, а не любого.
+ * Вложенный, с отступом, суб-буллет того же вида («  - **Причина:** …» — уточнение к уже
+ * названному пути, не соседняя метка) раньше тоже засчитывался за границу и обрубал
+ * регион на себе, молча теряя все пути ПОСЛЕ него (ревью code-review-all, 2026-09-19,
+ * тоже воспроизведено выполнением кода).
+ */
+const NEXT_BULLET_RE = /^-\s+\*\*/m;
+
+/**
+ * Пути, упомянутые в обратных кавычках между меткой `label` и следующим заголовком, —
+ * общий разбор для «Добавлено сверх разведки» и «Из задачи исключено» (4.1): обе метки
+ * подряд перечисляют пути с причиной прозой, и вторая копия того же скана не заводится.
+ * Пустой список — метки нет (документ не по форме) или после неё путей не названо.
+ */
+function pathsAfterLabel(planText: string, label: RegExp): string[] {
+  const m = label.exec(planText);
+  if (m === null) return [];
+  const from = m.index + m[0].length;
+  const rest = planText.slice(from);
+  const headingIdx = NEXT_HEADING_RE.exec(rest)?.index ?? rest.length;
+  const bulletIdx = NEXT_BULLET_RE.exec(rest)?.index ?? rest.length;
+  const region = rest.slice(0, Math.min(headingIdx, bulletIdx));
+  const out: string[] = [];
+  const re = /`([^`\n]+)`/g;
+  let mm: RegExpExecArray | null;
+  while ((mm = re.exec(region)) !== null) {
+    const t = clean(mm[1] ?? '');
+    if (looksLikePath(t) && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/** Пути «Из задачи исключено» плана — уже объяснённые изъятия из `files_to_touch`. */
+export function excludedFromPlanPaths(planText: string): string[] {
+  return pathsAfterLabel(planText, /\*\*Из задачи исключено\*\*/);
+}
+
+/** Пути «Добавлено сверх разведки» плана — уже объяснённые добавления сверх карты. */
+export function addedBeyondPlanPaths(planText: string): string[] {
+  return pathsAfterLabel(planText, /\*\*Добавлено сверх разведки:\*\*/);
+}
+
 export function extractFilesToTouch(planText: string): string[] {
   const boundary = filesToTouchSection(planText);
   if (boundary === null) return [];
@@ -216,7 +306,7 @@ export function extractFilesToTouch(planText: string): string[] {
   const lines = section.split('\n');
   // Строка-разделитель отмечает конец шапки таблицы: заголовки («Путь», «Что делаем»)
   // путями не являются, и без этого «Зачем» попадало в allowlist.
-  const separatorAt = lines.findIndex((l) => TABLE_SEPARATOR.test(l.trim()));
+  const separatorAt = lines.findIndex((l) => LEADING_PIPE_SEPARATOR_RE.test(l.trim()));
 
   const out: string[] = [];
   const add = (raw: string | null): void => {
@@ -229,7 +319,7 @@ export function extractFilesToTouch(planText: string): string[] {
     const trimmed = line.trim();
 
     if (trimmed.startsWith('|')) {
-      if (TABLE_SEPARATOR.test(trimmed)) return;
+      if (LEADING_PIPE_SEPARATOR_RE.test(trimmed)) return;
       if (separatorAt >= 0 && idx < separatorAt) return; // шапка таблицы
       add(pathFromRow(trimmed));
       return;
@@ -242,4 +332,58 @@ export function extractFilesToTouch(planText: string): string[] {
   });
 
   return out;
+}
+
+/**
+ * Засевает пустую таблицу `files_to_touch` строками из «Что придётся тронуть» задачи (4.1,
+ * «П»-половина — механический засев ДО хода модели; «М»-половина уже была:
+ * `planTouchDiscrepancyProblem` требует объяснить каждое расхождение строкой). Модель
+ * получает не пустой список, а список для РЕШЕНИЯ по каждой строке: оставить (дописав
+ * содержательное «Что делаем» вместо оставленного здесь плейсхолдера), исключить (стереть
+ * строку и назвать путь в «Из задачи исключено» — как и раньше) или добавить свой путь (как
+ * и раньше, в «Добавлено сверх разведки»). Семантику стража это не меняет: он по-прежнему
+ * сверяет РЕЗУЛЬТАТ, а не то, откуда взялась стартовая строка.
+ *
+ * Срабатывает РОВНО один раз за жизнь плана: как только `extractFilesToTouch` видит хоть
+ * один настоящий путь (свой первый вызов уже его посеял, или модель сама вписала путь
+ * раньше рантайма), функция становится no-op. Без этого повторный вход в этап (ретрай,
+ * рестарт сервиса) навязывал бы список поверх решения, которое модель уже начала
+ * принимать, — тот же приём идемпотентности, что у `autofillClarification`.
+ *
+ * Заменяются ТОЛЬКО строки таблицы срезу за разделителем `|---|---|` — секция
+ * `files_to_touch`, которую возвращает `filesToTouchSection`, включает в себя и соседнюю
+ * метку «Добавлено сверх разведки»: замена всего хвоста секции стёрла бы её.
+ */
+export function seedFilesToTouch(
+  planText: string,
+  touch: readonly TouchEntry[],
+): { text: string; seeded: number } {
+  if (touch.length === 0) return { text: planText, seeded: 0 };
+  if (extractFilesToTouch(planText).length > 0) return { text: planText, seeded: 0 };
+
+  const boundary = filesToTouchSection(planText);
+  if (boundary === null) return { text: planText, seeded: 0 };
+  const { start: sectionStart, section } = boundary;
+
+  const lines = section.split('\n');
+  const separatorAt = lines.findIndex((l) => LEADING_PIPE_SEPARATOR_RE.test(l.trim()));
+  if (separatorAt < 0) return { text: planText, seeded: 0 }; // таблицы нет — не наш формат
+
+  let rowsEnd = separatorAt + 1;
+  while (rowsEnd < lines.length && lines[rowsEnd]!.trim().startsWith('|')) rowsEnd++;
+
+  const seen = new Set<string>();
+  const rows: string[] = [];
+  for (const entry of touch) {
+    if (seen.has(entry.path)) continue; // дубли из «Что придётся тронуть» — одна строка
+    seen.add(entry.path);
+    const what = entry.note === '' ? '‹что делаем›' : entry.note;
+    rows.push(`| \`${entry.path}\` | ${what} |`);
+  }
+  if (rows.length === 0) return { text: planText, seeded: 0 };
+
+  const newLines = [...lines.slice(0, separatorAt + 1), ...rows, ...lines.slice(rowsEnd)];
+  const newSection = newLines.join('\n');
+  const newText = planText.slice(0, sectionStart) + newSection + planText.slice(sectionStart + section.length);
+  return { text: newText, seeded: rows.length };
 }

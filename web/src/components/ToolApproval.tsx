@@ -37,6 +37,7 @@ const POLICY_LABEL: Record<string, string> = {
   planScope: 'вне files_to_touch плана',
   stageTools: 'инструмент не разрешён на этапе',
   repeatFailure: 'команда повторно падает',
+  humanDecision: 'поле решения человека — заполняет только оператор',
 };
 
 export function ToolApproval({

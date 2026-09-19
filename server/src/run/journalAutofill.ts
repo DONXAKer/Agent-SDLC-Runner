@@ -23,6 +23,7 @@
  */
 
 import { isDecisionLine, lineAt, placeholderRanges } from '../artifacts/artifact.ts';
+import { LEADING_PIPE_SEPARATOR_RE, escapeCell, h2SectionRanges, splitRow } from '../md/table.ts';
 
 export interface ChunkJournalFacts {
   chunk: number;
@@ -96,4 +97,63 @@ export function autofillChunkJournal(
   facts: ChunkJournalFacts,
 ): { text: string; filled: number } {
   return fillMechanicalPlaceholders(text, (inner, line) => valueFor(inner, line, facts));
+}
+
+const ATTEMPTS_HEADING_RE = /Попытки/i;
+
+/**
+ * «Итог» строки попытки K журнала chunk'а — рантайм, не модель (6.7): вердикт этапа 6
+ * считает `verdict/verdict.ts` по факту, и модели нечего добавить, переписывая ЭТУ же
+ * строку `Edit`'ом задним числом. `Edit` в наборе инструментов этапа 6 остаётся ради
+ * этой строки и только ради неё (см. докстринг `verifyStage.tools`) — своего второго
+ * повода трогать журнал у рецензента нет.
+ *
+ * Строка попытки ищется по ПЕРВОЙ колонке (номер K), а не по позиции: чужие строки
+ * (шапка, `|---|---|`, попытки других K) не трогаются. Колонка «Итог» — ПОСЛЕДНЯЯ ячейка
+ * строки, тем же соглашением, что и у шаблона методологии («К | Дата | Что чинили | Что
+ * изменилось | Итог»); лишние/переставленные колонки корректно НЕ находятся — рантайм не
+ * гадает по позиции без числа K, совпавшего явно.
+ *
+ * Идемпотентно и БЕЗУСЛОВНО: значение — вычисленный факт, а не догадка, и повторный
+ * вызов с тем же вердиктом просто перезаписывает ту же строку тем же текстом.
+ */
+export function autofillJournalOutcome(
+  journalText: string,
+  attempt: number,
+  outcome: string,
+): { text: string; filled: number } {
+  const range = h2SectionRanges(journalText, ATTEMPTS_HEADING_RE)[0];
+  if (range === undefined) return { text: journalText, filled: 0 };
+
+  const before = journalText.slice(0, range.start);
+  const section = journalText.slice(range.start, range.end);
+  const after = journalText.slice(range.end);
+
+  const key = String(attempt);
+  let filled = 0;
+  const newSection = section
+    .split('\n')
+    .map((line) => {
+      // CRLF: журнал живёт рядом с остальными шаблонами методологии и несёт `\r\n` так
+      // же, как они. Строка, которую эта функция ПЕРЕПИСЫВАЕТ, обязана вернуть свой `\r`
+      // обратно — иначе именно эта строка таблицы становится LF, а соседние нетронутые
+      // остаются CRLF (тот же приём, что уже применяет `closeAnsweredQuestions`; найдено
+      // ревью code-review-all, 2026-09-19).
+      const hadCR = line.endsWith('\r');
+      const bare = hadCR ? line.slice(0, -1) : line;
+      const trimmed = bare.trim();
+      if (!trimmed.startsWith('|') || LEADING_PIPE_SEPARATOR_RE.test(trimmed)) return line;
+      const cells = splitRow(trimmed);
+      if (cells.length < 2 || (cells[0] ?? '').trim() !== key) return line;
+      const last = cells.length - 1;
+      const newCell = escapeCell(outcome);
+      if ((cells[last] ?? '').trim() === newCell) return line; // уже то же значение
+      cells[last] = newCell;
+      filled++;
+      const rebuilt = `| ${cells.join(' | ')} |`;
+      return hadCR ? `${rebuilt}\r` : rebuilt;
+    })
+    .join('\n');
+
+  return { text: before + newSection + after, filled };
 }

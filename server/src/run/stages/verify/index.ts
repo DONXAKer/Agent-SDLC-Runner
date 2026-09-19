@@ -6,7 +6,8 @@
 
 import { emptyUsage } from '@sdlc-runner/shared';
 
-import { DECISION } from '../../../artifacts/artifact.ts';
+import { DECISION, readArtifact } from '../../../artifacts/artifact.ts';
+import { autofillJournalOutcome } from '../../journalAutofill.ts';
 import { preflightBlockers } from '../../../sandbox/preflight.ts';
 import { RUNTIME_PROTECTED, exists, granted } from '../preconditions.ts';
 import type { StageDef, StageModule } from '../types.ts';
@@ -27,9 +28,10 @@ export const verifyStage: StageDef = {
   // (`docs/model-runs.md`, этап 6). Проверка утверждений по коду остаётся:
   // `Read`/`Grep`/`Glob` при рецензенте.
   //
-  // Edit нужен, чтобы обновить колонку «Итог» строки попытки в журнале chunk'а —
-  // без него единственный способ это Write целиком, то есть верификатор переписывает
-  // журнал исполнителя своей реконструкцией и уничтожает улику этапа 5.
+  // Колонку «Итог» строки попытки в журнале chunk'а раньше правил Edit модели — теперь
+  // её пишет рантайм по вычисленному вердикту (6.7, хук `verdict` ниже), а не задним
+  // числом Edit'ом. `Edit` в наборе остаётся ради обычной правки отчёта приёмки — см.
+  // абзац про `RecordClaim`/`RecordFinding` ниже.
   //
   // `RecordClaim`/`RecordFinding` — структурированный канал вывода: пункты приёмки и
   // находки модель называет записями, а таблицу §1 и строки §2–§5 рисует рантайм.
@@ -158,6 +160,21 @@ export const verifyModule: StageModule = {
       // подсчёта вердикта: раньше это условие держалось на фразе рецензента (r31).
       host.verifyState.diffFactMatchesTree = await diffStillMatchesTree(host);
       host.computeStageVerdict(host.detectNoProgress());
+
+      // Колонка «Итог» журнала chunk'а — рантайм, не Edit модели (6.7): значение уже
+      // посчитано строкой выше, дописывать его агентным ходом было бы тем же классом
+      // работы, что и выдуманный `base_sha` плана. По возможности: журнала может не быть
+      // (виток начат прямо с verify по снимку) — тогда просто нечего заполнять.
+      const verdict = host.verifyState.verdict;
+      if (verdict !== null) {
+        const path = host.paths.chunkJournal(host.chunk());
+        const journal = readArtifact(path);
+        if (journal.exists) {
+          const outcome = verdict.passed ? 'passed' : verdict.action;
+          const { text, filled } = autofillJournalOutcome(journal.text, host.attempt(), outcome);
+          if (filled > 0) host.writeAutofilled(path, text, []);
+        }
+      }
     },
 
     // Прогресс этапа 6 — принятые записи отчёта. Анти-цикл обрывает этап только

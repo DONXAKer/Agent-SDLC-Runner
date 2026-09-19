@@ -458,6 +458,101 @@ export function continuationOfDecision(text: string, lineStart: number): boolean
   }
 }
 
+/** Абсолютные смещения начала каждой строки текста — по ним живёт `continuationOfDecision`. */
+export function lineStarts(text: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1);
+  return starts;
+}
+
+/** Строка сама начинает новый пункт списка или заголовок — не может быть продолжением чужого поля. */
+const NEW_ITEM_RE = /^(?:[-*]\s|#{1,6}\s)/;
+
+/**
+ * Индексы строк ОДНОГО вхождения поля решения, начиная с `lineIndex`: сама строка метки
+ * плюс все перенесённые строки продолжения — реальный `handoff.template.md` переносит
+ * значение поля «Кто утвердил» на следующую строку («_(только имя…)_ н/п / ‹имя› /» на
+ * второй строке), и `fieldRegex` (однострочный `(.*)$` с флагом `m`) в одиночку её не
+ * видит вовсе: воспроизведено живым прогоном против настоящего шаблона методологии —
+ * правка значения на второй строке проходила как «н/п», не будучи даже прочитана.
+ *
+ * `continuationOfDecision` проверяет отступ ПРЕДЫДУЩИХ строк, поднимаясь вверх до метки
+ * решения, но не проверяет саму КАНДИДАТУРУ: следующее поле («- **Где реализовано:**…») в
+ * исходном (не отступном) виде идёт СРАЗУ за отступными строками продолжения предыдущего
+ * поля — подъём находит метку выше по цепочке отступов и ошибочно признаёт
+ * continuation'ом чужую строку. `NEW_ITEM_RE` останавливает обход здесь же, а не в общей
+ * функции — у неё есть другие вызывающие с другими гарантиями входа.
+ */
+export function decisionFieldLines(
+  text: string,
+  lines: readonly string[],
+  starts: readonly number[],
+  lineIndex: number,
+): number[] {
+  const out = [lineIndex];
+  for (let i = lineIndex + 1; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (NEW_ITEM_RE.test(line)) break;
+    const offset = starts[i];
+    if (offset === undefined || !continuationOfDecision(text, offset)) break;
+    out.push(i);
+  }
+  return out;
+}
+
+/**
+ * Состояние ОДНОГО вхождения метки — по ПОЛНОМУ тексту поля, включая перенесённые строки
+ * продолжения (`decisionFieldLines`). Склейка ПРОБЕЛОМ, не переводом строки: `fieldRegex`
+ * останавливается на первом `\n`, и без этого продолжение снова стало бы невидимым — та
+ * же граница, что уже применяет `continuationOfDecision` для того же класса проблемы.
+ *
+ * Единый источник и для `humanDecision.ts` (сравнение «до/после» на фабрикацию), и для
+ * рантайм-чтения того же многострочного поля (`stages/handoff.ts`, дефолт «Кто
+ * утвердил») — второй разбор той же склейки разошёлся бы на первом же уроке шаблона.
+ */
+export function decisionStateAt(
+  text: string,
+  lines: readonly string[],
+  starts: readonly number[],
+  lineIndex: number,
+  label: string,
+): DecisionState {
+  const rows = decisionFieldLines(text, lines, starts, lineIndex);
+  return readDecision(rows.map((i) => lines[i] ?? '').join(' '), label);
+}
+
+/**
+ * Заменяет ВСЕ строки одного вхождения поля решения (метка + перенесённые строки
+ * продолжения, `decisionFieldLines`) на одну строку `<голова метки> value`. В отличие от
+ * `replaceAfterLabel` (одна физическая строка), корректно убирает перенос: замена только
+ * первой строки оставила бы строки продолжения (несущие свой кусок старого значения,
+ * включая `‹…›`) осиротевшим текстом сразу после новой строки. `null` — на этой строке
+ * метки `label` нет.
+ */
+export function replaceDecisionFieldAt(
+  text: string,
+  lines: readonly string[],
+  starts: readonly number[],
+  lineIndex: number,
+  label: string,
+  value: string,
+): string | null {
+  const line = lines[lineIndex] ?? '';
+  const m = fieldRegex(label).exec(line);
+  if (m === null) return null;
+  const head = m[1] ?? line;
+
+  const rows = decisionFieldLines(text, lines, starts, lineIndex);
+  const from = starts[lineIndex];
+  const lastRow = rows[rows.length - 1]!;
+  const lastLine = lines[lastRow] ?? '';
+  const lastStart = starts[lastRow];
+  if (from === undefined || lastStart === undefined) return null;
+  const to = lastStart + lastLine.length;
+
+  return text.slice(0, from) + `${head} ${value}` + text.slice(to);
+}
+
 /**
  * Ячейка ШАПКИ таблицы, означающая колонку подписи человека: «Утвердил (человек)» в
  * таблице неприменимости, «Кто» / «Кто утвердил» в таблицах набора гейтов. Отдельно от
@@ -540,6 +635,29 @@ export function branchNameFromField(raw: string): string {
 /** Экранирование строки для вставки в RegExp — единственная копия на кодовую базу. */
 export function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Замена первого вхождения ровно тем текстом, что передан, без раскрытия `$`-групп —
+ * `String.prototype.replace` со строкой замены раскрывает `$&`/`$1`/`` $` ``/`$'`, а
+ * значение здесь обычно текст модели или оператора без гарантий об отсутствии `$`-
+ * последовательностей в нём. Была отдельной копией в `exec/tools/index.ts` и
+ * `approval/humanDecision.ts` (ревью code-review-all, 2026-09-19) — здесь единственная.
+ */
+export function replaceFirstLiteral(text: string, from: string, to: string): string {
+  const i = text.indexOf(from);
+  return i < 0 ? text : text.slice(0, i) + to + text.slice(i + from.length);
+}
+
+/**
+ * Одна правка `old_string → new_string`, применённая дословно: `split/join` при
+ * `replaceAll`, иначе `replaceFirstLiteral` — оба ветвления одинаково важны, потому что
+ * `String.replace` раскрывает `$&`/`$1` в строке замены (была отдельной копией в
+ * `exec/tools/index.ts::editTool` и `approval/humanDecision.ts::applyEditsExact`, ревью
+ * code-review-all, 2026-09-19).
+ */
+export function applyExactReplace(text: string, from: string, to: string, replaceAll: boolean): string {
+  return replaceAll ? text.split(from).join(to) : replaceFirstLiteral(text, from, to);
 }
 
 /** Вычеркнутое markdown-зачёркиванием человек считает удалённым — и мы тоже. */

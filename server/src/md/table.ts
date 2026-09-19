@@ -45,6 +45,16 @@ export function isSeparatorRow(line: string): boolean {
   return SEPARATOR.test(line.trim());
 }
 
+/**
+ * Строка-разделитель `|---|---|` с ОБЯЗАТЕЛЬНОЙ ведущей чертой — строже, чем `isSeparatorRow`
+ * (та трактует и `---|---` без ведущей `|` как разделитель). Была продублирована трижды
+ * (`planFiles.ts`, `humanFacts.ts`, `journalAutofill.ts`) под именами `TABLE_SEPARATOR`/
+ * `TABLE_SEPARATOR_RE` — сведена сюда одним экспортом (ревью code-review-all, 2026-09-19).
+ * Не объединяется с `isSeparatorRow`: семантика реально разная, и подмена сместила бы
+ * поведение всех трёх потребителей на строках без ведущей черты.
+ */
+export const LEADING_PIPE_SEPARATOR_RE = /^\|[\s|:-]+\|?$/;
+
 export function parseTables(text: string): MdTable[] {
   const out: MdTable[] = [];
   let section = '';

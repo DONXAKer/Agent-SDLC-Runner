@@ -13,6 +13,7 @@ import {
   diffLines,
   moduleDirsFromPlan,
   invariantViolations,
+  mutationCheckTargets,
   publishProblems,
   scopeViolations,
 } from '../src/gates/builtin/logic.ts';
@@ -196,5 +197,39 @@ describe('последняя содержательная строка выво�
   it('берётся последняя непустая', () => {
     strictEqual(lastMeaningfulLine('a\nb\n\n  \n'), 'b');
     strictEqual(lastMeaningfulLine(''), '');
+  });
+});
+
+describe('mutationCheckTargets: разбор изменённых путей на тест/продукт', () => {
+  it('тестовый файл и продуктовый файл расходятся по своим спискам', () => {
+    deepStrictEqual(mutationCheckTargets(['src/calc.ts', 'test/calc.test.ts']), {
+      testFiles: ['test/calc.test.ts'],
+      productFiles: ['src/calc.ts'],
+    });
+  });
+
+  it('.sdlc/ исключён из ОБЕИХ веток безусловно', () => {
+    deepStrictEqual(
+      mutationCheckTargets(['.sdlc/demo/plan.md', '.sdlc/demo/chunk-1-attempt-1-tests.txt', 'src/calc.ts']),
+      { testFiles: [], productFiles: ['src/calc.ts'] },
+    );
+  });
+
+  it('не-код (конфиг, markdown) не считается продуктовым файлом', () => {
+    deepStrictEqual(mutationCheckTargets(['package.json', 'README.md', 'test/calc.test.ts']), {
+      testFiles: ['test/calc.test.ts'],
+      productFiles: [],
+    });
+  });
+
+  it('пусто — оба списка пусты', () => {
+    deepStrictEqual(mutationCheckTargets([]), { testFiles: [], productFiles: [] });
+  });
+
+  it('несколько тестовых и продуктовых файлов — оба списка полны, порядок сохранён', () => {
+    deepStrictEqual(
+      mutationCheckTargets(['src/a.ts', 'src/b/tests/x.ts', 'a.spec.ts', 'src/c.ts']),
+      { testFiles: ['src/b/tests/x.ts', 'a.spec.ts'], productFiles: ['src/a.ts', 'src/c.ts'] },
+    );
   });
 });

@@ -7,7 +7,7 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -105,6 +105,65 @@ describe('пол безопасности', () => {
     const decision = await pending;
     strictEqual(decision.allowed, false, 'правленый вызов обязан проверяться политикой');
     ok(!decision.allowed && /planScope/.test(decision.reason), 'причина отказа должна быть названа');
+  });
+
+  // Регрессия ревью (2026-09-19): правка ОПЕРАТОРА, вписывающая настоящее значение в поле
+  // решения человека («Кто утвердил» и т.п.), проходила `checkAll` заново и самоблокировалась
+  // защитой от фабрикации — той же, что придумана для МОДЕЛИ. Оператор не мог сделать то
+  // единственное, что процесс от него ожидает (defaultUnapprovedRecords/AskHuman-флоу).
+
+  it('операторская правка, вписывающая настоящее значение в поле решения человека, — не самоблокируется фабрикацией', async () => {
+    mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
+    const handoffRel = '.sdlc/demo/handoff.md';
+    writeFileSync(join(root, handoffRel), '# Передача: demo\n\n- **Кто утвердил:** ‹имя› · ‹дата›\n');
+
+    const gate = new ApprovalGate({ onPending: () => {}, onResolved: () => {} });
+    const pending = gate.request({
+      runId: 'r3',
+      stage: 'handoff',
+      requestId: 'edit-3',
+      toolName: 'Edit',
+      rawInput: { file_path: handoffRel, old_string: 'x', new_string: 'x' },
+      call: { kind: 'edit', path: handoffRel, edits: [{ oldStr: 'x', newStr: 'x', replaceAll: false }] },
+      ctx: ctx({ stage: 'handoff', planFiles: [] }),
+    });
+
+    // Оператор отвечал на вопрос об этой записи и вписывает настоящее имя своей правкой
+    // в очереди одобрений — тот путь, которым `AskHuman`-ответ реально попадает в поле.
+    const accepted = gate.resolve('r3', 'edit-3', {
+      allowed: true,
+      updatedInput: { old_string: '‹имя› · ‹дата›', new_string: 'Иван Петров · 2026-09-19' },
+      by: 'operator',
+    });
+    strictEqual(accepted, true);
+
+    const decision = await pending;
+    ok(decision.allowed, decision.allowed ? '' : decision.reason);
+  });
+
+  it('но исходный вызов МОДЕЛИ (без операторской правки) в то же поле по-прежнему отклоняется', async () => {
+    // Фабрикация моделью ловится ещё в `request()`, до постановки в очередь одобрений —
+    // вызов не доходит даже до `resolve()`. Правка выше снимает самоблок только для ветки
+    // `revalidate` (правка ОПЕРАТОРА), исходный вызов модели через неё не проходит вовсе.
+    mkdirSync(join(root, '.sdlc', 'demo2'), { recursive: true });
+    const handoffRel = '.sdlc/demo2/handoff.md';
+    writeFileSync(join(root, handoffRel), '# Передача: demo2\n\n- **Кто утвердил:** ‹имя› · ‹дата›\n');
+
+    const gate = new ApprovalGate({ onPending: () => {}, onResolved: () => {} });
+    const decision = await gate.request({
+      runId: 'r4',
+      stage: 'handoff',
+      requestId: 'edit-4',
+      toolName: 'Edit',
+      rawInput: { file_path: handoffRel, old_string: '‹имя› · ‹дата›', new_string: 'Иван Петров · 2026-09-19' },
+      call: {
+        kind: 'edit',
+        path: handoffRel,
+        edits: [{ oldStr: '‹имя› · ‹дата›', newStr: 'Иван Петров · 2026-09-19', replaceAll: false }],
+      },
+      ctx: ctx({ stage: 'handoff', planFiles: [], sdlcDir: '.sdlc/demo2' }),
+    });
+    strictEqual(decision.allowed, false, 'исходный вызов модели — фабрикация обязана ловиться немедленно, на request()');
   });
 
   it('запись в набор гейтов на этапе 7 не отклоняется как «вне плана»', () => {

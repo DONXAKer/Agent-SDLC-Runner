@@ -6,8 +6,49 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { decisionLabelsIn } from '../src/artifacts/artifact.ts';
-import { compareClaims, renderClaimsComparison, renderClaimsNa, reverseGaps, similarity } from '../src/explore/compare.ts';
+import { compareClaims, renderClaimsComparison, renderClaimsNa, reverseGaps, similarity, suggestSimilarPaths } from '../src/explore/compare.ts';
 import type { BlindClaim } from '../src/run/claimsBlind.ts';
+
+describe('suggestSimilarPaths', () => {
+  const files = [
+    { path: 'src/discounts.ts' },
+    { path: 'src/tariffs.ts' },
+    { path: 'src/money.ts' },
+    { path: 'test/discounts.test.ts' },
+  ];
+
+  it('опечатка в имени существующего файла — предложена', () => {
+    deepStrictEqual(suggestSimilarPaths('src/discunts.ts', files), ['src/discounts.ts']);
+  });
+
+  it('точное совпадение — не предлагается (это не опечатка, а существующий путь)', () => {
+    deepStrictEqual(suggestSimilarPaths('src/tariffs.ts', files), []);
+  });
+
+  it('по-настоящему новое имя, ничего похожего рядом нет — пустой список', () => {
+    deepStrictEqual(suggestSimilarPaths('src/freeship.ts', files), []);
+  });
+
+  it('сравнение по ИМЕНИ файла, не по каталогу — разные каталоги не мешают найти совпадение', () => {
+    const found = suggestSimilarPaths('lib/discounts.ts', files);
+    strictEqual(found[0], 'src/discounts.ts', found.join(', '));
+  });
+
+  it('короткое имя требует почти точного совпадения — далёкое короткое имя не предлагается', () => {
+    deepStrictEqual(suggestSimilarPaths('db.ts', [{ path: 'src/money.ts' }]), []);
+  });
+
+  it('ограничено `limit`, ближайшие первыми', () => {
+    const many = [
+      { path: 'src/discounts.ts' },
+      { path: 'src/discount.ts' },
+      { path: 'src/discountX.ts' },
+      { path: 'src/discountXY.ts' },
+    ];
+    const top2 = suggestSimilarPaths('src/discont.ts', many, 2);
+    strictEqual(top2.length, 2);
+  });
+});
 
 const author = [
   { id: 'claim-1', text: 'доставка для gold в ступени 3 бесплатна: total равен 0' },

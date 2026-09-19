@@ -197,6 +197,18 @@ export async function currentBranch(cwd: string): Promise<string> {
 }
 
 /**
+ * URL origin-remote'а — источник поля «Состояние/repo» передачи (этап 7). `null` — remote'а
+ * нет (локальный репозиторий) или это не git; вызывающий обязан подставить своё запасное
+ * имя, а не считать пустой remote отсутствием репозитория.
+ */
+export async function repoOrigin(cwd: string): Promise<string | null> {
+  const r = await git(['remote', 'get-url', 'origin'], cwd);
+  if (r.code !== 0) return null;
+  const url = r.stdout.trim();
+  return url === '' ? null : url;
+}
+
+/**
  * Заводит в индекс новые файлы, которые называет `files_to_touch` одобренного плана.
  *
  * Наблюдение 2/2 даже на сильной модели (`docs/model-runs.md`, control-прогоны bench):

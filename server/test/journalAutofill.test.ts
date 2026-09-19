@@ -10,7 +10,7 @@
 import { ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { autofillChunkJournal } from '../src/run/journalAutofill.ts';
+import { autofillChunkJournal, autofillJournalOutcome } from '../src/run/journalAutofill.ts';
 import type { ChunkJournalFacts } from '../src/run/journalAutofill.ts';
 
 const TEMPLATE = [
@@ -77,5 +77,68 @@ describe('автозаполнение журнала chunk\'а', () => {
     const second = autofillChunkJournal(first.text, FACTS);
     strictEqual(second.filled, 0);
     strictEqual(second.text, first.text);
+  });
+});
+
+describe('autofillJournalOutcome (6.7: «Итог» попытки пишет рантайм, не Edit модели)', () => {
+  it('находит строку попытки по K и заменяет «Итог» вычисленным вердиктом', () => {
+    const { text, filled } = autofillJournalOutcome(TEMPLATE, 1, 'passed');
+    strictEqual(filled, 1);
+    ok(text.includes('| 1 | ‹дата› | первая попытка | н/п | passed |'), text);
+  });
+
+  it('идемпотентно: то же значение повторно не считается изменением', () => {
+    const once = autofillJournalOutcome(TEMPLATE, 1, 'passed');
+    const twice = autofillJournalOutcome(once.text, 1, 'passed');
+    strictEqual(twice.filled, 0);
+    strictEqual(twice.text, once.text);
+  });
+
+  it('другой номер попытки — другая строка, остальные не трогаются', () => {
+    const twoAttempts = [
+      "# Журнал chunk'а 1: demo",
+      '',
+      '## Попытки',
+      '',
+      '| K | Дата | Что чинили | Что изменилось | Итог |',
+      '|---|---|---|---|---|',
+      '| 1 | 2026-09-01 | первая попытка | н/п | retry |',
+      '| 2 | 2026-09-02 | чинили X | diff мал | ещё не проверялась |',
+    ].join('\n');
+    const { text, filled } = autofillJournalOutcome(twoAttempts, 2, 'escalate');
+    strictEqual(filled, 1);
+    ok(text.includes('| 1 | 2026-09-01 | первая попытка | н/п | retry |'), 'чужая строка задета');
+    ok(text.includes('| 2 | 2026-09-02 | чинили X | diff мал | escalate |'), text);
+  });
+
+  it('строки с таким K нет — no-op, не падение', () => {
+    const { text, filled } = autofillJournalOutcome(TEMPLATE, 5, 'passed');
+    strictEqual(filled, 0);
+    strictEqual(text, TEMPLATE);
+  });
+
+  it('секции «Попытки» нет — no-op, не падение', () => {
+    const noSection = '# Журнал\nбез секции\n';
+    const { text, filled } = autofillJournalOutcome(noSection, 1, 'passed');
+    strictEqual(filled, 0);
+    strictEqual(text, noSection);
+  });
+
+  it('шапка таблицы («K») не принимается за строку попытки', () => {
+    const { text } = autofillJournalOutcome(TEMPLATE, 1, 'passed');
+    ok(text.includes('| K | Дата | Что чинили | Что изменилось | Итог |'), 'шапка обязана остаться нетронутой');
+  });
+
+  it('CRLF: переписанная строка сохраняет `\\r`, соседние строки не переводятся на LF', () => {
+    // Регрессия ревью (2026-09-19): строка, которую функция ПЕРЕПИСЫВАЕТ, собиралась из
+    // уже обрезанного (`.trim()`) текста без обратного добавления `\r` — на CRLF-файле
+    // именно эта строка становилась LF-only рядом с нетронутыми CRLF-строками.
+    // Хвостовой `\n` перед конвертацией — иначе у ПОСЛЕДНЕЙ строки шаблона нет реальной
+    // границы строки, на которой можно было бы проверить сохранение `\r`.
+    const crlf = `${TEMPLATE}\n`.split('\n').join('\r\n');
+    const { text, filled } = autofillJournalOutcome(crlf, 1, 'passed');
+    strictEqual(filled, 1);
+    ok(text.includes('| 1 | ‹дата› | первая попытка | н/п | passed |\r\n'), JSON.stringify(text));
+    ok(text.includes('| K | Дата | Что чинили | Что изменилось | Итог |\r\n'), 'нетронутая шапка обязана остаться CRLF');
   });
 });

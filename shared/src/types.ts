@@ -281,7 +281,7 @@ export const CALL_KINDS = Object.keys({
 // Политика доступа
 // ---------------------------------------------------------------------------
 
-export type PolicyName = 'pathScope' | 'denyList' | 'planScope' | 'stageTools' | 'repeatFailure';
+export type PolicyName = 'pathScope' | 'denyList' | 'planScope' | 'stageTools' | 'repeatFailure' | 'humanDecision';
 
 export type PolicyVerdict =
   | { ok: true }

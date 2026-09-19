@@ -154,7 +154,9 @@ const BLANK = [
 ].join('\n');
 
 const MAP = '1. да | тарифная таблица и priceFor | добавить вызов правила льготы\n2. нет\n3. да | тесты расчёта | добавить кейс льготы\n+ src/freeship.ts | правило льготы: gold и ступень 3\n';
-const REUSE = '1. да | считает итог | вызываем после льготы\n2. да | номер ступени | проверяем ступень 3\n3. нет\n';
+// По кандидату (2.2): каждая запись — ответ на СВОЙ вопрос, без нумерации «N.» — она
+// принадлежала прежнему комбинированному вопросу и с ним снята.
+const REUSE_PER_CANDIDATE = ['да | считает итог | вызываем после льготы', 'да | номер ступени | проверяем ступень 3', 'нет'];
 const AXES = [
   '1. нет механизма | входные данные доверенные',
   '2. src/tariffs.ts:weightStep | ступени считаются один раз',
@@ -165,7 +167,15 @@ const AXES = [
 ].join('\n');
 const QUESTIONS = '1. блокирующий | Распространяется ли льгота на silver?\n';
 
-function provider(seen: ChatRequest[], answers: Partial<Record<'map' | 'reuse' | 'axes' | 'questions', string>> = {}): ChatProvider {
+function provider(
+  seen: ChatRequest[],
+  answers: Partial<Record<'map' | 'axes' | 'questions', string>> & { reuse?: string | readonly string[] } = {},
+): ChatProvider {
+  // По кандидату (2.2): нет больше ОДНОГО вопроса «найдено для переиспользования» — есть
+  // N вопросов «переиспользование: путь:символ», по одному на кандидата, и мок отвечает на
+  // них по порядку вызова. Строка вместо массива — то же значение на КАЖДОГО кандидата
+  // (нужно тестам, которым важен только первый/единственный).
+  let reuseCalls = 0;
   return {
     name: 'stub',
     async chat(req: ChatRequest) {
@@ -173,8 +183,11 @@ function provider(seen: ChatRequest[], answers: Partial<Record<'map' | 'reuse' |
       const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
       let text = 'н/п';
       if (user.includes('## Сейчас — карта кодовой базы')) text = answers.map ?? MAP;
-      else if (user.includes('## Сейчас — найдено для переиспользования')) text = answers.reuse ?? REUSE;
-      else if (user.includes('## Сейчас — опоры осей')) text = answers.axes ?? AXES;
+      else if (user.includes('## Сейчас — переиспользование:')) {
+        const list = answers.reuse === undefined ? REUSE_PER_CANDIDATE : answers.reuse;
+        text = typeof list === 'string' ? list : (list[reuseCalls] ?? 'нет');
+        reuseCalls++;
+      } else if (user.includes('## Сейчас — опоры осей')) text = answers.axes ?? AXES;
       else if (user.includes('## Сейчас — всплывшие вопросы')) text = answers.questions ?? QUESTIONS;
       else if (user.includes('- id: `конвенции`')) text = 'деньги в копейках целым числом';
       else if (user.includes('- id: `требования к окружению прогона`')) text = 'ничего особенного';
@@ -375,7 +388,7 @@ describe('конвейер разведки на копии бланка', () =>
     const seen2 = { calls: [] as NormalizedCall[], warns: [] as string[] };
     const secondProvider = provider([], {
       map: '1. да | тарифная таблица и priceFor | второй проход: поправить edge-case\n2. нет\n3. нет\n',
-      reuse: '1. нет\n2. нет\n3. нет\n',
+      reuse: 'нет',
     });
     const second = await executor(root, paths, { provider: secondProvider }).run(request(root, paths), hooks(seen2));
     ok(second.ok, second.note);
@@ -395,18 +408,99 @@ describe('конвейер разведки на копии бланка', () =>
     ok(result.note.includes('вопрос не задан') || (result.finalText ?? '').includes('вопрос не задан'), result.finalText);
   });
 
-  it('переиспользование: ответ прозой мимо формата (0 строк «N. …») не путается с честным «ничего не нашли»', async () => {
-    // Замер `oversize`/`exploreFill`, 2026-09-12: обе проверенные модели дали
-    // «переиспользования 0» при 12 предложенных кандидатах — конвейер не различал
-    // «ответила по форме и сказала нет всем» от «ответила прозой, разобрать нечего».
+  it('переиспользование: прозаический ответ без «да» — честное «нет» на ЭТОГО кандидата, не парсинг-провал', async () => {
+    // До 2.2: замер `oversize`/`exploreFill` (2026-09-12) поймал, что при ОДНОМ вопросе на
+    // все 12 кандидатов конвейер не различал «ответила по форме и сказала нет всем» от
+    // «ответила прозой, разобрать нечего» — обе модели дали «переиспользования 0». Один
+    // кандидат — один вопрос снимает саму категорию «не распарсилось»: ответ либо начинается
+    // с «да» (кандидат взят), либо нет (кандидат отклонён) — третьего не бывает по
+    // построению, прозаический ответ трактуется как «нет» для этого конкретного кандидата,
+    // а не как провал разбора всего списка.
     const { root, paths } = setup(BLANK);
     const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
-    const prosa = 'Рассмотрели предложенных кандидатов и решили не привязываться к ним напрямую в этом патче.';
+    const prosa = 'Рассмотрели кандидата и решили не привязываться к нему напрямую в этом патче.';
     const result = await executor(root, paths, { provider: provider([], { reuse: prosa }) }).run(request(root, paths), hooks(seen));
+    ok(result.ok, result.note);
     const report = readFileSync(paths.explorationReport, 'utf8');
-    ok(!report.includes('_Ничего подходящего не найдено: да_'), 'ответ не по форме, а поле утверждает, что поиск проведён и пуст');
-    ok(!report.includes('_Ничего подходящего не найдено: нет_'), report);
-    ok(result.note.includes('не по форме') || (result.finalText ?? '').includes('не по форме'), result.finalText);
+    ok(!report.includes('| priceFor |'), 'прозаический ответ без «да» не должен попасть в таблицу как принятый кандидат');
+    ok(report.includes('_Ничего подходящего не найдено: да_'), report);
+  });
+
+  it('переиспользование: ответ с преамбулой перед строкой «да | …» — строка находится, не теряется', async () => {
+    // Регрессия ревью (2026-09-18): строка ответа выбиралась как ПЕРВАЯ непустая строка
+    // ответа модели — преамбула («Хорошо, проверил.») перед настоящим «да | …» на второй
+    // строке читалась как сам ответ, и `YES.test` на ней не проходил: честное «да» модели
+    // терялось и засчитывалось как «нет».
+    const { root, paths } = setup(BLANK);
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const withPreamble = 'Хорошо, проверил кандидата.\nда | считает итог | вызываем после льготы';
+    const result = await executor(root, paths, { provider: provider([], { reuse: withPreamble }) }).run(
+      request(root, paths),
+      hooks(seen),
+    );
+    ok(result.ok, result.note);
+    const report = readFileSync(paths.explorationReport, 'utf8');
+    ok(report.includes('| priceFor | src/tariffs.ts:priceFor |'), 'ответ «да» за преамбулой не должен теряться');
+  });
+
+  it('переиспользование: преамбула с СОБСТВЕННЫМ «|» перед строкой «да | …» — не путается с ответом', async () => {
+    // Регрессия ревью (2026-09-19): прежняя версия искала строку ответа ОДНИМ проходом
+    // («да/нет ИЛИ есть „|“»), и преамбула, случайно содержащая «|» (путь, сравнение),
+    // находилась раньше настоящей строки ответа — честное «да» терялось.
+    const { root, paths } = setup(BLANK);
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const withPipeInPreamble = 'Смотрю на связку A|B перед тем как ответить.\nда | считает итог | вызываем после льготы';
+    const result = await executor(root, paths, { provider: provider([], { reuse: withPipeInPreamble }) }).run(
+      request(root, paths),
+      hooks(seen),
+    );
+    ok(result.ok, result.note);
+    const report = readFileSync(paths.explorationReport, 'utf8');
+    ok(report.includes('| priceFor | src/tariffs.ts:priceFor |'), 'ответ «да» за преамбулой со своим «|» не должен теряться');
+  });
+
+  it('переиспользование: бюджет ходов кончился ПОСЛЕ первого кандидата — не путается с «честно проверили всех»', async () => {
+    // Регрессия ревью (2026-09-19): булев флаг «хоть один ответ дошёл» не отличал
+    // «ответили на всех кандидатов честным «нет»» от «бюджет кончился после первого» —
+    // 11 из 12 кандидатов молча пропадали, а отчёт всё равно писал завершённый поиск.
+    const { root, paths } = setup(BLANK);
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    // maxTurns=2: карта (1 ход) + первый кандидат переиспользования (2-й ход) — бюджет
+    // исчерпан ровно после него, кандидаты 2..12 вопроса не получают вовсе.
+    const result = await executor(root, paths, { provider: provider([], { reuse: 'нет | не подходит' }) }).run(
+      { ...request(root, paths), maxTurns: 2 },
+      hooks(seen),
+    );
+    const report = readFileSync(paths.explorationReport, 'utf8');
+    ok(!report.includes('_Ничего подходящего не найдено: да_'), 'поиск не был доведён до конца — поле не вправе утверждать обратное');
+    ok(
+      result.note.includes('бюджет ходов') || (result.finalText ?? '').includes('бюджет ходов'),
+      result.finalText ?? result.note,
+    );
+  });
+
+  it('переиспользование — по кандидату: несколько кандидатов дают несколько отдельных вопросов, не один комбинированный', async () => {
+    const { root, paths } = setup(BLANK);
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const seenTitles: string[] = [];
+    const tracking: ChatProvider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        const m = /## Сейчас — (переиспользование: [^\n]+)/.exec(user);
+        if (m !== null) seenTitles.push(m[1]!);
+        return provider([]).chat(req);
+      },
+    } as unknown as ChatProvider;
+    const result = await executor(root, paths, { provider: tracking }).run(request(root, paths), hooks(seen));
+    ok(result.ok, result.note);
+    // Индекс этой фикстуры даёт 12 кандидатов (потолок `reuseCandidates`, `explore/rank.ts`).
+    // Регрессия ревью (2026-09-18): версия с `reuse.slice(0, 6)` спрашивала только первых
+    // 6, кандидаты 7-12 не получали вопроса вовсе (не просто без карточки, как в прежней
+    // комбинированной схеме, — совсем никак). Явное число здесь, а не «> 1», чтобы урезание
+    // охвата не проскочило снова незамеченным.
+    strictEqual(seenTitles.length, 12, seenTitles.join('; '));
+    ok(seenTitles.every((t, i, all) => all.indexOf(t) === i), 'вопросы про кандидатов обязаны быть разными, не повтором одного и того же');
   });
 
   it('«Прогон 2» готовности (поле этапа 4) не мешает гейту заполненности дойти до ✅', async () => {
@@ -440,7 +534,7 @@ describe('конвейер разведки на копии бланка', () =>
     const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
     const englishProvider = provider([], {
       map: '1. yes | тарифная таблица и priceFor | добавить вызов правила льготы\n2. no\n3. no\n',
-      reuse: '1. yes | считает итог | вызываем после льготы\n2. no\n3. no\n',
+      reuse: ['yes | считает итог | вызываем после льготы', 'no', 'no'],
     });
     const result = await executor(root, paths, { provider: englishProvider }).run(request(root, paths), hooks(seen));
     ok(result.ok, result.note);

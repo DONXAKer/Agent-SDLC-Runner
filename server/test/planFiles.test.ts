@@ -14,8 +14,123 @@ function нетЭталона(dir: string): string | false {
 }
 
 
-import { appendScopeExtension, extractFilesToTouch } from '../src/artifacts/planFiles.ts';
+import {
+  addedBeyondPlanPaths,
+  appendScopeExtension,
+  excludedFromPlanPaths,
+  extractFilesToTouch,
+  seedFilesToTouch,
+  touchListEntries,
+} from '../src/artifacts/planFiles.ts';
 import { loadConfig } from '../src/config/load.ts';
+
+describe('touchListEntries', () => {
+  it('читает путь и заметку из бульита «Что придётся тронуть»', () => {
+    const intent = [
+      '## Что придётся тронуть',
+      '_Заполняет агент на разведке._',
+      '',
+      '- src/tariffs.ts — добавить surcharge',
+      '- src/oversize.ts — использовать surcharge',
+      '',
+      '## Открытые вопросы',
+      '- src/never.ts — эта секция уже не «Что придётся тронуть»',
+    ].join('\n');
+    deepStrictEqual(touchListEntries(intent), [
+      { path: 'src/tariffs.ts', note: 'добавить surcharge' },
+      { path: 'src/oversize.ts', note: 'использовать surcharge' },
+    ]);
+  });
+
+  it('строка-образец с плейсхолдером пропускается', () => {
+    const intent = ['## Что придётся тронуть', '', '- ‹path/to/file› — ‹что здесь меняем›', ''].join('\n');
+    deepStrictEqual(touchListEntries(intent), []);
+  });
+
+  it('секции нет — пустой список, не падение', () => {
+    deepStrictEqual(touchListEntries('# Задача: демо\n\n## Коротко\n\nчто-то\n'), []);
+  });
+
+  it('путь в обратных кавычках — кавычки снимаются', () => {
+    const intent = ['## Что придётся тронуть', '', '- `src/a.ts` — правка', ''].join('\n');
+    deepStrictEqual(touchListEntries(intent), [{ path: 'src/a.ts', note: 'правка' }]);
+  });
+});
+
+describe('excludedFromPlanPaths / addedBeyondPlanPaths', () => {
+  it('извлекает пути из «Из задачи исключено»', () => {
+    const plan = '- **Из задачи исключено**: `src/oversize.ts` — не понадобился\n';
+    deepStrictEqual(excludedFromPlanPaths(plan), ['src/oversize.ts']);
+  });
+
+  it('извлекает пути из «Добавлено сверх разведки»', () => {
+    const plan = '- **Добавлено сверх разведки:** `src/config.ts` — нужен флаг\n';
+    deepStrictEqual(addedBeyondPlanPaths(plan), ['src/config.ts']);
+  });
+
+  // Регрессия ревью (2026-09-18), воспроизведена живым прогоном против реального
+  // plan.template.md: «Добавлено сверх разведки» стоит СРАЗУ перед «Из задачи исключено»,
+  // без заголовка между ними. Регион первой метки раньше тянулся до следующего ЗАГОЛОВКА
+  // и захватывал весь текст второй метки — путь, упомянутый в объяснении исключения,
+  // засчитывался как уже объяснённое добавление (и наоборот), хотя строка «Добавлено
+  // сверх разведки» буквально говорит «нет».
+
+  it('не протекает из «Добавлено сверх разведки» в соседнее «Из задачи исключено»', () => {
+    const plan = [
+      '- **Добавлено сверх разведки:** нет',
+      '- **Из задачи исключено** _(в `files_to_touch` не входит — иначе scope-проверка разрешила бы',
+      '  правку в файле, который трогать не собирались)_: `src/oversize.ts` — логика перенесена в `src/config.ts`',
+      '',
+      '## Затронутые вызовы/сигнатуры',
+    ].join('\n');
+    deepStrictEqual(addedBeyondPlanPaths(plan), [], 'метка сказала «нет» — добавленных путей быть не должно');
+    deepStrictEqual(excludedFromPlanPaths(plan), ['src/oversize.ts', 'src/config.ts']);
+  });
+
+  it('не протекает из «Из задачи исключено» в следующую метку того же вида', () => {
+    const plan = [
+      '- **Из задачи исключено**: `src/oversize.ts` — не понадобился',
+      '- **Добавлено сверх разведки:** `src/config.ts` — нужен флаг',
+    ].join('\n');
+    deepStrictEqual(excludedFromPlanPaths(plan), ['src/oversize.ts']);
+    deepStrictEqual(addedBeyondPlanPaths(plan), ['src/config.ts']);
+  });
+
+  it('метки нет — пустой список', () => {
+    deepStrictEqual(excludedFromPlanPaths('# План\n'), []);
+    deepStrictEqual(addedBeyondPlanPaths('# План\n'), []);
+  });
+
+  it('метка есть, путей после неё нет («нет») — пустой список', () => {
+    deepStrictEqual(excludedFromPlanPaths('- **Из задачи исключено**: нет\n'), []);
+  });
+
+  // Регрессия ревью (2026-09-19), воспроизведена выполнением кода: вложенный, с отступом,
+  // суб-буллет того же вида («  - **Причина:**») засчитывался за границу региона наравне с
+  // соседней меткой ВЕРХНЕГО уровня — путь, названный ПОСЛЕ такого суб-буллета, терялся.
+
+  it('вложенный суб-буллет («  - **…») не обрывает регион метки — путь после него не теряется', () => {
+    const plan = [
+      '- **Из задачи исключено**: экономия — файлы ниже:',
+      '  - `src/a.ts` — не пригодился',
+      '  - **Важно:** решение принято по итогам ревью',
+      '  - `src/b.ts` — тоже не пригодился',
+      '- **Добавлено сверх разведки:** нет',
+    ].join('\n');
+    deepStrictEqual(excludedFromPlanPaths(plan), ['src/a.ts', 'src/b.ts']);
+  });
+
+  it('не заходит за следующий заголовок', () => {
+    const plan = [
+      '- **Добавлено сверх разведки:** `src/config.ts` — нужен флаг',
+      '',
+      '## Затронутые вызовы/сигнатуры',
+      '',
+      '| `src/never.ts` | эта таблица уже не про files_to_touch |',
+    ].join('\n');
+    deepStrictEqual(addedBeyondPlanPaths(plan), ['src/config.ts']);
+  });
+});
 
 describe('files_to_touch', () => {
   it('читает пути из таблицы плана', () => {
@@ -146,5 +261,82 @@ describe('files_to_touch', () => {
       'src/main/java/com/acme/payments/schedule/PaymentRetryScheduler.java',
       'src/test/java/com/acme/payments/PaymentIdempotencyIT.java',
     ]);
+  });
+});
+
+describe('seedFilesToTouch (4.1, засев до хода модели)', () => {
+  const PLAN = [
+    '## files_to_touch',
+    '',
+    '| Путь | Что делаем |',
+    '|---|---|',
+    '| ‹path/to/file› | ‹что делаем› |',
+    '',
+    '- **Добавлено сверх разведки:** ‹path — потому что …› / нет',
+    '- **Из задачи исключено**: ‹path — почему не понадобился› / нет',
+    '',
+    '## Дальше',
+  ].join('\n');
+
+  it('засевает строки из «Что придётся тронуть», путь и заметка переносятся', () => {
+    const touch = [
+      { path: 'src/tariffs.ts', note: 'добавить surcharge' },
+      { path: 'src/oversize.ts', note: 'использовать surcharge' },
+    ];
+    const { text, seeded } = seedFilesToTouch(PLAN, touch);
+    strictEqual(seeded, 2);
+    deepStrictEqual(extractFilesToTouch(text), ['src/tariffs.ts', 'src/oversize.ts']);
+    ok(text.includes('| `src/tariffs.ts` | добавить surcharge |'), text);
+    ok(text.includes('| `src/oversize.ts` | использовать surcharge |'), text);
+    ok(!text.includes('‹path/to/file›'), 'строка-образец обязана быть заменена');
+  });
+
+  it('заметки разведки нет — вторая ячейка остаётся плейсхолдером для модели', () => {
+    const { text } = seedFilesToTouch(PLAN, [{ path: 'src/a.ts', note: '' }]);
+    ok(text.includes('| `src/a.ts` | ‹что делаем› |'), text);
+  });
+
+  it('соседняя метка «Добавлено сверх разведки» не трогается', () => {
+    const { text } = seedFilesToTouch(PLAN, [{ path: 'src/a.ts', note: 'правка' }]);
+    ok(text.includes('- **Добавлено сверх разведки:** ‹path — потому что …› / нет'), text);
+    ok(text.includes('- **Из задачи исключено**: ‹path — почему не понадобился› / нет'), text);
+    ok(text.includes('## Дальше'), text);
+  });
+
+  it('идемпотентно: в таблице уже есть настоящий путь — засев не срабатывает', () => {
+    const already = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| `src/kept.ts` | руками |\n';
+    const { text, seeded } = seedFilesToTouch(already, [{ path: 'src/tariffs.ts', note: 'x' }]);
+    strictEqual(seeded, 0);
+    strictEqual(text, already);
+  });
+
+  it('«Что придётся тронуть» пуст — засевать нечем, план не трогается', () => {
+    const { text, seeded } = seedFilesToTouch(PLAN, []);
+    strictEqual(seeded, 0);
+    strictEqual(text, PLAN);
+  });
+
+  it('дубль пути в «Что придётся тронуть» — одна строка, не две', () => {
+    const touch = [
+      { path: 'src/a.ts', note: 'первое упоминание' },
+      { path: 'src/a.ts', note: 'второе упоминание' },
+    ];
+    const { text, seeded } = seedFilesToTouch(PLAN, touch);
+    strictEqual(seeded, 1);
+    deepStrictEqual(extractFilesToTouch(text), ['src/a.ts']);
+  });
+
+  it('таблицы в тексте нет вовсе — no-op, не падение', () => {
+    const noTable = '## files_to_touch\n\nсвободный текст без таблицы\n';
+    const { text, seeded } = seedFilesToTouch(noTable, [{ path: 'src/a.ts', note: 'x' }]);
+    strictEqual(seeded, 0);
+    strictEqual(text, noTable);
+  });
+
+  it('засеянные пути проходят засевом plan → discrepancy-гейт их видит как «оставлены»', () => {
+    // Интеграция с 4.1 «М»-половиной (planTouchDiscrepancyProblem): засеянный путь не
+    // считается расхождением сам по себе — он тот же путь, что и в «Что придётся тронуть».
+    const { text } = seedFilesToTouch(PLAN, [{ path: 'src/a.ts', note: 'правка' }]);
+    deepStrictEqual(extractFilesToTouch(text), ['src/a.ts']);
   });
 });

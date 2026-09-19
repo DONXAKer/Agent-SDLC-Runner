@@ -254,6 +254,7 @@ function grantedDestructive(result: BenchResult): BenchResult['operator']['appro
 
 export type DenialClass =
   | 'стирание поля решения человека'
+  | 'запись в поле решения человека'
   | 'разрушающая перезапись'
   | 'запись вне плана'
   | 'путь вне проекта или битый'
@@ -278,6 +279,7 @@ const BOUNDARY_CLASSES: ReadonlySet<DenialClass> = new Set<DenialClass>([
   'путь вне проекта или битый',
   'запрещённая цель',
   'запись без права на этапе',
+  'запись в поле решения человека',
 ]);
 
 /** Класс починки рантаймом — строка раздела «Отказы вызовов» и щупа границ, не отказ. */
@@ -324,6 +326,8 @@ export function classifyDenial(d: CollectedDenial): DenialClass {
       return 'запрещённая цель';
     case 'repeatFailure':
       return 'повтор упавшей команды';
+    case 'humanDecision':
+      return 'запись в поле решения человека';
     case 'stageTools':
       if (d.kind === 'unknown') return 'неразобранный вызов';
       if (d.kind === 'subagent') return 'необъявленный субагент';

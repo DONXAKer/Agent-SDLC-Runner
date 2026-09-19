@@ -198,6 +198,10 @@ export async function runGates(i: RunGatesInput): Promise<GateRunResult[]> {
     ...(i.modules === undefined ? {} : { modules: i.modules }),
     ...(i.signal === undefined ? {} : { signal: i.signal }),
     ...(i.clarificationPath === undefined ? {} : { clarificationPath: i.clarificationPath }),
+    // Вход резерва mutationCheckGate (ревью code-review-all, 2026-09-19): забытая копия
+    // рядом с clarificationPath выше — на этапе verify гейт получал ctx.slug === undefined
+    // и резервировал состояние в общий файл на весь projectRoot, а не под `.sdlc/<slug>/`.
+    ...(i.slug === undefined ? {} : { slug: i.slug }),
   };
 
   const out: GateRunResult[] = [];

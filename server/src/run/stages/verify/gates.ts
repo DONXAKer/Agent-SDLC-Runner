@@ -82,6 +82,8 @@ export async function runVerifyGates(host: StageHost, signal?: AbortSignal): Pro
     ...(modules === undefined ? {} : { modules }),
     // Вход гейта «Ответы человека в коде»: слаг витка знает только рантайм.
     clarificationPath: host.paths.clarificationReport,
+    // Вход резерва mutationCheckGate — та же причина, что у clarificationPath выше.
+    slug: host.slug,
     ...(signal === undefined ? {} : { signal }),
     externalStatuses: externalGateStatuses(host),
     onWarn: (message) => host.emit({ type: 'warning', runId: host.id, stage: 'verify', message }),

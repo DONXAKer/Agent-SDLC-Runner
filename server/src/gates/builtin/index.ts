@@ -28,7 +28,7 @@ import type { BuildSystem } from '../ecosystems/index.ts';
 import type { ModuleProfile } from '../../config/schema.ts';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve as resolvePath } from 'node:path';
 
 import type { GateStatus } from '@sdlc-runner/shared';
@@ -41,6 +41,7 @@ import {
   diffLines,
   invariantViolations,
   moduleDirsFromPlan,
+  mutationCheckTargets,
   normalizeModuleDir,
   publishProblems,
   scopeViolations,
@@ -67,6 +68,15 @@ export interface GateContext {
   baseline: ReadonlyMap<string, string> | null;
   timeoutMs: number;
   signal?: AbortSignal;
+  /**
+   * Слаг витка — вход `mutationCheckGate` для его резервной копии (`mutationBackupPath`),
+   * той же логикой, что уже применяет `clarificationPath` для «Ответы человека в коде»:
+   * слаг знает только рантайм, не набор гейтов. Без него резерв делится ОДНИМ файлом на
+   * весь `projectRoot` — два витка над одним проектом (штатный случай, см. коллизию в
+   * `server/src/index.ts`) затирали бы чужой снимок состояния (ревью code-review-all,
+   * 2026-09-19).
+   */
+  slug?: string;
 }
 
 export interface BuiltinOutcome {
@@ -733,6 +743,330 @@ const testGate: BuiltinGate = async (ctx) => {
 
   const parts = await forEachModule(ctx, mods, (m) => testOne(ctx, m));
   return aggregate(parts, none);
+};
+
+// ---------------------------------------------------------------------------
+// «Тест ловит правку» — мутационная проверка (docs/stage-review-2026-09-18.md, §5.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Дешёвое мутационное тестирование по канону «тест до реализации»: если добавленные/
+ * изменённые тесты этой попытки остаются зелёными и НА ДЕРЕВЕ БЕЗ продуктовых правок
+ * (только тестовые файлы поверх HEAD), тест не различает «до» и «после» — находка того же
+ * класса, что живой замер `#13` (`docs/model-runs.md`): `NaN==NaN` и другие тавтологичные
+ * ассерты дают 14/14 своих зелёных тестов при 4/6 скрытых.
+ *
+ * Гейт временно ПОДМЕНЯЕТ содержимое продуктовых файлов реальным деревом проекта —
+ * единственный встроенный гейт, который вообще пишет в рабочее дерево, а не только
+ * читает его. Три опоры безопасности, каждая нужна порознь:
+ *  - **Резервная копия на диске ДО мутации**, не только в памяти. `TaskStop не убивает
+ *    потомков bash-скрипта на Windows» — прерванный процесс всё ещё способен оставить
+ *    дерево в «продуктовые файлы откачены к HEAD» на середине проверки; `finally`
+ *    восстанавливает при обычном завершении, а файл резерва — на случай, когда до
+ *    `finally` дело не дошло вовсе.
+ *  - **Восстановление ДО начала работы**, если резерв уже существует: прошлый вызов не
+ *    дописал свою работу, и следующий обязан сперва вернуть дерево, а не наслаивать
+ *    новую мутацию поверх старой. Этот прогон честно пропускается (`⏭`) — сигнала о
+ *    ТЕКУЩЕЙ попытке в такой ситуации нет, а следующий вызов попробует снова с чистого
+ *    дерева.
+ *  - **Только код, только новое в этом chunk'е, никогда `.sdlc/`.** `mutationCheckTargets`
+ *    (`logic.ts`) исключает служебный каталог витка безусловно и не-код (`isCode`) —
+ *    откат `package.json`/конфига может сам сломать прогон, а не только скрыть правку;
+ *    фильтр по `ctx.baseline` — та же чужая грязь дерева, что уже исключает scope-гейт,
+ *    её мутационная проверка тоже не касается.
+ *
+ * Тесты гоняются ТЕМ ЖЕ `testGate`, что и обычный гейт «Тесты»: своего детектора
+ * раннера здесь нет и не должно быть — второй способ узнать «чем тестируется проект»
+ * разошёлся бы с первым на первом же нестандартном раннере.
+ *
+ * Полнота сигнала ограничена сознательно: гоняется вся команда «Тесты», а не только
+ * изменённые тестовые файлы — у гейта нет универсального способа сузить прогон для
+ * произвольного раннера. Зелёный прогон БЕЗ продуктовых правок — находка; красный —
+ * тест ловит правку, даже если красноту дал не он один.
+ */
+
+const MUTATION_BACKUP_NAME = '.mutation-check-backup.json';
+
+/**
+ * Слаг обязателен (`mutationCheckGate` отказывает раньше, если его нет, — см. вызывающего):
+ * без per-слаговой ветки два витка над одним `projectRoot` делили бы один файл резерва
+ * (ревью code-review-all, 2026-09-19). Необязательный параметр с тихим фолбэком на общий
+ * путь маскировал именно этот класс бага — сигнатура здесь честно требует то, что реально нужно.
+ */
+function mutationBackupPath(projectRoot: string, slug: string): string {
+  return join(projectRoot, '.sdlc', slug, MUTATION_BACKUP_NAME);
+}
+
+interface MutationBackupEntry {
+  path: string;
+  /** Содержимое файла НА МОМЕНТ проверки — то, что обязано вернуться на место. */
+  current: string;
+  existedAtHead: boolean;
+  /**
+   * Содержимое HEAD-версии (`null` — файла в HEAD не было), в которое `applyBaseline`
+   * перевёл файл ПОСЛЕ снятия этого резерва — ожидаемое состояние диска, если с момента
+   * краша файл никто не трогал. Без него восстановление устаревшего резерва было слепым:
+   * оно безусловно перезаписывало диск снимком `current`, даже если легитимная правка
+   * (человек или следующая попытка chunk'а) успела лечь поверх HEAD-состояния между
+   * крашем прошлого прогона и повтором (ревью code-review-all, 2026-09-19). Старый
+   * (до этой правки) файл резерва на диске этого поля не несёт — читается как «неизвестно»
+   * и восстановление такой записи пропускается, а не угадывается.
+   */
+  baselineContent: string | null;
+}
+
+interface MutationBackup {
+  entries: MutationBackupEntry[];
+}
+
+function readMutationBackup(path: string): MutationBackup | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<MutationBackup>;
+    return Array.isArray(parsed.entries) ? (parsed as MutationBackup) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeMutationBackup(path: string, backup: MutationBackup): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(backup, null, 2), 'utf8');
+}
+
+function clearMutationBackup(path: string): void {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    // Максимум возможного: осиротевший файл резерва безопасен — следующий вызов увидит его
+    // как «прошлая проверка не дописана» и восстановит уже восстановленное (идемпотентно).
+  }
+}
+
+interface PreparedRevert {
+  entries: MutationBackupEntry[];
+}
+
+/**
+ * Читает текущее содержимое и HEAD-версию каждого продуктового файла. Дерево не трогает.
+ * HEAD-версия хранится один раз, в `entries[i].baselineContent` — отдельная `Map` по тем
+ * же путям, заполняемая в этом же цикле, была лишним вторым представлением одного факта
+ * (ревью code-review-all, 2026-09-19): единственный потребитель, `applyBaseline`, и так
+ * уже итерируется по `entries`.
+ */
+async function prepareRevert(
+  projectRoot: string,
+  productFiles: readonly string[],
+  signal?: AbortSignal,
+): Promise<{ prepared: PreparedRevert; problem: string | null }> {
+  const entries: MutationBackupEntry[] = [];
+  for (const rel of productFiles) {
+    let current: string;
+    try {
+      current = readFileSync(join(projectRoot, rel), 'utf8');
+    } catch (e) {
+      return { prepared: { entries }, problem: `не удалось прочитать ${rel}: ${(e as Error).message}` };
+    }
+    const exists = await git(['cat-file', '-e', `HEAD:${rel}`], projectRoot, signal);
+    if (exists.code !== 0) {
+      entries.push({ path: rel, current, existedAtHead: false, baselineContent: null });
+      continue;
+    }
+    const show = await git(['show', `HEAD:${rel}`], projectRoot, signal);
+    if (show.code !== 0) {
+      return { prepared: { entries }, problem: `не удалось прочитать HEAD-версию ${rel}` };
+    }
+    entries.push({ path: rel, current, existedAtHead: true, baselineContent: show.stdout });
+  }
+  return { prepared: { entries }, problem: null };
+}
+
+/** Пишет продуктовые файлы в состояние HEAD (или убирает те, кого в HEAD не было). */
+function applyBaseline(projectRoot: string, prepared: PreparedRevert): string | null {
+  for (const e of prepared.entries) {
+    const abs = join(projectRoot, e.path);
+    try {
+      if (e.baselineContent === null) rmSync(abs, { force: true });
+      else writeFileSync(abs, e.baselineContent, 'utf8');
+    } catch (err) {
+      return `не удалось подготовить ${e.path}: ${(err as Error).message}`;
+    }
+  }
+  return null;
+}
+
+/** Возвращает файлы к содержимому на момент `prepareRevert`. Пробует ВСЕ, даже если один упал. */
+function restoreEntries(projectRoot: string, entries: readonly MutationBackupEntry[]): string | null {
+  let problem: string | null = null;
+  for (const e of entries) {
+    const abs = join(projectRoot, e.path);
+    try {
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, e.current, 'utf8');
+    } catch (err) {
+      problem = `не удалось восстановить ${e.path}: ${(err as Error).message}`;
+    }
+  }
+  return problem;
+}
+
+/**
+ * Восстановление УСТАРЕВШЕГО резерва (гейт упал/был убит между `writeMutationBackup` и
+ * `clearMutationBackup` прошлого прогона) — в отличие от `restoreEntries` внутри ОДНОГО
+ * прогона, здесь между снятием резерва и этим вызовом могло пройти произвольное время
+ * (перезапуск сервиса, новая попытка chunk'а, ручная правка человеком). Крах мог случиться
+ * в двух безопасных для восстановления точках — файл на диске ещё в HEAD-состоянии
+ * (`applyBaseline` уже отработал, `restoreEntries` ещё нет) либо уже в `current`
+ * (`restoreEntries` уже отработал, крах случился прямо перед `clearMutationBackup`,
+ * повторная запись того же значения — no-op). ЛЮБОЕ третье содержимое — чужая, случившаяся
+ * уже ПОСЛЕ краша правка (человек или следующая попытка chunk'а), и её нельзя тихо затирать
+ * снимком `current` (ревью code-review-all, 2026-09-19: раньше восстановление было
+ * безусловным). Запись без `baselineContent` — резерв старого формата (до этой правки),
+ * сверить не с чем, и она тоже пропускается, а не угадывается.
+ */
+function restoreStaleEntries(
+  projectRoot: string,
+  entries: readonly MutationBackupEntry[],
+): { restored: number; skipped: string[]; problem: string | null } {
+  let problem: string | null = null;
+  const skipped: string[] = [];
+  let restored = 0;
+  for (const e of entries) {
+    const abs = join(projectRoot, e.path);
+    const expectedBaseline = typeof e.baselineContent === 'undefined' ? undefined : e.existedAtHead ? e.baselineContent : null;
+    if (expectedBaseline === undefined) {
+      skipped.push(e.path);
+      continue;
+    }
+    const actual = readIfExists(abs);
+    if (actual !== expectedBaseline && actual !== e.current) {
+      skipped.push(e.path);
+      continue;
+    }
+    try {
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, e.current, 'utf8');
+      restored++;
+    } catch (err) {
+      problem = `не удалось восстановить ${e.path}: ${(err as Error).message}`;
+    }
+  }
+  return { restored, skipped, problem };
+}
+
+const mutationCheckGate: BuiltinGate = async (ctx) => {
+  // Явный отказ вместо тихого фолбэка на общий путь резерва (ревью code-review-all,
+  // 2026-09-19): штатный вызывающий (verify/chunk) ВСЕГДА передаёт slug — его отсутствие
+  // здесь означает забытую проводку где-то выше по цепочке, а не легитимный сценарий «слага
+  // в принципе нет», и молчаливая деградация к небезопасному общему пути маскировала бы
+  // именно тот класс бага, который эта проверка призвана ловить.
+  if (ctx.slug === undefined) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: 'н/п — слаг витка не передан гейту, резерв не может быть изолирован по слагу',
+      envBlocked: true,
+    };
+  }
+  if (!(await isRepo(ctx.projectRoot)) || !(await hasCommits(ctx.projectRoot))) {
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine: 'н/п — не git-репозиторий или нет коммитов, снимать продуктовые правки не с чего',
+    };
+  }
+
+  const backupPath = mutationBackupPath(ctx.projectRoot, ctx.slug);
+  const stale = readMutationBackup(backupPath);
+  if (stale !== null) {
+    const { restored, skipped, problem } = restoreStaleEntries(ctx.projectRoot, stale.entries);
+    clearMutationBackup(backupPath);
+    const skippedNote =
+      skipped.length === 0
+        ? ''
+        : `; НЕ восстановлены (изменились с момента прерванной проверки — вероятная легитимная ` +
+          `правка поверх, резерв не тронул их): ${skipped.join(', ')}. Проверь дерево вручную`;
+    return {
+      status: '⏭',
+      command: null,
+      exitCode: null,
+      lastLine:
+        `восстановлены файлы (${restored}) после прерванной проверки прошлого ` +
+        `прогона — эта проверка пропущена, следующая попробует снова` +
+        skippedNote +
+        (problem === null ? '' : `; ${problem}`),
+      envBlocked: true,
+    };
+  }
+
+  let changed = await changedPaths(ctx.projectRoot, ctx.signal);
+  // Чужая грязь дерева на момент старта chunk'а — та же граница, что у scope-гейта:
+  // файл, не тронутый ни одной попыткой, не приписывается им и не откатывается.
+  if (ctx.baseline !== null) {
+    const before = ctx.baseline;
+    changed = changed.filter((f) => {
+      const key = f.split('\\').join('/');
+      const was = before.get(key);
+      return was === undefined || hashOf(join(ctx.projectRoot, f)) !== was;
+    });
+  }
+
+  const { testFiles, productFiles } = mutationCheckTargets(changed);
+  if (testFiles.length === 0) {
+    return { status: '⏭', command: null, exitCode: null, lastLine: 'н/п — новых/изменённых тестовых файлов нет' };
+  }
+  if (productFiles.length === 0) {
+    return { status: '⏭', command: null, exitCode: null, lastLine: 'н/п — продуктовых правок нет, снимать нечего' };
+  }
+
+  const { prepared, problem: prepProblem } = await prepareRevert(ctx.projectRoot, productFiles, ctx.signal);
+  if (prepProblem !== null) {
+    return { status: '⏭', command: null, exitCode: null, lastLine: `дерево не подготовлено: ${prepProblem}`, envBlocked: true };
+  }
+
+  writeMutationBackup(backupPath, { entries: prepared.entries });
+  const applyProblem = applyBaseline(ctx.projectRoot, prepared);
+  if (applyProblem !== null) {
+    restoreEntries(ctx.projectRoot, prepared.entries);
+    clearMutationBackup(backupPath);
+    return { status: '⏭', command: null, exitCode: null, lastLine: `дерево не подготовлено: ${applyProblem}`, envBlocked: true };
+  }
+
+  let outcome: BuiltinOutcome;
+  try {
+    outcome = await testGate(ctx);
+  } finally {
+    restoreEntries(ctx.projectRoot, prepared.entries);
+    clearMutationBackup(backupPath);
+  }
+
+  if (outcome.status === '⏭') {
+    return {
+      status: '⏭',
+      command: outcome.command,
+      exitCode: outcome.exitCode,
+      lastLine: `тесты не запустились без продуктовых правок — проверка не даёт сигнала: ${outcome.lastLine}`,
+      ...(outcome.envBlocked === true ? { envBlocked: true } : {}),
+    };
+  }
+  if (outcome.status === '✅') {
+    return {
+      status: '❌',
+      command: outcome.command,
+      exitCode: outcome.exitCode,
+      lastLine:
+        `новые/изменённые тесты (${testFiles.join(', ')}) остаются зелёными и БЕЗ продуктовых ` +
+        `правок (${productFiles.join(', ')}) — тест не отличает «до» от «после»`,
+      ...(outcome.outputTail === undefined ? {} : { outputTail: outcome.outputTail }),
+    };
+  }
+  return {
+    status: '✅',
+    command: outcome.command,
+    exitCode: outcome.exitCode,
+    lastLine: `без продуктовых правок тесты падают — тест ловит правку (${outcome.lastLine})`,
+  };
 };
 
 function hashOf(path: string): string | null {
@@ -1582,8 +1916,41 @@ const humanAnswersGate: BuiltinGate = async (ctx) => {
 // Предусловия публикации (этап 7)
 // ---------------------------------------------------------------------------
 
+/**
+ * Факты предусловий публикации — вынесены из `publishGate`, чтобы этап 7
+ * (`stages/handoff.ts::publishPreconditionFacts`) мог разобрать их на структурированные
+ * подполя шапки («ветка: та / не та», «есть что коммитить», «мусор в коммите»), а не
+ * перепарсивать прозу `lastLine`. `null` — не git-репозиторий, проверять нечего.
+ */
+export async function publishPreconditionCheck(
+  projectRoot: string,
+): Promise<{ branch: string; problems: string[] } | null> {
+  if (!(await isRepo(projectRoot))) return null;
+  const branch = await currentBranch(projectRoot);
+
+  let commitsAhead: number | null = null;
+  for (const base of ['origin/main', 'origin/master']) {
+    const exists = await git(['rev-parse', '--verify', '--quiet', base], projectRoot);
+    if (exists.code !== 0) continue;
+    const r = await git(['rev-list', '--count', `${base}..HEAD`], projectRoot);
+    commitsAhead = Number.parseInt(r.stdout.trim(), 10);
+    if (Number.isNaN(commitsAhead)) commitsAhead = null;
+    break;
+  }
+
+  const committed = (await hasCommits(projectRoot))
+    ? (await git(['show', '--pretty=format:', '--name-only', 'HEAD'], projectRoot)).stdout
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l !== '')
+    : [];
+
+  return { branch, problems: publishProblems({ branch, commitsAhead, committedFiles: committed }) };
+}
+
 const publishGate: BuiltinGate = async (ctx) => {
-  if (!(await isRepo(ctx.projectRoot))) {
+  const facts = await publishPreconditionCheck(ctx.projectRoot);
+  if (facts === null) {
     return {
       status: '⏭',
       command: null,
@@ -1591,38 +1958,18 @@ const publishGate: BuiltinGate = async (ctx) => {
       lastLine: `${ctx.projectRoot} не git-репозиторий — предусловия публикации НЕ проверялись`,
     };
   }
-  const branch = await currentBranch(ctx.projectRoot);
-
-  let commitsAhead: number | null = null;
-  for (const base of ['origin/main', 'origin/master']) {
-    const exists = await git(['rev-parse', '--verify', '--quiet', base], ctx.projectRoot);
-    if (exists.code !== 0) continue;
-    const r = await git(['rev-list', '--count', `${base}..HEAD`], ctx.projectRoot);
-    commitsAhead = Number.parseInt(r.stdout.trim(), 10);
-    if (Number.isNaN(commitsAhead)) commitsAhead = null;
-    break;
-  }
-
-  const committed = (await hasCommits(ctx.projectRoot))
-    ? (await git(['show', '--pretty=format:', '--name-only', 'HEAD'], ctx.projectRoot)).stdout
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter((l) => l !== '')
-    : [];
-
-  const problems = publishProblems({ branch, commitsAhead, committedFiles: committed });
-  return problems.length === 0
+  return facts.problems.length === 0
     ? {
         status: '✅',
         command: null,
         exitCode: 0,
-        lastLine: `ветка «${branch}», коммит чистый, есть что публиковать`,
+        lastLine: `ветка «${facts.branch}», коммит чистый, есть что публиковать`,
       }
     : {
         status: '❌',
         command: null,
         exitCode: 1,
-        lastLine: `публикация заблокирована:\n${problems.join('\n')}`,
+        lastLine: `публикация заблокирована:\n${facts.problems.join('\n')}`,
       };
 };
 
@@ -1645,6 +1992,7 @@ export const BUILTIN: ReadonlyMap<string, BuiltinGate> = new Map<string, Builtin
   ['ответы человека в коде', humanAnswersGate],
   ['дубли хелперов', duplicatesGate],
   ['проверка предусловий публикации', publishGate],
+  ['тест ловит правку', mutationCheckGate],
 ]);
 
 export function builtinFor(gateName: string): BuiltinGate | null {

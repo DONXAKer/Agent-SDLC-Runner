@@ -15,7 +15,8 @@ import type { GatesFile } from '../../gates/gatesFile.ts';
 import type { TraceLabel } from '../../provider/rawLog.ts';
 import type { ExploreState } from './explore.ts';
 import type { VerifyState } from './verify/state.ts';
-import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, PreparedPrompt, RunEvent, RunMetrics, StageId, ToolName, Usage } from '@sdlc-runner/shared';
+import type { CommitOutcome } from '../commitByRuntime.ts';
+import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, PreparedPrompt, Question, RunEvent, RunMetrics, StageId, ToolName, Usage } from '@sdlc-runner/shared';
 import type { ChunkState } from './chunk/index.ts';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
@@ -39,6 +40,16 @@ export interface StageHost {
   writeAutofilled(path: string, text: string, seeded: SeededArtifact[]): void;
   /** HEAD проекта: sha либо причина его отсутствия (`Run.head`). */
   head(): Promise<{ sha: string | null; why: string }>;
+  /**
+   * Итог последнего вызова `commitByRuntime` за ЭТОТ вход в этап `handoff`; `null` — вызов
+   * этим входом не делался (обрыв витка либо ещё не дошли до `afterStart`). `handoffFacts`
+   * читает поле «Коммит» отсюда, а не через `head()` заново: до этой правки поле считалось
+   * текущим HEAD независимо от факта коммита и показывало правдоподобный, но чужой sha при
+   * обрыве витка или неудачном коммите (ревью code-review-all, 2026-09-19).
+   */
+  commitOutcome(): CommitOutcome | null;
+  /** Пишет итог `afterStart` для последующего чтения `commitOutcome()` в том же входе. */
+  recordCommitOutcome(outcome: CommitOutcome | null): void;
   /** Разобранный набор гейтов проекта; `null` — файла нет (`Run.gatesFile`). */
   gatesFile(): GatesFile | null;
   /** Пункты приёмочного листа задачи по id (`Run.intentClaimLines`). */
@@ -51,9 +62,18 @@ export interface StageHost {
    * Идентификатор синтетического вызова рантайма (`salvage-N`, `records-N`, `axis-fill-N`).
    * Счётчик один на виток: разнесённые по модулям счётчики сдвинули бы id событий шины.
    */
-  syntheticRequestId(prefix: 'salvage' | 'records' | 'axis-fill'): string;
+  syntheticRequestId(prefix: 'salvage' | 'records' | 'axis-fill' | 'commit'): string;
   /** Запись рантайма через гейт одобрения — тем же путём, что любая запись исполнителя. */
   requestApproval(req: Parameters<ApprovalGate['request']>[0]): Promise<Decision>;
+  /**
+   * Вопрос человеку ОТ ЛИЦА РАНТАЙМА, не модели (S1: «Один механизм полей человека на
+   * всех этапах») — тем же `AskGate`, что и `AskHuman` модели (`Run.ts`), но вызванный
+   * стадией напрямую, минуя ход модели. Ответ — `{questionId: [текст]}`; пустой массив
+   * или отсутствие ключа — вопрос пропущен оператором («Пропустить» в интерфейсе), а не
+   * согласие. `options: []` в `Question` законны — тогда отвечают только своим текстом
+   * (интерфейс всегда даёт поле свободного ответа).
+   */
+  askHuman(stage: StageId, questions: readonly Question[]): Promise<Record<string, string[]>>;
   /** Сигнал отмены текущего этапа; без этапа — свежий, никогда не отменяемый. */
   signal(): AbortSignal;
   limits(): LoadedConfig['runner']['limits'];

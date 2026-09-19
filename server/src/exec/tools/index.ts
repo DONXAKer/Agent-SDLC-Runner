@@ -19,6 +19,7 @@ import { dirname, join, relative, resolve as resolvePath } from 'node:path';
 import type { ArtifactKey, NormalizedCall } from '@sdlc-runner/shared';
 
 import { applyFill } from '../../artifacts/applyFill.ts';
+import { applyExactReplace } from '../../artifacts/artifact.ts';
 import { findLooseRange } from '../editMatch.ts';
 import { resolveTsSpecifier } from '../../fs/tsSpecifier.ts';
 import { resolveUserPath, toPosix } from '../../policy/paths.ts';
@@ -187,12 +188,6 @@ function verifyTsImports(content: string, fileAbs: string, projectRoot: string):
   return problems.length === 0 ? null : problems.join('; ');
 }
 
-/** Замена первого вхождения ровно тем текстом, что передан: без раскрытия `$`-групп. */
-function replaceFirstLiteral(text: string, from: string, to: string): string {
-  const i = text.indexOf(from);
-  return i < 0 ? text : text.slice(0, i) + to + text.slice(i + from.length);
-}
-
 /**
  * Ошибка файловой системы — это результат инструмента, а не крах этапа.
  *
@@ -335,9 +330,7 @@ function editTool(call: NormalizedCall & { kind: 'edit' }, ctx: ToolContext): To
     // `$&`, `$1`, `` $` `` раскрываются как подстановки. Правка new_string="'$1.99'"
     // клала на диск "'.99'", отчитываясь при этом «применено». Один и тот же old/new
     // давал разный результат в зависимости от replace_all — здесь ветки уравнены.
-    text = e.replaceAll
-      ? text.split(e.oldStr).join(e.newStr)
-      : replaceFirstLiteral(text, e.oldStr, e.newStr);
+    text = applyExactReplace(text, e.oldStr, e.newStr, e.replaceAll);
     applied.push(`${i + 1}: ${count} вхожд.`);
   }
 

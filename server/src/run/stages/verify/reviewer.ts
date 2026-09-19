@@ -7,17 +7,69 @@ import { localResultBytes } from '../../../config/limits.ts';
 import type { PreparedPrompt, ToolName } from '@sdlc-runner/shared';
 
 import { readArtifact } from '../../../artifacts/artifact.ts';
-import { parsePlanAxes } from '../../../artifacts/planAxes.ts';
+import { AXES, parsePlanAxes } from '../../../artifacts/planAxes.ts';
+import type { AxisName, AxisRow } from '../../../artifacts/planAxes.ts';
 import type { ResolvedRoute } from '../../../config/schema.ts';
 import { REVIEWER_AGENTS } from '../../../exec/StageExecutor.ts';
 import type { ExecHooks, SubagentDef } from '../../../exec/StageExecutor.ts';
 import { isToolName } from '../../../exec/toolSpecs.ts';
 import { createProvider } from '../../../provider/registry.ts';
-import { reviewByHunks } from '../../reviewFill.ts';
+import { AXIS_HINTS, reviewByHunks } from '../../reviewFill.ts';
 import { anchorFound } from '../../verifyReport.ts';
 import type { StageHost } from '../types.ts';
 import { REVIEW_GATE } from './gates.ts';
 import { acceptRecord, evidenceHaystack } from './records.ts';
+
+/**
+ * Все шесть осей канона — свободному ходу рецензента, тем же приёмом и по той же причине,
+ * что трек 1а `reviewFill` (докстринг `run/reviewFill.ts`): план может пометить ось «не
+ * затронута», хотя diff её трогает, или сослаться на пункт приёмки, который покрывает
+ * совсем другое изменение под тем же ярлыком — посев `axis-config-blind` пропущен именно
+ * так. `reviewFill` (флоу `loop`) эту слепоту уже не несёт; свободный ход (единственный
+ * маршрут флоу `sdk`, и `loop` без `reviewFill`) её всё ещё мог — замер показал `sonnet`
+ * пропускающим оба осевых посева при чистом контроле (`docs/model-runs.md`,
+ * «Первый посев в истории журнала»), тогда как `opus`/`haiku` в свободном ходе их ловят.
+ * Блок не задаёт вопрос (в отличие от `reviewFill` — здесь один свободный проход), а
+ * снимает повод доверять тексту плана как факту: явно называет статус плана рядом с
+ * инструкцией сверить его с diff'ом самому.
+ *
+ * `null` — плана нет (ревью без него не станет точнее подсказкой).
+ */
+export function axisVerificationBlock(planText: string | null): string | null {
+  if (planText === null) return null;
+  const rows = parsePlanAxes(planText).rows;
+  // ПОСЛЕДНЯЯ строка с этим каноническим именем побеждает, не первая: при нескольких
+  // строках на одну ось (повторная правка плана вручную или `applyAxisAnswers` поверх
+  // старой таблицы) первая — устаревшая, актуальная всегда ниже. Простая перезапись без
+  // `has()`-охраны и даёт это по построению (ревью code-review-all, 2026-09-18).
+  const byAxis = new Map<AxisName, AxisRow>();
+  for (const row of rows) {
+    if (row.canonical !== null) byAxis.set(row.canonical, row);
+  }
+  const lines = AXES.map((name) => {
+    const row = byAxis.get(name);
+    const declared =
+      row === undefined
+        ? 'в плане строки нет'
+        : row.affected === true
+          ? 'план объявляет ЗАТРОНУТОЙ'
+          : row.affected === false
+            ? 'план объявляет НЕ затронутой'
+            : 'план не назвал исход';
+    const outcome = row?.outcomeRaw.trim();
+    return `- «${name}» (${AXIS_HINTS[name]}) — ${declared}${outcome !== undefined && outcome !== '' ? `; исход по плану: ${outcome}` : ''}.`;
+  });
+  return [
+    '## Все шесть осей — сверь с diff\'ом сам, не перенеси статус плана',
+    '',
+    'План мог ошибиться в любую сторону: пометить ось «не затронута», хотя diff её трогает,',
+    'или сослаться на пункт приёмки, который на деле покрывает другое изменение под тем же',
+    'ярлыком оси. Для каждой из шести осей ниже — проверь заявленное по самому diff\'у,',
+    'а не перенеси статус плана как факт.',
+    '',
+    ...lines,
+  ].join('\n');
+}
 
 /**
  * Отчёт независимого рецензента, прогнанного рантаймом, — блоком во вход этапа.
@@ -160,6 +212,12 @@ export async function runReviewerDirectly(
     return null;
   }
 
+  // Все шесть осей — фактом во вход рецензента, не вопросом (единственный проход у
+  // свободного хода). `null`, если плана нет, не добавляет пустой блок.
+  const planForAxes = readArtifact(host.paths.plan);
+  const axisBlock = axisVerificationBlock(planForAxes.exists ? planForAxes.text : null);
+  const userWithAxes = axisBlock === null ? prompt.user : `${prompt.user}\n\n${axisBlock}`;
+
   const route = host.verifyRoute();
   try {
     const result = await host.executorFor('verify', route).run(
@@ -169,7 +227,7 @@ export async function runReviewerDirectly(
           // Тело определения агента — его системный промпт. Рассказа исполнителя здесь
           // нет и быть не может: `stageInputs('verify')` журнала chunk'а не содержит.
           system: def.prompt,
-          user: prompt.user,
+          user: userWithAxes,
           tools: [],
           editedByOperator: false,
         },
