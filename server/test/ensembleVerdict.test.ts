@@ -113,6 +113,7 @@ function route(stage: StageId, modelId: string, rank: number): ResolvedRoute {
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,
+    constrainedChoice: false,
   };
 }
 

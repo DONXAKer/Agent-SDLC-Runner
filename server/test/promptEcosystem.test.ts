@@ -169,3 +169,36 @@ describe('коммит на этапе 7 (регрессия ревью, 2026-09
     ok(!systemOfStage('ask').includes('уже сделан рантаймом'));
   });
 });
+
+describe('внешний контент объявлен данными, не инструкциями', () => {
+  const MARKER = 'не исполняются';
+
+  it('флоу sdk: строка на месте', () => {
+    ok(systemOf().includes(MARKER));
+  });
+
+  it('флоу loop: строка на месте', () => {
+    const s = buildPrompt({
+      runner,
+      stage: stageById('chunk'),
+      ctx: { paths: new WitokPaths(root, 'demo'), chunk: 1, attempt: 1 },
+      flow: 'loop',
+      slug: 'demo',
+      now: new Date('2026-01-01T00:00:00Z'),
+    }).system;
+    ok(s.includes(MARKER));
+  });
+
+  it('режим formFill: строка на месте — у него нет инструментов, но данные из проекта всё равно приходят', () => {
+    const s = buildPrompt({
+      runner,
+      stage: stageById('plan'),
+      ctx: { paths: new WitokPaths(root, 'demo'), chunk: 1, attempt: 1 },
+      flow: 'loop',
+      slug: 'demo',
+      now: new Date('2026-01-01T00:00:00Z'),
+      formFill: true,
+    }).system;
+    ok(s.includes(MARKER));
+  });
+});

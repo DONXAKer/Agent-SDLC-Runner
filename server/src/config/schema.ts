@@ -298,6 +298,21 @@ export interface ModelDef {
    * остаётся полем человека (humanGate). Только flow `loop`. Умолчание — выключено.
    */
   exploreFill?: boolean;
+  /**
+   * Форма закрытого ответа гарантируется декодером сервера (`response_format` с
+   * `json_schema`), а не только пост-разбором на нашей стороне (`sheet.ts::matchChoice`,
+   * `normalize.ts::claimStatusOf`). Действует в двух местах, где вопрос УЖЕ закрытый: карточка
+   * `choice`-поля (`FormFillExecutor`) и запись `claimFill` — обеим строится JSON Schema с
+   * `enum` по тем же ключам/статусам, что принимает разбор, и ответ приходит валидным по
+   * построению вместо переспроса при промахе (`fieldRejectionMemo`).
+   *
+   * Только flow `loop` (у `sdk` форму гарантирует Agent SDK иначе). Требует сервера,
+   * понимающего OpenAI-совместимый `response_format.json_schema` — Ollama ждёт свой `format`,
+   * и на ней ручка сегодня вернёт отказ сервера; это и есть результат замера для такой
+   * связки, не повод чинить транспорт заранее. Умолчание — выключено: ручка заведена под
+   * замер серией (журнал требует «одна ручка на прогон»), а не включена всем.
+   */
+  constrainedChoice?: boolean;
 }
 
 export interface ModelsConfig {
@@ -448,6 +463,8 @@ export interface ResolvedRoute {
   exploreIndex: boolean;
   /** Этап 2 конвейером рантайма — см. `ModelDef.exploreFill`. */
   exploreFill: boolean;
+  /** Форма закрытого ответа гарантируется декодером — см. `ModelDef.constrainedChoice`. */
+  constrainedChoice: boolean;
 }
 
 export interface ResolvedProfile {

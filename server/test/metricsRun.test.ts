@@ -65,6 +65,7 @@ function route(stage: StageId, over: Partial<ResolvedRoute> = {}): ResolvedRoute
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,
+    constrainedChoice: false,
     ...over,
   };
 }
@@ -263,10 +264,13 @@ describe('восстановление метрик из metrics.json', () => {
   it('пересозданный Run подхватывает накопители, как chunk/attempt из журналов', () => {
     const root = tempRoot();
     mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
-    // `Omit<'chunkEvidence'>`, не `RunMetrics`: это байт-в-байт СТАРЫЙ снапшот на диске,
-    // записанный до появления поля — сам тест и проверяет, что рестор не ломается на его
-    // отсутствии (тот же принцип, что уже проверен для gates/human/artifactGaps).
-    const snapshot: Omit<RunMetrics, 'chunkEvidence'> = {
+    // `Omit<'chunkEvidence'>` и без `turns`/`offPathTurns` в этапах — это байт-в-байт
+    // СТАРЫЙ снапшот на диске, записанный до появления полей: сам тест и проверяет, что
+    // рестор не ломается на их отсутствии (тот же принцип, что уже проверен для
+    // gates/human/artifactGaps).
+    const snapshot: Omit<RunMetrics, 'chunkEvidence' | 'stages'> & {
+      stages: Omit<RunMetrics['stages'][number], 'turns' | 'offPathTurns'>[];
+    } = {
       stages: [{ stage: 'chunk', runs: 2, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 }, durationMs: 3000 }],
       verdicts: { total: 2, red: 1 },
       redByCause: [{ kind: 'gate', count: 1 }],
@@ -284,6 +288,9 @@ describe('восстановление метрик из metrics.json', () => {
 
     strictEqual(run.metrics.verdicts.total, 2);
     strictEqual(run.metrics.stages.find((s) => s.stage === 'chunk')?.runs, 2);
+    // Снапшот без `turns` — старый формат: восстанавливается как 0, не как исключение.
+    strictEqual(run.metrics.stages.find((s) => s.stage === 'chunk')?.turns, 0);
+    strictEqual(run.metrics.stages.find((s) => s.stage === 'chunk')?.offPathTurns, 0);
     strictEqual(run.metrics.gates[0]?.runs, 3);
     strictEqual(run.metrics.human[0]?.approvals, 3);
     deepStrictEqual(run.metrics.artifactGaps, [{ artifact: 'plan.md', placeholders: 1 }]);
@@ -389,6 +396,36 @@ describe('восстановление метрик из metrics.json', () => {
     const run = makeRun(root);
     strictEqual(run.totalUsage.costUsd, 4);
     strictEqual(run.totalUsage.inputTokens, 10);
+  });
+
+  it('turns/offPathTurns восстанавливаются и копятся поверх восстановленного', () => {
+    const root = tempRoot();
+    mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
+    const snapshot: RunMetrics = {
+      stages: [
+        {
+          stage: 'verify',
+          runs: 1,
+          usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 },
+          durationMs: 1000,
+          turns: 7,
+          offPathTurns: 2,
+        },
+      ],
+      verdicts: { total: 0, red: 0 },
+      redByCause: [],
+      attemptsByChunk: [],
+      friction: [],
+      gates: [],
+      human: [],
+      artifactGaps: [],
+      chunkEvidence: [],
+    };
+    writeFileSync(join(root, '.sdlc', 'demo', 'metrics.json'), JSON.stringify(snapshot));
+
+    const run = makeRun(root);
+    strictEqual(run.metrics.stages.find((s) => s.stage === 'verify')?.turns, 7);
+    strictEqual(run.metrics.stages.find((s) => s.stage === 'verify')?.offPathTurns, 2);
   });
 
   it('битый снапшот не ломает старт витка', () => {
@@ -504,6 +541,10 @@ describe('сквозной: runStage пишет metrics.json и metrics.md', () 
       const snapshot = JSON.parse(readFileSync(jsonPath, 'utf8')) as RunMetrics;
       strictEqual(snapshot.stages[0]?.stage, 'intent');
       strictEqual(snapshot.stages[0]?.runs, 1);
+      // Заглушка каждый раз отвечает тем же текстом без вызова инструмента — антицикл
+      // `LoopExecutor` останавливает этап на повторе, но каждый запрос к серверу — свой
+      // ход, посчитанный `hooks.onUsage`: несколько ходов за один прогон этапа.
+      ok((snapshot.stages[0]?.turns ?? 0) > 1, 'несколько ходов за прогон, гасит антицикл');
       // Форма разложена с ‹…› и не заполнена — артефакт обязан быть в долге.
       deepStrictEqual(snapshot.artifactGaps, [{ artifact: 'intent.md', placeholders: 1 }]);
 

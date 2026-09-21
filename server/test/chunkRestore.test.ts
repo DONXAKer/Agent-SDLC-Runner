@@ -49,6 +49,7 @@ function route(stage: StageId, modelId: string): ResolvedRoute {
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,
+    constrainedChoice: false,
   };
 }
 

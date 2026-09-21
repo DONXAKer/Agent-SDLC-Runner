@@ -120,6 +120,7 @@ export async function topUpClaims(host: StageHost, route: ResolvedRoute, system:
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill')),
     model: route.model,
     params: route.params,
+    constrainedChoice: route.constrainedChoice,
     system,
     claims: asks,
     diff: readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt())).text,

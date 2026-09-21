@@ -25,14 +25,21 @@ const duration = formatDuration;
  */
 export function postmortemBlock(m: RunMetrics, currency = 'USD'): string | null {
   const cost = (u: Usage): string => formatCost(u, 'без стоимости (локальный маршрут)', currency);
+  // «Вход/ход» — прокси цены переотправки состояния: у флоу `loop` каждый ход тащит всю
+  // историю заново, и это число отделяет «дорогой ход» от «много дешёвых ходов». `turns`
+  // отсутствует у снапшотов старого формата — там оно 0, и делить не на что.
+  const perTurn = (s: RunMetrics['stages'][number]): string =>
+    s.turns === 0 ? 'н/д' : String(Math.round(s.usage.inputTokens / s.turns));
   if (m.stages.length === 0) return null;
 
   const attempts = m.attemptsByChunk.map((a) => `chunk ${a.chunk}: ${a.attempts}`).join(', ');
   const stageRows = m.stages.map(
     (s) =>
-      `| ${s.stage} | ${s.runs} | ${duration(s.durationMs)} | ${cost(s.usage)} | ` +
-      `↑${s.usage.inputTokens} ↓${s.usage.outputTokens} |`,
+      `| ${s.stage} | ${s.runs} | ${s.turns} | ${s.offPathTurns} | ${duration(s.durationMs)} | ` +
+      `↑${s.usage.inputTokens} ↓${s.usage.outputTokens} | ${s.usage.cacheReadTokens} | ` +
+      `${perTurn(s)} | ${cost(s.usage)} |`,
   );
+  const hasOldSnapshot = m.stages.some((s) => s.turns === 0 && s.usage.inputTokens > 0);
 
   const lines = [
     '## Что съело итерации (посчитано рантаймом)',
@@ -76,12 +83,20 @@ export function postmortemBlock(m: RunMetrics, currency = 'USD'): string | null 
 
   lines.push(
     '',
-    '| Этап | Прогонов | Время | Стоимость | Токены |',
-    '|---|---|---|---|---|',
+    '| Этап | Прогонов | Ходов | из них вне пути | Время | Токены | Кэш-чтение | Вход/ход | Стоимость |',
+    '|---|---|---|---|---|---|---|---|---|',
     ...stageRows,
     '',
     'Подробная построчная история попыток — в `iterations.md` витка. Он тоже написан',
     'рантаймом: колонка «Заметка» там пустая, пока её не заполнит человек.',
+    '',
+    '«Ходов» — запросов к модели, что рантайм видел сам; во флоу `sdk` ход = целый прогон',
+    '(SDK отдаёт расход одним итогом, не по репликам внутри него). «Вне пути» — доборы',
+    '(`claimFill`), рецензент и ансамбль, посчитанные в тот же этап. «Вход/ход» — прокси',
+    'цены переотправки состояния за ход; `н/д` — в этапе не было ни одного хода.',
+    ...(hasOldSnapshot
+      ? ['', '«Ходов» 0 при ненулевых токенах — метрики записаны до появления этого счётчика.']
+      : []),
   );
 
   return lines.join('\n');

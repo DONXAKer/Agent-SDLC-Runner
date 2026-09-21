@@ -7,7 +7,7 @@
  * за стражем завершения, а не за счётчиком полей.
  */
 
-import { ok, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1046,5 +1046,97 @@ describe('режим compact: поля из схемы, ответ рисует 
     const text = readFileSync(artifact, 'utf8');
     ok(text.includes('src/real.ts'), text);
     ok(!text.includes('does-not-exist'), 'выдуманный путь не должен остаться в артефакте');
+  });
+});
+
+describe('constrainedChoice: форма choice-карточки гарантируется декодером', () => {
+  const execConstrained = (provider: ChatProvider): FormFillExecutor =>
+    new FormFillExecutor({
+      provider,
+      maxResultBytes: 10_000,
+      readRangeRequiredAboveBytes: 10_000,
+      bashTimeoutMs: 1000,
+      compact: true,
+      constrainedChoice: true,
+      stage: 'intent',
+    });
+
+  it('choice-поле без free-варианта («Контур») уходит с response_format, enum — ключи опций', async () => {
+    const { root, artifact } = setupCompact();
+    const seenByField: Record<string, Record<string, unknown> | null | undefined> = {};
+    const provider: ChatProvider = {
+      name: 'spy',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        const idMatch = /- id: `([^`]+)`/.exec(user);
+        if (idMatch !== null) seenByField[idMatch[1]!] = req.params;
+        const text =
+          user.includes('`ветка витка`') ? 'sdlc/oversize' : user.includes('`контур`') ? 'мелкий' : user.includes('`приемочный лист`') ? '' : '';
+        return {
+          text,
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execConstrained(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    const choiceParams = seenByField['контур'];
+    ok(choiceParams !== undefined, 'карточка «контур» должна была спроситься');
+    const rf = choiceParams?.['response_format'] as { json_schema: { schema: { enum: string[] } } } | undefined;
+    ok(rf !== undefined, 'choice-поле без free-варианта обязано нести response_format');
+    deepStrictEqual([...rf!.json_schema.schema.enum].sort(), ['мелкий', 'полный']);
+
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('мелкий') && !text.includes('полный'), 'ответ по enum заполняет бланк как обычно');
+  });
+
+  it('scalar-поле («Ветка витка») уходит БЕЗ response_format', async () => {
+    const { root, artifact } = setupCompact();
+    const seenByField: Record<string, Record<string, unknown> | null | undefined> = {};
+    const provider: ChatProvider = {
+      name: 'spy',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        const idMatch = /- id: `([^`]+)`/.exec(user);
+        if (idMatch !== null) seenByField[idMatch[1]!] = req.params;
+        return {
+          text: user.includes('`ветка витка`') ? 'sdlc/oversize' : '',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execConstrained(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    const scalarParams = seenByField['ветка витка'];
+    ok(scalarParams !== undefined, 'карточка «ветка витка» должна была спроситься');
+    strictEqual(scalarParams?.['response_format'], undefined);
+  });
+
+  it('без ручки (constrainedChoice не задан) — ни одно поле не несёт response_format', async () => {
+    const { root, artifact } = setupCompact();
+    const seenParams: (Record<string, unknown> | null | undefined)[] = [];
+    const provider: ChatProvider = {
+      name: 'spy',
+      async chat(req: ChatRequest) {
+        seenParams.push(req.params);
+        return {
+          text: '',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execCompact(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    ok(seenParams.length > 0);
+    ok(seenParams.every((p) => p === null || p === undefined || !('response_format' in p)));
   });
 });

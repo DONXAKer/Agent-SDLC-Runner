@@ -32,7 +32,7 @@ function result(stagesOk: boolean) {
     stopped: stagesOk ? 'handoff' : 'blocked',
   };
   const m: RunMetrics = {
-    stages: [{ stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.09, durationMs: 1000 }, durationMs: 1000 }],
+    stages: [{ stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.09, durationMs: 1000 }, durationMs: 1000, turns: 1, offPathTurns: 0 }],
     verdicts: { total: 1, red: stagesOk ? 0 : 1 },
     redByCause: [],
     attemptsByChunk: [],

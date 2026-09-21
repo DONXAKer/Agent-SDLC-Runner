@@ -15,7 +15,14 @@ import { postmortemBlock } from '../src/run/postmortem.ts';
 
 const metrics = (over: Partial<RunMetrics> = {}): RunMetrics => ({
   stages: [
-    { stage: 'chunk', runs: 2, usage: { ...emptyUsage(), inputTokens: 100, outputTokens: 50, costUsd: 0.12 }, durationMs: 65_000 },
+    {
+      stage: 'chunk',
+      runs: 2,
+      usage: { ...emptyUsage(), inputTokens: 300, outputTokens: 50, costUsd: 0.12 },
+      durationMs: 65_000,
+      turns: 3,
+      offPathTurns: 1,
+    },
   ],
   verdicts: { total: 2, red: 1 },
   redByCause: [{ kind: 'gate', count: 1 }],
@@ -52,10 +59,50 @@ describe('пост-виток отчёт', () => {
   it('локальный маршрут не превращается в $0', () => {
     const b = postmortemBlock(
       metrics({
-        stages: [{ stage: 'chunk', runs: 1, usage: { ...emptyUsage(), costUsd: null }, durationMs: 10 }],
+        stages: [
+          { stage: 'chunk', runs: 1, usage: { ...emptyUsage(), costUsd: null }, durationMs: 10, turns: 1, offPathTurns: 0 },
+        ],
       }),
     );
     ok(b?.includes('без стоимости'));
+  });
+
+  it('вход на ход считается делением входа на число ходов', () => {
+    // 300 входных токенов за 3 хода — 100 на ход.
+    const b = postmortemBlock(metrics());
+    ok(b !== null);
+    match(b, /\| chunk \| 2 \| 3 \| 1 \|/);
+    ok(b.includes('100'));
+  });
+
+  it('без единого хода в этапе вход на ход — «н/д», а не деление на ноль', () => {
+    const b = postmortemBlock(
+      metrics({
+        stages: [
+          { stage: 'chunk', runs: 1, usage: { ...emptyUsage(), inputTokens: 50 }, durationMs: 10, turns: 0, offPathTurns: 0 },
+        ],
+      }),
+    );
+    ok(b !== null);
+    match(b, /н\/д/);
+  });
+
+  it('снапшот старого формата (ходов 0 при ненулевых токенах) назван прямо', () => {
+    const b = postmortemBlock(
+      metrics({
+        stages: [
+          { stage: 'chunk', runs: 1, usage: { ...emptyUsage(), inputTokens: 50 }, durationMs: 10, turns: 0, offPathTurns: 0 },
+        ],
+      }),
+    );
+    ok(b !== null);
+    match(b, /метрики записаны до появления этого счётчика/);
+  });
+
+  it('рублёвая валюта не считается как доллар', () => {
+    const b = postmortemBlock(metrics(), 'RUB');
+    ok(b !== null);
+    ok(b.includes('₽'));
   });
 
   it('отсутствие разбивки по классам названо прямо, а не замолчано', () => {

@@ -256,6 +256,7 @@ function makeRun(
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,
+    constrainedChoice: false,
     ...routeOver,
   });
   const routes = Object.fromEntries(STAGE_ORDER.map((s) => [s, route(s)])) as Record<StageId, ResolvedRoute>;

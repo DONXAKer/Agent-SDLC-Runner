@@ -84,7 +84,7 @@ function greenResult() {
 
   const m = metrics({
     stages: [
-      { stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01, durationMs: 1000 }, durationMs: 1000 },
+      { stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01, durationMs: 1000 }, durationMs: 1000, turns: 1, offPathTurns: 0 },
     ],
     friction: [{ stage: 'intent', repeat: 0, badJson: 0, denied: 0, truncated: 0, toolCalls: 5, reminders: 0 }],
   });

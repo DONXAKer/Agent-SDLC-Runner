@@ -122,7 +122,10 @@ export class McpHub {
 
     try {
       const result = await client.callTool(tool, args, opts.signal);
-      return foldContent(result, opts.fold ?? {});
+      // Источник — для подписи «данные, не инструкции» на каждом ответе (`content.ts`):
+      // явный вызывающий `opts.fold.source` (если он его когда-нибудь задаст) не
+      // перекрывается, здесь только умолчание по факту сервера/инструмента этого вызова.
+      return foldContent(result, { ...(opts.fold ?? {}), source: { server, tool } });
     } catch (e) {
       return {
         ok: false,

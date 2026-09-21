@@ -108,6 +108,8 @@ export interface ExploreExecutorOptions {
   edgeExample: readonly string[];
   /** Потолок карточек одного вопроса — окно локальной модели, не вкус. */
   cardBudgetBytes: number;
+  /** Форма `choice`-карточки вложенного дозаполнения — см. `ModelDef.constrainedChoice`. */
+  constrainedChoice?: boolean;
 }
 
 interface Parsed {
@@ -632,6 +634,7 @@ export class ExploreExecutor implements StageExecutor {
       ...(this.o.contextWindow === undefined ? {} : { contextWindow: this.o.contextWindow }),
       ...(this.o.currency === undefined ? {} : { currency: this.o.currency }),
       compact: true,
+      ...(this.o.constrainedChoice === undefined ? {} : { constrainedChoice: this.o.constrainedChoice }),
       stage: 'explore',
       edgeExample: this.o.edgeExample,
       skipFields: STRUCTURED_FIELDS,

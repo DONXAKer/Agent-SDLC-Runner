@@ -125,6 +125,12 @@ export interface BenchOptions {
    * без посева, которым меряются ложные срабатывания.
    */
   seed: string | null;
+  /**
+   * Сводка находимости посевов по `bench/results/*.json` (`--seed-summary`), без прогона:
+   * ни модель, ни виток не вызываются. Отдельный режим уровня `--probe`/`--preflight` —
+   * отвечает не «как прошёл этот прогон», а «что видно по уже накопленным».
+   */
+  seedSummary?: boolean;
 }
 
 export class OptionsError extends Error {}
@@ -167,7 +173,7 @@ export function resolveTurnLimits(
  * не пишут (там нет витка), уже заданная переменная окружения — выбор оператора.
  */
 export function rawLogWanted(opts: BenchOptions, envValue: string | undefined): boolean {
-  if (opts.probe || opts.dryRun || opts.preflightOnly) return false;
+  if (opts.probe || opts.dryRun || opts.preflightOnly || opts.seedSummary === true) return false;
   if (opts.rawLog === false) return false;
   return (envValue ?? '').trim() === '';
 }
@@ -227,6 +233,7 @@ ${taskListForUsage()}
   --from-snapshot <имя> начать с этого снимка — со следующего этапа после его точки
   --seed <класс>        посеять дефект перед этапом 6 и замерить, назван ли он:
                         ${seedIds().join(' | ')}
+  --seed-summary        сводка находимости по bench/results/*.json, без прогона
 `.trimStart();
 
 function isStageId(v: string): v is StageId {
@@ -269,6 +276,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   // переменной, а не значение + флаг-спутник, которые разъезжаются при правке разбора.
   let snapshotAfter: StageId | null = null;
   let seed: string | null = null;
+  let seedSummary = false;
 
   const next = (i: number, key: string): string => {
     const v = argv[i + 1];
@@ -404,16 +412,30 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         i++;
         break;
       }
+      case '--seed-summary':
+        seedSummary = true;
+        break;
       default:
         throw new OptionsError(`неизвестный ключ «${key}»`);
     }
   }
 
   // На сухом прогоне модель не вызывается ни разу, и требовать её значило бы просить назвать
-  // то, что не будет использовано.
-  if (model === null && !dryRun) throw new OptionsError('не задана измеряемая модель: --model <id>');
-  // Пробе не нужен режим: она вообще не запускает виток. Преполёту тоже.
-  if (mode === null && !dryRun && !probe && !preflightOnly) throw new OptionsError('не задан режим: --stage <этап> либо --all');
+  // то, что не будет использовано. Сводка посевов виток вообще не запускает.
+  if (model === null && !dryRun && !seedSummary) throw new OptionsError('не задана измеряемая модель: --model <id>');
+  // Пробе не нужен режим: она вообще не запускает виток. Преполёту и сводке посевов тоже.
+  if (mode === null && !dryRun && !probe && !preflightOnly && !seedSummary) {
+    throw new OptionsError('не задан режим: --stage <этап> либо --all');
+  }
+  // Сводка читает уже накопленные результаты — сочетание с любым ключом живого прогона
+  // почти наверняка опечатка: список того, что она игнорировала бы молча, был бы длиннее
+  // самой проверки.
+  if (
+    seedSummary &&
+    (probe || dryRun || preflightOnly || repeat > 1 || seed !== null || makeSnapshot !== null || fromSnapshot !== null)
+  ) {
+    throw new OptionsError('--seed-summary несовместим с ключами живого прогона (--probe/--dry-run/--preflight/--repeat/--seed/--make-snapshot/--from-snapshot)');
+  }
   // Комбинация режимов — почти наверняка опечатка: молча выигравшая проба выглядела бы
   // как «сухой прогон ничего не нашёл».
   if (probe && dryRun) throw new OptionsError('--probe и --dry-run взаимоисключающие');
@@ -489,5 +511,6 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     fromSnapshot,
     snapshotAfter: snapshotAfter ?? 'plan',
     seed,
+    seedSummary,
   };
 }

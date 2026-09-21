@@ -91,6 +91,22 @@ describe('разрешение профиля', () => {
   });
 });
 
+describe('constrainedChoice', () => {
+  it('умолчание — выключено, явное значение ModelDef доезжает до маршрута', () => {
+    const p1 = resolveStartableProfile(project('ollama:small', 'ollama:big'), models, 'p');
+    strictEqual(p1.routes.intent.constrainedChoice, false);
+
+    const withFlag: ModelsConfig = {
+      providers: models.providers,
+      models: [...models.models, { id: 'ollama:cc', provider: 'ollama', model: 'cc', rank: 25, constrainedChoice: true }],
+    };
+    const proj = project('ollama:small', 'ollama:big');
+    proj.profiles['p']!.stages.intent = 'ollama:cc';
+    const p2 = resolveStartableProfile(proj, withFlag, 'p');
+    strictEqual(p2.routes.intent.constrainedChoice, true);
+  });
+});
+
 describe('конфиги репозитория', () => {
   it('поставляемые config/*.json грузятся и профили в них стартуемы', () => {
     const cfg = loadConfig();

@@ -62,6 +62,7 @@ export function RunMetricsPanel({ detail }: { detail: RunDetail }): JSX.Element 
               <tr className="text-left">
                 <th className="pb-1 font-normal">Этап</th>
                 <th className="pb-1 font-normal">Запусков</th>
+                <th className="pb-1 font-normal">Ходов</th>
                 <th className="pb-1 font-normal">Стоимость</th>
                 <th className="pb-1 font-normal">Время</th>
               </tr>
@@ -71,6 +72,7 @@ export function RunMetricsPanel({ detail }: { detail: RunDetail }): JSX.Element 
                 <tr key={s.stage}>
                   <td className="py-1 pr-3 text-neutral-200">{stageTitle.get(s.stage) ?? s.stage}</td>
                   <td className="py-1 pr-3 text-neutral-400">{s.runs}</td>
+                  <td className="py-1 pr-3 text-neutral-400">{s.turns}</td>
                   <td className="py-1 pr-3 text-neutral-400">{fmtCost(s.usage, detail.currency)}</td>
                   <td className="py-1 text-neutral-400">{fmtDuration(s.durationMs)}</td>
                 </tr>

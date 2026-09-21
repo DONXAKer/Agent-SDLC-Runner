@@ -71,6 +71,7 @@ import {
   type ChatMessage,
   type ChatProvider,
 } from '../provider/ChatProvider.ts';
+import { choiceSchema, withResponseFormat, type JsonSchemaFormat } from '../provider/responseFormat.ts';
 import { budgetParams, ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from './contextBudget.ts';
 import { writeThroughGate } from './gateWrite.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
@@ -284,6 +285,12 @@ export interface FormFillOptions {
    * фильтра второй проход переспрашивал бы и переписывал уже заполненное.
    */
   skipFields?: readonly string[];
+  /**
+   * Форма `choice`-карточки гарантируется декодером сервера (`response_format`), а не
+   * только пост-разбором `matchChoice` — см. `ModelDef.constrainedChoice`. Действует
+   * только на карточках без `free`-варианта: там пространство ответа и правда закрытое.
+   */
+  constrainedChoice?: boolean;
 }
 
 /**
@@ -527,16 +534,32 @@ export class FormFillExecutor implements StageExecutor {
     });
   }
 
-  /** Полевой запрос без инструментов — одна форма на все виды вопросов режима. */
-  private async ask(req: ExecRequest, messages: ChatMessage[], hooks: ExecHooks): ReturnType<ChatProvider['chat']> {
+  /**
+   * Полевой запрос без инструментов — одна форма на все виды вопросов режима.
+   *
+   * `format` — только у карточек, чьё пространство ответа закрыто (`choice` без
+   * `free`-варианта) и только при включённой `constrainedChoice`: `withResponseFormat`
+   * кладёт `response_format` ПЕРЕД `applyParams`, поэтому явный `ModelDef.params.response_format`
+   * оператора по-прежнему побеждает.
+   */
+  private async ask(
+    req: ExecRequest,
+    messages: ChatMessage[],
+    hooks: ExecHooks,
+    format?: JsonSchemaFormat,
+  ): ReturnType<ChatProvider['chat']> {
     const startedAt = Date.now();
+    const params =
+      format === undefined || this.o.constrainedChoice !== true
+        ? this.paramsFor(messages, hooks)
+        : withResponseFormat(this.paramsFor(messages, hooks), format);
     const answer = await this.o.provider.chat({
       model: req.model,
       messages,
       tools: [],
       signal: req.signal,
       temperature: null,
-      params: this.paramsFor(messages, hooks),
+      params,
     });
     // В лог — карточка поля, а не весь промпт этапа, повторяющийся в каждом запросе.
     const last = messages.at(-1)?.content ?? '';
@@ -978,6 +1001,14 @@ export class FormFillExecutor implements StageExecutor {
       // некомпактного пути: у режима нет Read/Task, и без него пути угадываются по памяти.
       const needsCodeMap = field.kind === 'records' && CODE_MAP_HEADER.test(field.header ?? '');
       const codeMapText = needsCodeMap ? await codeMapGrounding() : '';
+      // Пространство ответа закрыто только когда варианта «свободный текст вместо выбора»
+      // нет вовсе: `enum` на `free`-поле запретил бы ровно то содержимое, ради которого
+      // плейсхолдер и остаётся в меню.
+      const constrainedChoiceApplies =
+        this.o.constrainedChoice === true &&
+        field.kind === 'choice' &&
+        field.options !== undefined &&
+        !field.options.some((o) => o.free);
       const priorRejection = fieldRejectionMemo.get(compactFieldKey(field));
       const card = [
         `## Сейчас — ровно одно поле`,
@@ -1017,9 +1048,11 @@ export class FormFillExecutor implements StageExecutor {
         '## Формат ответа',
         '',
         field.kind === 'choice'
-          ? 'Верни ТОЛЬКО ключ выбранного варианта (слово или значок из списка «варианты» ' +
-            'выше) без обрамления, и если по смыслу нужен комментарий — через тире после ' +
-            'ключа, одной строкой. Без ‹›, без пересказа условия.'
+          ? constrainedChoiceApplies
+            ? 'Верни ключ варианта из списка «варианты» выше — ничего, кроме него.'
+            : 'Верни ТОЛЬКО ключ выбранного варианта (слово или значок из списка «варианты» ' +
+              'выше) без обрамления, и если по смыслу нужен комментарий — через тире после ' +
+              'ключа, одной строкой. Без ‹›, без пересказа условия.'
           : field.kind === 'list'
             ? 'Верни по одному пункту на строку, каждая начинается с `- `. Метку поля ' +
               '(«- **Метка:**») не повторяй.'
@@ -1044,7 +1077,12 @@ export class FormFillExecutor implements StageExecutor {
           { role: 'system', content: req.prompt.system },
           { role: 'user', content: [req.prompt.user, '', card].join('\n') },
         ];
-      return this.ask(req, messages, hooks);
+      return this.ask(
+        req,
+        messages,
+        hooks,
+        constrainedChoiceApplies ? choiceSchema(field.options!.map((o) => o.key)) : undefined,
+      );
     };
 
     /** Добор записи ниже минимума (`compact`) — та же идея, что `askClaimsTopUp`, через `applyFill('add')`. */

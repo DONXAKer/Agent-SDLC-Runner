@@ -70,4 +70,12 @@ describe('тело запроса OpenAiCompatProvider', () => {
     await provider.chat(request({ max_tokens: 512 }));
     strictEqual(bodies[bodies.length - 1]!['max_tokens'], 512);
   });
+
+  it('response_format (constrainedChoice) доезжает до тела без особого случая — тот же путь, что max_tokens', async () => {
+    const baseUrl = await startStub();
+    const provider = new OpenAiCompatProvider({ name: 'stub', baseUrl, apiKey: null, timeoutMs: 2000 });
+    const format = { type: 'json_schema', json_schema: { name: 'field_choice', strict: true, schema: { type: 'string', enum: ['✅', '❌'] } } };
+    await provider.chat(request({ response_format: format }));
+    deepStrictEqual(bodies[bodies.length - 1]!['response_format'], format);
+  });
 });

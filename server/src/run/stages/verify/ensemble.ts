@@ -64,6 +64,7 @@ export async function narrowRoute(
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill')),
     model: route.model,
     params: route.params,
+    constrainedChoice: route.constrainedChoice,
     system: prompt.system,
     claims,
     diff: readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt())).text,

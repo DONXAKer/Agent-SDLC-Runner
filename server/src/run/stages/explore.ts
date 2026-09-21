@@ -425,6 +425,7 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
     fillednessGate: fillednessGateState(host.gatesFile()),
     edgeExample: edgeExampleLines(host.runner().methodologyDir),
     cardBudgetBytes: localResultBytes(limits),
+    constrainedChoice: route.constrainedChoice,
   });
 }
 

@@ -453,7 +453,10 @@ export class Run {
    * а метрики принадлежат витку — иначе «сколько итераций съел виток» опять станет
    * невосстановимым.
    */
-  private readonly stageStats = new Map<StageId, { runs: number; usage: Usage; durationMs: number }>();
+  private readonly stageStats = new Map<
+    StageId,
+    { runs: number; usage: Usage; durationMs: number; turns: number; offPathTurns: number }
+  >();
   private readonly attemptsByChunk = new Map<number, number>();
 
   /**
@@ -600,6 +603,8 @@ export class Run {
         runs: v.runs,
         usage: v.usage,
         durationMs: v.durationMs,
+        turns: v.turns,
+        offPathTurns: v.offPathTurns,
       })),
       verdicts: { total: this.verdictCount, red: this.redCount },
       redByCause: [...this.redByCause.entries()].map(([kind, count]) => ({ kind, count })),
@@ -725,6 +730,10 @@ export class Run {
         runs: num(s.runs),
         usage: { ...emptyUsage(), ...(typeof s.usage === 'object' && s.usage !== null ? s.usage : {}) },
         durationMs: num(s.durationMs),
+        // Снапшот без `turns` — старый формат: 0, а не пересчёт (лента, откуда его можно
+        // было бы восстановить, к моменту чтения снапшота уже вытеснена).
+        turns: num(s.turns),
+        offPathTurns: num(s.offPathTurns),
       });
     }
     // Расход витка восстанавливается ВМЕСТЕ с разбивкой по этапам. Пока он оставался
@@ -1312,7 +1321,11 @@ export class Run {
    */
   private accountOffPathUsage(stage: StageId, usage: Usage, currency: string | undefined): void {
     const st = this.stageStats.get(stage);
-    if (st !== undefined) st.usage = addUsage(st.usage, usage);
+    if (st !== undefined) {
+      st.usage = addUsage(st.usage, usage);
+      st.turns += 1;
+      st.offPathTurns += 1;
+    }
     this.totalUsage = addUsage(this.totalUsage, usage);
     if (countsTowardBudget(this.budgetStages, stage)) {
       this.spent.add(currency ?? 'USD', usage.costUsd);
@@ -1456,6 +1469,7 @@ export class Run {
       ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
       currency: route.providerDef.currency ?? 'USD',
       compact: route.compactForms === 'fill' || route.compactForms === 'all',
+      constrainedChoice: route.constrainedChoice,
       // Образец граничного пункта — из примера эталона, читается в рантайме:
       // замер 2026-09-04 показал ноль `[edge]` в 4 прогонах из 5, а просьба
       // называла только формат (`artifacts/edgeExample.ts`).
@@ -1765,6 +1779,7 @@ export class Run {
         currency: route.providerDef.currency ?? 'USD',
         // Схема формы вместо сплошного текста — см. `ModelDef.compactForms`.
         compact: route.compactForms === 'fill' || route.compactForms === 'all',
+        constrainedChoice: route.constrainedChoice,
         // Образец граничного пункта — из примера эталона, читается в рантайме:
         // замер 2026-09-04 показал ноль `[edge]` в 4 прогонах из 5, а просьба
         // называла только формат (`artifacts/edgeExample.ts`).
@@ -2231,7 +2246,13 @@ export class Run {
     // сколько занял. Время меряется здесь, а не по событиям шины: буфер шины вытесняет
     // старое, и считать по нему длительность значило бы терять её на длинных витках.
     const stageStartedAt = Date.now();
-    const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0 };
+    const stat = this.stageStats.get(stage) ?? {
+      runs: 0,
+      usage: emptyUsage(),
+      durationMs: 0,
+      turns: 0,
+      offPathTurns: 0,
+    };
     stat.runs += 1;
     this.stageStats.set(stage, stat);
 
@@ -2505,7 +2526,10 @@ ${block}`;
 
       onUsage: (usage, durationMs) => {
         const st = this.stageStats.get(stage);
-        if (st !== undefined) st.usage = addUsage(st.usage, usage);
+        if (st !== undefined) {
+          st.usage = addUsage(st.usage, usage);
+          st.turns += 1;
+        }
         this.totalUsage = addUsage(this.totalUsage, usage);
         // Валюта — маршрута ЭТОГО этапа: стоимость копится по валютам раздельно,
         // и гард маршрута сверяет потолок только со своей (см. `spentLedger.ts`).

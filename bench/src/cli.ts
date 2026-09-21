@@ -44,6 +44,7 @@ import { formatPreflight, preflightExitCode, runPreflight } from './preflight.ts
 import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
+import { readResults, renderSeedSummary, summarizeSeeds } from './seedSummary.ts';
 import { draftJournalEntry } from './journal.ts';
 import { createProgressPrinter } from './progress.ts';
 
@@ -492,7 +493,13 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       seedProbe =
         opts.seed === SEED_NONE
           ? probeNoSeed({ verdictReasons, gateResults: run.gateResults })
-          : probeSeed({ seed: seedById(opts.seed), reportText, verdictReasons, gateResults: run.gateResults });
+          : probeSeed({
+              seed: seedById(opts.seed),
+              reportText,
+              verdictReasons,
+              gateResults: run.gateResults,
+              verdictPassed: driverResult.finalVerdict?.passed ?? null,
+            });
       console.log(`посев:     ${seedProbe.note}`);
     }
 
@@ -660,6 +667,27 @@ async function preflightRun(opts: BenchOptions): Promise<number> {
   return preflightExitCode(report);
 }
 
+/**
+ * Сводка находимости посевов по всему `bench/results/` — читает то, что уже накоплено,
+ * не гоняет ни одной модели. Код 0 — сводка построена; 2 — посевных результатов не нашлось
+ * (то же «не измерено», что и у остального стенда: сравнивать не с чем).
+ */
+function seedSummaryRun(): number {
+  const { results, broken } = readResults(RESULTS_DIR);
+  for (const b of broken) console.error(`пропущен ${b.file}: ${b.reason}`);
+  const summary = summarizeSeeds(results);
+  if (summary.classes.length === 0 && summary.none.size === 0) {
+    console.error('посевных результатов в bench/results/ не найдено — сводить нечего');
+    return 2;
+  }
+  const md = renderSeedSummary(summary);
+  console.log(md);
+  const outPath = join(RESULTS_DIR, 'seed-summary.md');
+  writeFileSync(outPath, `${md}\n`);
+  console.log(`\nсводка записана: ${outPath}`);
+  return 0;
+}
+
 /** Медиана уже отсортированного НЕ обязана быть — сортируем сами. Пусто — null. */
 function median(values: readonly number[]): number | null {
   if (values.length === 0) return null;
@@ -776,6 +804,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   try {
+    if (opts.seedSummary === true) return seedSummaryRun();
     if (opts.probe) return await probeRun(opts);
     if (opts.dryRun) return await dryRun(opts);
     if (opts.preflightOnly) return await preflightRun(opts);

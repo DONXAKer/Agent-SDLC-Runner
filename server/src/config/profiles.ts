@@ -57,6 +57,7 @@ function resolveRoute(
     ...(def.historyBudgetBytes === undefined ? {} : { historyBudgetBytes: def.historyBudgetBytes }),
     exploreIndex: def.exploreIndex ?? false,
     exploreFill: def.exploreFill ?? false,
+    constrainedChoice: def.constrainedChoice ?? false,
   };
 }
 

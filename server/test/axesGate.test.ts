@@ -56,6 +56,7 @@ function route(stage: StageId): ResolvedRoute {
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,
+    constrainedChoice: false,
   };
 }
 

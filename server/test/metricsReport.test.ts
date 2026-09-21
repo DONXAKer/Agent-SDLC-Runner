@@ -96,7 +96,14 @@ describe('metrics.md: связь с metrics.json', () => {
     const b = metricsBlock(
       metrics({
         stages: [
-          { stage: 'chunk', runs: 1, usage: { ...emptyUsage(), costUsd: 0.5 }, durationMs: 10 },
+          {
+            stage: 'chunk',
+            runs: 1,
+            usage: { ...emptyUsage(), costUsd: 0.5 },
+            durationMs: 10,
+            turns: 1,
+            offPathTurns: 0,
+          },
         ],
       }),
     );

@@ -22,6 +22,7 @@ import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
 
 import { normalize } from '../exec/normalize.ts';
 import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
+import { claimsSchema, withResponseFormat } from '../provider/responseFormat.ts';
 import { packForClaim, splitHunks } from './claimEvidence.ts';
 
 export interface ClaimAsk {
@@ -48,6 +49,12 @@ export interface ClaimFillInput {
   onProgress?: (note: string) => void;
   /** Токены/стоимость каждого запроса — см. докстринг `ReviewFillInput.onUsage`, тот же долг. */
   onUsage?: (usage: Usage) => void;
+  /**
+   * Форма ответа группы гарантируется декодером сервера (`response_format`) — см.
+   * `ModelDef.constrainedChoice`. Ответ вне JSON-схемы (сервер её проигнорировал) не роняет
+   * группу: разбор падает обратно на строчный формат (`parseClaimsCombinedAnswer`).
+   */
+  constrainedChoice?: boolean;
 }
 
 export interface ClaimFillResult {
@@ -112,25 +119,48 @@ function claimBlock(n: number, claim: ClaimAsk, pack: string): string {
   ].join('\n');
 }
 
-function claimsCombinedQuestion(claims: readonly ClaimAsk[], packs: readonly string[], tests: string): string {
+/** Пояснение значений статуса и полей — общее для строчного и JSON-формата ответа. */
+const FIELD_MEANING = [
+  'СТАТУС — одно из: ✅ (доказано по diff или тестом), ❌ (опровергнуто), ' +
+    '⚠ (доказательство держится на непройденной проверке), manual (пункт помечен ' +
+    '[manual] в задаче человеком).',
+  'ЧЕМ ПОДТВЕРЖДЁН — МЕСТО: `файл:символ`, имя теста или хунк. Не «проверено» и ' +
+    'не «см. код»: ссылку сверяют с патчем.',
+  'ЧТО ЧИНИТЬ — для не-зелёного статуса; для зелёного напиши `н/п`.',
+];
+
+function claimsCombinedQuestion(
+  claims: readonly ClaimAsk[],
+  packs: readonly string[],
+  tests: string,
+  constrainedChoice: boolean,
+): string {
+  const instruction = constrainedChoice
+    ? [
+        `Ответь JSON-объектом вида \`{"claims":[...]}\` — РОВНО ${claims.length} элементов, ` +
+          'по одному на каждый пункт, каждый элемент:',
+        '',
+        '`{"id": "<id пункта>", "status": "<статус>", "evidence": "<чем подтверждён>", "what_to_fix": "<что чинить>"}`',
+        '',
+        ...FIELD_MEANING,
+        'Кроме этого JSON, ничего не пиши.',
+      ]
+    : [
+        `Ответь РОВНО ${claims.length} строками — по одной на каждый пункт, В ТОМ ЖЕ ПОРЯДКЕ, ` +
+          'начиная с номера пункта:',
+        '',
+        '`N. СТАТУС | ЧЕМ ПОДТВЕРЖДЁН | ЧТО ЧИНИТЬ`',
+        '',
+        ...FIELD_MEANING,
+        'Ничего, кроме этих строк, не пиши.',
+      ];
   return [
     `## Проверь КАЖДЫЙ из ${claims.length} пунктов приёмки ниже`,
     '',
     ...claims.map((c, idx) => claimBlock(idx + 1, c, packs[idx] ?? '')),
     ...(tests.trim() === '' ? [] : ['', '## Что напечатал прогон тестов', '', '```', tests.trim().slice(-4000), '```']),
     '',
-    `Ответь РОВНО ${claims.length} строками — по одной на каждый пункт, В ТОМ ЖЕ ПОРЯДКЕ, ` +
-      'начиная с номера пункта:',
-    '',
-    '`N. СТАТУС | ЧЕМ ПОДТВЕРЖДЁН | ЧТО ЧИНИТЬ`',
-    '',
-    'СТАТУС — одно из: ✅ (доказано по diff или тестом), ❌ (опровергнуто), ' +
-      '⚠ (доказательство держится на непройденной проверке), manual (пункт помечен ' +
-      '[manual] в задаче человеком).',
-    'ЧЕМ ПОДТВЕРЖДЁН — МЕСТО: `файл:символ`, имя теста или хунк. Не «проверено» и ' +
-      'не «см. код»: ссылку сверяют с патчем.',
-    'ЧТО ЧИНИТЬ — для не-зелёного статуса; для зелёного напиши `н/п`.',
-    'Ничего, кроме этих строк, не пиши.',
+    ...instruction,
   ].join('\n');
 }
 
@@ -164,6 +194,48 @@ export function parseClaimsCombinedAnswer(
 }
 
 /**
+ * Разбор JSON-ответа группы (`constrainedChoice`): каждый элемент называет свой `id` сам,
+ * поэтому сопоставление с пунктом — по `id`, а не по позиции в массиве, как у строчного
+ * формата. `null` — ответ не JSON или не той формы (сервер проигнорировал `response_format`,
+ * бывает не у всех провайдеров): вызывающий обязан упасть обратно на строчный разбор, а не
+ * считать группу неотвеченной.
+ */
+export function parseClaimsJsonAnswer(
+  claims: readonly ClaimAsk[],
+  answer: string,
+): { answeredIdx: Set<number>; calls: NormalizedCall[] } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(answer);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const items = (parsed as Record<string, unknown>)['claims'];
+  if (!Array.isArray(items)) return null;
+
+  const idxById = new Map(claims.map((c, idx) => [c.id, idx]));
+  const answeredIdx = new Set<number>();
+  const calls: NormalizedCall[] = [];
+  for (const item of items) {
+    if (typeof item !== 'object' || item === null) continue;
+    const rec = item as Record<string, unknown>;
+    const id = typeof rec['id'] === 'string' ? rec['id'] : null;
+    if (id === null) continue;
+    const idx = idxById.get(id);
+    if (idx === undefined || answeredIdx.has(idx)) continue;
+    // Тот же нормализатор, что у строчного разбора: второго места, знающего форму
+    // `record_claim`, не появляется. `evidence`/`what_to_fix` с символом `|` внутри JSON
+    // не рвутся (в отличие от строчного `split('|')`) — само преимущество формата.
+    const call = normalize('record_claim', rec);
+    if (call.kind !== 'record_claim') continue;
+    answeredIdx.add(idx);
+    calls.push(call);
+  }
+  return { answeredIdx, calls };
+}
+
+/**
  * Спрашивает модель группами (`CLAIM_GROUP`) и возвращает разобранные записи.
  *
  * Группами, а не по одному (трек «сумма латентности», 2026-09-09): `signal.aborted`
@@ -177,7 +249,7 @@ export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
   const out: NormalizedCall[] = [];
   let envFailure: string | null = null;
 
-  const ask = (content: string) =>
+  const ask = (content: string, params: Record<string, unknown> | null) =>
     i.provider.chat({
       model: i.model,
       messages: [
@@ -187,16 +259,21 @@ export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
       tools: [],
       signal: i.signal,
       temperature: null,
-      params: i.params,
+      params,
     });
+
+  const constrained = i.constrainedChoice === true;
 
   for (let start = 0; start < i.claims.length; start += CLAIM_GROUP) {
     if (i.signal.aborted) break;
     const group = i.claims.slice(start, start + CLAIM_GROUP);
     const packs = group.map((claim) => packForClaim(claim.text, hunks, i.evidenceBudgetBytes));
+    const params = constrained
+      ? withResponseFormat(i.params, claimsSchema(group.map((c) => c.id)))
+      : i.params;
     let response: Awaited<ReturnType<typeof ask>>;
     try {
-      response = await ask(claimsCombinedQuestion(group, packs, i.tests));
+      response = await ask(claimsCombinedQuestion(group, packs, i.tests, constrained), params);
     } catch (e) {
       if (envFailure === null && e instanceof ProviderEnvError) envFailure = e.message;
       const why = e instanceof Error ? e.message : String(e);
@@ -204,7 +281,11 @@ export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
       continue;
     }
     i.onUsage?.(response.usage);
-    const { answeredIdx, calls } = parseClaimsCombinedAnswer(group, response.text);
+    // Сервер мог проигнорировать `response_format` (не все провайдеры его понимают) —
+    // `null` от JSON-разбора падает обратно на строчный формат, а не считает группу
+    // неотвеченной.
+    const parsed = constrained ? parseClaimsJsonAnswer(group, response.text) : null;
+    const { answeredIdx, calls } = parsed ?? parseClaimsCombinedAnswer(group, response.text);
     out.push(...calls);
     if (answeredIdx.size < group.length) {
       i.onProgress?.(`ответ по группе пунктов неполон: разобрано ${answeredIdx.size} из ${group.length}`);

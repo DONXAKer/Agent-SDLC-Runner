@@ -10,9 +10,10 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import type { ChatRequest } from '../src/provider/ChatProvider.ts';
 import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
 import { packForClaim, splitHunks, topFileForClaim } from '../src/run/claimEvidence.ts';
-import { fillClaims, parseClaimAnswer, parseClaimsCombinedAnswer } from '../src/run/claimFill.ts';
+import { fillClaims, parseClaimAnswer, parseClaimsCombinedAnswer, parseClaimsJsonAnswer } from '../src/run/claimFill.ts';
 
 const DIFF = [
   'diff --git a/src/tariffs.ts b/src/tariffs.ts',
@@ -253,5 +254,177 @@ describe('добор группами (трек «сумма латентнос�
     });
     // Группа 1 уже запущена к моменту abort() — отвечает; группа 2 не начинается вовсе.
     strictEqual(out.length, 6);
+  });
+});
+
+describe('разбор JSON-ответа группы (parseClaimsJsonAnswer)', () => {
+  const claims = [1, 2, 3].map((n) => ({ id: `claim-${n}`, text: `пункт ${n}` }));
+
+  it('сопоставление по id, а не по позиции в массиве', () => {
+    const answer = JSON.stringify({
+      claims: [
+        { id: 'claim-2', status: '❌', evidence: 'test/a.test.ts', what_to_fix: 'вернуть ставку' },
+        { id: 'claim-1', status: '✅', evidence: 'src/tariffs.ts:priceFor', what_to_fix: 'н/п' },
+      ],
+    });
+    const parsed = parseClaimsJsonAnswer(claims, answer);
+    ok(parsed !== null);
+    deepStrictEqual([...parsed.answeredIdx].sort(), [0, 1]);
+    strictEqual(parsed.calls.length, 2);
+  });
+
+  it('символ `|` в evidence/what_to_fix цел — JSON не рвёт поле, в отличие от строчного split', () => {
+    const answer = JSON.stringify({
+      claims: [{ id: 'claim-1', status: '✅', evidence: 'src/tariffs.ts:priceFor | смотри хунк 2', what_to_fix: 'н/п' }],
+    });
+    const parsed = parseClaimsJsonAnswer(claims, answer);
+    ok(parsed !== null);
+    strictEqual(parsed.calls[0]!.kind === 'record_claim' && parsed.calls[0]!.evidence, 'src/tariffs.ts:priceFor | смотри хунк 2');
+  });
+
+  it('id вне группы отбрасывается, остальные разбираются', () => {
+    const answer = JSON.stringify({
+      claims: [
+        { id: 'claim-99', status: '✅', evidence: 'x', what_to_fix: 'н/п' },
+        { id: 'claim-1', status: '✅', evidence: 'src/tariffs.ts', what_to_fix: 'н/п' },
+      ],
+    });
+    const parsed = parseClaimsJsonAnswer(claims, answer);
+    ok(parsed !== null);
+    deepStrictEqual([...parsed.answeredIdx], [0]);
+  });
+
+  it('не JSON вовсе — null, вызывающий обязан упасть на строчный разбор', () => {
+    strictEqual(parseClaimsJsonAnswer(claims, 'думаю, всё в порядке'), null);
+  });
+
+  it('JSON без поля claims — null', () => {
+    strictEqual(parseClaimsJsonAnswer(claims, JSON.stringify({ answer: [] })), null);
+  });
+});
+
+describe('constrainedChoice: форма ответа гарантируется декодером', () => {
+  const claims = [1, 2].map((n) => ({ id: `claim-${n}`, text: `пункт ${n}` }));
+  const jsonAnswer = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      claims: [
+        { id: 'claim-1', status: '✅', evidence: 'src/tariffs.ts:priceFor', what_to_fix: 'н/п' },
+        { id: 'claim-2', status: '❌', evidence: 'test/a.test.ts', what_to_fix: 'вернуть ставку' },
+      ],
+      ...over,
+    });
+
+  it('запрос несёт response_format с json_schema и enum по id этой группы', async () => {
+    const seen: (Record<string, unknown> | null | undefined)[] = [];
+    const provider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        seen.push(req.params);
+        return {
+          text: jsonAnswer(),
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    await fillClaims({
+      provider,
+      model: 'stub',
+      params: null,
+      constrainedChoice: true,
+      system: 'ты рецензент',
+      claims,
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: new AbortController().signal,
+    });
+    strictEqual(seen.length, 1);
+    const format = seen[0]?.['response_format'] as { json_schema: { schema: { properties: { claims: { items: { properties: { id: { enum: string[] } } } } } } } };
+    deepStrictEqual(format.json_schema.schema.properties.claims.items.properties.id.enum, ['claim-1', 'claim-2']);
+  });
+
+  it('JSON-ответ разбирается в record_claim, минуя строчный формат', async () => {
+    const provider = {
+      name: 'stub',
+      async chat() {
+        return {
+          text: jsonAnswer(),
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const { calls } = await fillClaims({
+      provider,
+      model: 'stub',
+      params: null,
+      constrainedChoice: true,
+      system: 'ты рецензент',
+      claims,
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: new AbortController().signal,
+    });
+    strictEqual(calls.length, 2);
+    deepStrictEqual(calls.map((c) => c.kind === 'record_claim' && c.status).sort(), ['✅', '❌']);
+  });
+
+  it('сервер проигнорировал response_format (ответ не JSON) — фолбэк на строчный разбор', async () => {
+    const provider = {
+      name: 'stub',
+      async chat() {
+        return {
+          text: '1. ✅ | src/tariffs.ts:priceFor | н/п\n2. ❌ | test/a.test.ts | вернуть ставку',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const { calls } = await fillClaims({
+      provider,
+      model: 'stub',
+      params: null,
+      constrainedChoice: true,
+      system: 'ты рецензент',
+      claims,
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: new AbortController().signal,
+    });
+    strictEqual(calls.length, 2);
+  });
+
+  it('без ручки params не несёт response_format вовсе', async () => {
+    const seen: (Record<string, unknown> | null | undefined)[] = [];
+    const provider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        seen.push(req.params);
+        return {
+          text: '1. ✅ | src/tariffs.ts:priceFor | н/п\n2. ❌ | test/a.test.ts | вернуть ставку',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    await fillClaims({
+      provider,
+      model: 'stub',
+      params: { temperature: 0.2 },
+      system: 'ты рецензент',
+      claims,
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: new AbortController().signal,
+    });
+    deepStrictEqual(seen[0], { temperature: 0.2 });
   });
 });
