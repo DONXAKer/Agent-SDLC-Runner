@@ -123,9 +123,11 @@ export class McpHub {
     try {
       const result = await client.callTool(tool, args, opts.signal);
       // Источник — для подписи «данные, не инструкции» на каждом ответе (`content.ts`):
-      // явный вызывающий `opts.fold.source` (если он его когда-нибудь задаст) не
-      // перекрывается, здесь только умолчание по факту сервера/инструмента этого вызова.
-      return foldContent(result, { ...(opts.fold ?? {}), source: { server, tool } });
+      // умолчание по факту сервера/инструмента этого вызова кладётся ПЕРВЫМ, поэтому явный
+      // `opts.fold.source` (если вызывающий его когда-нибудь задаст) перекрывает его, а не
+      // наоборот — раньше порядок спреда был обратным задокументированному контракту
+      // (code-review-all, 2026-09-21: комментарий и код расходились).
+      return foldContent(result, { source: { server, tool }, ...(opts.fold ?? {}) });
     } catch (e) {
       return {
         ok: false,

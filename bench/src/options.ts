@@ -429,12 +429,25 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   }
   // Сводка читает уже накопленные результаты — сочетание с любым ключом живого прогона
   // почти наверняка опечатка: список того, что она игнорировала бы молча, был бы длиннее
-  // самой проверки.
+  // самой проверки. `model`/`mode` — тоже сюда: раньше их отсутствие в списке означало, что
+  // `--seed-summary --stage verify --model x` молча выполнял ТОЛЬКО сводку, не сообщая об
+  // игнорировании остальных ключей (code-review-all, 2026-09-21, живьём воспроизведено).
   if (
     seedSummary &&
-    (probe || dryRun || preflightOnly || repeat > 1 || seed !== null || makeSnapshot !== null || fromSnapshot !== null)
+    (probe ||
+      dryRun ||
+      preflightOnly ||
+      repeat > 1 ||
+      seed !== null ||
+      makeSnapshot !== null ||
+      fromSnapshot !== null ||
+      model !== null ||
+      mode !== null)
   ) {
-    throw new OptionsError('--seed-summary несовместим с ключами живого прогона (--probe/--dry-run/--preflight/--repeat/--seed/--make-snapshot/--from-snapshot)');
+    throw new OptionsError(
+      '--seed-summary несовместим с ключами живого прогона ' +
+        '(--probe/--dry-run/--preflight/--repeat/--seed/--make-snapshot/--from-snapshot/--model/--stage/--all)',
+    );
   }
   // Комбинация режимов — почти наверняка опечатка: молча выигравшая проба выглядела бы
   // как «сухой прогон ничего не нашёл».

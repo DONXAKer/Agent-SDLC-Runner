@@ -1001,14 +1001,18 @@ export class FormFillExecutor implements StageExecutor {
       // некомпактного пути: у режима нет Read/Task, и без него пути угадываются по памяти.
       const needsCodeMap = field.kind === 'records' && CODE_MAP_HEADER.test(field.header ?? '');
       const codeMapText = needsCodeMap ? await codeMapGrounding() : '';
-      // Пространство ответа закрыто только когда варианта «свободный текст вместо выбора»
-      // нет вовсе: `enum` на `free`-поле запретил бы ровно то содержимое, ради которого
-      // плейсхолдер и остаётся в меню.
+      // Пространство ответа закрыто только когда ни у одного варианта нет места под
+      // свободный текст: `free` — вариант это САМ плейсхолдер, `commentSlot` — у варианта
+      // есть встроенный плейсхолдер-комментарий после ключа (`разошлась — ‹что именно›»`).
+      // `enum` на голых ключах запретил бы модели вписать этот комментарий — code-review-all
+      // 2026-09-21 поймал это на реальном шаблоне «Карта разведки: совпала / разошлась —
+      // ‹что именно…›»: ответ по enum давал `comment: ''`, и `applyFill.ts::renderChoice`
+      // молча подставлял пустую строку в плейсхолдер вместо объяснения.
       const constrainedChoiceApplies =
         this.o.constrainedChoice === true &&
         field.kind === 'choice' &&
         field.options !== undefined &&
-        !field.options.some((o) => o.free);
+        !field.options.some((o) => o.free || o.commentSlot);
       const priorRejection = fieldRejectionMemo.get(compactFieldKey(field));
       const card = [
         `## Сейчас — ровно одно поле`,

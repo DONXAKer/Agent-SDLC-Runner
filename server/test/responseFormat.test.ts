@@ -36,6 +36,21 @@ describe('claimsSchema', () => {
     deepStrictEqual(schema.properties.claims.items.required, ['id', 'status', 'evidence', 'what_to_fix']);
     deepStrictEqual(schema.required, ['claims']);
   });
+
+  it('uniqueItems и minLength закрывают дубль-id и пустой evidence/what_to_fix (code-review-all, 2026-09-21)', () => {
+    const f = claimsSchema(['claim-1', 'claim-2']);
+    const schema = f.schema as {
+      properties: {
+        claims: {
+          uniqueItems: boolean;
+          items: { properties: { evidence: { minLength: number }; what_to_fix: { minLength: number } } };
+        };
+      };
+    };
+    strictEqual(schema.properties.claims.uniqueItems, true);
+    strictEqual(schema.properties.claims.items.properties.evidence.minLength, 1);
+    strictEqual(schema.properties.claims.items.properties.what_to_fix.minLength, 1);
+  });
 });
 
 describe('withResponseFormat', () => {

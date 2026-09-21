@@ -1139,4 +1139,47 @@ describe('constrainedChoice: форма choice-карточки гарантир
     ok(seenParams.length > 0);
     ok(seenParams.every((p) => p === null || p === undefined || !('response_format' in p)));
   });
+
+  it('commentSlot-вариант («Карта разведки: совпала / разошлась — ‹что именно›») не сужается до enum, комментарий доходит до артефакта (code-review-all, 2026-09-21)', async () => {
+    // Тот же паттерн, что server/test/formSchema.test.ts «меню в прозе»: одна ветка (`совпала`)
+    // без места под текст, вторая (`разошлась — ‹что именно…›`) с ним. Обе не `free` — раньше
+    // `constrainedChoiceApplies` считала это закрытым полем и enum на голых ключах физически
+    // не давал модели вписать объяснение.
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-commentslot-'));
+    roots.push(root);
+    const artifact = join(root, 'journal.md');
+    writeFileSync(artifact, '# Журнал\n\n- Карта разведки: совпала / разошлась — ‹что именно; расхождение = возврат на план›\n');
+
+    const seenParams: (Record<string, unknown> | null | undefined)[] = [];
+    let sawResponseText = false;
+    const provider: ChatProvider = {
+      name: 'spy',
+      async chat(req: ChatRequest) {
+        seenParams.push(req.params);
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        if (!user.includes('`карта разведки`')) {
+          return {
+            text: '',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+          };
+        }
+        sawResponseText = true;
+        return {
+          text: 'разошлась — нашли лишний файл в карте',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execConstrained(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    ok(sawResponseText, 'карточка «карта разведки» должна была спроситься');
+    ok(seenParams.every((p) => p === null || p === undefined || !('response_format' in p)), 'commentSlot-поле не должно сужаться до enum');
+    const text = readFileSync(artifact, 'utf8');
+    ok(text.includes('нашли лишний файл в карте'), 'комментарий обязан дойти до артефакта, а не потеряться');
+  });
 });

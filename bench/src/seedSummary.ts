@@ -23,6 +23,13 @@ export interface SeedRunFacts {
   caught: boolean;
   /** `buildReport(...).exitCode !== 2` — то же правило «не измерено», не второе. */
   measured: boolean;
+  /**
+   * Причина `measured: false`, когда её знает `seedRunFacts` (исключение `buildReport`) —
+   * `undefined` при обычном коде 2. Без неё `excluded` терял текст реальной ошибки за
+   * обезличенным «код 2 либо отчёт не строится» (code-review-all, 2026-09-21): будущая
+   * регрессия в `buildReport` пряталась бы под тем же текстом, что и старый формат `hidden`.
+   */
+  measuredError?: string;
 }
 
 /**
@@ -40,10 +47,12 @@ export function seedRunFacts(r: BenchResult): SeedRunFacts | null {
   // `bench/results/` это оказался не гипотетический случай.
   if (r.seed === null || r.seed === undefined) return null;
   let measured: boolean;
+  let measuredError: string | undefined;
   try {
     measured = buildReport({ result: r }).exitCode !== 2;
-  } catch {
+  } catch (e) {
     measured = false;
+    measuredError = e instanceof Error ? e.message : String(e);
   }
   return {
     slug: r.run.slug,
@@ -53,6 +62,7 @@ export function seedRunFacts(r: BenchResult): SeedRunFacts | null {
     expected: r.seed.expected,
     caught: r.seed.caught,
     measured,
+    ...(measuredError === undefined ? {} : { measuredError }),
   };
 }
 
@@ -96,12 +106,18 @@ export function summarizeSeeds(results: readonly BenchResult[]): SeedSummary {
   for (const r of results) {
     const facts = seedRunFacts(r);
     if (facts === null) continue;
-    models.add(facts.model);
 
     if (!facts.measured) {
-      excluded.push({ slug: facts.slug, reason: 'измерение не состоялось (код 2 либо отчёт не строится на этом результате)' });
+      // Модель в шапку таблицы попадает ТОЛЬКО по измеренным прогонам: иначе модель, у
+      // которой вообще нет измеренных результатов, получала бы столбец из одних «—»,
+      // неотличимый от «класс не прогоняли» (code-review-all, 2026-09-21).
+      excluded.push({
+        slug: facts.slug,
+        reason: facts.measuredError ?? 'измерение не состоялось (код 2)',
+      });
       continue;
     }
+    models.add(facts.model);
 
     if (facts.seedId === SEED_NONE) {
       bumpCell(none, facts.model, facts.caught, facts.slug);
@@ -159,7 +175,7 @@ export function renderSeedSummary(s: SeedSummary): string {
 
   if (s.excluded.length > 0) {
     lines.push(
-      `Исключено из знаменателя (код 2 — измерение не состоялось): ${s.excluded.length}`,
+      `Исключено из знаменателя (код 2 либо отчёт не строится на этом результате): ${s.excluded.length}`,
       '',
       ...s.excluded.map((e) => `- ${e.slug}: ${e.reason}`),
     );

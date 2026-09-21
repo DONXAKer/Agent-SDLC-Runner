@@ -9,7 +9,7 @@
  * но отклонённый разбором ответ, то есть ту же цену переспроса, которую ручка снимает.
  */
 
-import type { ClaimStatus } from '@sdlc-runner/shared';
+import { CLAIM_STATUSES } from '@sdlc-runner/shared';
 
 import { applyParams } from './ChatProvider.ts';
 
@@ -18,9 +18,6 @@ export interface JsonSchemaFormat {
   name: string;
   schema: Record<string, unknown>;
 }
-
-/** Тот же порядок и та же четвёрка, что `worstClaimStatus`/`claimStatusOf` в shared/exec. */
-const CLAIM_STATUSES: readonly ClaimStatus[] = ['✅', '❌', '⚠', 'manual'];
 
 /** Одно `choice`-поле формы: ответ — строка, один из перечисленных ключей. */
 export function choiceSchema(keys: readonly string[]): JsonSchemaFormat {
@@ -34,6 +31,13 @@ export function choiceSchema(keys: readonly string[]): JsonSchemaFormat {
  * Группа `claimFill` (до `CLAIM_GROUP` пунктов в одном запросе): массив ровно из
  * `ids.length` записей, `id` ограничен теми же пунктами, что задавались в этом запросе —
  * модель не может ответить за пункт, которого не спрашивали, и обязана ответить за каждый.
+ *
+ * `minItems`/`maxItems` без `uniqueItems` не гарантируют этого: массив нужной длины с
+ * повторяющимся `id` формально валиден, а `parseClaimsJsonAnswer` дедуплицирует по `id`
+ * через `answeredIdx` — реальные пункты молча остаются без ответа (code-review-all,
+ * 2026-09-21). `minLength: 1` на `evidence`/`what_to_fix` по той же находке: без него
+ * пустая строка проходит как ответ для ❌/⚠, где обоснование обязательно по методологии
+ * (для зелёного статуса легитимное значение — `н/п`, оно не пустое).
  */
 export function claimsSchema(ids: readonly string[]): JsonSchemaFormat {
   return {
@@ -45,13 +49,14 @@ export function claimsSchema(ids: readonly string[]): JsonSchemaFormat {
           type: 'array',
           minItems: ids.length,
           maxItems: ids.length,
+          uniqueItems: true,
           items: {
             type: 'object',
             properties: {
               id: { type: 'string', enum: [...ids] },
               status: { type: 'string', enum: [...CLAIM_STATUSES] },
-              evidence: { type: 'string' },
-              what_to_fix: { type: 'string' },
+              evidence: { type: 'string', minLength: 1 },
+              what_to_fix: { type: 'string', minLength: 1 },
             },
             required: ['id', 'status', 'evidence', 'what_to_fix'],
             additionalProperties: false,

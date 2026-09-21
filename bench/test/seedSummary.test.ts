@@ -167,6 +167,25 @@ describe('summarizeSeeds', () => {
     strictEqual(s.excluded.some((e) => e.slug === 'e1'), true);
   });
 
+  it('текст исключения buildReport сохраняется в excluded.reason, а не обезличивается (code-review-all, 2026-09-21)', () => {
+    const broken = measuredResult({ slug: 'f1', model: 'm1', seed: seedProbe({ seedId: 'silent-price-change', caught: true }) });
+    (broken as unknown as { hidden: unknown }).hidden = {};
+    const s = summarizeSeeds([broken]);
+    const entry = s.excluded.find((e) => e.slug === 'f1');
+    ok(entry !== undefined);
+    ok(entry.reason.length > 0 && entry.reason !== 'измерение не состоялось (код 2)', `ожидался текст исходного исключения, получено: ${entry.reason}`);
+  });
+
+  it('модель, у которой ВСЕ прогоны исключены, не попадает в шапку таблицы (не даёт ложный столбец из «—»)', () => {
+    const results: BenchResult[] = [
+      unmeasuredResult({ slug: 'g1', model: 'm-broken', seed: seedProbe({ seedId: 'silent-price-change', caught: false }) }),
+      measuredResult({ slug: 'g2', model: 'm-ok', seed: seedProbe({ seedId: 'silent-price-change', caught: true }) }),
+    ];
+    const s = summarizeSeeds(results);
+    deepStrictEqual(s.models, ['m-ok']);
+    strictEqual(s.excluded.some((e) => e.slug === 'g1'), true);
+  });
+
   it('none считается отдельно от классов посева, как ложные срабатывания', () => {
     const results: BenchResult[] = [
       measuredResult({ slug: 'c1', model: 'm1', seed: seedProbe({ seedId: SEED_NONE, klass: 'без посева — проверка ложных срабатываний', expected: null, caught: false }) }),

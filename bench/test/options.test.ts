@@ -188,6 +188,22 @@ describe('аргументы бенчмарка', () => {
   });
 });
 
+describe('сводка посевов (--seed-summary)', () => {
+  it('самостоятельный режим: не требует ни модели, ни режима этапа', () => {
+    const o = parseArgs(['--seed-summary']);
+    strictEqual(o.seedSummary, true);
+  });
+
+  it('несовместим с ключами живого прогона, включая --model и --stage/--all (code-review-all, 2026-09-21)', () => {
+    throws(() => parseArgs(['--seed-summary', '--model', 'x']), /--seed-summary несовместим/);
+    throws(() => parseArgs(['--seed-summary', '--stage', 'verify']), /--seed-summary несовместим/);
+    throws(() => parseArgs(['--seed-summary', '--all']), /--seed-summary несовместим/);
+    throws(() => parseArgs(['--seed-summary', '--model', 'x', '--stage', 'verify']), /--seed-summary несовместим/);
+    throws(() => parseArgs(['--seed-summary', '--probe']), /--seed-summary несовместим/);
+    throws(() => parseArgs(['--seed-summary', '--dry-run']), /--seed-summary несовместим/);
+  });
+});
+
 describe('посев (--seed)', () => {
   const base = ['--model', 'x', '--stage', 'verify', '--from-snapshot', 'snap'];
 
