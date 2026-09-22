@@ -92,6 +92,14 @@ function planAxisQuestion(i: PlanAxisFillInput): string {
     '',
     '`N. да/нет | что именно в шагах, файл:символ / почему ось не затронута | исход`',
     '',
+    'Примеры правильных строк:',
+    '- `3. нет | — / новых точек входа нет | н/п — синхронная библиотека, внешний вход не обрабатывает`',
+    '- `2. да | шаг 4 вызывает `db:orders` внутри цикла | риск | N+1 | индекс по `status` уже есть | после первой нагрузки`',
+    '- `5. да | шаг 1 меняет сигнатуру `priceFor` | claim-2`',
+    '',
+    'Первое поле — ТОЛЬКО `да` или `нет`. Если ось не затронута, первое поле `нет`, а исход `н/п — почему`. ' +
+      'Не пиши `н/п` в первом поле.',
+    '',
     'исход — РОВНО одно из закрытого словаря, ссылаясь ТОЛЬКО на реально существующие ' +
       'адресаты из списка выше:',
     '- `claim-N` — пункт УЖЕ в приёмочном листе (не выдумывай новый id);',
@@ -119,6 +127,13 @@ function planAxisQuestion(i: PlanAxisFillInput): string {
  */
 const NEGATIVE = /^нет(?=\s|[—:,.!]|$)/i;
 /**
+ * Модель иногда кладёт в первое поле `н/п — причина` вместо `нет`, потому что исход
+ * «не применимо» тоже начинается с `н/п`. Разбор должен это выдерживать: признаём
+ * затронутость равной «нет» и оставляем исход третьим полем — там уже будет
+ * `н/п — почему` (живой замер test26b, gpt-oss-20b-rf, 2026-09-22).
+ */
+const NOT_APPLICABLE_HEAD = /^н\s*\/\s*п(?=\s|[—:,.!]|$)/i;
+/**
  * Окончания риска перечислены явно той же группой, что и в `planAxes.ts`'s `OUTCOME_WORDS`
  * (риск/риски/риска/риском/…) — иначе ответ модели «риски: …» (множественное число) не
  * матчился бы здесь, но матчился бы при последующем ЧТЕНИИ той же строки, и `planAxisProblems`
@@ -136,7 +151,13 @@ function parseOneAxisAnswer(axis: AxisName, rest: string): AxisFillAnswer | null
   const parts = rest.split('|').map((p) => p.trim());
   if (parts.length < 3) return null;
   const [affectedRaw = '', what = '', outcomeHead = ''] = parts;
-  const affected = AFFIRMATIVE_HEAD.test(affectedRaw) ? true : NEGATIVE.test(affectedRaw) ? false : null;
+  let affected = AFFIRMATIVE_HEAD.test(affectedRaw)
+    ? true
+    : NEGATIVE.test(affectedRaw)
+      ? false
+      : NOT_APPLICABLE_HEAD.test(affectedRaw)
+        ? false
+        : null;
   if (affected === null || what === '') return null;
 
   if (RISK_HEAD.test(outcomeHead)) {
