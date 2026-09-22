@@ -17,7 +17,7 @@ import type { BenchOptions } from '../src/options.ts';
 import { formatPreflight, preflightExitCode, runPreflight } from '../src/preflight.ts';
 import type { PreflightDeps, PreflightReport } from '../src/preflight.ts';
 
-const MODEL = 'ollama:qwen3.5:4b-ctx16k';
+const MODEL = 'ollama:qwen3:8b-ctx16k'; // существующая запись конфига (qwen3.5:4b-ctx16k удалён чисткой 2026-09-22)
 
 function opts(argv: readonly string[]): BenchOptions {
   return parseArgs(argv);
@@ -193,6 +193,99 @@ describe('runPreflight', () => {
     const report = await runPreflight(opts(['--model', 'ollama:takoy-net', '--stage', 'chunk']), greenDeps());
     strictEqual(report.envBlocked, true);
     ok(report.checks.some((c) => !c.ok), JSON.stringify(report.checks));
+  });
+});
+
+describe('runPreflight: вторая попытка модельных кейсов', () => {
+  const FLAKY = 'правка поля без перезаписи файла';
+
+  /** Проба со сценарием для одного кейса: полный проход — красный, повтор — по флагу. */
+  const scriptedProbe =
+    (retryOk: boolean, env = false): PreflightDeps['probe'] =>
+    async ({ cases }) => {
+      const list = cases ?? [];
+      const single = list.length === 1;
+      return {
+        model: 'm',
+        cases: list.map((c) => ({
+          name: c.name,
+          ok: c.name !== FLAKY || (single && retryOk),
+          env: c.name === FLAKY && env,
+          detail: c.name === FLAKY ? (single ? 'повтор' : 'вызова нет') : 'ok',
+          durationMs: 1,
+        })),
+        passed: true,
+        envBlocked: false,
+      };
+    };
+
+  it('одиночный ❌ шумного кейса: повтор зелёный — преполёт зелёный с пометкой «со 2-й попытки»', async () => {
+    let calls = 0;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      calls += 1;
+      return scriptedProbe(true)(a);
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.passed, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    strictEqual(report.envBlocked, false);
+    const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
+    strictEqual(c?.ok, true, c?.detail);
+    ok(c?.detail.includes('со 2-й попытки'), c?.detail);
+    strictEqual(calls, 2, 'полный проход + один перезапуск упавшего кейса');
+  });
+
+  it('обе попытки красные — преполёт красный по модели (код 1), в деталях «2/2 попыток»', async () => {
+    let calls = 0;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      calls += 1;
+      return scriptedProbe(false)(a);
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.passed, false);
+    strictEqual(report.envBlocked, false);
+    strictEqual(preflightExitCode(report), 1);
+    const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
+    strictEqual(c?.ok, false);
+    ok(c?.detail.includes('2/2 попыток'), c?.detail);
+    strictEqual(calls, 2);
+  });
+
+  it('средовой сбой (⛔) НЕ перезапускается: один проход, код 2', async () => {
+    let calls = 0;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      calls += 1;
+      return scriptedProbe(false, true)(a);
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.passed, false);
+    strictEqual(report.envBlocked, true);
+    strictEqual(preflightExitCode(report), 2);
+    strictEqual(calls, 1, 'ретрай средового сбоя дорог (таймаут 120 с) и не про модель');
+  });
+
+  it('модельный провал + повтор, упавший средой — кейс не измерен: средовый красный (код 2)', async () => {
+    const probe: PreflightDeps['probe'] = async ({ cases }) => {
+      const list = cases ?? [];
+      const single = list.length === 1;
+      return {
+        model: 'm',
+        cases: list.map((c) => ({
+          name: c.name,
+          ok: c.name !== FLAKY,
+          env: c.name === FLAKY && single,
+          detail: single ? 'ECONNREFUSED' : 'вызова нет',
+          durationMs: 1,
+        })),
+        passed: false,
+        envBlocked: single,
+      };
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.envBlocked, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    strictEqual(preflightExitCode(report), 2);
+    const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
+    strictEqual(c?.env, true, c?.detail);
+    ok(c?.detail.includes('не измерен'), c?.detail);
   });
 });
 

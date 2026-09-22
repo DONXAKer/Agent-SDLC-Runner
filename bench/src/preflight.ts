@@ -390,7 +390,17 @@ async function checkContextWindows(deps: PreflightDeps, ctx: PreflightContext): 
   return out;
 }
 
-/** Модельные кейсы пробы — только флоу loop; sdk-флоу проба не меряет (resolveProbeTarget). */
+/**
+ * Модельные кейсы пробы — только флоу loop; sdk-флоу проба не меряет (resolveProbeTarget).
+ *
+ * Модельный провал кейса перезапускается ОДИН раз: ночные серии test24/test24c
+ * (docs/model-runs.md) показали, что одиночный ❌ шумной пробы («правка поля без
+ * перезаписи файла» у трёх моделей, проходивших её накануне) — слабый сигнал отсева,
+ * а красил весь преполёт и отменял долгий прогон. Вторая попытка зелёная — кейс
+ * засчитан, но с пометкой «со 2-й попытки», чтобы шумность не терялась из отчётов.
+ * Средовой сбой (⛔) НЕ перезапускается: там таймауты по 120 с, ретрай дорог и
+ * измерял бы среду, а не модель.
+ */
 async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: BenchOptions): Promise<PreflightCheck[]> {
   const target = resolveProbeTarget(config.models, opts.model);
   if ('error' in target) {
@@ -403,20 +413,54 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
   }
   const { def, providerDef } = target;
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
-  const report: ProbeReport = await deps.probe({
+  const probeArgs = {
     provider,
     model: def.model,
     params: def.params ?? null,
     caseTimeoutMs: PROBE_CASE_TIMEOUT_MS,
-    cases: PREFLIGHT_CASES,
-  });
-  return report.cases.map((c) => ({
+  };
+  const report: ProbeReport = await deps.probe({ ...probeArgs, cases: PREFLIGHT_CASES });
+  const toCheck = (c: ProbeReport['cases'][number], detail = c.detail, durationMs = c.durationMs): PreflightCheck => ({
     name: `модель: ${c.name}`,
     ok: c.ok,
     env: c.env,
-    detail: c.detail,
-    durationMs: c.durationMs,
-  }));
+    detail,
+    durationMs,
+  });
+
+  const checks: PreflightCheck[] = [];
+  for (const c of report.cases) {
+    if (c.ok || c.env) {
+      checks.push(toCheck(c));
+      continue;
+    }
+    const retryCase = PREFLIGHT_CASES.find((p) => p.name === c.name);
+    if (retryCase === undefined) {
+      checks.push(toCheck(c));
+      continue;
+    }
+    const second: ProbeReport = await deps.probe({ ...probeArgs, cases: [retryCase] });
+    const r = second.cases[0];
+    if (r === undefined) {
+      checks.push(toCheck(c));
+    } else if (r.ok) {
+      checks.push(toCheck({ ...c, ok: true }, `${r.detail} (со 2-й попытки)`, c.durationMs + r.durationMs));
+    } else if (r.env) {
+      // Повтор упал средой — модель по этому кейсу не измерена, а не провалена:
+      // красим как средовый сбой (код 2), иначе транзиентный транспорт снова
+      // вычеркнул бы модель одиночным шумным сигналом.
+      checks.push(
+        toCheck(
+          { ...c, env: true },
+          `1-я попытка — провал модели (${c.detail}); повтор не измерен: ${r.detail}`,
+          c.durationMs + r.durationMs,
+        ),
+      );
+    } else {
+      checks.push(toCheck(c, `${r.detail} (провал в 2/2 попыток)`, c.durationMs + r.durationMs));
+    }
+  }
+  return checks;
 }
 
 /**
