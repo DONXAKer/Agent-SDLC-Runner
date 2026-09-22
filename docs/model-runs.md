@@ -6512,3 +6512,43 @@ diff'а целиком. Не измерено, помогает ли блок н
 
 Сырые числа замеров — в `docs/model-runs.local.md` рядом: он не под версионным контролем,
 потому что описывает конкретную машину и конкретную сессию, а не проект.
+
+### Серия `test25` — первый замер после фикса `planAxisFill` (разбор нумерованных блоков и строк по имени оси), 2026-09-22
+
+Три модели, дошедшие до `plan` в test23/test24b/test24e, на одной задаче `freeship` с self-review. Никаких новых ручек конфига, кроме уже включённого `planAxisFill: true` у ministral.
+
+| Модель | Результат |
+|---|---|
+| `lmstudio:gemma-4-e4b-stepfill-compactfill` | intent ✅ (29 мин, 44 запр.), explore ❌ — stage-timeout 30 мин (модель медленная) |
+| `ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill` | отказ среды: ollama не ответил за 1200 с на intent — измерение не состоялось |
+| `ollama:ministral3-14b-instruct-ctx32k-compactfill` | преполёт ❌ (Write ушёл текстом `[ARGS]Write[ARGS]…`) — прогон не начат |
+
+**Главная находка.** gemma intent прошёл с `--parallel 1`, но очень медленно (~40 с/запрос); штатный `--stage-timeout 30` не даёт дойти до plan. Следующий замер — с `--stage-timeout 60`.
+
+Результаты: `bench/results/test25-*-selfreview-freeship.{json,report.md}`.
+
+### Серия `test25b` — повтор с `--stage-timeout 60` и `--no-preflight` для ministral, 2026-09-22
+
+| Модель | Результат |
+|---|---|
+| `ollama:ministral3-14b-instruct-ctx32k-compactfill` | intent ✅, explore ✅ (35 мин), ask ✅ (рантайм), plan ❌ — страж увидел незаполненную placeholder-ось после успешного `planAxisFill` |
+| `ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill` | преполёт ❌ по среде: запросы к модели отменены (120 с) — прогон не начат |
+| `lmstudio:gemma-4-e4b-stepfill-compactfill` | преполёт ❌ по среде: LM Studio HTTP 400 `terminated` / `fetch failed` — прогон не начат |
+
+**Главная находка серии.** ministral дошла до `plan`, и `planAxisFill`-топ-ап состоялся: модель ответила по всем 6 осям, рантайм дописал 6 из 6 строк, но страж завершения всё равно рухнул с `ось ‹имя оси из канона›: колонка «Затронута шагами» не заполнена`. Причина — `renderAxes.ts` не удалял строку-образец с placeholder-именем из таблицы осей; топ-ап дописывал строки ниже, а образец оставался. Исправлено в коммите `06690ed`.
+
+Результаты: `bench/results/test25b-*-selfreview-freeship.{json,report.md}`.
+
+### Серия `test25c` — повтор после фикса `renderAxes` (удаление placeholder-строки образца), 2026-09-22
+
+Те же три модели, те же флаги.
+
+| Модель | Результат |
+|---|---|
+| `ollama:ministral3-14b-instruct-ctx32k-compactfill` | intent ✅, explore ✅, ask ❌ — 7 незакрытых мест в отчёте по вопросам; до plan не дошла |
+| `ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill` | преполёт ❌ по среде: запросы к модели отменены (120 с), повторяет test25/test25b |
+| `lmstudio:gemma-4-e4b-stepfill-compactfill` | преполёт ❌ по среде: LM Studio HTTP 400 `terminated` / `fetch failed` на первых пробах |
+
+**Итог.** Фикс `renderAxes` не получил живого подтверждения на полном витке: ministral остановилась раньше plan, qwen3-coder-30b и gemma-4-e4b не прошли преполёт по среде. После серии ручная проверка `google/gemma-4-e4b` через LM Studio API (`/v1/chat/completions`) прошла успешно — ошибки test25b/test25c выглядят транзиентными/состоянием движка, а не порчей весов.
+
+Результаты: `bench/results/test25c-*-selfreview-freeship.{json,report.md}`.
