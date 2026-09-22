@@ -116,12 +116,16 @@ const BASH_STREAK_LIMIT = 4;
 const BASH_STREAK_REMINDERS = 2;
 
 /**
- * Сколько напоминаний даём, прежде чем закрыть готовый этап по диску — см.
- * `closeOnFinalizeReady` в `StageExecutor.ts`. Первый ход «готово» напоминания не получает
- * (модель вправе позвать `FinalizeArtifact` и закончить сама следующим ходом), поэтому
- * реальный запас — три хода готовности подряд, а не два.
+ * Сколько ходов «готов по диску, а заявки нет» терпим после ОДНОГО напоминания, прежде
+ * чем закрыть этап по диску — см. `closeOnFinalizeReady` в `StageExecutor.ts`.
+ *
+ * Три — по числу соседних порогов серий (`FINALIZE_STALL_LIMIT`, `REPEAT_LIMIT`): суммарно
+ * этап живёт четыре готовых хода (напоминание на первом + три хода форы), столько же,
+ * сколько давала прежняя конструкция с двумя напоминаниями, но напоминание одно — модель,
+ * не позвавшая `FinalizeArtifact` после явного «артефакт готов», вторым таким же
+ * напоминанием не лечится, а ходы стоят полного промпта.
  */
-const READY_STREAK_REMINDERS = 2;
+const READY_STALL_TURNS = 3;
 
 /**
  * Доля бюджета ходов, после которой нулевой прогресс (`req.progressSignal`, у `chunk` —
@@ -279,8 +283,10 @@ export class LoopExecutor implements StageExecutor {
     let readNudges = 0;
     let bashStreak = 0;
     let bashNudges = 0;
+    /** Ходов подряд «артефакт готов по диску, а FinalizeArtifact так и не позван». */
     let readyStreak = 0;
-    let readyNudges = 0;
+    /** Напоминание «артефакт готов» — одно на НЕПРЕРЫВНУЮ серию готовности, не на ход. */
+    let readyNudged = false;
     /** Напоминание про нулевой прогресс — один раз за ход этапа, не серия. */
     let noProgressNudged = false;
 
@@ -742,6 +748,27 @@ export class LoopExecutor implements StageExecutor {
         // только собирает число мест для детектора застревания выше.
         if (normalized !== null && normalized.kind === 'finalize_artifact') {
           const rejection = finalizeRejection(normalized.artifact, toolCtx.projectRoot, req.formArtifacts ?? []);
+
+          // «Финализация прошла, модель продолжает» (docs/proposals/model-flow-improvements.md
+          // §1.3/§2.1 п.1): заявка принята и артефакт полон по диску — этап закрывает
+          // рантайм СРАЗУ, тем же исходом `closedBy: 'runtime'`, что анти-цикл через
+          // `finishedByDisk`, но проактивно. Живой случай — qwen3-coder-30b на ask: ответ
+          // записан, FinalizeArtifact прошёл, дальше 25 ходов цикла «начать план?». Только
+          // на этапах-документах (`closeOnFinalizeReady`): на chunk журнал может стать
+          // готовым раньше кода, и закрытие обрубило бы дописывание правок.
+          if (
+            rejection === null &&
+            req.closeOnFinalizeReady === true &&
+            req.finishGuard !== null &&
+            stageReady()
+          ) {
+            const note =
+              'FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску ' +
+              'сразу, без лишних ходов цикла';
+            hooks.onWarn(note);
+            return { ok: true, finalText, usage, note, closedBy: 'runtime' };
+          }
+
           if (rejection?.placeholders === undefined) {
             // Финализация удалась, либо отказ не про плейсхолдеры (не тот артефакт /
             // не существует) — серия по этому пути больше не показательна.
@@ -815,31 +842,35 @@ export class LoopExecutor implements StageExecutor {
         );
       }
 
-      // Артефакт готов к финализации, а ход не кончается — по любой из двух причин
-      // (`StageExecutor.ts`, `closeOnFinalizeReady`): успешный `FinalizeArtifact` не
-      // остановил модель, либо правки уже готовы, а вызова не было вовсе. Первый ход
-      // «готово» — без напоминания: модель вправе позвать `FinalizeArtifact` СЛЕДУЮЩИМ
-      // ходом и закончить сама. Дальше — тот же ритм, что у серий чтения/Bash: два
-      // напоминания, и если готовность держится, этап закрывает рантайм.
+      // «Правки есть, заявки нет» (docs/proposals/model-flow-improvements.md §1.3/§2.1
+      // п.1): правки сделали артефакт годным, а FinalizeArtifact не позван — живой случай
+      // qwen3-coder-30b, 40 ходов без единой заявки: серия отказов финализации тут не
+      // считается, потому что самих вызовов не было. Счётчик — не «N ходов подряд», а
+      // «готов по диску, а заявки нет»: потеря готовности (новая правка снова открыла
+      // места) сбрасывает серию вместе с кредитом напоминания. Успешная заявка сюда не
+      // доходит — её этап закрывает выше, сразу после FinalizeArtifact. Напоминание ОДНО
+      // на серию, после него — READY_STALL_TURNS хода форы и закрытие по диску.
       if (req.closeOnFinalizeReady === true && req.finishGuard !== null) {
-        readyStreak = stageReady() ? readyStreak + 1 : 0;
-        if (readyStreak > 1) {
-          if (readyNudges < READY_STREAK_REMINDERS) {
-            readyNudges++;
+        if (stageReady()) {
+          readyStreak++;
+          if (!readyNudged) {
+            readyNudged = true;
             hooks.onFriction('reminder');
             pushUserNote(
               messages,
               'Артефакт этапа уже готов к финализации — дальнейшие правки не нужны. Вызови ' +
-                'FinalizeArtifact (если ещё не вызывал) и заверши ход, не открывая новых правок ' +
-                `(напоминание ${readyNudges} из ${READY_STREAK_REMINDERS}).`,
+                'FinalizeArtifact и заверши ход, не открывая новых правок.',
             );
-          } else {
+          } else if (readyStreak > READY_STALL_TURNS) {
             const note =
-              'цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ход не ' +
-              'завершён — этап закрыт по диску';
+              'цикл остановлен: артефакт готов к финализации несколько ходов подряд, а ' +
+              'FinalizeArtifact так и не вызван — этап закрыт по диску';
             hooks.onWarn(note);
             return { ok: true, finalText, usage, note, closedBy: 'runtime' };
           }
+        } else {
+          readyStreak = 0;
+          readyNudged = false;
         }
       }
     }

@@ -43,6 +43,9 @@ function provider(
 
 interface Seen {
   results: { ok: boolean; summary: string }[];
+  /** Сколько раз рантайм напоминал модели (`onFriction('reminder')`). */
+  reminders: number;
+  warns: string[];
 }
 
 function hooks(seen: Seen): ExecHooks {
@@ -54,8 +57,10 @@ function hooks(seen: Seen): ExecHooks {
     onAskHuman: async () => ({}),
     onRecord: () => 'записано',
     onUsage: () => {},
-    onWarn: () => {},
-    onFriction: () => {},
+    onWarn: (w: string) => seen.warns.push(w),
+    onFriction: (kind: string) => {
+      if (kind === 'reminder') seen.reminders++;
+    },
   } as unknown as ExecHooks;
 }
 
@@ -103,7 +108,7 @@ describe('FinalizeArtifact отклоняет пустой шаблон', () => 
   it('артефакт с плейсхолдерами не финализируется — модель получает замечание', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-fin-'));
     writeFileSync(join(root, 'journal.md'), '# Журнал\n\n- **База:** ‹base_sha›\n');
-    const seen: Seen = { results: [] };
+    const seen: Seen = { results: [], reminders: 0, warns: [] };
     await exec([{ text: '', toolCalls: [finalizeCall('journal.md')] }, { text: 'понял' }]).run(
       request(root),
       hooks(seen),
@@ -126,7 +131,7 @@ describe('FinalizeArtifact отклоняет пустой шаблон', () => 
 
   it('несуществующий артефакт — замечание «сначала запиши»', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-fin-'));
-    const seen: Seen = { results: [] };
+    const seen: Seen = { results: [], reminders: 0, warns: [] };
     await exec([{ text: '', toolCalls: [finalizeCall('нет-такого.md')] }, { text: 'понял' }]).run(
       request(root),
       hooks(seen),
@@ -140,7 +145,7 @@ describe('FinalizeArtifact отклоняет пустой шаблон', () => 
       join(root, 'journal.md'),
       '# Журнал\n\n> Незаполненные места помечены `‹…›` — форма.\n\n- **База:** abc123\n',
     );
-    const seen: Seen = { results: [] };
+    const seen: Seen = { results: [], reminders: 0, warns: [] };
     await exec([{ text: '', toolCalls: [finalizeCall('journal.md')] }, { text: 'готово' }]).run(
       request(root),
       hooks(seen),
@@ -163,7 +168,7 @@ describe('детектор застревания FinalizeArtifact (explore не
       { text: '', toolCalls: [{ id: 'f2', name: 'FinalizeArtifact', arguments: { artifact: 'exploration-report.md', note: 'ещё раз' } }] },
       { text: '', toolCalls: [{ id: 'f3', name: 'FinalizeArtifact', arguments: { artifact: 'exploration-report.md', note: 'снова' } }] },
       { text: 'сдаюсь' },
-    ]).run(request(root, { maxTurns: 10 }), hooks({ results: [] }));
+    ]).run(request(root, { maxTurns: 10 }), hooks({ results: [], reminders: 0, warns: [] }));
 
     strictEqual(result.ok, false);
     ok(result.note.includes('зациклился на правке'), result.note);
@@ -188,7 +193,7 @@ describe('детектор застревания FinalizeArtifact (explore не
       { text: '', toolCalls: [editCall('e2', artifact, '‹b›', 'значение B'), finalizeCall('exploration-report.md')] },
       { text: '', toolCalls: [editCall('e3', artifact, '‹c›', 'значение C'), finalizeCall('exploration-report.md')] },
       { text: 'ещё не готово, продолжаю' },
-    ]).run(request(root, { maxTurns: 10 }), hooks({ results: [] }));
+    ]).run(request(root, { maxTurns: 10 }), hooks({ results: [], reminders: 0, warns: [] }));
 
     ok(!result.note.includes('зациклился'), result.note);
   });
@@ -202,16 +207,17 @@ function finishGuardFor(path: string): () => string | null {
 }
 
 describe('закрытие готового этапа рантаймом (closeOnFinalizeReady)', () => {
-  it('успешный FinalizeArtifact не останавливает модель — рантайм закрывает этап сам', async () => {
+  it('паттерн A: успешный FinalizeArtifact — этап закрыт сразу, следующего хода нет', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
     const artifact = join(root, 'exploration-report.md');
     writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
-    const h = hooks({ results: [] });
+    const seen = { results: [], reminders: 0, warns: [] };
 
     const result = await exec([
       // Ход 1: правка закрывает последнее место и туда же — успешный FinalizeArtifact.
       { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего'), finalizeCall('exploration-report.md')] },
-      // Ходы 2–4: модель не завершает ход, хотя готовность уже достигнута.
+      // Ходы 2–4 запасные: при проактивном закрытии до них дело дойти не должно (живой
+      // случай из §1.3 — 25 ходов цикла ПОСЛЕ прошедшего FinalizeArtifact).
       { text: '', toolCalls: [readCall('r1', 'a.txt')] },
       { text: '', toolCalls: [readCall('r2', 'b.txt')] },
       { text: '', toolCalls: [readCall('r3', 'c.txt')] },
@@ -222,66 +228,20 @@ describe('закрытие готового этапа рантаймом (close
         formArtifacts: [artifact],
         closeOnFinalizeReady: true,
       }),
-      h,
+      hooks(seen),
     );
 
     strictEqual(result.ok, true, result.note);
     ok(result.note.includes('закрыт по диску'), result.note);
+    strictEqual(result.turns, 1, `этап обязан закрыться в ход заявки, а не на ${result.turns}-м`);
+    strictEqual(seen.reminders, 0, 'напоминание «артефакт готов» после принятой заявки не нужно');
   });
 
-  it('правки сделали артефакт готовым, а FinalizeArtifact не вызван вовсе — тот же исход', async () => {
+  it('паттерн A на chunk не действует: заявка принята, но этап живёт до maxTurns', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
     const artifact = join(root, 'exploration-report.md');
     writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
-    const h = hooks({ results: [] });
-
-    const result = await exec([
-      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего')] },
-      { text: '', toolCalls: [readCall('r1', 'a.txt')] },
-      { text: '', toolCalls: [readCall('r2', 'b.txt')] },
-      { text: '', toolCalls: [readCall('r3', 'c.txt')] },
-    ]).run(
-      request(root, {
-        maxTurns: 10,
-        finishGuard: finishGuardFor(artifact),
-        formArtifacts: [artifact],
-        closeOnFinalizeReady: true,
-      }),
-      h,
-    );
-
-    strictEqual(result.ok, true, result.note);
-    ok(result.note.includes('закрыт по диску'), result.note);
-  });
-
-  it('первый ход готовности напоминания не получает — модель успевает закончить сама', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
-    const artifact = join(root, 'exploration-report.md');
-    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
-    const h = hooks({ results: [] });
-
-    const result = await exec([
-      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего'), finalizeCall('exploration-report.md')] },
-      { text: 'готово' },
-    ]).run(
-      request(root, {
-        maxTurns: 10,
-        finishGuard: finishGuardFor(artifact),
-        formArtifacts: [artifact],
-        closeOnFinalizeReady: true,
-      }),
-      h,
-    );
-
-    strictEqual(result.ok, true, result.note);
-    ok(!result.note.includes('закрыт по диску'), result.note);
-  });
-
-  it('ручка выключена (умолчание) — этап тянется до maxTurns как раньше', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
-    const artifact = join(root, 'exploration-report.md');
-    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
-    const h = hooks({ results: [] });
+    const seen = { results: [], reminders: 0, warns: [] };
 
     const result = await exec([
       { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего'), finalizeCall('exploration-report.md')] },
@@ -293,13 +253,133 @@ describe('закрытие готового этапа рантаймом (close
         maxTurns: 4,
         finishGuard: finishGuardFor(artifact),
         formArtifacts: [artifact],
-        // closeOnFinalizeReady не задан — то же, что chunk сегодня.
+        // У chunk `closeOnFinalizeReady: false` (stages/chunk/index.ts): журнал попытки
+        // может стать готовым раньше кода, и закрытие по диску обрубило бы правки.
+        closeOnFinalizeReady: false,
       }),
-      h,
+      hooks(seen),
     );
 
     strictEqual(result.ok, false, result.note);
     ok(result.note.includes('исчерпан лимит ходов'), result.note);
+    ok(!result.note.includes('закрыт по диску'), result.note);
+  });
+
+  it('паттерн B: правки готовы, заявки нет — одно напоминание, через K ходов закрытие по диску', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const seen = { results: [], reminders: 0, warns: [] };
+
+    const result = await exec([
+      // Ход 1: правка делает артефакт готовым, FinalizeArtifact не вызван — напоминание.
+      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего')] },
+      // Ходы 2–4: заявки всё нет. Закрытие — на 4-м готовом ходу: напоминание на 1-м
+      // плюс READY_STALL_TURNS (3) хода форы.
+      { text: '', toolCalls: [readCall('r1', 'a.txt')] },
+      { text: '', toolCalls: [readCall('r2', 'b.txt')] },
+      { text: '', toolCalls: [readCall('r3', 'c.txt')] },
+    ]).run(
+      request(root, {
+        maxTurns: 10,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      hooks(seen),
+    );
+
+    strictEqual(result.ok, true, result.note);
+    ok(result.note.includes('закрыт по диску'), result.note);
+    strictEqual(result.turns, 4, `закрытие после напоминания + 3 ходов форы, а не на ${result.turns}-м`);
+    strictEqual(seen.reminders, 1, 'напоминание одно на серию готовности, не на каждый ход');
+  });
+
+  it('после напоминания модель завершает ход сама — закрытия по диску нет', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const seen = { results: [], reminders: 0, warns: [] };
+
+    const result = await exec([
+      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего')] },
+      { text: 'готово' },
+    ]).run(
+      request(root, {
+        maxTurns: 10,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      hooks(seen),
+    );
+
+    strictEqual(result.ok, true, result.note);
+    ok(!result.note.includes('закрыт по диску'), result.note);
+    strictEqual(seen.reminders, 1);
+  });
+
+  it('заявка после напоминания закрывает этап сразу — счётчик «заявки нет» не успевает созреть', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const seen = { results: [], reminders: 0, warns: [] };
+
+    const result = await exec([
+      // Ход 1: правка без заявки — напоминание. Ход 2: модель послушалась и позвала
+      // FinalizeArtifact — этап закрывается по заявке (паттерн A), а не по таймауту серии.
+      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего')] },
+      { text: '', toolCalls: [finalizeCall('exploration-report.md')] },
+      { text: '', toolCalls: [readCall('r1', 'a.txt')] },
+    ]).run(
+      request(root, {
+        maxTurns: 10,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      hooks(seen),
+    );
+
+    strictEqual(result.ok, true, result.note);
+    ok(result.note.includes('закрыт по диску'), result.note);
+    ok(result.note.includes('FinalizeArtifact прошёл'), result.note);
+    strictEqual(result.turns, 2);
+    strictEqual(seen.reminders, 1);
+  });
+
+  it('потеря готовности сбрасывает счётчик и кредит напоминания', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const seen = { results: [], reminders: 0, warns: [] };
+
+    const result = await exec([
+      // Ход 1: готов — напоминание №1. Ход 2: правка СНОВА открыла место — серия
+      // «готов, а заявки нет» оборвалась, счётчик и кредит напоминания сброшены.
+      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'ничего')] },
+      { text: '', toolCalls: [editCall('e2', artifact, 'ничего', '‹риск›')] },
+      // Ход 3: готов заново — новая серия, напоминание №2 (одно на серию, не ноль).
+      // Ходы 4–6: заявки нет — закрытие на 4-м готовом ходу НОВОЙ серии, то есть на 6-м
+      // ходу этапа; без сброса счётчика этап закрылся бы уже на 4-м.
+      { text: '', toolCalls: [editCall('e3', artifact, '‹риск›', 'всё закрыто')] },
+      { text: '', toolCalls: [readCall('r1', 'a.txt')] },
+      { text: '', toolCalls: [readCall('r2', 'b.txt')] },
+      { text: '', toolCalls: [readCall('r3', 'c.txt')] },
+    ]).run(
+      request(root, {
+        maxTurns: 10,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      hooks(seen),
+    );
+
+    strictEqual(result.ok, true, result.note);
+    ok(result.note.includes('закрыт по диску'), result.note);
+    strictEqual(result.turns, 6, `сброшенный счётчик даёт закрытие на 6-м ходу, а не на ${result.turns}-м`);
+    strictEqual(seen.reminders, 2, 'по напоминанию на каждую из двух серий готовности');
   });
 });
 
