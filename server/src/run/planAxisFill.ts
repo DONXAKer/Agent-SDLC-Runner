@@ -23,6 +23,7 @@
 import type { Usage } from '@sdlc-runner/shared';
 
 import { AFFIRMATIVE_HEAD, AXIS_HINTS, axisHint } from './reviewFill.ts';
+import { axisOutcomePromptOptions, matchAxisOutcome } from './axisOutcomes.ts';
 import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
 import type { AxisName } from '../artifacts/planAxes.ts';
 import type { AxisFillAnswer } from '../artifacts/renderAxes.ts';
@@ -100,19 +101,20 @@ function planAxisQuestion(i: PlanAxisFillInput): string {
     'Первое поле — ТОЛЬКО `да` или `нет`. Если ось не затронута, первое поле `нет`, а исход `н/п — почему`. ' +
       'Не пиши `н/п` в первом поле.',
     '',
-    'исход — РОВНО одно из закрытого словаря, ссылаясь ТОЛЬКО на реально существующие ' +
-      'адресаты из списка выше:',
-    '- `claim-N` — пункт УЖЕ в приёмочном листе (не выдумывай новый id);',
-    '- `инвариант` — только если в задаче назван хоть один;',
-    '- `гейт «имя дословно»` — только имя из списка включённых гейтов выше;',
-    '- `следующий виток` — только если в задаче есть открытый вопрос;',
-    '- `н/п — причина` — ось не затронута, причина обязательна;',
-    '- риск: ЧЕТЫРЕ части ПОСЛЕ обычных «да/нет | что именно в шагах» (итого ШЕСТЬ частей ' +
+    'исход — РОВНО один ключ из закрытого словаря:',
+    '',
+    axisOutcomePromptOptions(),
+    '',
+    'Ключ ссылается ТОЛЬКО на реально существующие адресаты из списка выше: `claim-N` — ' +
+      'не выдумывай новый id; `инвариант` — только если в задаче назван хоть один; ' +
+      '`гейт «имя»` — только имя из списка включённых гейтов выше; `следующий виток` — ' +
+      'только если в задаче есть открытый вопрос. Несуществующий адресат не считается ответом.',
+    '',
+    'риск: ЧЕТЫРЕ части ПОСЛЕ обычных «да/нет | что именно в шагах» (итого ШЕСТЬ частей ' +
       'строки, не три) — `риск | что может пойти не так | почему допустимо сейчас | когда ' +
       'вернуться`, все три поля после слова «риск» заполнены всегда.',
     '',
-    'Не ссылайся на claim/гейт/вопрос/инвариант, которых нет в списках выше — несуществующий ' +
-      'адресат не считается ответом. Ничего, кроме этих строк, не пиши.',
+    'Ничего, кроме этих строк, не пиши.',
   ].join('\n');
 }
 
@@ -134,33 +136,35 @@ const NEGATIVE = /^нет(?=\s|[—:,.!]|$)/i;
  */
 const NOT_APPLICABLE_HEAD = /^н\s*\/\s*п(?=\s|[—:,.!]|$)/i;
 /**
- * Окончания риска перечислены явно той же группой, что и в `planAxes.ts`'s `OUTCOME_WORDS`
- * (риск/риски/риска/риском/…) — иначе ответ модели «риски: …» (множественное число) не
- * матчился бы здесь, но матчился бы при последующем ЧТЕНИИ той же строки, и `planAxisProblems`
- * рапортовал бы «исход «риск», но строки в таблице рисков нет» на строке, которую сам же
- * топ-ап и не смог правильно разобрать (ревью).
- */
-const RISK_HEAD = /^риск(?:и|а|ом|у|е|ов|ам)?(?=\s|[—:,.!]|$)/i;
-
-/**
  * Разбор одной строки `N. да/нет | что именно | исход` (или шестичастной для «риска»:
  * да/нет | что именно | риск | риск словами | почему допустимо | когда вернуться).
+ * Поле «исход» обязано содержать ключ словаря (`matchAxisOutcome` — словоформы общие с
+ * читателем плана, см. `axisOutcomes.ts`): исход без ключа словаря — не ответ, ось
+ * остаётся незакрытой и её честно увидит `finishGuard`, вместо того чтобы в план уходил
+ * текст, который `planAxisProblems` потом сам же и отвергнет. Сам текст исхода пишется
+ * вербатим — нормализация ключа нужна только разбору.
  * `null` — строка не разобралась (номер вне диапазона, дубль, пустые поля).
  */
 function parseOneAxisAnswer(axis: AxisName, rest: string): AxisFillAnswer | null {
   const parts = rest.split('|').map((p) => p.trim());
   if (parts.length < 3) return null;
   const [affectedRaw = '', what = '', outcomeHead = ''] = parts;
-  let affected = AFFIRMATIVE_HEAD.test(affectedRaw)
+  // Обёртки («да», *нет*, `н/п`) снимаются перед проверками — та же «вежливость» модели,
+  // что и у исхода; ключи внутри значения (н/п — причина) не трогаются.
+  const affectedClean = affectedRaw.replace(/^[*_`«»"'\s]+/, '').replace(/[*_`«»"'\s]+$/, '');
+  let affected = AFFIRMATIVE_HEAD.test(affectedClean)
     ? true
-    : NEGATIVE.test(affectedRaw)
+    : NEGATIVE.test(affectedClean)
       ? false
-      : NOT_APPLICABLE_HEAD.test(affectedRaw)
+      : NOT_APPLICABLE_HEAD.test(affectedClean)
         ? false
         : null;
   if (affected === null || what === '') return null;
 
-  if (RISK_HEAD.test(outcomeHead)) {
+  const outcomeMatch = matchAxisOutcome(outcomeHead);
+  if (outcomeMatch === null) return null;
+
+  if (outcomeMatch.key === 'риск') {
     // Шесть частей, не пять: «риск» — своё поле (part[2]), «риск словами» для таблицы
     // принятых рисков — ОТДЕЛЬНОЕ part[3], не то же самое, что «что именно в шагах»
     // (part[1]) — прежде код по ошибке переиспользовал `what` для обеих колонок сразу
@@ -177,7 +181,6 @@ function parseOneAxisAnswer(axis: AxisName, rest: string): AxisFillAnswer | null
     };
   }
 
-  if (outcomeHead === '') return null;
   return { axis, affectedText: affected ? 'да' : 'нет', what, outcome: outcomeHead };
 }
 

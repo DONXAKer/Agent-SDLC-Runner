@@ -166,14 +166,26 @@ export function readAffected(cell: string): boolean | null {
  * Окончания перечислены явно и здесь: «рискованно» и «рисковать» словом «риск» не
  * являются, иначе исходом становилась любая проза с оценкой.
  */
-const OUTCOME_WORDS: readonly { re: RegExp; outcome: AxisOutcome }[] = [
-  { re: /(^|[^а-я])н\s*\/\s*п/g, outcome: 'notApplicable' },
-  { re: /claim-\d+/g, outcome: 'claim' },
-  { re: /(^|[^а-я])инвариант(ы|а|ом|у|е)?($|[^а-я])/g, outcome: 'invariant' },
-  { re: /(^|[^а-я])риск(и|а|ом|у|е|ов|ам)?($|[^а-я])/g, outcome: 'risk' },
-  { re: /(^|[^а-я])следующ\S*\s+вит\S+/g, outcome: 'nextWitok' },
-  { re: /(^|[^а-я])гейт\S*/g, outcome: 'gate' },
+/**
+ * Словоформы исходов как СТРОКИ регэкспов — канонический источник и для чтения плана
+ * здесь, и для словаря топ-апа осей (`run/axisOutcomes.ts`): раньше окончания «риск/риски/
+ * риска/…» перечислялись в двух местах и уже расходились (`planAxisFill`'s RISK_HEAD
+ * вынужден был повторять эту группу). Регэкспы строятся из источников на стороне
+ * потребителя — у `/g`-экземпляра mutable `lastIndex`, отдавать наружу живой объект
+ * значило бы делить это состояние между читателями.
+ */
+export const OUTCOME_WORD_SOURCES: readonly { source: string; outcome: AxisOutcome }[] = [
+  { source: String.raw`(^|[^а-я])н\s*\/\s*п`, outcome: 'notApplicable' },
+  { source: String.raw`claim-\d+`, outcome: 'claim' },
+  { source: String.raw`(^|[^а-я])инвариант(ы|а|ом|у|е)?($|[^а-я])`, outcome: 'invariant' },
+  { source: String.raw`(^|[^а-я])риск(и|а|ом|у|е|ов|ам)?($|[^а-я])`, outcome: 'risk' },
+  { source: String.raw`(^|[^а-я])следующ\S*\s+вит\S+`, outcome: 'nextWitok' },
+  { source: String.raw`(^|[^а-я])гейт\S*`, outcome: 'gate' },
 ];
+
+const OUTCOME_WORDS: readonly { re: RegExp; outcome: AxisOutcome }[] = OUTCOME_WORD_SOURCES.map(
+  ({ source, outcome }) => ({ re: new RegExp(source, 'g'), outcome }),
+);
 
 function readOutcome(cell: string): AxisOutcome {
   if (blank(cell)) return 'unknown';

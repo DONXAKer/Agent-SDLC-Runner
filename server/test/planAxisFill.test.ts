@@ -9,6 +9,7 @@ import { describe, it } from 'node:test';
 
 import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
 import { fillPlanAxes, parsePlanAxesCombinedAnswer } from '../src/run/planAxisFill.ts';
+import { axisOutcomePromptOptions, matchAxisOutcome } from '../src/run/axisOutcomes.ts';
 import { planAxisProblems, unansweredAxes, type AxisName } from '../src/artifacts/planAxes.ts';
 import { applyAxisAnswers } from '../src/artifacts/renderAxes.ts';
 
@@ -336,6 +337,102 @@ describe('разбор ответа из дампа 00023 (gpt-oss-20b-rf, «н/
       0,
       problems.join('\n'),
     );
+  });
+});
+
+describe('словарь исходов осей (axisOutcomes)', () => {
+  it('рендер словаря перечисляет все шесть ключей', () => {
+    const opts = axisOutcomePromptOptions();
+    for (const key of ['`н/п — причина`', '`claim-N`', '`инвариант`', '`гейт «имя»`', '`следующий виток`', '`риск`']) {
+      ok(opts.includes(key), `в словаре нет ключа ${key}`);
+    }
+  });
+
+  it('ключ словаря терпим к регистру, обёрткам, префиксу «исход:» и хвосту-пояснению', () => {
+    strictEqual(matchAxisOutcome('Инвариант — сигнатура сохранена')?.key, 'инвариант');
+    strictEqual(matchAxisOutcome('`claim-3`')?.key, 'claim-N');
+    strictEqual(matchAxisOutcome('*гейт* «Тесты»')?.key, 'гейт');
+    strictEqual(matchAxisOutcome('исход: следующий виток')?.key, 'следующий виток');
+    strictEqual(matchAxisOutcome('Н/П — новых вызовов нет')?.key, 'н/п');
+  });
+
+  it('побеждает ключ, встретившийся раньше по тексту поля (тот же принцип, что readOutcome плана)', () => {
+    strictEqual(matchAxisOutcome('риск — см. claim-3')?.key, 'риск');
+    strictEqual(matchAxisOutcome('гейт «Секреты в diff» — риск утечки закрыт')?.key, 'гейт');
+  });
+
+  it('поле без ключа словаря не сопоставляется', () => {
+    strictEqual(matchAxisOutcome('отложить до лучших времён'), null);
+    strictEqual(matchAxisOutcome(''), null);
+  });
+
+  it('строка с исходом не из словаря не разбирается — ось остаётся открытой', () => {
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(
+      AXES2,
+      ['1. да | шаг 1 | отложить до лучших времён', '2. нет | метрик нет | н/п — не затронута'].join('\n'),
+    );
+    strictEqual(answeredIdx.size, 1);
+    strictEqual(answers.length, 1);
+    strictEqual(answers[0]!.axis, 'Наблюдаемость');
+  });
+
+  it('исход ключом в произвольном регистре с пояснением разбирается и читается обратно из плана', () => {
+    const answer = [
+      '1. да | шаг 1 меняет валидацию входа | Инвариант — сигнатура priceFor сохранена',
+      '2. нет | — / метрик не добавляли | Н/П — не затронута',
+    ].join('\n');
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(AXES2, answer);
+    strictEqual(answeredIdx.size, 2);
+    strictEqual(answers[0]!.outcome, 'Инвариант — сигнатура priceFor сохранена');
+    const plan = [
+      '# План: тест',
+      '',
+      '## Последствия шагов',
+      '',
+      '| Ось | Затронута шагами | Что именно в шагах | Исход |',
+      '|---|---|---|---|',
+      '',
+    ].join('\n');
+    const updated = applyAxisAnswers(plan, answers);
+    // В план записаны только две оси из шести канона — остальные четыре законно «не
+    // отвечены»; проверяем, что без претензий читаются именно ЗАПИСАННЫЕ строки.
+    deepStrictEqual(unansweredAxes(updated).filter((a) => (AXES2 as string[]).includes(a)), []);
+    const problems = planAxisProblems(updated);
+    ok(
+      !problems.some((p) => p.includes('Безопасность') || p.includes('Наблюдаемость')),
+      problems.join('\n'),
+    );
+  });
+
+  it('«н/п» в первом поле терпимо к регистру и кавычкам, без «— причина»', () => {
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(
+      AXES2,
+      ['1. «Н/П» | — / нет новых вызовов | н/п — не затронута', '2. Н/П | — / метрик нет | н/п — п'].join('\n'),
+    );
+    strictEqual(answeredIdx.size, 2);
+    ok(answers.every((a) => a.affectedText === 'нет'));
+  });
+
+  it('комбинированный ответ ключами словаря: гейт и следующий виток', () => {
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(
+      AXES2,
+      ['1. да | шаг 1 добавляет секрет в diff | гейт «Тесты»', '2. да | метрика не определена задачей | следующий виток'].join('\n'),
+    );
+    strictEqual(answeredIdx.size, 2);
+    strictEqual(answers[0]!.outcome, 'гейт «Тесты»');
+    strictEqual(answers[1]!.outcome, 'следующий виток');
+  });
+
+  it('вопрос модели содержит словарь исходов ключами', async () => {
+    let asked = '';
+    const provider = stubProvider((req) => {
+      asked = req.messages.find((m) => m.role === 'user')?.content ?? '';
+      return { text: '' };
+    });
+    await fillPlanAxes(baseInput({ provider }));
+    for (const key of ['`н/п — причина`', '`claim-N`', '`инвариант`', '`гейт «имя»`', '`следующий виток`', '`риск`']) {
+      ok(asked.includes(key), `в вопросе нет ключа ${key}`);
+    }
   });
 });
 
