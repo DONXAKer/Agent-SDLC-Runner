@@ -38,6 +38,13 @@ function axisKey(s: string): string {
 
 const CANONICAL_BY_KEY = new Map<string, AxisName>(AXES.map((a) => [axisKey(a), a]));
 
+/** Строка-образец методологии: `| ‹имя оси из канона› | ‹да/нет› | … |`. */
+function isExampleAxisRow(line: string): boolean {
+  const cells = splitRow(line.trim());
+  const name = (cells[0] ?? '').replace(/[‹›]/g, '').trim();
+  return axisKey(name) === axisKey('имя оси из канона');
+}
+
 function axisRowLine(a: AxisFillAnswer): string {
   return `| ${a.axis} | ${escapeCell(a.affectedText)} | ${escapeCell(a.what)} | ${escapeCell(a.outcome)} |`;
 }
@@ -78,6 +85,32 @@ export function applyAxisAnswers(planText: string, answers: readonly AxisFillAns
     break;
   }
   if (sectionStart === -1) return planText;
+
+  // Шаблон методологии кладёт в таблицу осей одну строку-образец с placeholder-именем.
+  // Если топ-ап заполняет оси, эта строка мешает стражу завершения: он видит
+  // незаполненную «ось ‹имя оси из канона›» и честно роняет этап. Удаляем образец
+  // заранее — до разбора таблицы, чтобы новые строки вставлялись уже в чистую таблицу.
+  let foundTable = false;
+  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    const line = lines[i]!.trim();
+    if (!line.startsWith('|') || isSeparatorRow(line)) continue;
+    const first = axisKey(splitRow(line)[0] ?? '');
+    if (first === 'ось') {
+      foundTable = true;
+      continue; // шапка таблицы осей — образец идёт сразу за ней
+    }
+    if (!foundTable) {
+      // до таблицы осей могут быть строки-описания; как только встретили реальную строку
+      // таблицы осей без шапки — образца нет
+      if (looksLikeAxisRow(splitRow(line))) break;
+      continue;
+    }
+    if (isExampleAxisRow(line)) {
+      lines.splice(i, 1);
+      sectionEnd--;
+    }
+    break; // либо удалили образец, либо первая реальная строка оси — дальше искать не надо
+  }
 
   // Таблица осей — ПЕРВАЯ таблица секции под шапкой «Ось …» (шаблон методологии кладёт её
   // раньше таблицы принятых рисков). Вторая встреченная шапка «Ось …» — уже таблица рисков,
