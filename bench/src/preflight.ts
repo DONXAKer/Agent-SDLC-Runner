@@ -31,6 +31,7 @@ import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, probeModel, resolveProbeTarget 
 import type { ProbeReport } from '../../server/src/probe.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
+import { isEngineEnvFailure, reloadEngine, warmupEngine } from './engine.ts';
 import { spawnNode, spawnNodeTest } from './nodeTest.ts';
 import type { NodeTestOutput } from './nodeTest.ts';
 import { readHumanScript } from './operator.ts';
@@ -85,6 +86,10 @@ export function formatPreflight(report: PreflightReport): string {
 /** Точка подмены для тестов: сеть, дочерние процессы и конфиг машины подменяются. */
 export interface PreflightDeps {
   probe: typeof probeModel;
+  /** Прогрев движка одним дешёвым запросом (`engine.ts`) — до замеряемых проб. */
+  warmup: typeof warmupEngine;
+  /** Перезагрузка модели при средовом сбое движка — только за `--engine-reload`. */
+  reloadEngine: typeof reloadEngine;
   contextProblem: typeof contextProblemFor;
   spawnTest: typeof spawnNodeTest;
   spawnScript: (args: { script: string; cwd: string; timeoutMs: number }) => Promise<NodeTestOutput>;
@@ -97,6 +102,8 @@ export interface PreflightDeps {
 function defaultDeps(): PreflightDeps {
   return {
     probe: probeModel,
+    warmup: warmupEngine,
+    reloadEngine,
     contextProblem: contextProblemFor,
     spawnTest: spawnNodeTest,
     // Общий спавн `nodeTest.ts`: своя копия здесь не сбрасывала NODE_TEST_CONTEXT, и
@@ -391,6 +398,68 @@ async function checkContextWindows(deps: PreflightDeps, ctx: PreflightContext): 
 }
 
 /**
+ * Прогрев движка одним дешёвым запросом — первый модельный шаг преполёта, ДО замеряемых
+ * проб (`engine.ts::warmupEngine`). Холодный движок (LM Studio / ollama) поднимает веса на
+ * первом вызове, и без прогрева этот холодный старт ложился в первую пробу и мерил движок,
+ * а не модель. Длительность попадает в отчёт как у любой проверки — по ней холодный старт
+ * и читается.
+ *
+ * Сбой прогрева — всегда средовый (⛔, код 2), не модельный: на один токен не отвечает
+ * только лёгший/холодный движок или битый конфиг, и гонять дальше семь кейсов по 120 с
+ * бессмысленно — проба не запускается. При сбое именно движка (та же классификация, что у
+ * провайдера — `isEngineEnvFailure`) и ЯВНОМ `--engine-reload` — ОДНА попытка перезагрузки
+ * и один повтор: GPU общий, поэтому без флага преполёт ограничивается диагнозом и
+ * подсказкой, а повтор после перезагрузки — ровно один, второй серии не будет.
+ */
+async function checkWarmup(deps: PreflightDeps, config: LoadedConfig, opts: BenchOptions): Promise<PreflightCheck> {
+  const name = 'модель: прогрев движка';
+  const target = resolveProbeTarget(config.models, opts.model);
+  // Цель не разрешилась (sdk-флоу, битый конфиг) — диагноз назовёт проба ниже,
+  // дублировать его строкой прогрева незачем.
+  if ('error' in target) return ok(name, true, 'цель пробы не разрешилась — прогрев пропущен, диагноз назовёт проба');
+  const { def, providerDef } = target;
+  const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+  const args = { provider, model: def.model, params: def.params ?? null };
+
+  const started = Date.now();
+  try {
+    await deps.warmup(args);
+    return ok(name, true, 'движок ответил — веса подняты до замеряемых проб', Date.now() - started);
+  } catch (e) {
+    const message = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+    const ms = Date.now() - started;
+    if (!isEngineEnvFailure(e)) {
+      return bad(name, true, `прогрев не удался: ${message}`, ms);
+    }
+    if (opts.engineReload !== true) {
+      return bad(
+        name,
+        true,
+        `движок не ответил на прогрев: ${message}; перезагрузить движок и повторить пробу может преполёт с явным --engine-reload`,
+        ms,
+      );
+    }
+    const reload = await deps.reloadEngine({ provider: def.provider, model: def.model });
+    if (reload.kind !== 'reloaded') {
+      return bad(name, true, `движок не ответил на прогрев: ${message}; ${reload.detail}`, ms);
+    }
+    const retryStarted = Date.now();
+    try {
+      await deps.warmup(args);
+      return ok(name, true, `движок поднялся после перезагрузки (${reload.detail})`, ms + (Date.now() - retryStarted));
+    } catch (e2) {
+      const message2 = (e2 instanceof Error ? e2.message : String(e2)).slice(0, 200);
+      return bad(
+        name,
+        true,
+        `перезагрузка выполнена (${reload.detail}), но движок не ответил и на повтор: ${message2}`,
+        ms + (Date.now() - retryStarted),
+      );
+    }
+  }
+}
+
+/**
  * Модельные кейсы пробы — только флоу loop; sdk-флоу проба не меряет (resolveProbeTarget).
  *
  * Модельный провал кейса перезапускается ОДИН раз: ночные серии test24/test24c
@@ -483,6 +552,9 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
     const planFit = checkPlanPromptFits(ctx, opts);
     if (planFit !== null) checks.push(planFit);
     checks.push(...(await checkContextWindows(d, ctx)));
+    if (checks.every((c) => c.ok)) {
+      checks.push(await checkWarmup(d, ctx.config, opts));
+    }
     if (checks.every((c) => c.ok)) {
       checks.push(...(await checkModel(d, ctx.config, opts)));
     }

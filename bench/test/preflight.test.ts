@@ -3,7 +3,7 @@
  * подменяются через `PreflightDeps`, файловые проверки идут по настоящему bench/.
  */
 
-import { ok, strictEqual } from 'node:assert/strict';
+import { ok, deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import { after, describe, it } from 'node:test';
 
 import { loadConfig } from '../../server/src/config/load.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
+import { ProviderEnvError } from '../../server/src/provider/ChatProvider.ts';
 import { spawnNode } from '../src/nodeTest.ts';
 import { parseArgs } from '../src/options.ts';
 import type { BenchOptions } from '../src/options.ts';
@@ -34,6 +35,9 @@ const greenProbe: PreflightDeps['probe'] = async ({ cases }) => ({
 function greenDeps(over: Partial<PreflightDeps> = {}): Partial<PreflightDeps> {
   return {
     probe: greenProbe,
+    // Прогрев и перезагрузка — внешние вызовы (chat, lms); в герметичном тесте — заглушки.
+    warmup: async () => {},
+    reloadEngine: async () => ({ kind: 'reloaded', detail: 'заглушка' }),
     contextProblem: async () => null,
     spawnScript: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
     spawnTest: async () => ({ exitCode: 0, stdout: 'ok 1 - t', stderr: '', timedOut: false }),
@@ -286,6 +290,132 @@ describe('runPreflight: вторая попытка модельных кейс�
     const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
     strictEqual(c?.env, true, c?.detail);
     ok(c?.detail.includes('не измерен'), c?.detail);
+  });
+});
+
+describe('runPreflight: прогрев движка и автоперезагрузка', () => {
+  const WARMUP_CHECK = 'модель: прогрев движка';
+
+  it('прогрев идёт ДО проб и вердикт не меняет: зелёный прогрев — просто строка с длительностью', async () => {
+    const order: string[] = [];
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({
+        warmup: async () => {
+          order.push('warmup');
+        },
+        probe: async (a) => {
+          order.push('probe');
+          return greenProbe(a);
+        },
+      }),
+    );
+    strictEqual(report.passed, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    const c = report.checks.find((x) => x.name === WARMUP_CHECK);
+    strictEqual(c?.ok, true, c?.detail);
+    deepStrictEqual(order, ['warmup', 'probe'], 'холодный старт обязан уйти в прогрев, а не в первую пробу');
+  });
+
+  it('прогрев упал средой, флаг выключен — код 2, проба не гонялась, перезагрузки нет, есть подсказка', async () => {
+    let probeCalled = false;
+    let reloadCalled = false;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({
+        warmup: async () => {
+          throw new ProviderEnvError('HTTP 400 terminated');
+        },
+        probe: async (a) => {
+          probeCalled = true;
+          return greenProbe(a);
+        },
+        reloadEngine: async () => {
+          reloadCalled = true;
+          return { kind: 'reloaded' as const, detail: 'x' };
+        },
+      }),
+    );
+    strictEqual(report.envBlocked, true);
+    strictEqual(preflightExitCode(report), 2);
+    strictEqual(probeCalled, false, 'гонять семь кейсов по лёгшему движку бессмысленно');
+    strictEqual(reloadCalled, false, 'GPU общий — без явного флага перезагрузки нет');
+    const c = report.checks.find((x) => x.name === WARMUP_CHECK);
+    ok(c?.detail.includes('--engine-reload'), c?.detail);
+  });
+
+  it('флаг включён: после сбоя движка — одна перезагрузка и один повтор; повтор зелёный — преполёт зелёный', async () => {
+    let warmups = 0;
+    let reloads = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          warmups += 1;
+          if (warmups === 1) throw new Error('fetch failed');
+        },
+        reloadEngine: async () => {
+          reloads += 1;
+          return { kind: 'reloaded' as const, detail: 'lms load m зелёный' };
+        },
+      }),
+    );
+    strictEqual(report.passed, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    strictEqual(warmups, 2, 'первый прогрев + ровно один повтор после перезагрузки');
+    strictEqual(reloads, 1);
+    const c = report.checks.find((x) => x.name === WARMUP_CHECK);
+    ok(c?.detail.includes('после перезагрузки'), c?.detail);
+  });
+
+  it('флаг включён, повтор снова упал — код 2, третьей попытки нет', async () => {
+    let warmups = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          warmups += 1;
+          throw new Error('fetch failed');
+        },
+        reloadEngine: async () => ({ kind: 'reloaded' as const, detail: 'ok' }),
+      }),
+    );
+    strictEqual(preflightExitCode(report), 2);
+    strictEqual(warmups, 2, 'повтор после перезагрузки ровно один');
+  });
+
+  it('перезагрузка не поддержана провайдером — честное сообщение, повтора пробы нет', async () => {
+    let warmups = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          warmups += 1;
+          throw new ProviderEnvError('HTTP 400 terminated');
+        },
+        reloadEngine: async () => ({ kind: 'unsupported' as const, detail: 'автоперезагрузка не поддержана' }),
+      }),
+    );
+    strictEqual(preflightExitCode(report), 2);
+    strictEqual(warmups, 1, 'без выполненной перезагрузки повтор бессмыслен');
+    const c = report.checks.find((x) => x.name === WARMUP_CHECK);
+    ok(c?.detail.includes('не поддержана'), c?.detail);
+  });
+
+  it('не-средовой сбой прогрева перезагрузку не вызывает даже с флагом', async () => {
+    let reloads = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          throw new Error('HTTP 400 bad request');
+        },
+        reloadEngine: async () => {
+          reloads += 1;
+          return { kind: 'reloaded' as const, detail: 'x' };
+        },
+      }),
+    );
+    strictEqual(reloads, 0, 'перезагрузка — только при сбое движка, не при любой ошибке');
+    strictEqual(preflightExitCode(report), 2);
   });
 });
 

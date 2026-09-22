@@ -87,6 +87,14 @@ export interface BenchOptions {
    */
   preflight: boolean;
   /**
+   * Явное разрешение преполёту ОДИН раз перезагрузить модель при средовом сбое движка
+   * (`--engine-reload`) и повторить срезавшуюся пробу. По умолчанию выключено: GPU общий,
+   * и молча дёргать загрузку моделей нельзя — нужен флаг оператора (§2.1 п.4
+   * docs/proposals/model-flow-improvements.md). Необязательное поле — как `rawLog`:
+   * литеральные BenchOptions в тестах не обязаны его называть.
+   */
+  engineReload?: boolean;
+  /**
    * Не печатать живой ход прогона (этапы, вызовы, ветки решений, контекст) — `--quiet`.
    * По умолчанию печатается: без него прогон молчал часами до итоговой сводки.
    */
@@ -221,6 +229,9 @@ ${taskListForUsage()}
   --preflight           преполётный тест вместо прогона: среда (фикстура/снимок/конфиг) +
                         расширенная проба модели (точность записи, честность путей, длина ответа)
   --no-preflight        не гонять преполёт автоматически перед живым прогоном (по умолчанию гоняется)
+  --engine-reload       разрешить преполёту ОДНУ перезагрузку модели при средовом сбое движка
+                        (lms load для LM Studio) и один повтор пробы; по умолчанию выключено —
+                        GPU общий, молча дёргать загрузку моделей нельзя
   --quiet               не печатать живой ход прогона: этапы, вызовы, ветки решений, контекст
   --make-snapshot <имя> остановиться после точки снимка и сохранить снимок под этим именем
   --snapshot-after <этап> точка снимка для --make-snapshot (умолчание plan)
@@ -262,6 +273,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let probe = false;
   let preflightOnly = false;
   let preflight = true;
+  let engineReload = false;
   let quiet = false;
   let makeSnapshot: string | null = null;
   let fromSnapshot: string | null = null;
@@ -371,6 +383,9 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         break;
       case '--no-preflight':
         preflight = false;
+        break;
+      case '--engine-reload':
+        engineReload = true;
         break;
       case '--quiet':
         quiet = true;
@@ -484,6 +499,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     probe,
     preflightOnly,
     preflight,
+    engineReload,
     quiet,
     makeSnapshot,
     fromSnapshot,
