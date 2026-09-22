@@ -160,24 +160,119 @@ function parseOneAxisAnswer(axis: AxisName, rest: string): AxisFillAnswer | null
   return { axis, affectedText: affected ? 'да' : 'нет', what, outcome: outcomeHead };
 }
 
+/** Нумерованная строка ответа: `idx` — номер оси по порядку вопроса, с 0. */
+interface NumberedLine {
+  idx: number;
+  rest: string;
+}
+
+/**
+ * Нумерованные строки, идущие ПОДРЯД, — один блок ответа; любая другая строка блок
+ * разрывает. Разбиение нужно самокоррекции: модель, нашедшая у себя ошибку, пишет прозу
+ * («первый блок недействителен…») и ПОВТОРНЫЙ блок ответа — без границ блоков обе версии
+ * сливались бы в одну, и побеждала бы первая, то есть отозванная самой моделью (живой
+ * замер test24e, дамп `00107-plan-planAxisFill.json`, 2026-09-22).
+ */
+function numberedBlocks(lines: readonly string[]): NumberedLine[][] {
+  const blocks: NumberedLine[][] = [];
+  let current: NumberedLine[] = [];
+  for (const line of lines) {
+    const m = /^(\d+)\.\s*(.*)$/.exec(line);
+    if (m === null) {
+      if (current.length > 0) {
+        blocks.push(current);
+        current = [];
+      }
+      continue;
+    }
+    current.push({ idx: Number(m[1]) - 1, rest: m[2] ?? '' });
+  }
+  if (current.length > 0) blocks.push(current);
+  return blocks;
+}
+
+/** Разбор одного блока: дубль номера внутри блока и номер вне диапазона — не ответ. */
+function parseNumberedBlock(
+  axes: readonly AxisName[],
+  block: readonly NumberedLine[],
+): { answeredIdx: Set<number>; answers: AxisFillAnswer[] } {
+  const answeredIdx = new Set<number>();
+  const answers: AxisFillAnswer[] = [];
+  for (const { idx, rest } of block) {
+    if (idx < 0 || idx >= axes.length || answeredIdx.has(idx)) continue;
+    if (rest.trim() === '') continue;
+    const parsed = parseOneAxisAnswer(axes[idx]!, rest);
+    if (parsed === null) continue;
+    answeredIdx.add(idx);
+    answers.push(parsed);
+  }
+  return { answeredIdx, answers };
+}
+
+/**
+ * Строка вида `<имя оси> | да/нет | …` — ответ по имени вместо номера. Markdown-обёртки
+ * имени (`**Ось**`, кавычки) снимаются; после имени обязан стоять разделитель (`|` или
+ * `:`), иначе строка — проза ПРО ось, а не ответ по ней. Имена проверяются от длинного к
+ * короткому: ось-префикс чужого имени не должна съедать начало чужой строки.
+ */
+function namePrefixedAxis(line: string, axes: readonly AxisName[]): { axis: AxisName; rest: string } | null {
+  const bare = line.replace(/^[\s*_`]+/, '');
+  const lower = bare.toLowerCase();
+  for (const axis of [...axes].sort((a, b) => b.length - a.length)) {
+    if (!lower.startsWith(axis.toLowerCase())) continue;
+    const rest = bare.slice(axis.length).replace(/^[\s*_`»]+/, '');
+    if (!rest.startsWith('|') && !rest.startsWith(':') && !rest.startsWith('—')) return null;
+    return { axis, rest: rest.slice(1).trim() };
+  }
+  return null;
+}
+
+/**
+ * Разбор комбинированного ответа топ-апа.
+ *
+ * Две формы строки: `N. да/нет | …` (номер — порядок оси в вопросе, промпт нумерует с 1)
+ * и `<имя оси> | да/нет | …`. Проза вокруг не разбирается вовсе, строка, не севшая ни на
+ * одну форму, пропускается: недобор честно увидит `finishGuard`, а мусор в таблице осей
+ * пришлось бы вычищать человеку.
+ *
+ * Нумерованные строки разбираются ПОБЛОЧНО и побеждает ПОСЛЕДНИЙ ПОЛНЫЙ блок (закрывший
+ * все оси вопроса): самокоррекция модели отзывает первую версию, и взять её значило бы
+ * записать то, что модель сама объявила неверным. Полного блока нет — берётся последний
+ * из покрывших больше всех: частичный ответ лучше молчания, тем же принципом, что недобор
+ * по части осей не роняет уже разобранные. Строки по имени оси добирают только то, что не
+ * закрыл выбранный нумерованный блок, — не переписывая его.
+ */
 export function parsePlanAxesCombinedAnswer(
   axes: readonly AxisName[],
   answer: string,
 ): { answeredIdx: Set<number>; answers: AxisFillAnswer[] } {
-  const answeredIdx = new Set<number>();
-  const answers: AxisFillAnswer[] = [];
   const lines = answer
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l !== '' && !l.startsWith('```'));
+
+  let best: { answeredIdx: Set<number>; answers: AxisFillAnswer[] } = {
+    answeredIdx: new Set<number>(),
+    answers: [],
+  };
+  for (const block of numberedBlocks(lines)) {
+    const parsed = parseNumberedBlock(axes, block);
+    const covered = parsed.answeredIdx.size;
+    if (covered === 0) continue;
+    if (covered === axes.length || (best.answeredIdx.size < axes.length && covered >= best.answeredIdx.size)) {
+      best = parsed;
+    }
+  }
+
+  const answeredIdx = new Set(best.answeredIdx);
+  const answers = [...best.answers];
   for (const line of lines) {
-    const m = /^(\d+)\.\s*(.*)$/.exec(line);
-    if (m === null) continue;
-    const idx = Number(m[1]) - 1;
-    if (idx < 0 || idx >= axes.length || answeredIdx.has(idx)) continue;
-    const rest = m[2] ?? '';
-    if (rest.trim() === '') continue;
-    const parsed = parseOneAxisAnswer(axes[idx]!, rest);
+    if (/^(\d+)\./.test(line)) continue; // нумерованные уже разобраны поблочно
+    const named = namePrefixedAxis(line, axes);
+    if (named === null) continue;
+    const idx = axes.indexOf(named.axis);
+    if (idx < 0 || answeredIdx.has(idx)) continue;
+    const parsed = parseOneAxisAnswer(named.axis, named.rest);
     if (parsed === null) continue;
     answeredIdx.add(idx);
     answers.push(parsed);

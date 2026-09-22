@@ -9,7 +9,8 @@ import { describe, it } from 'node:test';
 
 import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
 import { fillPlanAxes, parsePlanAxesCombinedAnswer } from '../src/run/planAxisFill.ts';
-import type { AxisName } from '../src/artifacts/planAxes.ts';
+import { planAxisProblems, unansweredAxes, type AxisName } from '../src/artifacts/planAxes.ts';
+import { applyAxisAnswers } from '../src/artifacts/renderAxes.ts';
 
 const AXES2: AxisName[] = ['Безопасность', 'Наблюдаемость'];
 
@@ -121,6 +122,166 @@ describe('разбор комбинированного ответа по ося
     const answer = ['1. может быть | шаг 1 | claim-1', '2. да | | claim-2'].join('\n');
     const { answeredIdx } = parsePlanAxesCombinedAnswer(AXES2, answer);
     strictEqual(answeredIdx.size, 0);
+  });
+
+  it('ответ по ИМЕНАМ осей (без номеров) разбирается тем же словарём', () => {
+    const answer = [
+      'Безопасность | да | шаг 1 меняет валидацию входа | claim-1',
+      'Наблюдаемость | нет | метрик не добавляли | н/п — не затронута',
+    ].join('\n');
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(AXES2, answer);
+    strictEqual(answeredIdx.size, 2);
+    deepStrictEqual(answers.map((a) => a.axis), ['Безопасность', 'Наблюдаемость']);
+    strictEqual(answers[0]!.outcome, 'claim-1');
+    strictEqual(answers[1]!.affectedText, 'нет');
+  });
+
+  it('строка по имени оси добирает только то, что не закрыл нумерованный блок', () => {
+    const answer = ['1. да | шаг 1 | claim-1', 'Наблюдаемость | нет | метрик нет | н/п — не затронута'].join('\n');
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(AXES2, answer);
+    strictEqual(answeredIdx.size, 2);
+    deepStrictEqual(answers.map((a) => a.axis), ['Безопасность', 'Наблюдаемость']);
+  });
+
+  it('проза про оси — не ответ: ни «имя без разделителя», ни текст вокруг блока', () => {
+    const answer = [
+      'Смотрю на оси ещё раз.',
+      'Безопасность здесь не затронута совершенно точно',
+      '1. да | шаг 1 | claim-1',
+      'Наблюдаемость — важная ось, но не здесь',
+    ].join('\n');
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(AXES2, answer);
+    deepStrictEqual([...answeredIdx], [0]);
+    strictEqual(answers.length, 1);
+  });
+
+  it('мусорный ответ без единой строки формата — ничего не записывается', () => {
+    const answer = [
+      'Я посмотрел на шаги плана и думаю, что всё в порядке.',
+      '- оси разобраны выше',
+      '### Итог',
+      'претензий нет',
+    ].join('\n');
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(AXES2, answer);
+    strictEqual(answeredIdx.size, 0);
+    strictEqual(answers.length, 0);
+  });
+
+  it('самокоррекция: из двух ПОЛНЫХ блоков берётся ПОСЛЕДНИЙ, проза между ними игнорируется', () => {
+    const answer = [
+      '1. да | первая версия — отозвана | claim-1',
+      '2. нет | первая версия — отозвана | н/п — п',
+      'Стоп, первая версия неверна, вот исправленный ответ:',
+      '',
+      '1. да | исправлено: валидация входа | claim-1',
+      '2. нет | исправлено: метрик нет | н/п — не затронута',
+      '',
+      '### Обоснование',
+      'дальше проза, не ответ',
+    ].join('\n');
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(AXES2, answer);
+    strictEqual(answeredIdx.size, 2);
+    strictEqual(answers.length, 2);
+    ok(answers[0]!.what.includes('исправлено'), 'взята первая (отозванная) версия блока');
+    ok(answers[1]!.what.includes('исправлено'), 'взята первая (отозванная) версия блока');
+  });
+});
+
+/**
+ * Ответ из живого дампа `bench/traces/raw/test24e-ministral-st60-selfreview-freeship/
+ * 00107-plan-planAxisFill.json` (2026-09-22) — ДОСЛОВНО: первый блок с осями вразнобой
+ * (1,4,3,6,2,5), проза самопроверки, «Исправленный полноценный ответ» блоком 1..6 и
+ * проза-обоснование в хвосте. На момент прогона рантайм не доносил такой ответ до
+ * таблицы — этот разбор обязан закрывать все 6 осей.
+ */
+const DUMP_00107_ANSWER = [
+  '1. да | что именно в шагах: проверка уровня клиента ("gold") и весовой ступени 3 в `src/freeship.ts:isFreeShipmentEligible(tier, weightG)` | исход: claim-2',
+  '4. нет | нет вводов новой настройки в шагах плана (ограничения жестко прописаны в `freeship.ts`) | н/п — граница весов (2–5 кг) зафиксирована в логике без внешних конфиг-файлов',
+  '3. нет | нет вызовов внешних зависимостей или дисковой/сетевой I/O в `freeship.ts` или `priceFor` (весовый расчёт локален) | н/п — все условия проверяются через параметры-аргументы',
+  '6. да | добавление теста с префиксом `freeship` в `test/tariffs.test.ts` для нового функционала | исход: claim-5',
+  '2. нет | добавлен локальный вызов `isEligible` без циклов или обращений к ресурсам в `src/tariffs.ts` | н/п — логика использует только параметры веса и уровня без дисковой/сетевой I/O',
+  '5. да | модификация внутренней логики `freeship.ts` без изменения схем данных тарифов/скидок или контрактных сигнатур | исход: инвариант',
+  '4 строки (ОШИБКА ПФ) **недействительно**, так как в данном списке отсутствует ось "Настройки" под номером 4: все оси сгруппированы в том порядке, который проставлен в инструктаже.',
+  '**Исправленный полноценный ответ:**',
+  '',
+  '1. да | что именно в шагах: фильтрация в `src/freeship.ts:isFreeShipmentEligible(tier, weightG)` не содержит чужих данных/секретов. Данные уровней и веса — локальные аргументы | исход: claim-2',
+  '2. нет | локальная проверка без циклов/сетевых запросов в `freeship.ts:isEligible` и `tariffs.ts:priceFor` | н/п — затраты равны O(1) по параметрам веса (2001–5000г) и уровня gold',
+  '3. нет | модификация в `src/freeship.ts` и `src/tariffs.ts` не использует внешние вызовы | исход: claim-4',
+  '4. нет | жестко прописаны пороги и правило gold-only в `freeship.ts` | н/п — границы (2–5кг) зафиксированы без внешних настроек',
+  '5. да | логика сохраняет сигнатуру `priceFor()` без схемных изменений в публичных контрактах | исход: инвариант',
+  '6. да | тест на покрытие нового модуля в `test/tariffs.test.ts` добавляет лог-функции и метрику `total === 0` при gold/вес≥2000г | исход: claim-5',
+  '',
+  '---',
+  '### Обоснование "н/п":',
+  'Слова `нотапп` — отсутствие новых файлов, циклов, схемных изменений и настроек в шагах 1–6.',
+  '### Для «исходов»:',
+  '- Закрытые словарные значения (claim-2, -5) относятся к действующим пунктам в `intent.md`, не требуя расширения списка.',
+  '- Инварианты проверены через существующую миграцию (защищёно от дублирования веса в `tariffs.ts:legacyConstraints`).',
+].join('\n');
+
+describe('разбор ответа из дампа 00107 (самокоррекция + оси вразнобой + проза)', () => {
+  const CANON: AxisName[] = [
+    'Безопасность',
+    'Ресурсы и скорость',
+    'Отказы зависимостей',
+    'Настройки',
+    'Совместимость и данные',
+    'Наблюдаемость',
+  ];
+
+  it('все 6 осей разбираются, из ИСПРАВЛЕННОГО (последнего полного) блока', () => {
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(CANON, DUMP_00107_ANSWER);
+    strictEqual(answeredIdx.size, 6);
+    deepStrictEqual(answers.map((a) => a.axis), CANON);
+    // Признак второго блока: в первом «что именно» оси 1 было про «проверку уровня клиента».
+    ok(answers[0]!.what.includes('фильтрация'), 'взят первый, отозванный самой моделью блок');
+    strictEqual(answers[0]!.outcome, 'исход: claim-2');
+    strictEqual(answers[1]!.affectedText, 'нет');
+    strictEqual(answers[3]!.axis, 'Настройки');
+    strictEqual(answers[4]!.outcome, 'исход: инвариант');
+  });
+
+  it('разобранные ответы записываются в таблицу «Последствия шагов» — разбор читается обратно без претензий про строки', () => {
+    const plan = [
+      '# План: тест',
+      '',
+      '## Последствия шагов',
+      '',
+      '| Ось | Затронута шагами | Что именно в шагах | Исход |',
+      '|---|---|---|---|',
+      '',
+    ].join('\n');
+    const { answers } = parsePlanAxesCombinedAnswer(CANON, DUMP_00107_ANSWER);
+    const updated = applyAxisAnswers(plan, answers);
+    deepStrictEqual(unansweredAxes(updated), []);
+    const problems = planAxisProblems(updated);
+    ok(
+      !problems.some((p) => p.includes('нет строк для осей')),
+      problems.join('\n'),
+    );
+  });
+
+  it('запись работает и в таблицу, которую модель заполнила вертикальным мусором (как в прогоне дампа)', () => {
+    // Собственный ход модели в прогоне 00107 разложил каждую ось на 4 строки
+    // «поле: значение» — ни одной канонической строки.
+    const plan = [
+      '# План: тест',
+      '',
+      '## Последствия шагов',
+      '',
+      '| Ось | Затронута шагами | Что именно в шагах | Исход |',
+      '|---|---|---|---|',
+      '| ось: Безопасность | — | — | — |',
+      '| затронута шагами: нет | — | — | — |',
+      '| исход: инвариант | — | — | — |',
+      '| ось: Наблюдаемость | — | — | — |',
+      '| затронута шагами: да | — | — | — |',
+      '| исход: claim-2 | — | — | — |',
+      '',
+    ].join('\n');
+    const { answers } = parsePlanAxesCombinedAnswer(CANON, DUMP_00107_ANSWER);
+    const updated = applyAxisAnswers(plan, answers);
+    deepStrictEqual(unansweredAxes(updated), []);
   });
 });
 
