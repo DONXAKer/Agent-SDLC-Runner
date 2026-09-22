@@ -41,10 +41,39 @@ describe('checkLmStudioContext', () => {
     const baseUrl = await startStub(() => ({
       data: [{ id: 'ministral-3-14b-reasoning-2512', state: 'loaded', loaded_context_length: 24576 }],
     }));
-    const r = await checkLmStudioContext(baseUrl, 'ministral-3-14b-reasoning-2512', 24576);
+    const r = await checkLmStudioContext(baseUrl, 'ministral-3-14b-reasoning-2512', 24576, undefined, {
+      readParallel: async () => 1,
+    });
     strictEqual(r.ok, true);
     strictEqual(r.state, 'loaded');
     strictEqual(r.loadedContextLength, 24576);
+    strictEqual(r.parallel, 1);
+  });
+
+  it('parallel > 1 при совпадающем окне — ok:false, называет реальный бюджет и команду с --parallel 1', async () => {
+    const baseUrl = await startStub(() => ({
+      data: [{ id: 'google/gemma-4-e4b', state: 'loaded', loaded_context_length: 32768 }],
+    }));
+    const r = await checkLmStudioContext(baseUrl, 'google/gemma-4-e4b', 32768, undefined, {
+      readParallel: async () => 4,
+    });
+    strictEqual(r.ok, false);
+    strictEqual(r.parallel, 4);
+    ok(r.message.includes('parallel=4'), r.message);
+    ok(r.message.includes('8192'), r.message);
+    ok(r.message.includes('lms load google/gemma-4-e4b -c 32768 --parallel 1'), r.message);
+  });
+
+  it('parallel-слоты не проверены (CLI молчит) — ok:true, но сообщение это честно называет', async () => {
+    const baseUrl = await startStub(() => ({
+      data: [{ id: 'm', state: 'loaded', loaded_context_length: 32768 }],
+    }));
+    const r = await checkLmStudioContext(baseUrl, 'm', 32768, undefined, {
+      readParallel: async () => null,
+    });
+    strictEqual(r.ok, true);
+    strictEqual(r.parallel, null);
+    ok(r.message.includes('НЕ проверены'), r.message);
   });
 
   it('окно не совпадает — ok:false, сообщение называет оба числа и команду перезагрузки', async () => {
@@ -103,7 +132,9 @@ describe('checkLmStudioContext', () => {
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
     servers.push(server);
     const address = server.address() as AddressInfo;
-    await checkLmStudioContext(`http://127.0.0.1:${address.port}/v1`, 'm', 1);
+    await checkLmStudioContext(`http://127.0.0.1:${address.port}/v1`, 'm', 1, undefined, {
+      readParallel: async () => null,
+    });
     strictEqual(hitPath, '/api/v0/models');
   });
 });
