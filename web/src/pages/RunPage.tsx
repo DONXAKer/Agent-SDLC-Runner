@@ -201,6 +201,8 @@ export function RunPage({
   // запрос от агента; без него ни счётчик в заголовке вкладки, ни уведомление о красном
   // вердикте не срабатывали вовсе.
   const verdictNeedsAction = detail !== null && detail.verdict !== null && !detail.verdict.passed;
+  /** Красный, который лечится доработкой, а не средой: `blocked_env` повторяет verify. */
+  const verdictBackToChunk = verdictNeedsAction && detail.verdict?.action !== 'blocked_env';
 
   /** Всё, что стоит и ждёт человека прямо сейчас, — вход для оповещений и счётчика. */
   const waiting = useMemo(
@@ -255,7 +257,7 @@ export function RunPage({
     const seed = suggestedStage(
       detail.stage,
       detail.stages,
-      detail.verdict !== null && !detail.verdict.passed,
+      detail.verdict !== null && !detail.verdict.passed && detail.verdict.action !== 'blocked_env',
     );
     if (seed === null) return;
     stageSeeded.current = true;
@@ -442,7 +444,7 @@ export function RunPage({
     queueCount: decisionQueueCount(asks, approvals, decision),
     runningStage: detail.stage,
     verdictRed: verdictNeedsAction,
-    nextRunnable: suggestedStage(null, detail.stages, verdictNeedsAction),
+    nextRunnable: suggestedStage(null, detail.stages, verdictBackToChunk),
   });
   const stageTitle = (id: StageId): string =>
     detail.stages.find((s) => s.id === id)?.title ?? id;

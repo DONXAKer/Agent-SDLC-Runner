@@ -14,6 +14,8 @@
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 import type { Usage } from '@sdlc-runner/shared';
 import { describeCall, emptyUsage } from '@sdlc-runner/shared';
@@ -162,6 +164,16 @@ function sdlcMcpServer(
     version: '0.1.0',
     tools: registered,
   });
+}
+
+/**
+ * Каталог сессий Claude Code для проекта: `<CLAUDE_CONFIG_DIR или ~/.claude>/projects/<cwd>`,
+ * где `<cwd>` — путь с заменой всего, кроме латиницы и цифр, на `-` (так его кодирует сам
+ * Claude Code). Туда харнесс складывает длинный вывод инструментов (`PolicyContext.harnessResultsRoot`).
+ */
+export function claudeProjectDir(projectRoot: string): string {
+  const base = process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude');
+  return join(base, 'projects', resolve(projectRoot).replace(/[^A-Za-z0-9]/g, '-'));
 }
 
 /**
@@ -444,14 +456,19 @@ export class SdkExecutor implements StageExecutor {
             if (typeof content === 'string') break;
             for (const block of content) {
               if (block.type !== 'tool_result') continue;
+              // Отказ политики уже отчитан в `decide()` — второй `onToolResult` по тому же
+              // вызову удваивал счётчик вызовов и событие в ленте (code-review-all 2026-09-23).
+              if (decided.get(block.tool_use_id)?.allow === false) continue;
               const started = startedAt.get(block.tool_use_id) ?? Date.now();
               const isError = block.is_error === true;
+              const text = toolResultErrorText(block.content);
               hooks.onToolResult({
                 requestId: block.tool_use_id,
                 ok: !isError,
                 summary: attempted.get(block.tool_use_id) ?? 'инструмент отработал',
                 durationMs: Date.now() - started,
-                ...(isError ? { detail: toolResultErrorText(block.content) } : {}),
+                ...(isError ? { detail: text } : {}),
+                resultText: text,
               });
             }
             break;

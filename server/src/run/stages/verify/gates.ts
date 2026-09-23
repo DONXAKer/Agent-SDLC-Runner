@@ -35,6 +35,11 @@ export const RECONCILE_GATE = 'Сверка отчёта с набором';
  */
 export const MODEL_REPORTED_GATES: readonly string[] = ['Проектные инварианты как ассерты', 'Сверка тестов с claims'];
 
+/** Гейт, статус которого берётся из отчёта, а не из прогона команды. */
+export function isReportedGate(name: string): boolean {
+  return [RECONCILE_GATE, ...MODEL_REPORTED_GATES].some((n) => gateKey(n) === gateKey(name));
+}
+
 /**
  * Итоги прогона гейтов для входа рецензента.
  *
@@ -89,7 +94,12 @@ export async function runVerifyGates(host: StageHost, signal?: AbortSignal): Pro
   verify.lastGatesAborted = false;
 
   const results = await runGates({
-    gates,
+    // Гейты без исполнителя-скрипта (строки проверяющего и сверка набора) рантаймом не
+    // «прогоняются»: прогон давал им `⏭ исполнить нечем`, этот факт шёл в вердикт худшим
+    // из двух и ронял каждую попытку, а строка отчёта для модели не появлялась вовсе —
+    // автозаполнение считало её уже заполненной фактом (code-review-all 2026-09-23).
+    // Статус таких строк — в отчёте: у сверки его пишет рантайм, у остальных — рецензент.
+    gates: { ...gates, rows: gates.rows.filter((r) => !isReportedGate(r.name)) },
     projectRoot: host.projectRoot,
     projectName: host.projectName,
     planFiles: host.planFilesFor('verify') ?? [],

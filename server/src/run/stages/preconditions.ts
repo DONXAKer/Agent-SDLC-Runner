@@ -223,9 +223,12 @@ export function readinessVerdict(text: string, run: 1 | 2): 'ready' | 'not' | nu
     if (m === null) continue;
     const v = (m[1] ?? '').replace(/[*_`]/g, '').trim().toLowerCase().replace(/ё/g, 'е');
     if (v.includes('‹') || /готова\s*\/\s*не\s+готова/.test(v)) return null;
-    if (/^не\s+готова/.test(v)) return 'not';
-    if (/^готова(\s|[—–-]|$)/.test(v)) return 'ready';
-    return null;
+    // Решает ПЕРВОЕ «готова» строки и отрицание перед ним — не начало строки: «❌ не
+    // готова», «Задача не готова» прежде давали `null`, и предусловие пропускало
+    // отвергнутую задачу (code-review-all 2026-09-23).
+    const m2 = /(^|[^а-я])(не\s+)?готова($|[^а-я])/.exec(v);
+    if (m2 === null) return null;
+    return m2[2] === undefined ? 'ready' : 'not';
   }
   return null;
 }

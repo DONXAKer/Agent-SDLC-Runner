@@ -8,7 +8,7 @@ import { DECISION, readArtifact, readDecision, writeArtifact } from '../../../ar
 import { workingDiff } from '../../../gates/git.ts';
 import { checkJournalClaimsVsBash } from '../../../verdict/honesty.ts';
 import { autofillChunkJournal } from '../../journalAutofill.ts';
-import { readReportVerdict } from '../../verifyAutofill.ts';
+import { readRunVerdict } from '../../verdictStore.ts';
 import { RUNTIME_PROTECTED, granted, readinessReady } from '../preconditions.ts';
 import { ensureBaseline, recordEvidence } from './evidence.ts';
 import type { SeededArtifact, StageDef, StageHost, StageModule } from '../types.ts';
@@ -47,16 +47,21 @@ export const chunkStage: StageDef = {
     // Прогон 2 готовности пишется вместе с планом (этап 4): его вердикт «не готова»
     // обязан остановить виток ДО первой правки кода, а не только лежать в файле.
     readinessReady('проверка готовности не отвергла задачу (прогон 2)', 2, false),
-    // Попытка, уже отвергнутая вердиктом, заново не прогоняется: chunk по её номеру
-    // перезаписал бы улики проверенной попытки (патч, запись о тестах), а отчёт K остался
-    // бы от старого патча. Новая работа — новая попытка (code-review-all 2026-09-23).
+    // Попытка, уже проверенная вердиктом, заново не прогоняется: chunk по её номеру
+    // перезаписал бы улики проверенной попытки (патч, запись о тестах), а вердикт K остался
+    // бы от старого патча — зелёный открыл бы handoff с коммитом непроверенного дерева.
+    // Новая работа — новая попытка (code-review-all 2026-09-23).
     {
-      describe: 'текущая попытка ещё не отвергнута вердиктом',
-      check: (c) =>
-        readReportVerdict(readArtifact(c.paths.verificationReport(c.chunk, c.attempt)).text) === 'failed'
-          ? `попытка ${c.attempt} уже отвергнута вердиктом этапа 6 — нажми «Новая попытка», ` +
-            'чтобы chunk не перезаписал её улики (или повтори verify, если красное — от среды)'
-          : null,
+      describe: 'текущая попытка ещё не проверена вердиктом',
+      check: (c) => {
+        const verdict = readRunVerdict(c.paths, c.chunk, c.attempt);
+        if (verdict === null) return null;
+        return verdict.passed
+          ? `попытка ${c.attempt} уже принята вердиктом этапа 6 — дальше передача (handoff) ` +
+              'или следующий chunk; chunk по той же попытке перезаписал бы проверенные улики'
+          : `попытка ${c.attempt} уже отвергнута вердиктом этапа 6 — нажми «Новая попытка», ` +
+              'чтобы chunk не перезаписал её улики (или повтори verify, если красное — от среды)';
+      },
     },
   ],
   protectedArtifacts: RUNTIME_PROTECTED,

@@ -184,7 +184,8 @@ export type NormalizedCall =
       range: { from: number; to: number | null } | null;
     }
   | { kind: 'glob'; pattern: string; path: string | null }
-  | { kind: 'grep'; pattern: string; path: string | null }
+  /** `glob` — фильтр имён файлов (как `rg --glob`): по нему политика судит, задевает ли поиск закрытые файлы. */
+  | { kind: 'grep'; pattern: string; path: string | null; glob?: string }
   | { kind: 'write'; path: string; content: string }
   | { kind: 'edit'; path: string; edits: EditOp[] }
   | { kind: 'bash'; command: string }
@@ -373,6 +374,13 @@ export interface PolicyContext {
    * виток на первом же шаге.
    */
   readOnlyRoots: readonly string[];
+  /**
+   * Каталог сессий Claude Code этого проекта (флоу `sdk`): длинный вывод инструмента харнесс
+   * сохраняет в `<этот каталог>/<сессия>/tool-results/…` и отдаёт модели путь. Открыт на
+   * чтение ТОЛЬКО подкаталог `tool-results` — сами транскрипты сессий нет. Во флоу `loop`
+   * не задаётся: таких путей там не бывает.
+   */
+  harnessResultsRoot?: string;
   /** Инструменты, разрешённые на текущем этапе. */
   allowedTools: readonly ToolName[];
   /**

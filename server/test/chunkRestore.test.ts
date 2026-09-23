@@ -162,50 +162,60 @@ describe('восстановление chunk/attempt из артефактов �
     strictEqual(run.chunk, 1);
   });
 
-  // Живой виток ta-13: журнал хранит K последней НАЧАТОЙ попытки; свежий прогон
-  // восстановил K=2, хотя вердикт по попытке 2 уже был записан, и перезаписал её улики
-  // уликами следующей попытки. Записанный вердикт = попытка закончена, номер идёт дальше.
-  it('вердикт по восстановленной попытке уже записан — попытка сдвигается на следующую', () => {
+  // Журнал хранит K последней НАЧАТОЙ попытки, и виток остаётся на ней при любом вердикте:
+  // сдвиг за красной попыткой при восстановлении обходил `/advance` — «попытка 4 из 3»
+  // после escalate, попытка без патча после blocked_env (code-review-all 2026-09-23).
+  // Улики отвергнутой попытки (ta-13) бережёт предусловие chunk (`verdictOnDisk.test.ts`).
+  const verdictFile = (dir: string, attempt: number, passed: boolean, action: string): void =>
+    writeFileSync(join(dir, `.chunk-1-attempt-${attempt}-verdict.json`), JSON.stringify({ passed, action, reasons: [] }));
+
+  it('красный вердикт по восстановленной попытке — номер не сдвигается, вердикт восстановлен', () => {
     const root = tempRoot();
     const dir = join(root, '.sdlc', 'demo');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(2));
-    writeFileSync(join(dir, 'verification-report-1-attempt-1.md'), 'passed: false');
-    writeFileSync(join(dir, 'verification-report-1-attempt-2.md'), 'passed: false');
+    verdictFile(dir, 1, false, 'retry');
+    verdictFile(dir, 2, false, 'escalate');
     const run = makeRun(root);
-    strictEqual(run.attempt, 3, 'отревьюенная попытка закончена — свежий прогон продолжает следующей');
+    strictEqual(run.attempt, 2);
+    strictEqual(run.lastVerdict?.action, 'escalate');
+    ok(run.advanceProblem('attempt')?.includes('escalate'), 'escalate после рестарта не обходится');
   });
 
-  it('журнал есть, вердикта по последней попытке нет — номер не сдвигается (попытка продолжается)', () => {
+  it('`passed: false` в отчёте без вердикта рантайма — не вердикт: попытка та же, advance закрыт', () => {
     const root = tempRoot();
     const dir = join(root, '.sdlc', 'demo');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(2));
-    writeFileSync(join(dir, 'verification-report-1-attempt-1.md'), 'passed: false');
+    writeFileSync(join(dir, 'verification-report-1-attempt-2.md'), '## Вердикт\n\n- **passed:** false\n');
     const run = makeRun(root);
-    strictEqual(run.attempt, 2, 'незавершённая попытка продолжается под своим номером');
+    strictEqual(run.attempt, 2);
+    strictEqual(run.lastVerdict, null);
+    ok(run.advanceProblem('attempt') !== null);
   });
 
-  // Зелёная попытка и бланк без вердикта номер не сдвигают: зелёный виток после рестарта
-  // обязан дойти до handoff по СВОЕМУ отчёту (code-review-all 2026-09-23).
-  it('зелёный вердикт по попытке — номер не сдвигается, handoff найдёт свой отчёт', () => {
+  it('зелёный вердикт по попытке — номер не сдвигается, следующий chunk открыт', () => {
     const root = tempRoot();
     const dir = join(root, '.sdlc', 'demo');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(2));
-    writeFileSync(join(dir, 'verification-report-1-attempt-1.md'), 'passed: false');
-    writeFileSync(join(dir, 'verification-report-1-attempt-2.md'), '## Вердикт\n\n- **passed:** true\n');
-    strictEqual(makeRun(root).attempt, 2);
+    verdictFile(dir, 1, false, 'retry');
+    verdictFile(dir, 2, true, 'continue');
+    const run = makeRun(root);
+    strictEqual(run.attempt, 2);
+    strictEqual(run.advanceProblem('chunk'), null);
   });
 
-  it('бланк отчёта без вердикта (`true / false`) — verify прерван до вердикта, попытка та же', () => {
+  it('средовые попытки восстанавливаются: blocked_env прошлых попыток не съедает бюджет', () => {
     const root = tempRoot();
     const dir = join(root, '.sdlc', 'demo');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(2));
-    writeFileSync(join(dir, 'verification-report-1-attempt-1.md'), 'passed: false');
-    writeFileSync(join(dir, 'verification-report-1-attempt-2.md'), '## Вердикт\n\n- **passed:** true / false\n');
-    strictEqual(makeRun(root).attempt, 2);
+    writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(3));
+    verdictFile(dir, 1, false, 'blocked_env');
+    verdictFile(dir, 2, false, 'retry');
+    const run = makeRun(root);
+    strictEqual(run.attempt, 3);
+    strictEqual((run as unknown as { envBlockedAttempts: number }).envBlockedAttempts, 1);
   });
 
   it('каталога витка ещё нет вовсе — восстанавливать нечего, chunk 1', () => {
@@ -223,12 +233,13 @@ describe('advanceProblem: продвижение витка по вердикт�
     const dir = join(root, '.sdlc', 'demo');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(1));
-    // Отчёт пишется ПОСЛЕ создания Run — как вердикт живого витка. Созданный поверх
-    // красного отчёта Run уже стоит на следующей попытке (восстановление после рестарта).
+    // Вердикт пишется ПОСЛЕ создания Run — как вердикт живого витка (служебный файл
+    // попытки, `verdictStore.ts`; строке отчёта рантайм не доверяет).
     const run = makeRun(root);
-    if (verdict !== null) writeFileSync(join(dir, 'verification-report-1-attempt-1.md'), verdict);
+    if (verdict !== null) writeFileSync(join(dir, '.chunk-1-attempt-1-verdict.json'), verdict);
     return run;
   }
+  const v = (passed: boolean, action: string): string => JSON.stringify({ passed, action, reasons: [] });
 
   it('непроверенная попытка — ни новой попытки, ни следующего chunk', () => {
     const run = withReport(null);
@@ -237,24 +248,24 @@ describe('advanceProblem: продвижение витка по вердикт�
   });
 
   it('красный retry — новая попытка можно, следующий chunk нельзя', () => {
-    const run = withReport('## Вердикт\n\n- **passed:** false\n- **action:** retry\n');
+    const run = withReport(v(false, 'retry'));
     strictEqual(run.advanceProblem('attempt'), null);
     ok(run.advanceProblem('chunk') !== null);
   });
 
   it('escalate — новая попытка закрыта: решение за человеком', () => {
-    const run = withReport('## Вердикт\n\n- **passed:** false\n- **action:** escalate\n');
+    const run = withReport(v(false, 'escalate'));
     ok(run.advanceProblem('attempt')?.includes('escalate'));
   });
 
   it('зелёная попытка — следующий chunk можно, новая попытка не нужна', () => {
-    const run = withReport('## Вердикт\n\n- **passed:** true\n- **action:** continue\n');
+    const run = withReport(v(true, 'continue'));
     strictEqual(run.advanceProblem('chunk'), null);
     ok(run.advanceProblem('attempt') !== null);
   });
 
   it('двойной клик: после новой попытки вторая уже не проходит', () => {
-    const run = withReport('## Вердикт\n\n- **passed:** false\n- **action:** retry\n');
+    const run = withReport(v(false, 'retry'));
     strictEqual(run.advanceProblem('attempt'), null);
     run.nextAttempt();
     ok(run.advanceProblem('attempt') !== null, 'попытка 2 ещё не проверена');

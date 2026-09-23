@@ -164,12 +164,19 @@ export interface BuildPromptInput {
 }
 
 export function readSkillBody(skillsDir: string, skill: string): string {
+  if (skillsDir === '') {
+    throw new Error(
+      'не задан каталог текстов этапов: нет ни skillsDir, ни methodologyDir. Задай путь к эталону ' +
+        'методологии в config/runner.local.json (methodologyDir) или в SDLC_METHODOLOGY_DIR — ' +
+        'тексты этапов берутся из его implementations/claude-code/skills.',
+    );
+  }
   const file = join(skillsDir, skill, 'SKILL.md');
   if (!existsSync(file)) {
     throw new Error(
       `не найден текст этапа: ${file}\n` +
         `Рантайм читает этапы из эталона методологии, а не хранит свои копии. ` +
-        `Проверь skillsDir в config/runner.json.`,
+        `Проверь methodologyDir/skillsDir в config/runner.local.json (или SDLC_METHODOLOGY_DIR/SDLC_SKILLS_DIR).`,
     );
   }
   return stripFrontmatter(readFileSync(file, 'utf8'));

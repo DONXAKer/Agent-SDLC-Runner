@@ -43,6 +43,11 @@ describe('пропущенный условный этап и красный в�
     // Без вердикта прежнее правило в силе: первый доступный без артефактов.
     strictEqual(suggestedStage(null, input, false), 'ask');
   });
+
+  it('красный вердикт ведёт на chunk и тогда, когда chunk закрыт до «Новой попытки»', () => {
+    const input = stages(['intent', 'explore', 'ask', 'plan', 'verify'], ['intent', 'explore', 'plan', 'chunk', 'verify']);
+    strictEqual(suggestedStage(null, input, true), 'chunk');
+  });
 });
 
 describe('состояние этапов из produced и блокеров', () => {

@@ -8,6 +8,7 @@ import { emptyUsage } from '@sdlc-runner/shared';
 
 import { DECISION, readArtifact } from '../../../artifacts/artifact.ts';
 import { autofillJournalOutcome } from '../../journalAutofill.ts';
+import { clearRunVerdict, writeRunVerdict } from '../../verdictStore.ts';
 import { writeVerdictSection } from '../../verifyAutofill.ts';
 import { preflightBlockers } from '../../../sandbox/preflight.ts';
 import { RUNTIME_PROTECTED, exists, granted } from '../preconditions.ts';
@@ -162,14 +163,27 @@ export const verifyModule: StageModule = {
       host.verifyState.diffFactMatchesTree = await diffStillMatchesTree(host);
       host.computeStageVerdict(host.detectNoProgress());
 
-      // Вердикт — в секцию «Вердикт» отчёта: её читают handoff и восстановление попытки
-      // после рестарта, а в памяти вердикт до этой правки и оставался (writeVerdictSection).
+      // Вердикт — на диск: служебный файл попытки (`verdictStore.ts`) решает handoff,
+      // предусловие chunk, `/advance` и восстановление после рестарта; секция «Вердикт»
+      // отчёта — копия для человека и терминальных скиллов. Модель пишет в отчёт тоже,
+      // поэтому решений по отчёту рантайм не принимает (code-review-all 2026-09-23).
       if (host.verifyState.verdict !== null) {
+        writeRunVerdict(host.paths, host.chunk(), host.attempt(), host.verifyState.verdict);
         const reportPath = host.paths.verificationReport(host.chunk(), host.attempt());
         const report = readArtifact(reportPath);
-        if (report.exists) {
-          const written = writeVerdictSection(report.text, host.verifyState.verdict);
-          if (written.changed) host.writeAutofilled(reportPath, written.text, []);
+        const written = report.exists ? writeVerdictSection(report.text, host.verifyState.verdict) : null;
+        if (written?.changed === true) host.writeAutofilled(reportPath, written.text, []);
+        else if (written === null || !written.found) {
+          // Копия не легла — молча это не проходит: человек читает отчёт, а не служебный файл.
+          host.emit({
+            type: 'warning',
+            runId: host.id,
+            stage: 'verify',
+            message:
+              `вердикт не записан в отчёт приёмки ${reportPath}: нет секции «## Вердикт» с полями ` +
+              '`passed`/`action` (модель изменила разметку?). Решения рантайма это не меняет — ' +
+              'вердикт хранится в служебном файле попытки.',
+          });
         }
       }
 
@@ -202,13 +216,18 @@ export const verifyModule: StageModule = {
         'сейчас, бюджет ходов не резиновый.',
     }),
 
-    // Кэш предыдущего pre-flight сбрасывается ДО проверки блокеров: если прошлая
-    // попытка упала на пробе среды, `lastPreflightBlockers` от неё ещё не пуст, а
-    // `blockers()` теперь подмешивает его в свой список (см. её комментарий) — без сброса
-    // здесь виток заблокировал бы сам себя устаревшим результатом, ни разу не пройдя до
-    // свежей проверки ниже, и retry стал бы физически недостижим.
+    // Кэш предыдущего pre-flight сбрасывается на входе: проба ниже (`entryBlocker`)
+    // повторяется при каждом запуске, а устаревший результат прошлой попытки иначе висел бы
+    // заметкой этапа (`Run.envNotes`) и после починки среды.
     resetOnEnter: () => {
       host.verifyState.lastPreflightBlockers = [];
+    },
+
+    // Повторная проверка попытки снимает её прошлый вердикт: прогон, оборванный до
+    // расчёта, не должен оставить в силе вердикт прежнего прогона. После блокеров, а не в
+    // `resetOnEnter`: заблокированный вход в этап не должен стирать принятую попытку.
+    afterStart: async () => {
+      clearRunVerdict(host.paths, host.chunk(), host.attempt());
     },
 
     // Только «Тесты»/«Сборка» реально идут через `runShell`, и только на этапе 6 — pre-flight

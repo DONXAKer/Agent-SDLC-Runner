@@ -61,10 +61,10 @@ export interface ShellOptions {
 /**
  * Bash для Windows: явный путь из окружения (`SDLC_BASH_PATH`, тот же, что у Claude Code —
  * `CLAUDE_CODE_GIT_BASH_PATH`), иначе стандартная установка Git. `null` — не нашёлся:
- * тогда команда идёт шеллом платформы, а запреты `denyList` на `cmd`/`powershell` держат
- * пол. На POSIX — `true`: `spawn` сам возьмёт `/bin/sh`.
+ * команда модели тогда не исполняется вовсе (`runShell`). На POSIX — `true`: `spawn` сам
+ * возьмёт `/bin/sh`.
  */
-export function posixShell(): string | true {
+export function posixShell(): string | true | null {
   if (process.platform !== 'win32') return true;
   const candidates = [
     process.env['SDLC_BASH_PATH'],
@@ -75,13 +75,13 @@ export function posixShell(): string | true {
   for (const c of candidates) {
     if (c !== undefined && c !== '' && existsSync(c)) return c;
   }
-  return true;
+  return null;
 }
 
 export function runShell(command: string, opts: ShellOptions): Promise<ShellResult> {
   const started = Date.now();
 
-  const guard = checkBash(command);
+  const guard = checkBash(command, opts.posix === true ? 'model' : 'gate');
   if (!guard.ok) {
     return Promise.resolve({
       exitCode: null,
@@ -91,6 +91,27 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
       durationMs: 0,
       timedOut: false,
       denied: guard.reason,
+    });
+  }
+
+  // Без Git Bash команда модели ушла бы в `cmd.exe`: пол безопасности и лексер записи
+  // рассчитаны на bash, и у cmd нашлись разрушительные формы, которых они не видят
+  // (`for /r . %f in (*) do del %f`, `copy nul .env`) — закрывать их по одной регуляркой
+  // бесконечно. Отказ с названной причиной вместо молчаливой смены интерпретатора
+  // (code-review-all 2026-09-23).
+  const shell = opts.posix === true ? posixShell() : true;
+  if (shell === null) {
+    const why =
+      'Bash не найден: команды модели исполняются только POSIX-шеллом, а на этой машине нет ' +
+      'Git Bash. Установи Git for Windows или задай путь к bash.exe в SDLC_BASH_PATH.';
+    return Promise.resolve({
+      exitCode: null,
+      stdout: '',
+      stderr: '',
+      lastLine: why,
+      durationMs: 0,
+      timedOut: false,
+      denied: why,
     });
   }
 
@@ -119,7 +140,7 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     // сигналом нельзя. На Windows группу заменяет `taskkill /T`.
     const child = spawn(command, {
       cwd: opts.cwd,
-      shell: opts.posix === true ? posixShell() : true,
+      shell,
       windowsHide: true,
       detached: process.platform !== 'win32',
     });

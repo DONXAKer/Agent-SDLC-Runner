@@ -25,7 +25,7 @@ import { commitByRuntime } from '../commitByRuntime.ts';
 import type { HandoffFacts } from '../formAutofill.ts';
 import { autofillHandoff } from '../formAutofill.ts';
 import { postmortemBlock } from '../postmortem.ts';
-import { readReportVerdict } from '../verifyAutofill.ts';
+import { readRunVerdict } from '../verdictStore.ts';
 import { runNamedGate } from './chunk/evidence.ts';
 import { relOf } from './preconditions.ts';
 import type { StageContext, StageDef, StageHost, StageModule } from './types.ts';
@@ -43,14 +43,15 @@ export function profileCurrency(profile: ResolvedProfile): string {
 }
 
 /**
- * Отчёт приёмки последней попытки говорит, что виток принят. Читается строка `passed:`
- * с ОДНИМ значением (`readReportVerdict`): бланк `- **passed:** true / false` прежде
- * проходил проверку по префиксу `true`, и handoff с коммитом открывался на незаполненном
- * отчёте (code-review-all 2026-09-23). Вердикт в отчёт пишет рантайм (`writeVerdictSection`).
+ * Вердикт рантайма по последней попытке — зелёный. Читается служебный файл попытки
+ * (`verdictStore.ts`), а не строка `passed:` отчёта: бланк `- **passed:** true / false`
+ * прежде проходил проверку по префиксу `true`, а строку `passed: true` в отчёт может
+ * записать и сама модель этапа 6 — и то и другое открывало handoff с коммитом
+ * непроверенного витка (code-review-all 2026-09-23). Строгое сравнение со словом `true`
+ * в отчёте держало только первое.
  */
 function verificationPassed(c: StageContext): boolean {
-  const report = readArtifact(c.paths.verificationReport(c.chunk, c.attempt));
-  return report.exists && readReportVerdict(report.text) === 'passed';
+  return readRunVerdict(c.paths, c.chunk, c.attempt)?.passed === true;
 }
 
 export const handoffStage: StageDef = {
@@ -66,15 +67,23 @@ export const handoffStage: StageDef = {
     // а не то, во что можно свалиться, дёрнув этап из любого состояния. Поэтому обрыв
     // разрешается явным флагом, а по умолчанию нужен зелёный отчёт приёмки.
     {
-      describe: 'отчёт приёмки с passed=true (или явно объявленный обрыв витка)',
+      describe: 'вердикт этапа 6 passed=true (или явно объявленный обрыв витка)',
       artifact: (c) => c.paths.verificationReport(c.chunk, c.attempt),
       check: (c) => {
         if (verificationPassed(c)) return null;
         const report = c.paths.verificationReport(c.chunk, c.attempt);
+        if (readRunVerdict(c.paths, c.chunk, c.attempt) !== null) {
+          return (
+            `вердикт попытки ${c.attempt} (${report}) не passed=true. Коммит из этого состояния ` +
+            `методология запрещает: возврат на доработку или эскалация, но не передача. Чтобы ` +
+            `оформить обрыв витка, запусти этап с флагом «обрыв».`
+          );
+        }
         return artifactExists(report)
-          ? `вердикт в ${report} не passed=true. Коммит из этого состояния методология ` +
-              `запрещает: возврат на доработку или эскалация, но не передача. Чтобы ` +
-              `оформить обрыв витка, запусти этап с флагом «обрыв».`
+          ? `вердикта рантайма по попытке ${c.attempt} нет: verify прерван до расчёта вердикта ` +
+              `или виток начат до того, как рантайм стал хранить вердикт у себя. Строке ` +
+              `\`passed:\` в ${report} рантайм не доверяет — её пишет и модель. Повтори verify, ` +
+              `или запусти этап с флагом «обрыв».`
           : `нет отчёта приёмки ${report}. Передача без вердикта возможна только как ` +
               `обрыв витка — запусти этап с флагом «обрыв».`;
       },
@@ -198,7 +207,9 @@ async function handoffFacts(host: StageHost): Promise<HandoffFacts> {
     gatesDate: gatesDateFact(host.paths.gates),
     chunk: host.chunk(),
     attempts: host.attempt(),
-    verdict: verificationPassed(host.ctx()) ? 'passed' : 'aborted',
+    // Обрыв — решение оператора: отчёт передачи обрыва не говорит «passed», даже если
+    // вердикт последней попытки зелёный (коммита при обрыве нет, см. `afterStart`).
+    verdict: !host.handoffAborted() && verificationPassed(host.ctx()) ? 'passed' : 'aborted',
     published: 'нет',
     publishGate,
   };
@@ -378,6 +389,10 @@ export const handoffModule: StageModule = {
       // приёмки последней попытки зелёный (прежде `afterStart` про обрыв не знал).
       if (opts?.abortHandoff === true) return;
       if (!verificationPassed(host.ctx())) return;
+      // Отмена, пришедшая до старта этапа (сверка ветки, предусловия), взводит сигнал уже
+      // здесь: без проверки коммит всё равно просил одобрения после `gate.cancelRun`, и
+      // карточка висела, а этап оставался `running`.
+      if (host.signal().aborted) return;
       const outcome = await commitByRuntime(host, 'passed');
       host.recordCommitOutcome(outcome);
       host.emit({

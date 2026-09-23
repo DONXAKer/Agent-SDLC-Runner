@@ -228,7 +228,8 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
     case 'grep': {
       const pattern = str(input, 'pattern');
       if (pattern === null) return { kind: 'unknown', toolName, raw: input };
-      return { kind: 'grep', pattern, path: str(input, 'path') };
+      const glob = str(input, 'glob');
+      return { kind: 'grep', pattern, path: str(input, 'path'), ...(glob === null || glob === '' ? {} : { glob }) };
     }
 
     case 'write': {

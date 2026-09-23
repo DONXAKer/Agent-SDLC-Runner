@@ -332,10 +332,18 @@ app.post('/api/runs', async (req, reply) => {
         .code(409)
         .send({ error: `виток «${slug}» уже идёт для проекта «${project.name}» (id ${clashing.run.id})` });
     }
+    const profileName = body.profile ?? project.activeProfile;
+    // Правило рецензента проверяется здесь: виток с ревью слабее исполнителя не стартует.
+    const profile =
+      body.stages === undefined || Object.keys(body.stages).length === 0
+        ? resolveStartableProfile(project, config.models, profileName)
+        : resolveAdHocProfile(project, config.models, body.stages, profileName);
+
     // Простаивающий прогон того же slug закрывается: два `Run` над одним `.sdlc/<slug>/`
     // держали бы разные номера попытки, диагнозы и автоправила и могли одновременно
     // гнать chunk и verify по одному дереву (code-review-all 2026-09-23). Состояние витка
-    // на диске, новый `Run` восстановит его оттуда.
+    // на диске, новый `Run` восстановит его оттуда. ПОСЛЕ проверки профиля: отклонённый
+    // запрос (400) не должен уничтожать открытый виток вместе с его лентой.
     for (const [id, idle] of runs) {
       if (idle.run.project.name !== project.name || idle.run.slug !== slug) continue;
       idle.run.cancel('виток открыт заново');
@@ -343,13 +351,6 @@ app.post('/api/runs', async (req, reply) => {
       runs.delete(id);
       bus.forget(id);
     }
-
-    const profileName = body.profile ?? project.activeProfile;
-    // Правило рецензента проверяется здесь: виток с ревью слабее исполнителя не стартует.
-    const profile =
-      body.stages === undefined || Object.keys(body.stages).length === 0
-        ? resolveStartableProfile(project, config.models, profileName)
-        : resolveAdHocProfile(project, config.models, body.stages, profileName);
 
     const run = new Run({
       config,

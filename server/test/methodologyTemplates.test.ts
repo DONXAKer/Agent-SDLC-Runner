@@ -21,7 +21,7 @@ import { openDebt, parseGates, unimplementedGates } from '../src/gates/gatesFile
 import { readinessVerdict } from '../src/run/stages/preconditions.ts';
 import { MODEL_REPORTED_GATES, RECONCILE_GATE, REVIEW_GATE } from '../src/run/stages/verify/gates.ts';
 import { missingClaimIds } from '../src/run/stages/verify/reviewer.ts';
-import { autofillVerificationReport, readReportVerdict, writeVerdictSection } from '../src/run/verifyAutofill.ts';
+import { autofillVerificationReport, writeVerdictSection } from '../src/run/verifyAutofill.ts';
 import { computeVerdict } from '../src/verdict/verdict.ts';
 
 function methodologyDir(): string | null {
@@ -74,11 +74,11 @@ describe('реальный шаблон отчёта приёмки', () => {
     ok(text.includes(`| ${REVIEW_GATE} | ‹✅/❌/⏭› |`), 'строка ревью остаётся модели');
   });
 
-  it('бланк вердикта — не вердикт; записанный рантаймом — читается', { skip: skip(REPORT) }, () => {
-    strictEqual(readReportVerdict(REPORT!), null);
-    const { text, changed } = writeVerdictSection(REPORT!, { passed: false, action: 'retry', reasons: ['гейт «Тесты» ❌'] });
+  it('секция «Вердикт» реального шаблона находится и заполняется рантаймом', { skip: skip(REPORT) }, () => {
+    const { text, changed, found } = writeVerdictSection(REPORT!, { passed: false, action: 'retry', reasons: ['гейт «Тесты» ❌'] });
+    ok(found, 'секция «Вердикт» с полем passed не найдена в шаблоне эталона');
     ok(changed);
-    strictEqual(readReportVerdict(text), 'failed');
+    ok(/passed[*_]*:\s*[*_]*\s*false\s*$/m.test(text), text);
   });
 });
 

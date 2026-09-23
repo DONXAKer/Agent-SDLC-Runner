@@ -1060,6 +1060,7 @@ export class LoopExecutor implements StageExecutor {
       ok: toolOk,
       summary: text.split('\n')[0]?.slice(0, 200) ?? '',
       durationMs: Date.now() - started,
+      resultText: text,
     });
     return text;
   }

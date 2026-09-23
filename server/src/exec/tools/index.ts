@@ -14,7 +14,7 @@
 import type { Dirent } from 'node:fs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
-import { dirname, join, relative, resolve as resolvePath } from 'node:path';
+import { dirname, join, matchesGlob, relative, resolve as resolvePath } from 'node:path';
 
 import type { ArtifactKey, NormalizedCall } from '@sdlc-runner/shared';
 
@@ -446,6 +446,14 @@ async function grepTool(
       }
       if (!entry.isFile()) continue;
       const abs = join(dir, entry.name);
+      // Фильтр имён — та же семантика, по которой политика решала, задевает ли поиск
+      // закрытые файлы (`pathScope::deniedInScope`): без `/` — имя файла, иначе путь от
+      // каталога поиска. Игнорировать его значило бы пропустить мимо политики то, что она
+      // разрешила только с фильтром.
+      if (call.glob !== undefined) {
+        const target = call.glob.includes('/') ? toPosix(relative(base, abs)) : entry.name;
+        if (!matchesGlob(target, call.glob)) continue;
+      }
       let content: string;
       try {
         // Бинарные и огромные файлы пропускаем: искать в них нечего, а память они съедят.

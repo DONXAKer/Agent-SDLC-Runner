@@ -59,6 +59,12 @@ export interface ExecHooks {
     durationMs: number;
     /** Текст ошибки инструмента, когда исполнитель его знает — см. `RunEvent.tool_result.detail`. */
     detail?: string;
+    /**
+     * Полный текст результата (оба флоу). Нужен там, где решение зависит от содержимого, а
+     * не от факта исполнения: ответ субагента-рецензента проходит те же планки, что прямой
+     * прогон рантаймом (`reviewProblem`).
+     */
+    resultText?: string;
   }) => void;
   /** Вопрос человеку из инструмента `AskHuman`. Возвращает ответы по id вопроса. */
   onAskHuman: (call: NormalizedCall) => Promise<Record<string, string[]>>;

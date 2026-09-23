@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 import type { NormalizedCall, PolicyContext, ToolName } from '@sdlc-runner/shared';
 
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
+import { checkBash } from '../src/policy/denyList.ts';
 import { evaluate } from '../src/policy/index.ts';
 import { normalizePlanPath, resolveUserPath } from '../src/policy/paths.ts';
 import { expandedRedirectTargets, redirectTargets } from '../src/policy/shellRedirects.ts';
@@ -464,11 +465,20 @@ describe('files_to_touch', () => {
 
 describe('волна 2 code-review-all 2026-09-23: интерпретаторы Windows и поиск по отчётам прошлых попыток', () => {
   it('cmd /c, PowerShell и рекурсивное удаление Windows — отказ пола', () => {
-    for (const c of ['cmd /c "echo x > src\\a.ts"', 'CMD.EXE /C dir', 'powershell -c "Set-Content .env x"', 'pwsh -Command ls', 'rd /s /q src', 'rmdir /q /s build', 'del /f /s /q *', 'Remove-Item -Recurse src']) {
+    for (const c of ['cmd /c "echo x > src\\a.ts"', 'CMD.EXE /C dir', 'powershell -c "Set-Content .env x"', 'pwsh -Command ls', 'rd /s /q src', 'rmdir /q /s build', 'del /f /s /q *', 'rd build /s', 'echo ok && powershell -c ls', 'sh -c "pwsh -c ls"', 'C:/Windows/System32/cmd.exe /c dir']) {
       const v = evaluate(bash(c), ctx(['src/a.ts']));
       strictEqual(v.ok, false, c);
     }
     strictEqual(evaluate(bash('npm test'), ctx(['src/a.ts'])).ok, true);
+  });
+
+  it('слово powershell в аргументе — не вызов; команда гейта под PowerShell — не запрет', () => {
+    strictEqual(evaluate(bash('grep -rn powershell src'), ctx(['src/a.ts'])).ok, true);
+    strictEqual(evaluate(bash('git log --grep=cmd /c'), ctx(['src/a.ts'])).ok, true);
+    strictEqual(checkBash('powershell -File test.ps1', 'gate').ok, true);
+    strictEqual(checkBash('powershell -File test.ps1').ok, false);
+    // Рекурсивное удаление не снимается и для гейта.
+    strictEqual(checkBash('rd /s /q build', 'gate').ok, false);
   });
 
   const withDenied = ctx(null, { stage: 'verify', readDenied: ['.sdlc/demo/verification-report-1-attempt-1.md'] });
@@ -479,7 +489,18 @@ describe('волна 2 code-review-all 2026-09-23: интерпретаторы 
     strictEqual(evaluate({ kind: 'glob', pattern: '*.md', path: '.sdlc/demo' }, withDenied).ok, false);
     strictEqual(evaluate({ kind: 'glob', pattern: '**/verification-report-*', path: null }, withDenied).ok, false);
     strictEqual(evaluate({ kind: 'grep', pattern: 'priceFor', path: 'src' }, withDenied).ok, true);
-    strictEqual(evaluate({ kind: 'grep', pattern: 'priceFor', path: null }, withDenied).ok, true);
+  });
+
+  it('Grep от корня задевает закрытый отчёт без фильтра имён; с фильтром по коду — нет', () => {
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim-', path: null }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim-', path: null, glob: '*.md' }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'priceFor', path: null, glob: '*.ts' }, withDenied).ok, true);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'priceFor', path: null, glob: 'src/**/*.ts' }, withDenied).ok, true);
+    // Артефакт задачи по самому файлу читается, закрытый отчёт — нет.
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim-3', path: '.sdlc/demo/intent.md' }, withDenied).ok, true);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'x', path: '.sdlc/demo/verification-report-1-attempt-1.md' }, withDenied).ok, false);
+    // Glob отсчитывается от каталога поиска: `*.md` в корне отчёт не находит.
+    strictEqual(evaluate({ kind: 'glob', pattern: '*.md', path: null }, withDenied).ok, true);
   });
 
   it('без закрытых отчётов поиск по .sdlc не ограничивается', () => {

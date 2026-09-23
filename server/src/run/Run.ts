@@ -68,7 +68,7 @@ import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/sc
 import { FormFillExecutor } from '../exec/FormFillExecutor.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { normalize } from '../exec/normalize.ts';
-import { SdkExecutor } from '../exec/SdkExecutor.ts';
+import { SdkExecutor, claudeProjectDir } from '../exec/SdkExecutor.ts';
 import { edgeExampleLines } from '../artifacts/edgeExample.ts';
 import { createProvider } from '../provider/registry.ts';
 import type { TraceLabel } from '../provider/rawLog.ts';
@@ -132,6 +132,7 @@ import { stepFillExecutor } from './stages/chunk/steps.ts';
 export { gatesForStep } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты берут блок рецензента для входа этапа 6 отсюда. */
 export { reviewerBlock } from './stages/verify/reviewer.ts';
+import { reviewProblem } from './stages/verify/reviewer.ts';
 import { compareAttemptDiffs, readBaseline, runNamedGate } from './stages/chunk/evidence.ts';
 import { restoreAttemptFromJournal, restoreChunkFromDir } from './stages/chunk/restore.ts';
 import {
@@ -159,7 +160,7 @@ import {
   evidenceHaystack,
 } from './stages/verify/records.ts';
 import { retryDetail, stageVerdict } from './stages/verify/verdict.ts';
-import { readReportAction, readReportVerdict } from './verifyAutofill.ts';
+import { readRunVerdict } from './verdictStore.ts';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -413,6 +414,9 @@ export class Run {
    */
   private lastCommitOutcome: CommitOutcome | null = null;
 
+  /** Текущий вход в этап — обрыв витка (`RunStageOptions.abortHandoff`); тот же мост, что выше. */
+  private currentAbortHandoff = false;
+
   /** Фасад витка для модулей этапов (`StageHost`) — растёт по мере переноса логики этапов. */
   private get host(): StageHost {
     return {
@@ -424,6 +428,7 @@ export class Run {
       writeAutofilled: (path, text, seeded) => this.writeAutofilled(path, text, seeded),
       head: () => this.head(),
       commitOutcome: () => this.lastCommitOutcome,
+      handoffAborted: () => this.currentAbortHandoff,
       recordCommitOutcome: (outcome) => {
         this.lastCommitOutcome = outcome;
       },
@@ -608,15 +613,18 @@ export class Run {
     this.hub = new McpHub(this.mcpSetup.servers);
     this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
     this.attempt = restoreAttemptFromJournal(this.paths.chunkJournal(this.chunk)) ?? this.attempt;
-    // Журнал хранит номер ПОСЛЕДНЕЙ начатой попытки. Если вердикт по ней уже записан и он
-    // КРАСНЫЙ, она закончена и отвергнута — свежий прогон продолжает со СЛЕДУЮЩЕЙ. Живой
-    // виток ta-13: новый прогон восстановил K=2 и перезаписал улики уже отревьюенной
-    // попытки 2 уликами попытки 3. Зелёная попытка и бланк без вердикта номер НЕ
-    // сдвигают: зелёный виток после рестарта обязан дойти до handoff по своему отчёту, а
-    // verify, прерванный до вердикта, повторяется на той же попытке (code-review-all
-    // 2026-09-23 — прежде любой файл отчёта сдвигал номер, и handoff искал отчёт K+1).
-    while (readReportVerdict(readArtifact(this.paths.verificationReport(this.chunk, this.attempt)).text) === 'failed') {
-      this.attempt += 1;
+    // Журнал хранит номер ПОСЛЕДНЕЙ начатой попытки, и виток остаётся на ней, каким бы ни
+    // был её вердикт. Сдвиг за красной попыткой при восстановлении обходил `/advance`:
+    // после `escalate` получалась «попытка 4 из 3», после `blocked_env` — попытка без патча,
+    // на которой verify повторить нельзя (code-review-all 2026-09-23). Улики отвергнутой
+    // попытки (живой виток ta-13) бережёт предусловие chunk, а не номер: следующая попытка
+    // начинается «Новой попыткой», которая проверяет бюджет.
+    //
+    // Вердикт попытки и число средовых попыток восстанавливаются с диска
+    // (`verdictStore.ts`): `nextAttempt` решает по ним, сколько попыток съедено.
+    this.state.verify.verdict = readRunVerdict(this.paths, this.chunk, this.attempt);
+    for (let a = 1; a < this.attempt; a++) {
+      if (readRunVerdict(this.paths, this.chunk, a)?.action === 'blocked_env') this.envBlockedAttempts += 1;
     }
   }
 
@@ -1040,11 +1048,11 @@ export class Run {
 
   /** Каталоги вне проекта, открытые агенту только на чтение. */
   get readOnlyRoots(): string[] {
-    return [
-      `${this.config.runner.methodologyDir}/templates`,
-      this.config.runner.methodologyDir,
-      this.config.runner.skillsDir,
-    ];
+    // Пустой путь (эталон не задан) корнем чтения не становится: он резолвился бы от cwd.
+    const m = this.config.runner.methodologyDir;
+    return [...(typeof m !== 'string' || m === '' ? [] : [`${m}/templates`, m]), this.config.runner.skillsDir].filter(
+      (p) => typeof p === 'string' && p !== '',
+    );
   }
 
   /**
@@ -1054,19 +1062,18 @@ export class Run {
    * съедавший номер и диагноз прошлой попытки (code-review-all 2026-09-23).
    */
   advanceProblem(to: 'attempt' | 'chunk'): string | null {
-    const report = readArtifact(this.paths.verificationReport(this.chunk, this.attempt));
-    const verdict = report.exists ? readReportVerdict(report.text) : null;
+    const verdict = readRunVerdict(this.paths, this.chunk, this.attempt);
     if (to === 'chunk') {
-      return verdict === 'passed'
+      return verdict?.passed === true
         ? null
         : `chunk ${this.chunk} не принят: следующий chunk — только после зелёного вердикта попытки ${this.attempt}`;
     }
-    if (verdict !== 'failed') {
-      return verdict === 'passed'
+    if (verdict === null || verdict.passed) {
+      return verdict !== null
         ? `попытка ${this.attempt} принята — новая попытка не нужна, дальше следующий chunk или передача`
         : `попытка ${this.attempt} ещё не проверена вердиктом этапа 6 — новая попытка поверх неё стёрла бы её диагноз`;
     }
-    if (readReportAction(report.text) === 'escalate') {
+    if (verdict.action === 'escalate') {
       return (
         `бюджет попыток исчерпан (вердикт попытки ${this.attempt} — escalate): решение за человеком — ` +
         'обрыв витка или правка бюджета в .sdlc/gates.md'
@@ -1267,7 +1274,9 @@ export class Run {
       readDenied: this.readDeniedFor(stage),
       stageArtifacts: this.stageArtifacts(stage),
       ...(this.config.runner.limits.restoreErasedDecisions === true ? { restoreErasedDecisions: true } : {}),
-      ...(this.profile.routes[stage]?.flow === 'sdk' ? { noArtifactReaddress: true } : {}),
+      ...(this.profile.routes[stage]?.flow === 'sdk'
+        ? { noArtifactReaddress: true, harnessResultsRoot: claudeProjectDir(this.project.projectRoot) }
+        : {}),
     };
   }
 
@@ -2050,7 +2059,13 @@ export class Run {
    * кэш, а не сама проба: она ходит в Docker, а список витков опрашивается постоянно.
    */
   envNotes(stage: StageId): string[] {
-    return stage === 'verify' ? [...this.state.verify.lastPreflightBlockers] : [];
+    if (stage !== 'verify') return [];
+    // Бессрочный принятый риск в «Долге» набора долг не открывает (`SDLC.md`), но и
+    // пересматривать его некому: пометка видна оператору там, где он смотрит на этап 6.
+    const revisit = (this.gatesFile?.debt ?? [])
+      .filter((d) => d.revisitMissing)
+      .map((d) => `долг набора «${d.name}»: риск принят без условия «когда вернуться» — пересмотреть его будет некому`);
+    return [...this.state.verify.lastPreflightBlockers, ...revisit];
   }
 
   /** Прогон автоматических гейтов этапа 6 рантаймом до ревью — `stages/verify/gates.ts`. */
@@ -2226,6 +2241,7 @@ export class Run {
     const def = stageById(stage);
     const route = this.profile.routes[stage];
     const abortOpts = opts.abortHandoff === true ? { abortHandoff: true } : {};
+    this.currentAbortHandoff = opts.abortHandoff === true;
     this.cancelRequested = false;
     const mod = stageModule(stage);
     const inv = mod.begin?.(this.host, route, abortOpts) ?? {};
@@ -2345,12 +2361,8 @@ export class Run {
       // Факты рантайма этапа: итоги гейтов verify, диагноз ретрая chunk, ветка intent,
       // пост-виток отчёт handoff — модель переносит их, но не сочиняет.
       for (const block of (await inv.enterFacts?.(this.aborter.signal)) ?? []) {
-        appended = appended === undefined ? block : `${appended}
-
-  ${block}`;
-        extra = extra === undefined ? block : `${extra}
-
-  ${block}`;
+        appended = appended === undefined ? block : `${appended}\n\n${block}`;
+        extra = extra === undefined ? block : `${extra}\n\n${block}`;
       }
 
       // Соединения к MCP поднимаются ДО сборки промпта: набор инструментов, показанный
@@ -2559,12 +2571,28 @@ export class Run {
 
         onToolResult: (meta) => {
           this.countFriction(stage, 'toolCalls');
-          // Гейт «Ревью независимым агентом» зеленеет только по факту состоявшегося
-          // прогона рецензента, и вот он, этот факт: вызов дошёл до результата без ошибки.
-          if (meta.ok && pendingReviewer.has(meta.requestId)) this.markReviewerRan();
+          // Гейт «Ревью независимым агентом» зеленеет только по состоявшемуся ревью: вызов
+          // дошёл до результата без ошибки И ответ прошёл те же планки, что прямой прогон
+          // рантаймом (`reviewProblem`: якорь в патче, вердикт по каждому пункту). Прежде
+          // здесь хватало `ok` — пустой ответ субагента зеленил гейт (code-review-all 2026-09-23).
+          if (meta.ok && pendingReviewer.has(meta.requestId)) {
+            const problem = reviewProblem(this.host, meta.resultText ?? '');
+            if (problem === null) this.markReviewerRan();
+            else {
+              this.emit({
+                type: 'warning',
+                runId: this.id,
+                stage,
+                message: `вызов рецензента через Task: ${problem}. Гейт «${REVIEW_GATE}» остаётся ⏭`,
+              });
+            }
+          }
           pendingReviewer.delete(meta.requestId);
           if (pendingWrites.has(meta.requestId)) {
-            if (meta.ok) acceptedWrites += 1;
+            if (meta.ok) {
+              acceptedWrites += 1;
+              this.gate.noteTreeChanged(this.id);
+            }
             pendingWrites.delete(meta.requestId);
           }
 

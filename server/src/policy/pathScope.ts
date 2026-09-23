@@ -14,9 +14,24 @@
 import type { NormalizedCall, PolicyContext, PolicyVerdict } from '@sdlc-runner/shared';
 import { POLICY_OK, policyDeny } from '@sdlc-runner/shared';
 
+import { matchesGlob } from 'node:path';
+
 import { isWindowsStyle, isWithinAny, pathsEqual, relativizeWithin, resolveUserPath } from './paths.ts';
 
 export type Access = 'read' | 'write';
+
+/**
+ * Сохранённый харнессом вывод инструмента (флоу `sdk`): большой вывод `Bash` Claude Code
+ * пишет в файл вне проекта и отдаёт модели путь. Пока чтение шло только через
+ * `canUseTool`, до него доходило; с хуком `PreToolUse` на `Read` модель теряла вывод своих
+ * же тестов (code-review-all 2026-09-23). Открыт только `<сессия>/tool-results/`.
+ */
+function isHarnessToolResult(ctx: PolicyContext, abs: string): boolean {
+  const root = ctx.harnessResultsRoot;
+  if (root === undefined) return false;
+  const rel = relativizeWithin(root, abs);
+  return rel !== null && /^[^/]+\/tool-results\/[^/]/.test(rel.replace(/\\/g, '/'));
+}
 
 /** Путь относительно корня, либо verdict с отказом. */
 export function within(ctx: PolicyContext, userPath: string, access: Access): string | PolicyVerdict {
@@ -25,6 +40,7 @@ export function within(ctx: PolicyContext, userPath: string, access: Access): st
   if (rel !== null) return rel;
 
   if (access === 'read' && isWithinAny(ctx.readOnlyRoots, abs)) return abs;
+  if (access === 'read' && isHarnessToolResult(ctx, abs)) return abs;
 
   const extra =
     access === 'read' && ctx.readOnlyRoots.length > 0
@@ -51,21 +67,56 @@ function isReadDenied(ctx: PolicyContext, rel: string): boolean {
 }
 
 /**
- * Поиск по КАТАЛОГУ, где лежат закрытые на чтение отчёты. Точный путь закрыт `isReadDenied`,
- * но `Grep {path: ".sdlc/<slug>"}` печатал строки прошлых отчётов, а `Glob` по тому же
- * каталогу — их имена (code-review-all 2026-09-23). Поиск от корня проекта (`path` не
- * задан) остаётся открытым: рецензенту он нужен для кода, и закрыть его — закрыть ревью;
- * это принятое ограничение, как и `Bash` (`cat`).
+ * Может ли поиск задеть закрытый на чтение отчёт: каталог поиска его накрывает, а фильтр
+ * имён (`glob` у Grep, шаблон у Glob) его не исключает. Возвращает закрытый файл или `null`.
+ *
+ * Точный путь закрыт `isReadDenied`, но `Grep {path: ".sdlc/<slug>"}` печатал строки
+ * прошлых отчётов, `Glob` по тому же каталогу — их имена, а Grep от корня проекта (`path`
+ * не задан) — и то и другое (code-review-all 2026-09-23). Закрыть поиск от корня целиком
+ * значило бы закрыть ревью, поэтому решает фильтр: `glob: "*.ts"` отчёта не заденет, поиск
+ * без фильтра — заденет. Сверка по имени и по пути от каталога поиска — той же
+ * `matchesGlob`, которой фильтр применяет исполнитель флоу `loop`.
  */
-function searchesDeniedDir(ctx: PolicyContext, userPath: string | null): string | null {
+function deniedInScope(
+  ctx: PolicyContext,
+  userPath: string | null,
+  filter: string | null,
+  kind: 'glob' | 'grep',
+): string | null {
   const denied = ctx.readDenied ?? [];
-  if (denied.length === 0 || userPath === null) return null;
-  const r = within(ctx, userPath, 'read');
-  if (typeof r !== 'string' || r === '') return null;
+  if (denied.length === 0) return null;
+  let base = '';
+  if (userPath !== null) {
+    const r = within(ctx, userPath, 'read');
+    if (typeof r !== 'string') return null; // вне проекта — отказ даст checkPath
+    base = r.replace(/\/+$/, '');
+  }
   const ci = isWindowsStyle(ctx.projectRoot);
-  const dir = `${r.replace(/\/+$/, '')}/`;
-  const hit = denied.find((p) => pathsEqual(p.slice(0, dir.length), dir, ci));
-  return hit === undefined ? null : r;
+  const dir = base === '' || base === '.' ? '' : `${base}/`;
+  for (const p of denied) {
+    if (dir !== '' && !pathsEqual(p.slice(0, dir.length), dir, ci)) continue;
+    if (filter === null) return p;
+    const f = filter.replace(/\\/g, '/');
+    const fromBase = p.slice(dir.length);
+    const name = p.slice(p.lastIndexOf('/') + 1);
+    // Шаблон `Glob` отсчитывается от каталога поиска; `glob` у Grep без `/` — как у
+    // `rg --glob` — сверяется с именем файла на любой глубине.
+    const target = kind === 'grep' && !f.includes('/') ? name : fromBase;
+    // `**` в `matchesGlob` не заходит в каталоги с точкой (`.sdlc`), а исполнитель флоу
+    // `sdk` в них заходить может: сверяется и путь без ведущих точек — худший случай.
+    const undotted = target.split('/').map((seg) => seg.replace(/^\.+/, '')).join('/');
+    const g = ci ? f.toLowerCase() : f;
+    if ([target, undotted].some((t) => globHits(ci ? t.toLowerCase() : t, g))) return p;
+  }
+  return null;
+}
+
+function globHits(path: string, glob: string): boolean {
+  try {
+    return matchesGlob(path, glob);
+  } catch {
+    return true; // фильтр не разобрался — считаем, что задевает: отказ, а не утечка
+  }
 }
 
 function checkPath(ctx: PolicyContext, userPath: string, access: Access): PolicyVerdict {
@@ -104,12 +155,14 @@ function checkSearchPattern(ctx: PolicyContext, pattern: string): PolicyVerdict 
   );
 }
 
-function deniedSearch(ctx: PolicyContext, where: string): PolicyVerdict {
+function deniedSearch(ctx: PolicyContext, hit: string): PolicyVerdict {
   return policyDeny(
     'pathScope',
-    `поиск по «${where}» на этапе ${ctx.stage} закрыт: там лежат отчёты других попыток. ` +
-      `Ищи в коде проекта (без path или по каталогу исходников); связь между попытками ` +
-      `несут retry_instruction и carry_forward, которые подаёт машина витка.`,
+    `поиск на этапе ${ctx.stage} задел бы «${hit}» — отчёт другой попытки, закрытый на ` +
+      `чтение. Сузь поиск: каталог исходников в path или фильтр имён (Grep: glob, например ` +
+      `"*.ts"; Glob: шаблон по коду). Артефакты витка (intent.md, plan.md) читай Read или ` +
+      `Grep по самому файлу. Связь между попытками несут retry_instruction и carry_forward, ` +
+      `которые подаёт машина витка.`,
   );
 }
 
@@ -126,10 +179,8 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
       // не оставалось даже в очереди одобрений: поиск в неё не ставится по дешевизне.
       const patternProblem = checkSearchPattern(ctx, call.pattern);
       if (patternProblem !== null) return patternProblem;
-      const deniedDir = searchesDeniedDir(ctx, call.path);
-      if (deniedDir !== null || ((ctx.readDenied ?? []).length > 0 && /verification-report/i.test(call.pattern))) {
-        return deniedSearch(ctx, deniedDir ?? call.pattern);
-      }
+      const hit = deniedInScope(ctx, call.path, call.pattern, 'glob');
+      if (hit !== null) return deniedSearch(ctx, hit);
       return call.path === null ? POLICY_OK : checkPath(ctx, call.path, 'read');
     }
     case 'grep':
@@ -139,8 +190,10 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
       // и обычный поиск получал отказ политики, снять который оператор не может. Каталог
       // поиска ограничивает поле `path` — оно и проверяется.
       {
-        const deniedDir = searchesDeniedDir(ctx, call.path);
-        if (deniedDir !== null) return deniedSearch(ctx, deniedDir);
+        // Поиск по самому закрытому файлу сюда не попадает (каталог поиска его не
+        // накрывает) — его отклонит `checkPath` своим текстом.
+        const hit = deniedInScope(ctx, call.path, call.glob ?? null, 'grep');
+        if (hit !== null) return deniedSearch(ctx, hit);
       }
       return call.path === null ? POLICY_OK : checkPath(ctx, call.path, 'read');
     // Bash исполняется с cwd = корень проекта. Цели редиректов, уходящие наружу

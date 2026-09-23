@@ -67,7 +67,22 @@ function isOwnProcessArtifact(rel: string, ctx: PolicyContext): boolean {
 
 function isProtected(rel: string, ctx: PolicyContext): boolean {
   const ci = isWindowsStyle(ctx.projectRoot);
-  return ctx.protectedArtifacts.some((p) => pathsEqual(p, rel, ci));
+  return isRuntimeServiceFile(rel, ctx) || ctx.protectedArtifacts.some((p) => pathsEqual(p, rel, ci));
+}
+
+/**
+ * Служебные файлы рантайма в каталоге витка: дот-файлы (`.chunk-N-attempt-K-verdict.json`,
+ * `.events.ndjson`, снимки baseline) и числа витка. Их пишет только рантайм мимо гейта;
+ * запись моделью — подделка фактов: вердикт попытки решает, будет ли коммит на handoff
+ * (code-review-all 2026-09-23).
+ */
+function isRuntimeServiceFile(rel: string, ctx: PolicyContext): boolean {
+  const ci = isWindowsStyle(ctx.projectRoot);
+  const dir = `${ctx.sdlcDir}/`;
+  if (!pathsEqual(rel.slice(0, dir.length), dir, ci)) return false;
+  const name = rel.slice(dir.length);
+  if (name.includes('/')) return false;
+  return name.startsWith('.') || /^metrics\.(json|md)$/i.test(name);
 }
 
 function checkOnePath(ctx: PolicyContext, userPath: string): PolicyVerdict {

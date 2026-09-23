@@ -185,6 +185,14 @@ export class WitokPaths {
   }
 
   /**
+   * Вердикт попытки, посчитанный рантаймом (`run/verdictStore.ts`) — служебный файл,
+   * модели на запись закрыт. Единственный источник «попытка принята» для handoff.
+   */
+  verdictFile(chunk: number, attempt: number): string {
+    return this.file(`.chunk-${chunk}-attempt-${attempt}-verdict.json`);
+  }
+
+  /**
    * Числа витка, полный снапшот (JSON) — служебный файл рантайма, не артефакт методологии.
    *
    * Единственный читатель — сам рантайм: `Run` восстанавливает накопители метрик из этого

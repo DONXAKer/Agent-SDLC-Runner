@@ -50,6 +50,8 @@ export interface StageHost {
   commitOutcome(): CommitOutcome | null;
   /** Пишет итог `afterStart` для последующего чтения `commitOutcome()` в том же входе. */
   recordCommitOutcome(outcome: CommitOutcome | null): void;
+  /** Текущий вход в `handoff` — оформленный оператором обрыв витка (`RunStageOptions.abortHandoff`). */
+  handoffAborted(): boolean;
   /** Разобранный набор гейтов проекта; `null` — файла нет (`Run.gatesFile`). */
   gatesFile(): GatesFile | null;
   /** Пункты приёмочного листа задачи по id (`Run.intentClaimLines`). */

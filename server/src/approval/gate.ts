@@ -570,4 +570,14 @@ export class ApprovalGate {
     const count = prev !== undefined && prev.command === command ? prev.count + 1 : 1;
     this.bashFailures.set(runId, { command, count });
   }
+
+  /**
+   * Принятая правка файла обнуляет счётчик: та же команда после правки — уже не «повтор без
+   * изменений», а штатный цикл TDD (тест → правка → тест). Пока флоу `loop` отдавал `ok`
+   * на любой результат, счётчик там не рос вовсе; с честным `ok: false` четвёртый `npm
+   * test` цикла отклонялся, хотя код между прогонами менялся (code-review-all 2026-09-23).
+   */
+  noteTreeChanged(runId: string): void {
+    this.bashFailures.delete(runId);
+  }
 }

@@ -254,12 +254,16 @@ export function loadConfig(dir: string = configDir()): LoadedConfig {
   // (code-review-all 2026-09-23). Явное значение (runner.local.json, окружение) по-прежнему
   // побеждает.
   const methodologyDir = expand(merged.methodologyDir);
-  const fromMethodology = (sub: string): string | undefined =>
-    typeof methodologyDir === 'string' ? join(methodologyDir, 'implementations', 'claude-code', sub) : undefined;
+  // Нет ни явного значения, ни эталона — пустая строка, а не `undefined` под видом строки:
+  // `join(undefined, …)` падал TypeError'ом без причины, а readOnlyRoots получал путь
+  // «undefined/templates». Пустой путь называет `readSkillBody` («не задан каталог»), а
+  // `readOnlyRoots` его отбрасывает.
+  const fromMethodology = (sub: string): string =>
+    typeof methodologyDir === 'string' && methodologyDir !== '' ? join(methodologyDir, 'implementations', 'claude-code', sub) : '';
   const runner: RunnerConfig = {
     ...merged,
-    skillsDir: expand(nonBlank(merged.skillsDir) ?? (fromMethodology('skills') as string)),
-    agentsDir: expand(nonBlank(merged.agentsDir) ?? (fromMethodology('agents') as string)),
+    skillsDir: expand(nonBlank(merged.skillsDir) ?? fromMethodology('skills')),
+    agentsDir: expand(nonBlank(merged.agentsDir) ?? fromMethodology('agents')),
     methodologyDir,
   };
   const models = readJson<ModelsConfig>(join(dir, 'models.json'));
