@@ -146,6 +146,8 @@ import { axesGateRow as axesGateRowOf, axisProblems as axisProblemsOf } from './
 import type { StageHost } from './stages/types.ts';
 import { VerifyState } from './stages/verify/state.ts';
 import {
+  MODEL_REPORTED_GATES,
+  RECONCILE_GATE,
   REVIEW_GATE,
   earlyGateRows as earlyGateRowsOf,
   earlyGatesForModel,
@@ -405,7 +407,7 @@ export class Run {
 
   /**
    * Итог последнего `commitByRuntime` за текущий вход в этап `handoff` — мост между
-   * `afterStart` (делает коммит) и `mechanicalJobs` (заполняет поле «Коммит» отчёта),
+   * `afterStart` (делает коммит) и `mechanicalJobs` (заполняет строку `commit:` отчёта),
    * которые видят РАЗНЫЕ объекты `this.host` (геттер пересоздаёт литерал на каждый вызов),
    * но оба читают/пишут это одно поле экземпляра `Run` (ревью code-review-all, 2026-09-19).
    */
@@ -2028,7 +2030,11 @@ export class Run {
         // `stages/verify/gates.ts`). Без этого исключения витки с обычным для
         // минимума набором никогда бы не проходили дальше intent.
         problems.push(
-          ...unimplementedGates(gates, (name) => builtinFor(name) !== null, [REVIEW_GATE]).map(by(gatesBlame)),
+          ...unimplementedGates(gates, (name) => builtinFor(name) !== null, [
+            REVIEW_GATE,
+            RECONCILE_GATE,
+            ...MODEL_REPORTED_GATES,
+          ]).map(by(gatesBlame)),
         );
       }
     }

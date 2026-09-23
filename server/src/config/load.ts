@@ -247,11 +247,20 @@ export function loadConfig(dir: string = configDir()): LoadedConfig {
   // настоящая причина («не задан skillsDir») называется позже и по делу.
   const expand = (v: string): string => (typeof v === 'string' ? expandUserPath(v) : v);
 
+  // Тексты этапов и субагенты по умолчанию берутся из ТОГО ЖЕ эталона, что и формы
+  // (`methodologyDir`): прежнее умолчание `~/.claude/skills` указывало на личную копию
+  // Claude Code, и на чистой машине тексты этапов и шаблоны приходили из разных версий
+  // методологии — старые скиллы при новых формах, без агента `sdlc-claims`
+  // (code-review-all 2026-09-23). Явное значение (runner.local.json, окружение) по-прежнему
+  // побеждает.
+  const methodologyDir = expand(merged.methodologyDir);
+  const fromMethodology = (sub: string): string | undefined =>
+    typeof methodologyDir === 'string' ? join(methodologyDir, 'implementations', 'claude-code', sub) : undefined;
   const runner: RunnerConfig = {
     ...merged,
-    skillsDir: expand(merged.skillsDir),
-    agentsDir: expand(merged.agentsDir),
-    methodologyDir: expand(merged.methodologyDir),
+    skillsDir: expand(nonBlank(merged.skillsDir) ?? (fromMethodology('skills') as string)),
+    agentsDir: expand(nonBlank(merged.agentsDir) ?? (fromMethodology('agents') as string)),
+    methodologyDir,
   };
   const models = readJson<ModelsConfig>(join(dir, 'models.json'));
 

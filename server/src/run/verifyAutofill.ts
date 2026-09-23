@@ -69,6 +69,19 @@ export interface VerifyReportFacts {
    * прогоном на наборе с двумя ранними гейтами).
    */
   earlyGatesForModel?: readonly string[];
+  /**
+   * Включённые гейты этапа 6, статус которых рантайм на момент автозаполнения не знает
+   * (сегодня — «Ревью независимым агентом»: рецензент ещё не запускался). При
+   * развороте строки-образца для них остаётся строка с плейсхолдерами — модели.
+   */
+  gatesForModel?: readonly string[];
+  /** Гейты, статус которых ставит рантайм без прогона команды (сверка отчёта с набором). */
+  runtimeGateRows?: readonly { name: string; status: string; result: string }[];
+}
+
+/** Первая ячейка строки — целиком место формы (`‹имя из набора›`): строка-образец. */
+function isSampleNameCell(name: string): boolean {
+  return /^‹[^‹›]*›$/.test(name.trim());
 }
 
 /** Однострочная ячейка таблицы: переносы и вертикальные черты в ней жить не могут. */
@@ -125,7 +138,7 @@ export function autofillVerificationReport(
     for (let j = tableStart; j < tableEnd; j++) {
       const line = lines[j]!;
       const name = firstCell(line);
-      if (name === null || !line.includes('‹')) continue;
+      if (name === null || !line.includes('‹') || isSampleNameCell(name)) continue;
       const r = byKey.get(gateKey(name));
       if (r === undefined) continue;
       // Черта в имени экранируется обратно: splitRow её разэкранировал, и пересборка без
@@ -134,18 +147,31 @@ export function autofillVerificationReport(
       used.add(gateKey(name));
       filled++;
     }
-    // Строка-образец «прочий включённый гейт» разворачивается в фактические строки
-    // оставшихся прогнанных гейтов — либо убирается: образец не отчёт.
-    const otherIdx = lines.findIndex(
-      (l, k) => k >= tableStart && k < tableEnd && l.includes('‹прочий включённый гейт'),
-    );
+    // Строка-образец разворачивается в фактические строки оставшихся прогнанных гейтов —
+    // либо убирается: образец не отчёт. Образец узнаётся по первой ячейке-плейсхолдеру, а
+    // не по тексту шаблона: актуальная форма эталона — одна строка `‹имя из набора›`, а
+    // код ждал старую `‹прочий включённый гейт…›` и на актуальном шаблоне не заполнял
+    // таблицу вовсе (code-review-all 2026-09-23). Гейтам, статуса которых у рантайма ещё
+    // нет (ревью), остаётся строка модели.
+    const otherIdx = lines.findIndex((l, k) => {
+      if (k < tableStart || k >= tableEnd) return false;
+      const name = firstCell(l);
+      return name !== null && (isSampleNameCell(name) || l.includes('‹прочий включённый гейт'));
+    });
     if (otherIdx >= 0) {
       const rest = gates.filter((g) => !used.has(gateKey(g.name)));
+      const forModel = (f.gatesForModel ?? []).filter(
+        (n) => !used.has(gateKey(n)) && !gates.some((g) => gateKey(g.name) === gateKey(n)),
+      );
       lines.splice(
         otherIdx,
         1,
         // Черта в имени экранируется и здесь — та же страховка, что у именованных строк.
         ...rest.map((r) => `| ${escapeCell(r.name)} | ${r.status} | ${resultCell(r)} |`),
+        ...(f.runtimeGateRows ?? [])
+          .filter((g) => !used.has(gateKey(g.name)) && !gates.some((r) => gateKey(r.name) === gateKey(g.name)))
+          .map((g) => `| ${escapeCell(g.name)} | ${g.status} | ${cellSafe(g.result)} |`),
+        ...forModel.map((n) => `| ${escapeCell(n)} | ‹✅/❌/⏭› | ‹фактический результат› |`),
       );
       filled += rest.length > 0 ? rest.length : 1;
     }

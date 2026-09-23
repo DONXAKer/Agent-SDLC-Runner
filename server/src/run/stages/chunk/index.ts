@@ -9,7 +9,7 @@ import { workingDiff } from '../../../gates/git.ts';
 import { checkJournalClaimsVsBash } from '../../../verdict/honesty.ts';
 import { autofillChunkJournal } from '../../journalAutofill.ts';
 import { readReportVerdict } from '../../verifyAutofill.ts';
-import { RUNTIME_PROTECTED, granted } from '../preconditions.ts';
+import { RUNTIME_PROTECTED, granted, readinessReady } from '../preconditions.ts';
 import { ensureBaseline, recordEvidence } from './evidence.ts';
 import type { SeededArtifact, StageDef, StageHost, StageModule } from '../types.ts';
 import type { TreeChange } from '../../evidence.ts';
@@ -44,6 +44,9 @@ export const chunkStage: StageDef = {
     // Без заполненного поля одобрения chunk не начинается — так требует методология,
     // и проверяется именно поле в файле, а не память диалога.
     granted('план одобрен человеком', (c) => c.paths.plan, DECISION.approval),
+    // Прогон 2 готовности пишется вместе с планом (этап 4): его вердикт «не готова»
+    // обязан остановить виток ДО первой правки кода, а не только лежать в файле.
+    readinessReady('проверка готовности не отвергла задачу (прогон 2)', 2, false),
     // Попытка, уже отвергнутая вердиктом, заново не прогоняется: chunk по её номеру
     // перезаписал бы улики проверенной попытки (патч, запись о тестах), а отчёт K остался
     // бы от старого патча. Новая работа — новая попытка (code-review-all 2026-09-23).

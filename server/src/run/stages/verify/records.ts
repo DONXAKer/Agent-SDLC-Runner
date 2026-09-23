@@ -17,7 +17,7 @@ import type { ClaimAsk } from '../../claimFill.ts';
 import { autofillVerificationReport } from '../../verifyAutofill.ts';
 import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } from '../../verifyReport.ts';
 import type { SeededArtifact, StageHost } from '../types.ts';
-import { REVIEW_GATE, earlyGateRows, earlyGatesForModel } from './gates.ts';
+import { MODEL_REPORTED_GATES, RECONCILE_GATE, REVIEW_GATE, earlyGateRows, earlyGatesForModel } from './gates.ts';
 
 /** Текст, в котором ищется ссылка записи (`VerifyState.anchorHaystack`). */
 export function evidenceHaystack(host: StageHost): string {
@@ -227,6 +227,18 @@ export function autofillVerification(host: StageHost, seeded: SeededArtifact[]):
     attemptBudget: host.attemptBudget(),
     earlyGates: earlyGateRows(host),
     earlyGatesForModel: earlyGatesForModel(host),
+    // Строки ревью и гейтов проверяющего остаются модели: рецензент на момент
+    // автозаполнения ещё не запускался.
+    gatesForModel: (host.gatesFile()?.rows ?? [])
+      .filter((r) => r.enabled && [REVIEW_GATE, ...MODEL_REPORTED_GATES].some((n) => gateKey(n) === gateKey(r.name)))
+      .map((r) => r.name),
+    runtimeGateRows: (host.gatesFile()?.rows ?? [])
+      .filter((r) => r.enabled && gateKey(r.name) === gateKey(RECONCILE_GATE))
+      .map((r) => ({
+        name: r.name,
+        status: '✅',
+        result: 'исполняет рантайм при расчёте вердикта: строка каждого включённого гейта обязана быть в отчёте, иначе вердикт падает',
+      })),
   });
   // Заполненный рантаймом бланк запоминается для ансамбля: дополнительные маршруты
   // стартуют с него, а не с пустого файла — иначе класс расхождений «отчёт/факт» r9,

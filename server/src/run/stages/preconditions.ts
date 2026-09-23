@@ -210,3 +210,45 @@ export function relOf(c: StageContext, absolute: string): string {
   const p = absolute.replace(/\\/g, '/');
   return p.startsWith(`${root}/`) ? p.slice(root.length + 1) : p;
 }
+
+/**
+ * Вердикт прогона N проверки готовности (`readiness.md`, строка «Вердикт прогона N:»):
+ * `ready` — «готова» одним значением, `not` — «не готова», `null` — бланк
+ * («готова / не готова — ‹…›»), плейсхолдер или строки нет.
+ */
+export function readinessVerdict(text: string, run: 1 | 2): 'ready' | 'not' | null {
+  const re = new RegExp(`вердикт\\s+прогона\\s+${run}[*_]*\\s*:\\s*[*_]*\\s*(.*)$`, 'i');
+  for (const raw of text.split(/\r?\n/)) {
+    const m = re.exec(raw);
+    if (m === null) continue;
+    const v = (m[1] ?? '').replace(/[*_`]/g, '').trim().toLowerCase().replace(/ё/g, 'е');
+    if (v.includes('‹') || /готова\s*\/\s*не\s+готова/.test(v)) return null;
+    if (/^не\s+готова/.test(v)) return 'not';
+    if (/^готова(\s|[—–-]|$)/.test(v)) return 'ready';
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Предусловие «готовность задачи не отвергнута прогоном N»: не только наличие
+ * `readiness.md`, но и его вердикт. Файл с «не готова» прежде пропускал виток дальше — `flow-verdict.py`
+ * эталона такой виток роняет (code-review-all 2026-09-23).
+ */
+export function readinessReady(describe: string, run: 1 | 2, requireFile = true): Precondition {
+  return {
+    describe,
+    artifact: (c) => c.paths.readiness,
+    check: (c) => {
+      const p = c.paths.readiness;
+      const a = readArtifact(p);
+      if (!a.exists) return requireFile ? `нет файла ${p}` : null;
+      // Блокирует явное «не готова». Незаполненную строку вердикта ловит страж
+      // заполненности формы на этапе, который её пишет, — здесь второе решение о том же
+      // было бы лишним и роняло бы формы, где строка по-другому оформлена.
+      return readinessVerdict(a.text, run) === 'not'
+        ? `проверка готовности (прогон ${run}) вынесла «не готова» — задачу чинят до следующего этапа (${p})`
+        : null;
+    },
+  };
+}

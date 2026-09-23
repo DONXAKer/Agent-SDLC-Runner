@@ -5,7 +5,7 @@ import { DECISION, countPlaceholdersInSection, pathExistsAny, readArtifact } fro
 import { declaredAsNew } from '../../artifacts/planFiles.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
-import { TOUCH_SECTION, claimsMinimum, exists, intentFilled, isSmallContour, relOf } from './preconditions.ts';
+import { TOUCH_SECTION, claimsMinimum, exists, intentFilled, isSmallContour, readinessReady, relOf } from './preconditions.ts';
 import type { Precondition, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 import { autofillTitle } from '../formAutofill.ts';
 import { edgeExampleLines } from '../../artifacts/edgeExample.ts';
@@ -254,7 +254,7 @@ export const exploreStage: StageDef = {
   produces: (c) => [c.paths.explorationReport],
   requires: [
     intentFilled('задача заполнена без плейсхолдеров', false),
-    exists('проверка готовности пройдена (прогон 1)', (c) => c.paths.readiness),
+    readinessReady('проверка готовности пройдена (прогон 1)', 1),
     claimsMinimum(),
   ],
   protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.plan)],

@@ -220,14 +220,14 @@ export async function runReviewerDirectly(
 
   const route = host.verifyRoute();
   try {
-    const result = await host.executorFor('verify', route).run(
+    const runOnce = async (user: string) => host.executorFor('verify', route).run(
       {
         prompt: {
           presetNote: null,
           // Тело определения агента — его системный промпт. Рассказа исполнителя здесь
           // нет и быть не может: `stageInputs('verify')` журнала chunk'а не содержит.
           system: def.prompt,
-          user: userWithAxes,
+          user,
           tools: [],
           editedByOperator: false,
         },
@@ -249,7 +249,34 @@ export async function runReviewerDirectly(
       hooks,
     );
 
-    const text = result.finalText.trim();
+    let result = await runOnce(userWithAxes);
+    let text = result.finalText.trim();
+
+    // Структура ответа (`sdlc-verify/SKILL.md`, проверка ответа рецензента): вердикт по
+    // КАЖДОМУ пункту приёмки задачи. Один повторный запрос с названными пропусками;
+    // второй неполный ответ — гейт остаётся `⏭`. Прежде хватало одного якоря из патча, и
+    // ответ по части пунктов ставил гейту ✅ (code-review-all 2026-09-23).
+    const claimIds = [...host.intentClaimLines().keys()];
+    const uncovered = (t: string): string[] => missingClaimIds(t, claimIds);
+    if (result.ok && text !== '' && uncovered(text).length > 0 && !signal.aborted) {
+      const missing = uncovered(text);
+      host.emit({
+        type: 'warning',
+        runId: host.id,
+        stage: 'verify',
+        message: `ответ рецензента не называет пункты ${missing.join(', ')} — один повторный запрос`,
+      });
+      const retry = await runOnce(
+        `${userWithAxes}\n\n## Повтор: ответ неполон\n\nПрошлый ответ не дал вердикта по пунктам ` +
+          `${missing.join(', ')}. Дай ответ заново целиком: по КАЖДОМУ пункту приёмки — id, ` +
+          'статус и чем подтверждён (файл:символ, тест или хунк диффа).',
+      );
+      if (retry.ok && retry.finalText.trim() !== '') {
+        result = retry;
+        text = retry.finalText.trim();
+      }
+    }
+    const stillMissing = uncovered(text);
     if (!result.ok || text === '') {
       // Причина обязана быть НАЗВАНА, а не сведена к «пусто»: живой прогон дал
       // `ok=true`, 1174 выходных токена и пустой текст — то есть рецензент потратил ход
@@ -286,6 +313,18 @@ export async function runReviewerDirectly(
       return text;
     }
 
+    if (stillMissing.length > 0) {
+      host.emit({
+        type: 'warning',
+        runId: host.id,
+        stage: 'verify',
+        message:
+          `ответ рецензента и после повтора не называет пункты ${stillMissing.join(', ')} — ` +
+          `ревью неполно, гейт «${REVIEW_GATE}» остаётся ⏭, текст уходит во вход этапа`,
+      });
+      return text;
+    }
+
     // Факт ревью ставится ТОЛЬКО по непустому ответу состоявшегося прогона — тем же
     // правилом, что и при вызове субагента моделью: «ход завершён» ревью не является.
     host.markReviewerRan();
@@ -301,4 +340,13 @@ export async function runReviewerDirectly(
     });
     return null;
   }
+}
+
+/**
+ * Пункты приёмки задачи, которых ответ рецензента не называет ни разу (`claim-N` в любом
+ * регистре, с границей по цифре: `claim-1` не засчитывается упоминанием `claim-12`).
+ */
+export function missingClaimIds(text: string, claimIds: readonly string[]): string[] {
+  const lower = text.toLowerCase();
+  return claimIds.filter((id) => !new RegExp(`${id.toLowerCase().replace(/[-]/g, '\\-')}(?!\\d)`).test(lower));
 }
