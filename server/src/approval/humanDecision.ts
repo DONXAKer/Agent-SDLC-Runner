@@ -42,15 +42,28 @@ import {
   readArtifact,
 } from '../artifacts/artifact.ts';
 import type { DecisionState } from '../artifacts/artifact.ts';
+import { findLooseRange } from '../exec/editMatch.ts';
 import { writeTargetPaths } from '../policy/index.ts';
 import { resolveUserPath } from '../policy/paths.ts';
 
-/** Применяет `edits` дословно. `null` — хоть один `old_string` не нашёлся точь-в-точь. */
+/**
+ * Применяет `edits` тем же правилом, что инструмент `Edit` (`exec/tools/index.ts`):
+ * дословно, а при промахе — мягким поиском с точностью до пробельных промежутков
+ * (`findLooseRange`). `null` — фрагмент не нашёлся ни так, ни так (инструмент тоже
+ * откажет). Прежде здесь был только дословный путь: правка поля «Утвердил» с чуть иными
+ * пробелами в `old_string` проходила гейт непроверенной, а инструмент её применял
+ * (code-review-all 2026-09-23).
+ */
 function applyEditsExact(text: string, edits: readonly EditOp[]): string | null {
   let out = text;
   for (const e of edits) {
-    if (!out.includes(e.oldStr)) return null;
-    out = applyExactReplace(out, e.oldStr, e.newStr, e.replaceAll);
+    if (out.includes(e.oldStr)) {
+      out = applyExactReplace(out, e.oldStr, e.newStr, e.replaceAll);
+      continue;
+    }
+    const loose = e.replaceAll ? 'none' : findLooseRange(out, e.oldStr);
+    if (typeof loose !== 'object') return null;
+    out = out.slice(0, loose.start) + e.newStr + out.slice(loose.end);
   }
   return out;
 }

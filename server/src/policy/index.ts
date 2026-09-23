@@ -94,7 +94,11 @@ function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
   }
   if (call.kind === 'mcp') return checkMcp(call, ctx);
   const tool = KIND_TO_TOOL[call.kind];
-  if (tool === null) return POLICY_OK;
+  // Вид вызова без инструмента в карте — не «разрешено»: новый вид, забытый в
+  // `KIND_TO_TOOL`, иначе проходил бы молча. Худший случай — отказ (code-review-all 2026-09-23).
+  if (tool === null) {
+    return policyDeny('stageTools', `вид вызова «${call.kind}» не сопоставлен ни одному инструменту — вызов не разрешён`);
+  }
   if (!ctx.allowedTools.includes(tool)) {
     return policyDeny(
       'stageTools',

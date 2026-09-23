@@ -16,6 +16,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 
 import { checkBash } from '../policy/denyList.ts';
 import { findSandboxForCwd } from '../sandbox/registry.ts';
@@ -46,6 +47,35 @@ export interface ShellOptions {
   cwd: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  /**
+   * Исполнять POSIX-шеллом (bash), а не шеллом платформы. Для `Bash` модели: инструмент
+   * так называется, модель пишет bash, пол безопасности и лексер рассчитаны на bash, и
+   * флоу `sdk` исполняет его Git Bash'ем. На Windows без этого флага команда уходила в
+   * `cmd.exe` — одна команда в двух флоу имела разную семантику (code-review-all
+   * 2026-09-23). Команды гейтов из `.sdlc/gates.md` пишутся под платформу оператора и
+   * флаг не ставят.
+   */
+  posix?: boolean;
+}
+
+/**
+ * Bash для Windows: явный путь из окружения (`SDLC_BASH_PATH`, тот же, что у Claude Code —
+ * `CLAUDE_CODE_GIT_BASH_PATH`), иначе стандартная установка Git. `null` — не нашёлся:
+ * тогда команда идёт шеллом платформы, а запреты `denyList` на `cmd`/`powershell` держат
+ * пол. На POSIX — `true`: `spawn` сам возьмёт `/bin/sh`.
+ */
+export function posixShell(): string | true {
+  if (process.platform !== 'win32') return true;
+  const candidates = [
+    process.env['SDLC_BASH_PATH'],
+    process.env['CLAUDE_CODE_GIT_BASH_PATH'],
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+  ];
+  for (const c of candidates) {
+    if (c !== undefined && c !== '' && existsSync(c)) return c;
+  }
+  return true;
 }
 
 export function runShell(command: string, opts: ShellOptions): Promise<ShellResult> {
@@ -89,7 +119,7 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     // сигналом нельзя. На Windows группу заменяет `taskkill /T`.
     const child = spawn(command, {
       cwd: opts.cwd,
-      shell: true,
+      shell: opts.posix === true ? posixShell() : true,
       windowsHide: true,
       detached: process.platform !== 'win32',
     });

@@ -50,6 +50,24 @@ function isReadDenied(ctx: PolicyContext, rel: string): boolean {
   return (ctx.readDenied ?? []).some((p) => pathsEqual(p, rel, ci));
 }
 
+/**
+ * Поиск по КАТАЛОГУ, где лежат закрытые на чтение отчёты. Точный путь закрыт `isReadDenied`,
+ * но `Grep {path: ".sdlc/<slug>"}` печатал строки прошлых отчётов, а `Glob` по тому же
+ * каталогу — их имена (code-review-all 2026-09-23). Поиск от корня проекта (`path` не
+ * задан) остаётся открытым: рецензенту он нужен для кода, и закрыть его — закрыть ревью;
+ * это принятое ограничение, как и `Bash` (`cat`).
+ */
+function searchesDeniedDir(ctx: PolicyContext, userPath: string | null): string | null {
+  const denied = ctx.readDenied ?? [];
+  if (denied.length === 0 || userPath === null) return null;
+  const r = within(ctx, userPath, 'read');
+  if (typeof r !== 'string' || r === '') return null;
+  const ci = isWindowsStyle(ctx.projectRoot);
+  const dir = `${r.replace(/\/+$/, '')}/`;
+  const hit = denied.find((p) => pathsEqual(p.slice(0, dir.length), dir, ci));
+  return hit === undefined ? null : r;
+}
+
 function checkPath(ctx: PolicyContext, userPath: string, access: Access): PolicyVerdict {
   const r = within(ctx, userPath, access);
   if (typeof r !== 'string') return r;
@@ -86,6 +104,15 @@ function checkSearchPattern(ctx: PolicyContext, pattern: string): PolicyVerdict 
   );
 }
 
+function deniedSearch(ctx: PolicyContext, where: string): PolicyVerdict {
+  return policyDeny(
+    'pathScope',
+    `поиск по «${where}» на этапе ${ctx.stage} закрыт: там лежат отчёты других попыток. ` +
+      `Ищи в коде проекта (без path или по каталогу исходников); связь между попытками ` +
+      `несут retry_instruction и carry_forward, которые подаёт машина витка.`,
+  );
+}
+
 export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
   switch (call.kind) {
     case 'read':
@@ -99,6 +126,10 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
       // не оставалось даже в очереди одобрений: поиск в неё не ставится по дешевизне.
       const patternProblem = checkSearchPattern(ctx, call.pattern);
       if (patternProblem !== null) return patternProblem;
+      const deniedDir = searchesDeniedDir(ctx, call.path);
+      if (deniedDir !== null || ((ctx.readDenied ?? []).length > 0 && /verification-report/i.test(call.pattern))) {
+        return deniedSearch(ctx, deniedDir ?? call.pattern);
+      }
       return call.path === null ? POLICY_OK : checkPath(ctx, call.path, 'read');
     }
     case 'grep':
@@ -107,6 +138,10 @@ export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
       // строки после замены `\` на `/` выглядят как абсолютный путь или восхождение вверх,
       // и обычный поиск получал отказ политики, снять который оператор не может. Каталог
       // поиска ограничивает поле `path` — оно и проверяется.
+      {
+        const deniedDir = searchesDeniedDir(ctx, call.path);
+        if (deniedDir !== null) return deniedSearch(ctx, deniedDir);
+      }
       return call.path === null ? POLICY_OK : checkPath(ctx, call.path, 'read');
     // Bash исполняется с cwd = корень проекта. Цели редиректов, уходящие наружу
     // (включая /dev/null и временные файлы), здесь намеренно не трогаем — модель

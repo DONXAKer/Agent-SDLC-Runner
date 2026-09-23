@@ -1029,8 +1029,9 @@ export class LoopExecutor implements StageExecutor {
         : normalize(call.name, decision.updatedInput as Record<string, unknown>);
 
     let text: string;
+    let toolOk: boolean;
     try {
-      text = await this.execute(effective, req, hooks, toolCtx, spentUsd);
+      ({ ok: toolOk, text } = await this.execute(effective, req, hooks, toolCtx, spentUsd));
     } catch (e) {
       // Инструмент, который не может отработать, отчитывается ОШИБКОЙ — иначе «ok» на
       // заглушке становится доказательством того, чего не было (гейт ревью зеленел от
@@ -1049,9 +1050,14 @@ export class LoopExecutor implements StageExecutor {
     // по ней же: считать длину второй раз значило бы завести второе знание о потолке.
     if (text.includes('[рантайм обрезал:')) hooks.onFriction('truncated');
 
+    // Исход — фактический, а не «инструмент вернул строку»: упавший `Edit`, `Bash` с
+    // ненулевым кодом и отказ `FinalizeArtifact` прежде уходили `ok: true`, и рантайм
+    // засчитывал их принятыми правками (прогресс анти-цикла, «код изменён»), а
+    // `repeatFailure` в этом флоу не срабатывал вовсе — флоу `sdk` получает `is_error`
+    // от харнесса честно (code-review-all 2026-09-23).
     hooks.onToolResult({
       requestId,
-      ok: true,
+      ok: toolOk,
       summary: text.split('\n')[0]?.slice(0, 200) ?? '',
       durationMs: Date.now() - started,
     });
@@ -1168,13 +1174,16 @@ export class LoopExecutor implements StageExecutor {
     toolCtx: ToolContext,
     /** Уже потрачено на витке — вложенный прогон субагента делит потолок с родителем. */
     spentUsd: number,
-  ): Promise<string> {
+  ): Promise<{ ok: boolean; text: string }> {
+    const done = (text: string): { ok: boolean; text: string } => ({ ok: true, text });
     switch (call.kind) {
       case 'ask_human': {
         const answers = await hooks.onAskHuman(call);
-        return Object.keys(answers).length === 0
-          ? 'человек не ответил — считай вопрос пропущенным и запиши это в артефакт'
-          : JSON.stringify(answers, null, 2);
+        return done(
+          Object.keys(answers).length === 0
+            ? 'человек не ответил — считай вопрос пропущенным и запиши это в артефакт'
+            : JSON.stringify(answers, null, 2),
+        );
       }
 
       case 'finalize_artifact': {
@@ -1186,20 +1195,22 @@ export class LoopExecutor implements StageExecutor {
         // Сама проверка — общая для флоу `loop` и `sdk` (`finalizeCheck.ts`), чтобы
         // отказ не разъезжался между ними и локализация незаполненных мест не дублировалась.
         const rejection = finalizeRejection(call.artifact, toolCtx.projectRoot, req.formArtifacts ?? []);
-        return rejection?.message ?? `артефакт заявлен готовым: ${call.artifact}`;
+        return rejection === null
+          ? done(`артефакт заявлен готовым: ${call.artifact}`)
+          : { ok: false, text: rejection.message };
       }
 
       // Записи в отчёт этапа 6 принимает рантайм — он же и рисует из них таблицу. Здесь
       // только передача: второго места, знающего форму отчёта, не заводим.
       case 'record_claim':
       case 'record_finding':
-        return hooks.onRecord(call);
+        return done(hooks.onRecord(call));
 
       case 'request_scope_extension':
         // Само расширение `plan.md` и пересчёт политики уже произошли в `onToolRequest`
         // ДО того, как этот вызов дошёл сюда: `execute()` зовётся только после `decision.
         // allowed`. Здесь только подтверждение модели, что путь теперь можно писать.
-        return `«${call.path}» добавлен в files_to_touch — теперь его можно писать`;
+        return done(`«${call.path}» добавлен в files_to_touch — теперь его можно писать`);
 
       case 'subagent': {
         // Субагент — вложенный прогон ТОГО ЖЕ цикла с урезанными правами.
@@ -1241,7 +1252,7 @@ export class LoopExecutor implements StageExecutor {
           throw new SubagentUnavailable(note);
         }
 
-        return this.runSubagent(req, hooks, def, call.prompt, nested, spentUsd);
+        return done(await this.runSubagent(req, hooks, def, call.prompt, nested, spentUsd));
       }
 
       case 'mcp': {
@@ -1249,15 +1260,15 @@ export class LoopExecutor implements StageExecutor {
         // диск, таймаут, сигнал — и по построению не знает ни про хаб, ни про хуки.
         // Ровно поэтому рядом живут `ask_human` и `subagent`.
         if (req.mcp === null) {
-          return 'ошибка: внешние MCP-серверы на этом этапе не выданы';
+          return { ok: false, text: 'ошибка: внешние MCP-серверы на этом этапе не выданы' };
         }
         const outcome = await req.mcp.call(call.server, call.tool, call.args, req.signal);
-        return outcome.ok ? outcome.text : `ошибка: ${outcome.text}`;
+        return { ok: outcome.ok, text: outcome.ok ? outcome.text : `ошибка: ${outcome.text}` };
       }
 
       default: {
         const outcome = await executeTool(call, toolCtx);
-        return outcome.ok ? outcome.text : `ошибка: ${outcome.text}`;
+        return { ok: outcome.ok, text: outcome.ok ? outcome.text : `ошибка: ${outcome.text}` };
       }
     }
   }

@@ -58,6 +58,15 @@ const DENIED_BASH: { re: RegExp; what: string }[] = [
     what: 'однострочник интерпретатора',
   },
   { re: /\beval\b/, what: 'eval' },
+  // Интерпретаторы Windows: лексер целей записи (`shellRedirects.ts`) внутрь `cmd /c` и
+  // `powershell -c` не заходит, а сам список рассчитан на bash — `rd /s /q`, `del /s`,
+  // `Set-Content .env` проходили оба уровня. На Windows `Bash` флоу `loop` без Git Bash
+  // исполняется в `cmd.exe` (code-review-all 2026-09-23), поэтому эти формы — запрет.
+  { re: /(^|[\s;&|(])cmd(\.exe)?\s+\/[ck]\b/, what: 'вызов cmd /c' },
+  { re: /\b(powershell|pwsh)(\.exe)?\b/, what: 'вызов PowerShell' },
+  { re: /(^|[\s;&|(])(rd|rmdir)\s+(\/[a-z]\s+)*\/s\b/, what: 'рекурсивное удаление (rd /s)' },
+  { re: /(^|[\s;&|(])(del|erase)\s+[^\n]*\/s\b/, what: 'рекурсивное удаление (del /s)' },
+  { re: /\bremove-item\b[^\n]*-recurse/, what: 'рекурсивное удаление (Remove-Item -Recurse)' },
   { re: /\bbase64\b[^\n]*\s-{1,2}(d|decode)\b/, what: 'декодирование base64' },
   { re: /\bmkfs\b|\bdd\b[^\n]*\bof=\/dev\//, what: 'операция с устройством' },
 ];

@@ -501,6 +501,7 @@ async function bashTool(
     cwd: ctx.projectRoot,
     timeoutMs: ctx.timeoutMs,
     signal: ctx.signal,
+    posix: true,
   });
   if (r.denied !== null) return { ok: false, text: r.lastLine };
 

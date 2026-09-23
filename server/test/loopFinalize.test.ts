@@ -495,6 +495,20 @@ describe('закрытие после FinalizeArtifact — после всего
   });
 });
 
+describe('исход инструмента во флоу loop (code-review-all 2026-09-23)', () => {
+  it('Edit с ненайденным фрагментом отчитывается ok:false, а не «принятой правкой»', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ok-'));
+    const file = join(root, 'a.txt');
+    writeFileSync(file, 'один\n');
+    const seen: Seen = { results: [], reminders: 0, warns: [] };
+    await exec([{ text: '', toolCalls: [editCall('e1', file, 'нет такого', 'x')] }, { text: 'готово' }]).run(
+      request(root, { maxTurns: 3 }),
+      hooks(seen),
+    );
+    strictEqual(seen.results[0]?.ok, false, seen.results[0]?.summary);
+  });
+});
+
 // Хвост вывода для улики тестов: см. BuiltinOutcome.outputTail.
 import { outputTailOf } from '../src/gates/builtin/index.ts';
 

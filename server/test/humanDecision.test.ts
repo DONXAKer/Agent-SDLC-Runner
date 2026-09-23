@@ -60,6 +60,16 @@ describe('decisionFabricationProblem', () => {
     ok(problem!.includes('Приёмка'), problem);
   });
 
+  it('Edit с иными пробелами в old_string (мягкое совпадение инструмента) — тоже отклонён', () => {
+    const abs = write('handoff.md', HANDOFF);
+    const call: NormalizedCall = {
+      kind: 'edit',
+      path: abs,
+      edits: [{ oldStr: '‹имя›  ·  ‹дата›   /   **не принималась — обрыв: ‹почему›**', newStr: 'Иван Петров · 2026-09-18', replaceAll: false }],
+    };
+    ok(decisionFabricationProblem(call, ctx) !== null, 'мягкое совпадение применит правка — гейт обязан её проверить');
+  });
+
   it('Edit вне поля решения — не трогает', () => {
     const abs = write('handoff.md', HANDOFF);
     const call: NormalizedCall = {

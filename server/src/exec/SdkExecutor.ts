@@ -247,6 +247,51 @@ export class SdkExecutor implements StageExecutor {
       ]),
     );
 
+    /**
+     * Решение гейта по вызову — одно на `canUseTool` и на `PreToolUse`. Чтения (`Read`/
+     * `Glob`/`Grep`) харнесс в режиме `default` разрешает сам, и `canUseTool` до них не
+     * доходит: закрытые на чтение отчёты прошлых попыток (`readDenied`, независимость
+     * ревью) и проверка побега через symlink во флоу `sdk` не действовали вовсе, а флоу
+     * `loop` проводит каждое чтение через политику (code-review-all 2026-09-23). Хук
+     * `PreToolUse` вызывается для любого вызова — через него чтения идут тем же гейтом;
+     * решение запоминается, чтобы `canUseTool`, если харнесс его всё же позовёт, не
+     * спросил второй раз.
+     */
+    const decided = new Map<string, { allow: true; updatedInput: Record<string, unknown> | null } | { allow: false; message: string }>();
+    const decide = async (
+      toolName: string,
+      input: unknown,
+      toolUseID: string,
+    ): Promise<{ allow: true; updatedInput: Record<string, unknown> | null } | { allow: false; message: string }> => {
+      const known = decided.get(toolUseID);
+      if (known !== undefined) return known;
+      gated.add(toolUseID);
+      const call = normalize(toolName, input as Record<string, unknown>);
+      const started = Date.now();
+      const decision = await hooks.onToolRequest(call, {
+        requestId: toolUseID,
+        toolName,
+        rawInput: input as Record<string, unknown>,
+        // Во флоу `sdk` вложенные прогоны крутит сам SDK, и своего списка прав у
+        // вызова здесь нет — правами вызывающего остаются права этапа.
+        callerTools: req.allowedTools,
+      });
+      if (!decision.allowed) {
+        hooks.onToolResult({
+          requestId: toolUseID,
+          ok: false,
+          summary: decision.reason,
+          durationMs: Date.now() - started,
+        });
+        const out = { allow: false as const, message: decision.reason };
+        decided.set(toolUseID, out);
+        return out;
+      }
+      const out = { allow: true as const, updatedInput: decision.updatedInput as Record<string, unknown> | null };
+      decided.set(toolUseID, out);
+      return out;
+    };
+
     const response = query({
       prompt: req.prompt.user,
       options: {
@@ -297,34 +342,40 @@ export class SdkExecutor implements StageExecutor {
         ...(req.readOnlyDirs.length > 0 ? { additionalDirectories: [...req.readOnlyDirs] } : {}),
         ...(Object.keys(agents).length > 0 ? { agents } : {}),
         maxTurns: req.maxTurns,
-        ...(req.maxBudgetUsd === null ? {} : { maxBudgetUsd: req.maxBudgetUsd }),
+        // Потолок витка, а не этапа: вычитается уже потраченное (маршруты ансамбля и
+        // прямой прогон рецензента делят ОДИН бюджет) — так же, как считает `LoopExecutor`.
+        // Прежде каждый этап sdk получал весь бюджет заново (code-review-all 2026-09-23).
+        ...(req.maxBudgetUsd === null
+          ? {}
+          : { maxBudgetUsd: Math.max(0.01, req.maxBudgetUsd - (req.spentUsdBefore ?? 0)) }),
 
         canUseTool: async (toolName, input, opts) => {
-          gated.add(opts.toolUseID);
-          const call = normalize(toolName, input);
-          const started = Date.now();
-          const decision = await hooks.onToolRequest(call, {
-            requestId: opts.toolUseID,
-            toolName,
-            rawInput: input as Record<string, unknown>,
-            // Во флоу `sdk` вложенные прогоны крутит сам SDK, и своего списка прав у
-            // вызова здесь нет — правами вызывающего остаются права этапа.
-            callerTools: req.allowedTools,
-          });
-
-          if (!decision.allowed) {
-            hooks.onToolResult({
-              requestId: opts.toolUseID,
-              ok: false,
-              summary: decision.reason,
-              durationMs: Date.now() - started,
-            });
-            return { behavior: 'deny', message: decision.reason };
-          }
-
-          return decision.updatedInput === null
-            ? { behavior: 'allow' }
-            : { behavior: 'allow', updatedInput: decision.updatedInput as Record<string, unknown> };
+          const d = await decide(toolName, input, opts.toolUseID);
+          if (!d.allow) return { behavior: 'deny', message: d.message };
+          return d.updatedInput === null ? { behavior: 'allow' } : { behavior: 'allow', updatedInput: d.updatedInput };
+        },
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Read|Glob|Grep',
+              hooks: [
+                async (input, toolUseID) => {
+                  if (input.hook_event_name !== 'PreToolUse') return {};
+                  const id = toolUseID ?? input.tool_use_id;
+                  const d = await decide(input.tool_name, input.tool_input, id);
+                  return d.allow
+                    ? {}
+                    : {
+                        hookSpecificOutput: {
+                          hookEventName: 'PreToolUse',
+                          permissionDecision: 'deny',
+                          permissionDecisionReason: d.message,
+                        },
+                      };
+                },
+              ],
+            },
+          ],
         },
       },
     });

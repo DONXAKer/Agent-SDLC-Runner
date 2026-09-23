@@ -461,3 +461,28 @@ describe('files_to_touch', () => {
     deepStrictEqual(extractFilesToTouch('## files_to_touch\n\nсписок совпал с разведкой\n'), []);
   });
 });
+
+describe('волна 2 code-review-all 2026-09-23: интерпретаторы Windows и поиск по отчётам прошлых попыток', () => {
+  it('cmd /c, PowerShell и рекурсивное удаление Windows — отказ пола', () => {
+    for (const c of ['cmd /c "echo x > src\\a.ts"', 'CMD.EXE /C dir', 'powershell -c "Set-Content .env x"', 'pwsh -Command ls', 'rd /s /q src', 'rmdir /q /s build', 'del /f /s /q *', 'Remove-Item -Recurse src']) {
+      const v = evaluate(bash(c), ctx(['src/a.ts']));
+      strictEqual(v.ok, false, c);
+    }
+    strictEqual(evaluate(bash('npm test'), ctx(['src/a.ts'])).ok, true);
+  });
+
+  const withDenied = ctx(null, { stage: 'verify', readDenied: ['.sdlc/demo/verification-report-1-attempt-1.md'] });
+
+  it('Grep/Glob по каталогу с закрытыми отчётами — отказ; поиск по коду — нет', () => {
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim', path: '.sdlc/demo' }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'claim', path: '.sdlc' }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'glob', pattern: '*.md', path: '.sdlc/demo' }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'glob', pattern: '**/verification-report-*', path: null }, withDenied).ok, false);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'priceFor', path: 'src' }, withDenied).ok, true);
+    strictEqual(evaluate({ kind: 'grep', pattern: 'priceFor', path: null }, withDenied).ok, true);
+  });
+
+  it('без закрытых отчётов поиск по .sdlc не ограничивается', () => {
+    strictEqual(evaluate({ kind: 'grep', pattern: 'x', path: '.sdlc/demo' }, ctx(null)).ok, true);
+  });
+});
