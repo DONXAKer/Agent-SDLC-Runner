@@ -59,11 +59,13 @@ function repo(): { root: string; paths: WitokPaths } {
 function host(
   paths: WitokPaths,
   askHuman: (stage: StageId, questions: readonly Question[]) => Promise<Record<string, string[]>>,
+  signal: AbortSignal = new AbortController().signal,
 ): StageHost {
   const writes: { path: string; text: string }[] = [];
   const h = {
     paths,
     askHuman,
+    signal: () => signal,
     writeAutofilled: (path: string, text: string) => {
       writes.push({ path, text });
       writeFileSync(path, text);
@@ -105,6 +107,22 @@ describe('askOpenQuestions (через askModule.begin(host).beforeExecutor)', (
     ok(intent.includes('- [x] **[блокирующий]** Ставка для суммы >300см?'), intent);
     // Пропущенный (неблокирующий) вопрос остаётся открытым — уходит следующему витку.
     ok(intent.includes('- [ ] **[неблокирующий]** Нужен ли отдельный кеш?'), intent);
+  });
+
+  it('отмена во время вопросов — ничего не пишется, вопросы остаются незаданными', async () => {
+    const { paths } = repo();
+    const ac = new AbortController();
+    const before = readFileSync(paths.clarificationReport, 'utf8');
+    const h = host(
+      paths,
+      async () => {
+        ac.abort();
+        return {};
+      },
+      ac.signal,
+    );
+    await askModule.begin?.(h, {} as never)?.beforeExecutor?.();
+    strictEqual(readFileSync(paths.clarificationReport, 'utf8'), before, '«(пропущено)» за отмену не пишется');
   });
 
   it('идемпотентно: повторный вход не переспрашивает уже отвеченные вопросы', async () => {

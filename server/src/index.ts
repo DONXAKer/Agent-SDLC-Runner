@@ -332,6 +332,17 @@ app.post('/api/runs', async (req, reply) => {
         .code(409)
         .send({ error: `виток «${slug}» уже идёт для проекта «${project.name}» (id ${clashing.run.id})` });
     }
+    // Простаивающий прогон того же slug закрывается: два `Run` над одним `.sdlc/<slug>/`
+    // держали бы разные номера попытки, диагнозы и автоправила и могли одновременно
+    // гнать chunk и verify по одному дереву (code-review-all 2026-09-23). Состояние витка
+    // на диске, новый `Run` восстановит его оттуда.
+    for (const [id, idle] of runs) {
+      if (idle.run.project.name !== project.name || idle.run.slug !== slug) continue;
+      idle.run.cancel('виток открыт заново');
+      void idle.run.dispose();
+      runs.delete(id);
+      bus.forget(id);
+    }
 
     const profileName = body.profile ?? project.activeProfile;
     // Правило рецензента проверяется здесь: виток с ревью слабее исполнителя не стартует.
@@ -501,6 +512,7 @@ app.get('/api/runs/:id', async (req, reply) => {
         blockers: run.blockers(s.id),
         // У handoff'а вход двойной, и предусловия у входов разные — см. `abortBlockers`.
         abortBlockers: s.id === 'handoff' ? run.blockers(s.id, { abortHandoff: true }) : null,
+        envNotes: run.envNotes(s.id),
         produces: out,
         // Факт с диска тем же чтением, что блокеры: клиентская эвристика «дальний этап без
         // блокеров = всё до него пройдено» врала на этапах с общими предусловиями (ask и
@@ -698,6 +710,10 @@ app.post('/api/runs/:id/advance', async (req, reply) => {
   }
 
   const body = req.body as { to?: 'attempt' | 'chunk' };
+  if (body.to === 'attempt' || body.to === 'chunk') {
+    const problem = live.run.advanceProblem(body.to);
+    if (problem !== null) return reply.code(409).send({ error: problem });
+  }
   if (body.to === 'attempt') {
     const attempt = live.run.nextAttempt();
     return { chunk: live.run.chunk, attempt, attemptBudget: live.run.attemptBudget };

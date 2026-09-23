@@ -175,6 +175,10 @@ export async function applyRecords(host: StageHost): Promise<void> {
     titles: new Map([...host.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)] as const)),
   });
   if (filled === 0 || text === report.text) return;
+  // Этап отменён: `Run.cancel` уже снял очередь гейта, и новый запрос одобрения ждал бы
+  // человека вечно, держа этап занятым (тот же класс, что у `topUpAxes`; code-review-all
+  // 2026-09-23).
+  if (host.signal().aborted) return;
 
   // Запись — тем же путём, что у спасения артефакта: нормализованный `Write` через
   // политику и гейт одобрения. Оператор видит карточку и вправе её править; отказ

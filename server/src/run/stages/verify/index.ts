@@ -8,6 +8,7 @@ import { emptyUsage } from '@sdlc-runner/shared';
 
 import { DECISION, readArtifact } from '../../../artifacts/artifact.ts';
 import { autofillJournalOutcome } from '../../journalAutofill.ts';
+import { writeVerdictSection } from '../../verifyAutofill.ts';
 import { preflightBlockers } from '../../../sandbox/preflight.ts';
 import { RUNTIME_PROTECTED, exists, granted } from '../preconditions.ts';
 import type { StageDef, StageModule } from '../types.ts';
@@ -160,6 +161,17 @@ export const verifyModule: StageModule = {
       // подсчёта вердикта: раньше это условие держалось на фразе рецензента (r31).
       host.verifyState.diffFactMatchesTree = await diffStillMatchesTree(host);
       host.computeStageVerdict(host.detectNoProgress());
+
+      // Вердикт — в секцию «Вердикт» отчёта: её читают handoff и восстановление попытки
+      // после рестарта, а в памяти вердикт до этой правки и оставался (writeVerdictSection).
+      if (host.verifyState.verdict !== null) {
+        const reportPath = host.paths.verificationReport(host.chunk(), host.attempt());
+        const report = readArtifact(reportPath);
+        if (report.exists) {
+          const written = writeVerdictSection(report.text, host.verifyState.verdict);
+          if (written.changed) host.writeAutofilled(reportPath, written.text, []);
+        }
+      }
 
       // Колонка «Итог» журнала chunk'а — рантайм, не Edit модели (6.7): значение уже
       // посчитано строкой выше, дописывать его агентным ходом было бы тем же классом

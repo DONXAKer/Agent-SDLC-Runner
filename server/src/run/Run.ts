@@ -157,6 +157,7 @@ import {
   evidenceHaystack,
 } from './stages/verify/records.ts';
 import { retryDetail, stageVerdict } from './stages/verify/verdict.ts';
+import { readReportAction, readReportVerdict } from './verifyAutofill.ts';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -389,6 +390,12 @@ export class Run {
   private attemptObservedFromStart = false;
   private aborter: AbortController | null = null;
   /**
+   * Отмена пришла, пока этап ещё не создал `aborter` (проба среды verify, сверка ветки):
+   * `abort()` было не на чем вызвать, и этап после этого исполнялся целиком. Флаг
+   * взводит `cancel`, а `runStage` гасит свежий `aborter` сразу (code-review-all 2026-09-23).
+   */
+  private cancelRequested = false;
+  /**
    * Состояние этапов, живущее между вызовами: записи и вердикт попытки этапа 6, кэш индекса
    * и слепой лист разведки, дерево попытки chunk. Владелец — виток; объяснения полей — в
    * классах состояния модулей этапов (`stages/verify/state.ts`, `stages/explore.ts`,
@@ -599,11 +606,14 @@ export class Run {
     this.hub = new McpHub(this.mcpSetup.servers);
     this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
     this.attempt = restoreAttemptFromJournal(this.paths.chunkJournal(this.chunk)) ?? this.attempt;
-    // Журнал хранит номер ПОСЛЕДНЕЙ начатой попытки. Если вердикт по ней уже записан,
-    // она закончена и отвергнута — свежий прогон продолжает со СЛЕДУЮЩЕЙ. Живой виток
-    // ta-13: новый прогон восстановил K=2 и перезаписал улики уже отревьюенной попытки 2
-    // уликами попытки 3 — след попытки для рецензента и таблицы попыток был затёрт.
-    while (artifactExists(this.paths.verificationReport(this.chunk, this.attempt))) {
+    // Журнал хранит номер ПОСЛЕДНЕЙ начатой попытки. Если вердикт по ней уже записан и он
+    // КРАСНЫЙ, она закончена и отвергнута — свежий прогон продолжает со СЛЕДУЮЩЕЙ. Живой
+    // виток ta-13: новый прогон восстановил K=2 и перезаписал улики уже отревьюенной
+    // попытки 2 уликами попытки 3. Зелёная попытка и бланк без вердикта номер НЕ
+    // сдвигают: зелёный виток после рестарта обязан дойти до handoff по своему отчёту, а
+    // verify, прерванный до вердикта, повторяется на той же попытке (code-review-all
+    // 2026-09-23 — прежде любой файл отчёта сдвигал номер, и handoff искал отчёт K+1).
+    while (readReportVerdict(readArtifact(this.paths.verificationReport(this.chunk, this.attempt)).text) === 'failed') {
       this.attempt += 1;
     }
   }
@@ -1033,6 +1043,34 @@ export class Run {
       this.config.runner.methodologyDir,
       this.config.runner.skillsDir,
     ];
+  }
+
+  /**
+   * Почему виток нельзя продвинуть — `null`, если можно. Решение по вердикту на ДИСКЕ
+   * (переживает рестарт) и по бюджету попыток. Прежде `/advance` не проверял ничего:
+   * «Новая попытка (4 из 3)» после эскалации, новая попытка поверх зелёной, двойной клик,
+   * съедавший номер и диагноз прошлой попытки (code-review-all 2026-09-23).
+   */
+  advanceProblem(to: 'attempt' | 'chunk'): string | null {
+    const report = readArtifact(this.paths.verificationReport(this.chunk, this.attempt));
+    const verdict = report.exists ? readReportVerdict(report.text) : null;
+    if (to === 'chunk') {
+      return verdict === 'passed'
+        ? null
+        : `chunk ${this.chunk} не принят: следующий chunk — только после зелёного вердикта попытки ${this.attempt}`;
+    }
+    if (verdict !== 'failed') {
+      return verdict === 'passed'
+        ? `попытка ${this.attempt} принята — новая попытка не нужна, дальше следующий chunk или передача`
+        : `попытка ${this.attempt} ещё не проверена вердиктом этапа 6 — новая попытка поверх неё стёрла бы её диагноз`;
+    }
+    if (readReportAction(report.text) === 'escalate') {
+      return (
+        `бюджет попыток исчерпан (вердикт попытки ${this.attempt} — escalate): решение за человеком — ` +
+        'обрыв витка или правка бюджета в .sdlc/gates.md'
+      );
+    }
+    return null;
   }
 
   /**
@@ -1995,19 +2033,18 @@ export class Run {
       }
     }
 
-    // Последний ИЗВЕСТНЫЙ (не обязательно свежий — см. `lastPreflightBlockers`)
-    // pre-flight-статус песочницы: без этого GET-ручки, которые как раз для того и зовут
-    // `blockers()`, чтобы показать оператору «почему этап нельзя начать» ДО клика «Старт»,
-    // никогда не видели провал пробы среды — он всплывал только ошибкой уже начавшегося
-    // `runStage`. Отдельная ветка от `preflightBlockers` (не встроена в неё саму) — та
-    // асинхронна (ходит в Docker), а `blockers()` обязан остаться синхронным: он вызывается
-    // на каждый опрос списка витков, и дёргать Docker на каждый такой опрос было бы дороже
-    // самой проблемы, которую чинит.
-    if (stage === 'verify') {
-      problems.push(...this.state.verify.lastPreflightBlockers.map(by(null)));
-    }
-
     return problems;
+  }
+
+  /**
+   * Последний ИЗВЕСТНЫЙ (не обязательно свежий) провал пробы среды этапа — для GET-ручек,
+   * чтобы оператор видел его ДО клика «Старт». Не блокер: при запуске этапа проба
+   * повторяется (`resetOnEnter` verify), а среди `blockers()` он выключал кнопку запуска
+   * и после починки среды — навсегда до рестарта (code-review-all 2026-09-23). Синхронный
+   * кэш, а не сама проба: она ходит в Docker, а список витков опрашивается постоянно.
+   */
+  envNotes(stage: StageId): string[] {
+    return stage === 'verify' ? [...this.state.verify.lastPreflightBlockers] : [];
   }
 
   /** Прогон автоматических гейтов этапа 6 рантаймом до ревью — `stages/verify/gates.ts`. */
@@ -2161,6 +2198,7 @@ export class Run {
 
   /** Отменяет текущий этап: и исполнителя, и всё, что ждёт ответа оператора. */
   cancel(reason: string): void {
+    this.cancelRequested = true;
     this.aborter?.abort();
     this.gate.cancelRun(this.id, reason);
     this.askGate.cancelRun(this.id);
@@ -2182,8 +2220,9 @@ export class Run {
     const def = stageById(stage);
     const route = this.profile.routes[stage];
     const abortOpts = opts.abortHandoff === true ? { abortHandoff: true } : {};
+    this.cancelRequested = false;
     const mod = stageModule(stage);
-    const inv = mod.begin?.(this.host, route) ?? {};
+    const inv = mod.begin?.(this.host, route, abortOpts) ?? {};
 
     // Сброс состояния этапа на входе — ДО блокеров: устаревший кэш прошлого прохода
     // (pre-flight verify, индекс explore) иначе заблокировал бы или подменил этот проход.
@@ -2264,6 +2303,7 @@ export class Run {
     });
     this.status = 'running';
     this.aborter = new AbortController();
+    if (this.cancelRequested) this.aborter.abort();
 
     // Метрики этапа копятся на витке: сколько раз он запускался, сколько это стоило и
     // сколько занял. Время меряется здесь, а не по событиям шины: буфер шины вытесняет
@@ -2273,310 +2313,315 @@ export class Run {
     stat.runs += 1;
     this.stageStats.set(stage, stat);
 
-    await inv.afterStart?.();
+    // `try` начинается ЗДЕСЬ, сразу после `stage_started` и `running`: всё ниже —
+    // `afterStart` (baseline chunk, коммит handoff), `enterFacts` (гейты verify),
+    // раскладка и автозаполнение форм, сборка промпта — бросает на сбое диска или git,
+    // и вне `try` этап оставался `running` навсегда: без `stage_done`, без снапшота
+    // метрик, с неснятыми ожиданиями одобрения (code-review-all 2026-09-23).
+    try {
+      await inv.afterStart?.();
 
-    // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он
-    // судит по своему представлению о сборке и тестах, а не по их фактическому итогу.
-    //
-    // Подклеиваются ВСЕГДА, в том числе к промпту, который оператор редактировал.
-    // Условие «только если промпт собран рантаймом» на практике не выполнялось никогда:
-    // интерфейс отправляет содержимое textarea при каждом запуске, поэтому рецензент не
-    // получал итогов гейтов ни разу, а оператор на каждом прогоне видел предупреждение
-    // о правке, которой не делал. Блок фактов от прогона — не «дополнение промпта за
-    // спиной»: без него этап 6 не исполняет порядок, ради которого он и устроен.
-    let extra = opts.extra;
-    /** Что подклеил сам рантайм — только это дописывается к промпту, отредактированному
-     *  оператором. Раньше признак был выражен условием `stage === 'verify'` в месте
-     *  склейки, и второй источник фактов (диагноз ретрая) туда бы просто не попал. */
-    let appended: string | undefined;
+      // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он
+      // судит по своему представлению о сборке и тестах, а не по их фактическому итогу.
+      //
+      // Подклеиваются ВСЕГДА, в том числе к промпту, который оператор редактировал.
+      // Условие «только если промпт собран рантаймом» на практике не выполнялось никогда:
+      // интерфейс отправляет содержимое textarea при каждом запуске, поэтому рецензент не
+      // получал итогов гейтов ни разу, а оператор на каждом прогоне видел предупреждение
+      // о правке, которой не делал. Блок фактов от прогона — не «дополнение промпта за
+      // спиной»: без него этап 6 не исполняет порядок, ради которого он и устроен.
+      let extra = opts.extra;
+      /** Что подклеил сам рантайм — только это дописывается к промпту, отредактированному
+       *  оператором. Раньше признак был выражен условием `stage === 'verify'` в месте
+       *  склейки, и второй источник фактов (диагноз ретрая) туда бы просто не попал. */
+      let appended: string | undefined;
 
-    // Факты рантайма этапа: итоги гейтов verify, диагноз ретрая chunk, ветка intent,
-    // пост-виток отчёт handoff — модель переносит их, но не сочиняет.
-    for (const block of (await inv.enterFacts?.(this.aborter.signal)) ?? []) {
-      appended = appended === undefined ? block : `${appended}
+      // Факты рантайма этапа: итоги гейтов verify, диагноз ретрая chunk, ветка intent,
+      // пост-виток отчёт handoff — модель переносит их, но не сочиняет.
+      for (const block of (await inv.enterFacts?.(this.aborter.signal)) ?? []) {
+        appended = appended === undefined ? block : `${appended}
 
-${block}`;
-      extra = extra === undefined ? block : `${extra}
+  ${block}`;
+        extra = extra === undefined ? block : `${extra}
 
-${block}`;
-    }
+  ${block}`;
+      }
 
-    // Соединения к MCP поднимаются ДО сборки промпта: набор инструментов, показанный
-    // оператору, обязан быть тем же, что уйдёт в модель, а он зависит от того, какие
-    // серверы реально ответили.
-    const mcp = await this.mcpAccess(stage);
+      // Соединения к MCP поднимаются ДО сборки промпта: набор инструментов, показанный
+      // оператору, обязан быть тем же, что уйдёт в модель, а он зависит от того, какие
+      // серверы реально ответили.
+      const mcp = await this.mcpAccess(stage);
 
-    // Формы раскладываются ДО этапа: «заполни бланк» — задача другого класса, чем «создай
-    // документ по форме», и на локальных моделях это ровно тот шаг, где они вставали.
-    // Снимок отсутствующего берётся ДО раскладки: по нему потом видно, произвёл ли этап
-    // хоть что-то, а существовавший ранее файл (набор гейтов проекта) доказательством не
-    // считается.
-    // Подготовка этапа до раскладки форм (снимок рабочего дерева chunk).
-    await inv.beforeSeed?.();
+      // Формы раскладываются ДО этапа: «заполни бланк» — задача другого класса, чем «создай
+      // документ по форме», и на локальных моделях это ровно тот шаг, где они вставали.
+      // Снимок отсутствующего берётся ДО раскладки: по нему потом видно, произвёл ли этап
+      // хоть что-то, а существовавший ранее файл (набор гейтов проекта) доказательством не
+      // считается.
+      // Подготовка этапа до раскладки форм (снимок рабочего дерева chunk).
+      await inv.beforeSeed?.();
 
-    // Строка трения заводится ДО исполнителя. Пока она создавалась первым же счётчиком,
-    // этап, не сделавший ни одного вызова и не получивший ни одного напоминания, в метрики
-    // не попадал вовсе — то есть самый тяжёлый исход выглядел как отсутствие трения, а
-    // приписка в постмортеме обещала читателю строку «Вызовов: 0», которой не бывало.
-    if (!this.friction.has(stage)) this.friction.set(stage, EMPTY_FRICTION());
+      // Строка трения заводится ДО исполнителя. Пока она создавалась первым же счётчиком,
+      // этап, не сделавший ни одного вызова и не получивший ни одного напоминания, в метрики
+      // не попадал вовсе — то есть самый тяжёлый исход выглядел как отсутствие трения, а
+      // приписка в постмортеме обещала читателю строку «Вызовов: 0», которой не бывало.
+      if (!this.friction.has(stage)) this.friction.set(stage, EMPTY_FRICTION());
 
-    const produced = def.produces(this.ctx);
-    const missingBefore = missingNow(produced);
-    const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
-    this.seeded = seeded.map((s) => s.path);
+      const produced = def.produces(this.ctx);
+      const missingBefore = missingNow(produced);
+      const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
+      this.seeded = seeded.map((s) => s.path);
 
-    // Механика артефактов до модели: хук этапа (журнал chunk'а, «Ветка витка» intent, отчёт
-    // приёмки verify), затем задания `mechanicalJobs` (план, готовность, названия отчётов 2–3).
-    // Снимок после подстановки уходит в `SeededArtifact.snapshot` — страж «бланк байт-в-байт»
-    // сравнивает с ним, и этап, не сделавший ничего, по-прежнему виден.
-    await inv.autofill?.(seeded);
-    await this.autofillMechanicalFields(stage, seeded);
+      // Механика артефактов до модели: хук этапа (журнал chunk'а, «Ветка витка» intent, отчёт
+      // приёмки verify), затем задания `mechanicalJobs` (план, готовность, названия отчётов 2–3).
+      // Снимок после подстановки уходит в `SeededArtifact.snapshot` — страж «бланк байт-в-байт»
+      // сравнивает с ним, и этап, не сделавший ничего, по-прежнему виден.
+      await inv.autofill?.(seeded);
+      await this.autofillMechanicalFields(stage, seeded);
 
-    // Что считается «этап ничего не произвёл»: файла нет ИЛИ он остался бланком байт в
-    // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.
-    const notDone = (): string[] => [
-      ...stillMissing(produced, missingBefore),
-      ...untouchedSeeds(seeded),
-      ...(inv.extraNotDone?.() ?? []),
-    ];
-    for (const path of this.seeded) {
-      this.emit({
-        type: 'warning',
-        runId: this.id,
-        stage,
-        message: `форма разложена под артефакт ${path} — этап заполняет её, а не создаёт заново`,
-      });
-    }
-
-    // Промпт пересобирается, когда есть что подклеить: иначе правка оператора и факты
-    // прогона исключали бы друг друга. Правка человека при этом сохраняется — она
-    // приходит отдельными полями `system`/`user`.
-    const prompt =
-      opts.prompt === undefined
-        ? this.preparePrompt(stage, {
-            ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
-            ...(extra === undefined ? {} : { extra }),
-          })
-        : withExtra(opts.prompt, appended);
-    if (opts.prompt !== undefined) {
-      this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
-    }
-
-    // `let`, не `const`: одобренный `request_scope_extension` дописывает `plan.md` на диске
-    // и пересчитывает `ctx` из него же — без переприсвоения политика этого же прогона
-    // видела бы старый `files_to_touch` до самого конца этапа, и одобренная человеком
-    // правка всё равно отклонялась бы следующим же `Write` в тот же путь.
-    let ctx = this.policyContext(stage);
-    /** Вызовы субагента-рецензента, ждущие результата: по ним ставится факт ревью. */
-    const pendingReviewer = new Set<string>();
-    /** Команда bash по requestId — только для вызовов, дошедших до исполнения: `onToolResult`
-     * знает исход, но не сам вызов, `recordBashResult` гейта нужны оба. */
-    const pendingBash = new Map<string, string>();
-    /**
-     * Прогресс этапа 5 — ПРИНЯТЫЕ записи в дерево (Write/Edit, дошедшие до исполнения
-     * без ошибки). До этого счётчика `progressSignal` передавался только этапу 6, и на
-     * chunk третий одинаковый вызов подряд обрывал этап безусловно — даже когда между
-     * повторами модель успела записать половину кода. `pendingWrites` — requestId
-     * разрешённых записей: исход знает `onToolResult`, вид вызова — `onToolRequest`.
-     *
-     * ЯВНО: счётчик подключается ко ВСЕМ исполнителям этапа chunk, не только к `stepFill`
-     * (`StepExecutor` его вообще не читает — у него свой ограничитель, `REPAIRS_PER_STEP`).
-     * Отсрочка при повторе одинакового вызова, если с начала серии был хоть один принятый
-     * вызов, — намеренное послабление антицикла и для обычного `LoopExecutor`, а не побочный
-     * эффект правки под `stepFill`: причины откатывать его для НЕ-stepFill моделей нет —
-     * критерий «есть реальный прогресс» не завязан на конкретный исполнитель.
-     */
-    const pendingWrites = new Set<string>();
-    let acceptedWrites = 0;
-    /**
-     * Имена, под которыми у этого этапа объявлен независимый рецензент, — и только они.
-     *
-     * Пересечение объявленного этапом списка с реестром рецензентов, а не поиск подстроки
-     * в имени: гейт минимальной пятёрки не может зажигаться от того, как модель назвала
-     * вызванного агента. Пусто — рецензента этап не объявлял, и зажечь гейт нечем.
-     */
-    const reviewerNames = new Set(def.subagents.filter((n) => REVIEWER_AGENTS.includes(n)));
-
-    const hooks: ExecHooks = {
-      onText: (text) => this.emit({ type: 'assistant_text', runId: this.id, stage, text }),
-      onThinking: (text) => this.emit({ type: 'thinking', runId: this.id, stage, text }),
-      // Потолки размера — лента событий пишется на диск на каждый запрос, а вопрос шага несёт
-      // план и файл целиком; разбору «что спросили и что ответили» хватает начала.
-      onExchange: ({ question, answer }) =>
+      // Что считается «этап ничего не произвёл»: файла нет ИЛИ он остался бланком байт в
+      // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.
+      const notDone = (): string[] => [
+        ...stillMissing(produced, missingBefore),
+        ...untouchedSeeds(seeded),
+        ...(inv.extraNotDone?.() ?? []),
+      ];
+      for (const path of this.seeded) {
         this.emit({
-          type: 'model_exchange',
+          type: 'warning',
           runId: this.id,
           stage,
-          question: clip(question, EXCHANGE_QUESTION_CHARS),
-          answer: clip(answer, EXCHANGE_ANSWER_CHARS),
-        }),
+          message: `форма разложена под артефакт ${path} — этап заполняет её, а не создаёт заново`,
+        });
+      }
 
-      onToolRequest: async (call, meta) => {
-        this.status = 'awaiting';
-        try {
-          const decision = await this.gate.request({
+      // Промпт пересобирается, когда есть что подклеить: иначе правка оператора и факты
+      // прогона исключали бы друг друга. Правка человека при этом сохраняется — она
+      // приходит отдельными полями `system`/`user`.
+      const prompt =
+        opts.prompt === undefined
+          ? this.preparePrompt(stage, {
+              ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
+              ...(extra === undefined ? {} : { extra }),
+            })
+          : withExtra(opts.prompt, appended);
+      if (opts.prompt !== undefined) {
+        this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
+      }
+
+      // `let`, не `const`: одобренный `request_scope_extension` дописывает `plan.md` на диске
+      // и пересчитывает `ctx` из него же — без переприсвоения политика этого же прогона
+      // видела бы старый `files_to_touch` до самого конца этапа, и одобренная человеком
+      // правка всё равно отклонялась бы следующим же `Write` в тот же путь.
+      let ctx = this.policyContext(stage);
+      /** Вызовы субагента-рецензента, ждущие результата: по ним ставится факт ревью. */
+      const pendingReviewer = new Set<string>();
+      /** Команда bash по requestId — только для вызовов, дошедших до исполнения: `onToolResult`
+       * знает исход, но не сам вызов, `recordBashResult` гейта нужны оба. */
+      const pendingBash = new Map<string, string>();
+      /**
+       * Прогресс этапа 5 — ПРИНЯТЫЕ записи в дерево (Write/Edit, дошедшие до исполнения
+       * без ошибки). До этого счётчика `progressSignal` передавался только этапу 6, и на
+       * chunk третий одинаковый вызов подряд обрывал этап безусловно — даже когда между
+       * повторами модель успела записать половину кода. `pendingWrites` — requestId
+       * разрешённых записей: исход знает `onToolResult`, вид вызова — `onToolRequest`.
+       *
+       * ЯВНО: счётчик подключается ко ВСЕМ исполнителям этапа chunk, не только к `stepFill`
+       * (`StepExecutor` его вообще не читает — у него свой ограничитель, `REPAIRS_PER_STEP`).
+       * Отсрочка при повторе одинакового вызова, если с начала серии был хоть один принятый
+       * вызов, — намеренное послабление антицикла и для обычного `LoopExecutor`, а не побочный
+       * эффект правки под `stepFill`: причины откатывать его для НЕ-stepFill моделей нет —
+       * критерий «есть реальный прогресс» не завязан на конкретный исполнитель.
+       */
+      const pendingWrites = new Set<string>();
+      let acceptedWrites = 0;
+      /**
+       * Имена, под которыми у этого этапа объявлен независимый рецензент, — и только они.
+       *
+       * Пересечение объявленного этапом списка с реестром рецензентов, а не поиск подстроки
+       * в имени: гейт минимальной пятёрки не может зажигаться от того, как модель назвала
+       * вызванного агента. Пусто — рецензента этап не объявлял, и зажечь гейт нечем.
+       */
+      const reviewerNames = new Set(def.subagents.filter((n) => REVIEWER_AGENTS.includes(n)));
+
+      const hooks: ExecHooks = {
+        onText: (text) => this.emit({ type: 'assistant_text', runId: this.id, stage, text }),
+        onThinking: (text) => this.emit({ type: 'thinking', runId: this.id, stage, text }),
+        // Потолки размера — лента событий пишется на диск на каждый запрос, а вопрос шага несёт
+        // план и файл целиком; разбору «что спросили и что ответили» хватает начала.
+        onExchange: ({ question, answer }) =>
+          this.emit({
+            type: 'model_exchange',
+            runId: this.id,
+            stage,
+            question: clip(question, EXCHANGE_QUESTION_CHARS),
+            answer: clip(answer, EXCHANGE_ANSWER_CHARS),
+          }),
+
+        onToolRequest: async (call, meta) => {
+          this.status = 'awaiting';
+          try {
+            const decision = await this.gate.request({
+              runId: this.id,
+              stage,
+              requestId: meta.requestId,
+              toolName: meta.toolName,
+              rawInput: meta.rawInput,
+              call,
+              // Права вызывающего СУЖАЮТ права этапа, но никогда их не расширяют:
+              // пересечение, а не подстановка. Вложенный субагент не может получить больше
+              // этапа, а объявленный без права записи разведчик не получает `Write` только
+              // потому, что модель его назвала.
+              ctx: {
+                ...ctx,
+                allowedTools: ctx.allowedTools.filter((t) => meta.callerTools.includes(t)),
+              },
+            });
+            // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
+            // рантайм прочитал с диска. Подстрока «reviewer» в имени этой планкой не
+            // является: модель, вызвавшая несуществующего `code-reviewer-helper`, получала
+            // отказ загрузки — и всё равно зажигала гейт минимальной пятёрки.
+            if (decision.allowed && call.kind === 'subagent' && reviewerNames.has(call.agent)) {
+              pendingReviewer.add(meta.requestId);
+            }
+            // Прогресс — правка вне артефактов витка: правка журнала chunk'а в `.sdlc`
+            // гасила напоминание о нулевом прогрессе ровно в том случае, под который оно
+            // заведено (журнал заполнен, код не тронут — серия v4, `ministral`/`security-bait`).
+            // Путь — сырая строка модели: сравнивается тем же лексическим приведением, что у
+            // политики (регистр диска, `..`, обратные слэши), иначе `src/../.sdlc/x` засчитывался.
+            // Путь — фактически исполняемый: гейт мог перенаправить запись своего артефакта
+            // (`approval/artifactAddress.ts`) из корня в `.sdlc`, и журнал chunk'а, записанный
+            // «не по адресу», иначе засчитывался правкой кода (code-review-all 2026-09-23).
+            const written =
+              decision.allowed && decision.updatedInput !== null && (call.kind === 'write' || call.kind === 'edit')
+                ? normalize(meta.toolName, decision.updatedInput as Record<string, unknown>)
+                : call;
+            if (
+              decision.allowed &&
+              (written.kind === 'write' || written.kind === 'edit') &&
+              !inSdlcDir(this.ctx.paths.projectRoot, written.path)
+            ) {
+              pendingWrites.add(meta.requestId);
+            }
+            if (decision.allowed && call.kind === 'bash') {
+              // `call.command` — то, что ПРЕДЛОЖИЛА модель, не обязательно то, что реально
+              // исполнится: оператор мог поправить команду через approve-with-edit
+              // (`decision.updatedInput`), и оба исполнителя (`SdkExecutor`/`LoopExecutor`)
+              // запускают именно правленый ввод. `recordBashResult` считает повторы по
+              // фактически исполненной команде — иначе три РАЗНЫЕ команды, которые оператор
+              // одну за другой правил после провала, засчитывались бы как одна и та же.
+              const effective =
+                decision.updatedInput === null
+                  ? call
+                  : normalize(meta.toolName, decision.updatedInput as Record<string, unknown>);
+              pendingBash.set(meta.requestId, effective.kind === 'bash' ? effective.command : call.command);
+            }
+            // Человек одобрил расширение scope — дописываем `plan.md` и пересчитываем `ctx`
+            // из него ЖЕ, до возврата решения: следующий вызов этого же прогона (обычно —
+            // Write в только что одобренный путь) обязан увидеть новый `files_to_touch`,
+            // а не версию, посчитанную в начале этапа.
+            if (decision.allowed && call.kind === 'request_scope_extension') {
+              const note = `расширено на этапе ${stage} · ${decisionValue(this.config.runner.operator, new Date())} — ${call.reason}`;
+              const planText = readArtifact(this.paths.plan).text;
+              const updated = appendScopeExtension(planText, call.path, note);
+              if (updated === null) {
+                // Одобрение человека остаётся в силе (решение о том, что расширение —
+                // хорошая идея, не отменяется), но САМ вызов инструмента не выполнен —
+                // технически дописать план не удалось. Раньше здесь возвращался исходный
+                // `decision` (allowed: true) без изменений, и модель получала текст «путь
+                // добавлен — теперь можно писать» безусловно, хотя `ctx.planFiles` не
+                // обновился и следующий Write в этот путь всё равно падал на planScope —
+                // модель узнавала о провале только на попытке записи, без объяснения
+                // противоречия. Честнее — отказать ЭТОМУ вызову сейчас, с причиной: тот же
+                // канал (`decision.reason`), которым уже пользуется отказ политики.
+                const message =
+                  `человек одобрил расширение scope на «${call.path}», но в plan.md не нашлась ` +
+                  `строка «Добавлено сверх разведки» — файл, видимо, правлен вручную не по форме. ` +
+                  `Путь НЕ добавлен в files_to_touch; поправь plan.md вручную или попроси ` +
+                  `человека сделать это, прежде чем повторять запрос.`;
+                this.emit({ type: 'warning', runId: this.id, stage, message });
+                const denied: Decision = { allowed: false, reason: message, by: 'policy' };
+                return denied;
+              }
+              writeArtifact(this.paths.plan, updated);
+              ctx = this.policyContext(stage);
+            }
+            return decision;
+          } finally {
+            this.status = 'running';
+          }
+        },
+
+        onToolResult: (meta) => {
+          this.countFriction(stage, 'toolCalls');
+          // Гейт «Ревью независимым агентом» зеленеет только по факту состоявшегося
+          // прогона рецензента, и вот он, этот факт: вызов дошёл до результата без ошибки.
+          if (meta.ok && pendingReviewer.has(meta.requestId)) this.markReviewerRan();
+          pendingReviewer.delete(meta.requestId);
+          if (pendingWrites.has(meta.requestId)) {
+            if (meta.ok) acceptedWrites += 1;
+            pendingWrites.delete(meta.requestId);
+          }
+
+          const bashCommand = pendingBash.get(meta.requestId);
+          if (bashCommand !== undefined) {
+            this.gate.recordBashResult(this.id, bashCommand, meta.ok);
+            pendingBash.delete(meta.requestId);
+          }
+
+          this.emit({
+            type: 'tool_result',
             runId: this.id,
             stage,
             requestId: meta.requestId,
-            toolName: meta.toolName,
-            rawInput: meta.rawInput,
-            call,
-            // Права вызывающего СУЖАЮТ права этапа, но никогда их не расширяют:
-            // пересечение, а не подстановка. Вложенный субагент не может получить больше
-            // этапа, а объявленный без права записи разведчик не получает `Write` только
-            // потому, что модель его назвала.
-            ctx: {
-              ...ctx,
-              allowedTools: ctx.allowedTools.filter((t) => meta.callerTools.includes(t)),
-            },
+            ok: meta.ok,
+            summary: meta.summary,
+            durationMs: meta.durationMs,
+            ...(meta.detail === undefined ? {} : { detail: meta.detail }),
           });
-          // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
-          // рантайм прочитал с диска. Подстрока «reviewer» в имени этой планкой не
-          // является: модель, вызвавшая несуществующего `code-reviewer-helper`, получала
-          // отказ загрузки — и всё равно зажигала гейт минимальной пятёрки.
-          if (decision.allowed && call.kind === 'subagent' && reviewerNames.has(call.agent)) {
-            pendingReviewer.add(meta.requestId);
+        },
+
+        onAskHuman: async (call) => {
+          if (call.kind !== 'ask_human') return {};
+          this.status = 'awaiting';
+          try {
+            return await this.askGate.ask({ runId: this.id, stage, questions: call.questions });
+          } finally {
+            this.status = 'running';
           }
-          // Прогресс — правка вне артефактов витка: правка журнала chunk'а в `.sdlc`
-          // гасила напоминание о нулевом прогрессе ровно в том случае, под который оно
-          // заведено (журнал заполнен, код не тронут — серия v4, `ministral`/`security-bait`).
-          // Путь — сырая строка модели: сравнивается тем же лексическим приведением, что у
-          // политики (регистр диска, `..`, обратные слэши), иначе `src/../.sdlc/x` засчитывался.
-          // Путь — фактически исполняемый: гейт мог перенаправить запись своего артефакта
-          // (`approval/artifactAddress.ts`) из корня в `.sdlc`, и журнал chunk'а, записанный
-          // «не по адресу», иначе засчитывался правкой кода (code-review-all 2026-09-23).
-          const written =
-            decision.allowed && decision.updatedInput !== null && (call.kind === 'write' || call.kind === 'edit')
-              ? normalize(meta.toolName, decision.updatedInput as Record<string, unknown>)
-              : call;
-          if (
-            decision.allowed &&
-            (written.kind === 'write' || written.kind === 'edit') &&
-            !inSdlcDir(this.ctx.paths.projectRoot, written.path)
-          ) {
-            pendingWrites.add(meta.requestId);
+        },
+
+        // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
+        // одним `Write` после хода, обычным путём через политику и гейт.
+        onRecord: (call) => acceptRecord(this.host, call),
+
+        onUsage: (usage, durationMs) => {
+          const st = this.stageStats.get(stage);
+          if (st !== undefined) st.usage = addUsage(st.usage, usage);
+          this.totalUsage = addUsage(this.totalUsage, usage);
+          // Валюта — маршрута ЭТОГО этапа: стоимость копится по валютам раздельно,
+          // и гард маршрута сверяет потолок только со своей (см. `spentLedger.ts`).
+          //
+          // В бюджет идёт не всякий расход: `budgetStages` (стенд) сужает учёт до
+          // измеряемых этапов. В `totalUsage` и в события расход попадает ВСЕГДА — счёт
+          // прогона обязан быть полным, сужается только то, по чему гард рубит виток.
+          if (countsTowardBudget(this.budgetStages, stage)) {
+            this.spent.add(route.providerDef.currency ?? 'USD', usage.costUsd);
           }
-          if (decision.allowed && call.kind === 'bash') {
-            // `call.command` — то, что ПРЕДЛОЖИЛА модель, не обязательно то, что реально
-            // исполнится: оператор мог поправить команду через approve-with-edit
-            // (`decision.updatedInput`), и оба исполнителя (`SdkExecutor`/`LoopExecutor`)
-            // запускают именно правленый ввод. `recordBashResult` считает повторы по
-            // фактически исполненной команде — иначе три РАЗНЫЕ команды, которые оператор
-            // одну за другой правил после провала, засчитывались бы как одна и та же.
-            const effective =
-              decision.updatedInput === null
-                ? call
-                : normalize(meta.toolName, decision.updatedInput as Record<string, unknown>);
-            pendingBash.set(meta.requestId, effective.kind === 'bash' ? effective.command : call.command);
-          }
-          // Человек одобрил расширение scope — дописываем `plan.md` и пересчитываем `ctx`
-          // из него ЖЕ, до возврата решения: следующий вызов этого же прогона (обычно —
-          // Write в только что одобренный путь) обязан увидеть новый `files_to_touch`,
-          // а не версию, посчитанную в начале этапа.
-          if (decision.allowed && call.kind === 'request_scope_extension') {
-            const note = `расширено на этапе ${stage} · ${decisionValue(this.config.runner.operator, new Date())} — ${call.reason}`;
-            const planText = readArtifact(this.paths.plan).text;
-            const updated = appendScopeExtension(planText, call.path, note);
-            if (updated === null) {
-              // Одобрение человека остаётся в силе (решение о том, что расширение —
-              // хорошая идея, не отменяется), но САМ вызов инструмента не выполнен —
-              // технически дописать план не удалось. Раньше здесь возвращался исходный
-              // `decision` (allowed: true) без изменений, и модель получала текст «путь
-              // добавлен — теперь можно писать» безусловно, хотя `ctx.planFiles` не
-              // обновился и следующий Write в этот путь всё равно падал на planScope —
-              // модель узнавала о провале только на попытке записи, без объяснения
-              // противоречия. Честнее — отказать ЭТОМУ вызову сейчас, с причиной: тот же
-              // канал (`decision.reason`), которым уже пользуется отказ политики.
-              const message =
-                `человек одобрил расширение scope на «${call.path}», но в plan.md не нашлась ` +
-                `строка «Добавлено сверх разведки» — файл, видимо, правлен вручную не по форме. ` +
-                `Путь НЕ добавлен в files_to_touch; поправь plan.md вручную или попроси ` +
-                `человека сделать это, прежде чем повторять запрос.`;
-              this.emit({ type: 'warning', runId: this.id, stage, message });
-              const denied: Decision = { allowed: false, reason: message, by: 'policy' };
-              return denied;
-            }
-            writeArtifact(this.paths.plan, updated);
-            ctx = this.policyContext(stage);
-          }
-          return decision;
-        } finally {
-          this.status = 'running';
-        }
-      },
+          this.emit({
+            type: 'usage',
+            runId: this.id,
+            stage,
+            usage,
+            total: this.totalUsage,
+            ...(durationMs === undefined ? {} : { durationMs }),
+          });
+        },
 
-      onToolResult: (meta) => {
-        this.countFriction(stage, 'toolCalls');
-        // Гейт «Ревью независимым агентом» зеленеет только по факту состоявшегося
-        // прогона рецензента, и вот он, этот факт: вызов дошёл до результата без ошибки.
-        if (meta.ok && pendingReviewer.has(meta.requestId)) this.markReviewerRan();
-        pendingReviewer.delete(meta.requestId);
-        if (pendingWrites.has(meta.requestId)) {
-          if (meta.ok) acceptedWrites += 1;
-          pendingWrites.delete(meta.requestId);
-        }
+        onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage, message }),
 
-        const bashCommand = pendingBash.get(meta.requestId);
-        if (bashCommand !== undefined) {
-          this.gate.recordBashResult(this.id, bashCommand, meta.ok);
-          pendingBash.delete(meta.requestId);
-        }
+        onFriction: (kind) => this.countFriction(stage, kind),
+      };
 
-        this.emit({
-          type: 'tool_result',
-          runId: this.id,
-          stage,
-          requestId: meta.requestId,
-          ok: meta.ok,
-          summary: meta.summary,
-          durationMs: meta.durationMs,
-          ...(meta.detail === undefined ? {} : { detail: meta.detail }),
-        });
-      },
-
-      onAskHuman: async (call) => {
-        if (call.kind !== 'ask_human') return {};
-        this.status = 'awaiting';
-        try {
-          return await this.askGate.ask({ runId: this.id, stage, questions: call.questions });
-        } finally {
-          this.status = 'running';
-        }
-      },
-
-      // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
-      // одним `Write` после хода, обычным путём через политику и гейт.
-      onRecord: (call) => acceptRecord(this.host, call),
-
-      onUsage: (usage, durationMs) => {
-        const st = this.stageStats.get(stage);
-        if (st !== undefined) st.usage = addUsage(st.usage, usage);
-        this.totalUsage = addUsage(this.totalUsage, usage);
-        // Валюта — маршрута ЭТОГО этапа: стоимость копится по валютам раздельно,
-        // и гард маршрута сверяет потолок только со своей (см. `spentLedger.ts`).
-        //
-        // В бюджет идёт не всякий расход: `budgetStages` (стенд) сужает учёт до
-        // измеряемых этапов. В `totalUsage` и в события расход попадает ВСЕГДА — счёт
-        // прогона обязан быть полным, сужается только то, по чему гард рубит виток.
-        if (countsTowardBudget(this.budgetStages, stage)) {
-          this.spent.add(route.providerDef.currency ?? 'USD', usage.costUsd);
-        }
-        this.emit({
-          type: 'usage',
-          runId: this.id,
-          stage,
-          usage,
-          total: this.totalUsage,
-          ...(durationMs === undefined ? {} : { durationMs }),
-        });
-      },
-
-      onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage, message }),
-
-      onFriction: (kind) => this.countFriction(stage, kind),
-    };
-
-    try {
       // Исполнитель создаётся ВНУТРИ try: `createProvider` бросает при отсутствии ключа
       // и на нереализованном маршруте, а к этому моменту уже отправлен `stage_started`,
       // выставлен статус `running` и — для этапа 6 — прогнаны все гейты, то есть сборка

@@ -61,6 +61,10 @@ async function askOpenQuestions(host: StageHost): Promise<void> {
   }));
 
   const answers = await host.askHuman('ask', questions);
+  // Отмена отвечает пустым `{}` — это не ответ человека: записанные «(пропущено)» навсегда
+  // считались бы заданными, и вопрос, которого человек не видел, больше не задавался бы
+  // (code-review-all 2026-09-23).
+  if (host.signal().aborted) return;
   const startN = askedQuestionCount(report.text);
   const rows = batch.map((q: OpenQuestion, i) => {
     const raw = (answers[`open-${i}`] ?? []).join(', ').trim();

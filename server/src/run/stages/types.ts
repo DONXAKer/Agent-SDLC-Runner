@@ -198,7 +198,7 @@ export interface StageModule {
   /** Закрывать ли этап, как только артефакт готов (`ExecRequest.closeOnFinalizeReady`); умолчание — да. */
   closeOnFinalizeReady?: boolean;
   /** Хуки одного прохода этапа; локальное состояние прохода — в замыкании. */
-  begin?(host: StageHost, route: ResolvedRoute): StageInvocation;
+  begin?(host: StageHost, route: ResolvedRoute, opts?: { abortHandoff?: boolean }): StageInvocation;
 }
 
 /**

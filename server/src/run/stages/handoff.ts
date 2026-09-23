@@ -25,6 +25,7 @@ import { commitByRuntime } from '../commitByRuntime.ts';
 import type { HandoffFacts } from '../formAutofill.ts';
 import { autofillHandoff } from '../formAutofill.ts';
 import { postmortemBlock } from '../postmortem.ts';
+import { readReportVerdict } from '../verifyAutofill.ts';
 import { runNamedGate } from './chunk/evidence.ts';
 import { relOf } from './preconditions.ts';
 import type { StageContext, StageDef, StageHost, StageModule } from './types.ts';
@@ -41,17 +42,15 @@ export function profileCurrency(profile: ResolvedProfile): string {
   return set.size === 1 ? [...set][0]! : 'USD';
 }
 
-/** Отчёт приёмки последней попытки говорит, что виток принят. */
+/**
+ * Отчёт приёмки последней попытки говорит, что виток принят. Читается строка `passed:`
+ * с ОДНИМ значением (`readReportVerdict`): бланк `- **passed:** true / false` прежде
+ * проходил проверку по префиксу `true`, и handoff с коммитом открывался на незаполненном
+ * отчёте (code-review-all 2026-09-23). Вердикт в отчёт пишет рантайм (`writeVerdictSection`).
+ */
 function verificationPassed(c: StageContext): boolean {
   const report = readArtifact(c.paths.verificationReport(c.chunk, c.attempt));
-  if (!report.exists) return false;
-  // Markdown-жирность обязана прощаться: сама форма методологии пишет `- **passed:** true`
-  // (templates/verification-report.template.md, секция «Вердикт») — прежний regex не
-  // признавал КАНОНИЧЕСКИЙ зелёный отчёт зелёным, и handoff отказывался от передачи
-  // ровно на первом же успешном витке. Якорь — НАЧАЛО строки (плюс маркер списка):
-  // `passed: true`, процитированный в прозе отчёта («в шаблоне написано …»), не должен
-  // открывать передачу непринятого витка.
-  return /^\s*[-*>\s]*[*_]*passed[*_]*\s*[:=]\s*[*_]*\s*true/im.test(report.text);
+  return report.exists && readReportVerdict(report.text) === 'passed';
 }
 
 export const handoffStage: StageDef = {
@@ -355,7 +354,7 @@ export const handoffModule: StageModule = {
     },
   ],
   checksBranchOnEntry: true,
-  begin: (host) => ({
+  begin: (host, _route, opts) => ({
     // Пост-виток отчёт — вход этапа 7, тем же механизмом, что и итоги гейтов на этапе 6:
     // модель переносит числа в артефакт, но не сочиняет их.
     enterFacts: async () => {
@@ -375,6 +374,9 @@ export const handoffModule: StageModule = {
       // Сброс ДО решения об обрыве — иначе исход прошлого входа в этап (ретрай/рестарт
       // сервиса) утёк бы в `commitFact` этого входа, где коммит в этот раз не пытались.
       host.recordCommitOutcome(null);
+      // Обрыв — решение оператора, а не зелёный виток: коммита нет, даже если отчёт
+      // приёмки последней попытки зелёный (прежде `afterStart` про обрыв не знал).
+      if (opts?.abortHandoff === true) return;
       if (!verificationPassed(host.ctx())) return;
       const outcome = await commitByRuntime(host, 'passed');
       host.recordCommitOutcome(outcome);

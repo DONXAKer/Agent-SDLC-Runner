@@ -8,6 +8,7 @@ import { DECISION, readArtifact, readDecision, writeArtifact } from '../../../ar
 import { workingDiff } from '../../../gates/git.ts';
 import { checkJournalClaimsVsBash } from '../../../verdict/honesty.ts';
 import { autofillChunkJournal } from '../../journalAutofill.ts';
+import { readReportVerdict } from '../../verifyAutofill.ts';
 import { RUNTIME_PROTECTED, granted } from '../preconditions.ts';
 import { ensureBaseline, recordEvidence } from './evidence.ts';
 import type { SeededArtifact, StageDef, StageHost, StageModule } from '../types.ts';
@@ -43,6 +44,17 @@ export const chunkStage: StageDef = {
     // Без заполненного поля одобрения chunk не начинается — так требует методология,
     // и проверяется именно поле в файле, а не память диалога.
     granted('план одобрен человеком', (c) => c.paths.plan, DECISION.approval),
+    // Попытка, уже отвергнутая вердиктом, заново не прогоняется: chunk по её номеру
+    // перезаписал бы улики проверенной попытки (патч, запись о тестах), а отчёт K остался
+    // бы от старого патча. Новая работа — новая попытка (code-review-all 2026-09-23).
+    {
+      describe: 'текущая попытка ещё не отвергнута вердиктом',
+      check: (c) =>
+        readReportVerdict(readArtifact(c.paths.verificationReport(c.chunk, c.attempt)).text) === 'failed'
+          ? `попытка ${c.attempt} уже отвергнута вердиктом этапа 6 — нажми «Новая попытка», ` +
+            'чтобы chunk не перезаписал её улики (или повтори verify, если красное — от среды)'
+          : null,
+    },
   ],
   protectedArtifacts: RUNTIME_PROTECTED,
   humanGate: { artifact: 'journal', label: DECISION.confirmed },

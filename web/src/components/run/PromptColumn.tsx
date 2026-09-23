@@ -14,6 +14,7 @@ export function PromptColumn({
   stage,
   prompt,
   blockers,
+  envNotes,
   uiBusy,
   busyReason,
   autoRules,
@@ -26,6 +27,7 @@ export function PromptColumn({
   stage: StageId;
   prompt: PreparedPrompt | null;
   blockers: string[];
+  envNotes: string[];
   uiBusy: boolean;
   busyReason: string | null;
   autoRules: AutoApproveRules;
@@ -110,6 +112,7 @@ export function PromptColumn({
       <PromptPane
         prompt={prompt}
         blockers={blockers}
+        envNotes={envNotes}
         busy={uiBusy}
         {...(busyReason === null ? {} : { busyReason })}
         onRun={onRun}

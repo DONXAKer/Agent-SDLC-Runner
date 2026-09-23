@@ -608,6 +608,7 @@ export function RunPage({
                   stage={stage}
                   prompt={prompt}
                   blockers={blockers}
+                  envNotes={stageInfo?.envNotes ?? []}
                   uiBusy={uiBusy}
                   busyReason={busyReason}
                   autoRules={autoRules}

@@ -14,7 +14,7 @@
  * ещё не запускался, и вписать туда пред-стартовый статус значило бы солгать в обе стороны.
  */
 
-import type { GateRunResult } from '@sdlc-runner/shared';
+import type { GateRunResult, Verdict, VerdictAction } from '@sdlc-runner/shared';
 
 import { gateKey } from '../gates/gatesFile.ts';
 import { escapeCell, splitRow } from '../md/table.ts';
@@ -204,4 +204,81 @@ export function autofillVerificationReport(
   );
 
   return { text: mech.text, filled: filled + mech.filled };
+}
+
+/** Строка поля секции «Вердикт»: `- **passed:** …` — маркер списка и жирность прощаются. */
+function verdictFieldRe(label: string): RegExp {
+  return new RegExp(`^(\\s*[-*]\\s*[*_]*${label}[*_]*\\s*:\\s*[*_]*\\s*)(.*)$`, 'i');
+}
+
+/**
+ * Вердикт, посчитанный рантаймом, — в секцию «Вердикт» отчёта приёмки.
+ *
+ * Прежде вердикт жил только в памяти и `iterations.md`, а handoff и восстановление
+ * попытки после рестарта читают ОТЧЁТ: строка бланка `- **passed:** true / false`
+ * проходила проверку «передача разрешена», и handoff (с коммитом) открывался на
+ * незаполненном отчёте, а после рестарта зелёный виток терял свою попытку
+ * (code-review-all 2026-09-23). Поля `passed`/`action` объявлены за рантаймом
+ * (`formSchema.ts`) — пишет их только он.
+ */
+export function writeVerdictSection(text: string, verdict: Verdict): { text: string; changed: boolean } {
+  const lines = text.split('\n');
+  const head = lines.findIndex((l) => /^##\s+Вердикт\s*$/i.test(l.trim()));
+  if (head === -1) return { text, changed: false };
+  let end = lines.length;
+  for (let i = head + 1; i < lines.length; i++) {
+    if (/^##\s/.test(lines[i]!)) {
+      end = i;
+      break;
+    }
+  }
+  const values: [RegExp, string][] = [
+    [verdictFieldRe('passed'), verdict.passed ? 'true' : 'false'],
+    [verdictFieldRe('action'), verdict.passed ? 'continue' : verdict.action],
+    [verdictFieldRe('По каким условиям упал'), verdict.reasons.length === 0 ? 'н/п' : verdict.reasons.join('; ')],
+  ];
+  let changed = false;
+  for (let i = head + 1; i < end; i++) {
+    const line = lines[i]!;
+    const cr = line.endsWith('\r') ? '\r' : '';
+    const bare = cr === '' ? line : line.slice(0, -1);
+    for (const [re, value] of values) {
+      const m = re.exec(bare);
+      if (m === null) continue;
+      const next = `${m[1]!}${value}${cr}`;
+      if (next !== line) {
+        lines[i] = next;
+        changed = true;
+      }
+      break;
+    }
+  }
+  return { text: lines.join('\n'), changed };
+}
+
+/**
+ * Вердикт из отчёта приёмки: `passed`/`failed` — строка `passed:` несёт ОДНО значение;
+ * `null` — бланк (`true / false`), плейсхолдер или нет строки. Один читатель на handoff и
+ * восстановление попытки после рестарта.
+ */
+export function readReportVerdict(text: string): 'passed' | 'failed' | null {
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^\s*[-*>\s]*[*_]*passed[*_]*\s*[:=]\s*[*_]*\s*(.*?)\s*[*_]*\s*$/i.exec(raw);
+    if (m === null) continue;
+    const value = (m[1] ?? '').trim().toLowerCase();
+    if (value === 'true') return 'passed';
+    if (value === 'false') return 'failed';
+  }
+  return null;
+}
+
+/** `action` вердикта из отчёта приёмки — одно значение словаря; бланк и прочее — `null`. */
+export function readReportAction(text: string): VerdictAction | null {
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^\s*[-*>\s]*[*_]*action[*_]*\s*[:=]\s*[*_]*\s*(.*?)\s*[*_]*\s*$/i.exec(raw);
+    if (m === null) continue;
+    const value = (m[1] ?? '').trim().toLowerCase();
+    if (value === 'continue' || value === 'retry' || value === 'escalate' || value === 'blocked_env') return value;
+  }
+  return null;
 }
