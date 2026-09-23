@@ -376,6 +376,19 @@ describe('словарь исходов осей (axisOutcomes)', () => {
     strictEqual(answers[0]!.axis, 'Наблюдаемость');
   });
 
+  it('пустой или тире-исход не разбирается — ось остаётся открытой', () => {
+    const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(
+      AXES2,
+      [
+        '1. нет | — / метрик нет | —',
+        '2. нет | — / метрик нет |',
+        '3. нет | — / метрик нет | н/п',
+      ].join('\n'),
+    );
+    strictEqual(answeredIdx.size, 0);
+    strictEqual(answers.length, 0);
+  });
+
   it('исход ключом в произвольном регистре с пояснением разбирается и читается обратно из плана', () => {
     const answer = [
       '1. да | шаг 1 меняет валидацию входа | Инвариант — сигнатура priceFor сохранена',

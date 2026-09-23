@@ -1,0 +1,531 @@
+{
+  "run": {
+    "slug": "test29-qwen3-coder-30b-selfreview-freeship",
+    "model": "lmstudio:qwen3-coder-30b-stepfill-axisfill",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "lmstudio:qwen3-coder-30b-stepfill-axisfill",
+      "explore": "lmstudio:qwen3-coder-30b-stepfill-axisfill",
+      "ask": "lmstudio:qwen3-coder-30b-stepfill-axisfill",
+      "plan": "lmstudio:qwen3-coder-30b-stepfill-axisfill",
+      "chunk": "lmstudio:qwen3-coder-30b-stepfill-axisfill",
+      "verify": "lmstudio:qwen3-coder-30b-stepfill-selfreview",
+      "handoff": "lmstudio:qwen3-coder-30b-stepfill-axisfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-23T10:31:09.202Z",
+    "finishedAt": "2026-09-23T10:47:25.620Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 26, осталось на диске 9 полей модели; добор листа приёмки (попытка 1): модель вернула 1 строк, добавлено 0 — теперь пунктов 281, [edge] 0; добор листа приёмки (попытка 2): модель вернула 3 строк, добавлено 3 — теперь пунктов 284, [edge] 3",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 47
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "lmstudio: HTTP 400 от http://localhost:1434/v1 — {\"error\":\"Engine protocol predict request failed: fetch failed\"}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "envFailure": "lmstudio: HTTP 400 от http://localhost:1434/v1 — {\"error\":\"Engine protocol predict request failed: fetch failed\"}"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-env-repeat"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 331031,
+          "outputTokens": 32586,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 842993
+        },
+        "durationMs": 738895
+      },
+      {
+        "stage": "explore",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 542465,
+          "outputTokens": 4780,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 210680
+        },
+        "durationMs": 237426
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 2,
+        "toolCalls": 26,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 17
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 15,
+        "waitMs": 55
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 18
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:f5ccf656-9c08-41b9-a67a-6403f7506c5a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test29-qwen3-coder-30b-selfreview-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:66edcc95-d15a-42b8-aee7-3417abeb9278",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test29-qwen3-coder-30b-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:49a180fb-4699-43fc-855f-1b23511d2f70",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\test29-qwen3-coder-30b-selfreview-freeship\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5b1b1fc8-368b-482c-b95c-98d43d5f7043",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:9158b5e2-1a4b-46c6-9fc1-6631589c4dbe",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:6a64ef6f-35bb-42fe-b5dd-16e8914fe2be",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:5f0bf509-826d-4ae2-afa8-3d2bc4273e18",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:3307e60f-4053-4b1d-b6a2-b0ef459a106c",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:752f8ac9-67c2-4a56-8081-3643dd9ecc2f",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:39379341-8df5-400d-9a07-82013d88de7b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:a74b8479-7cf5-4c29-b4cb-fe012907def8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:fed987e5-fb85-43b7-9e7c-9080a27dc95b",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:efa101e9-3950-4752-8886-480776cf82f0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:7e5c8d39-722b-4f85-8c52-0fb0f7d1c9d8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:dccb1a15-a8d9-487f-88fd-ffbc70883977",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:1335cd41-cec0-4dff-8bbc-00754c8bf009",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e9a4e76e-b037-4ac5-b9ac-3a8b250d2a9a",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:eb24c914-4781-43fe-8e52-46f6575c967e",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/test29-qwen3-coder-30b-selfreview-freeship/exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10227,
+        "userChars": 5340,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10647,
+        "userChars": 14635,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10338,
+        "userChars": 14635,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

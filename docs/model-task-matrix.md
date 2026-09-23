@@ -185,6 +185,10 @@ ollama оставляет запас под вычислительные буф�
 | `ollama:apriel-1.6-15b` | ollama | — | ⏭ | ✓ | — | — | — | — | — | — | intent | лимит ходов | test24 | intent 🔴, stage-timeout | `apriel-1.6-15b` |
 | `ollama:cline_roocode:8b-ctx16k` | ollama | — | ⏭ | — | ✓ | — | — | — | — | — | intent | — | test24 | intent 🔴, 12 незакрытых мест | `cline_roocode-8b` |
 | `lmstudio:gemma4-12b-stepfill` | lmstudio | — | 16384 | — | ✓ | — | — | — | — | — | intent | лимит длины | test24 | intent 🔴, окно 16k | `gemma-4-12b` (lmstudio) |
+| `ollama:gpt-oss-20b-axisfill` | ollama | — | 32768 | ✓ | ✓ | — | ✓ | — | — | да | plan | ось / запись вне плана | test29-gptoss-selfreview-freeship | intent→ask ✅, plan 🔴 (claim-4/5/6 не заполнены); запись вне плана | `gpt-oss-20b-agent` |
+| `lmstudio:qwen3-coder-30b-stepfill-axisfill` | lmstudio | — | 32768 | ✓ | ✓ | — | ✓ | — | — | да | explore | ⚠ среда LM Studio | test29-qwen3-coder-30b-selfreview-freeship | intent ✅, explore ⚠ среда (HTTP 400 fetch failed) | `lmstudio:qwen3-coder-30b-stepfill` |
+| `lmstudio:gemma-4-e4b-stepfill-axisfill` | lmstudio | — | 32768 | ✓ | ✓ | — | ✓ | — | — | да | explore | неразобранный Edit / плейсхолдеры | test29-gemma-4-e4b-selfreview-freeship | intent ✅, explore 🔴 (FinalizeArtifact зациклился, 3 незакрытых места) | `lmstudio:gemma-4-e4b-stepfill-compactfill` |
+| `ollama:ornith-1.5-9b-compactfill` | ollama | — | 32768 | ✓ | — | — | — | — | fill | да | intent | stage-timeout / медленность | test30-ornith-compactfill-freeship | intent 🔴 (stage-timeout 60 мин, 2 незакрытых места в intent.md) | `ollama:ornith-1.5-9b` |
 
 ## `silent-contract` — Выставитель счёта
 
