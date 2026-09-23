@@ -15,7 +15,8 @@
 
 import { spawn } from 'node:child_process';
 
-import { ENGINE_UNAVAILABLE_SUBSTRINGS, ProviderEnvError } from '../../server/src/provider/ChatProvider.ts';
+import { ENGINE_UNAVAILABLE_SUBSTRINGS, ProviderEnvError, ProviderHttpError } from '../../server/src/provider/ChatProvider.ts';
+import { isLoopbackUrl } from '../../server/src/provider/http.ts';
 import type { ChatProvider } from '../../server/src/provider/ChatProvider.ts';
 
 /**
@@ -43,6 +44,11 @@ export const ENGINE_RELOAD_TIMEOUT_MS = 300_000;
 export function isEngineEnvFailure(e: unknown): boolean {
   if (e instanceof ProviderEnvError) return true;
   const message = e instanceof Error ? e.message : String(e);
+  // HTTP-ответ провайдер уже классифицировал сам — по разобранному `error`, а не по сырому
+  // телу (крах движка на 400 он отдаёт `ProviderEnvError`). Подстроки по тексту такой
+  // ошибки ловили бы `fetch failed` из чужого сообщения в теле 400 и зря гоняли `lms load`
+  // на общем GPU (code-review-all 2026-09-23). Узнаётся по типу, не по формату текста.
+  if (e instanceof ProviderHttpError) return false;
   return ENGINE_UNAVAILABLE_SUBSTRINGS.test(message);
 }
 
@@ -58,14 +64,27 @@ export async function warmupEngine(args: {
   params: Record<string, unknown> | null;
   timeoutMs?: number;
 }): Promise<void> {
-  await args.provider.chat({
-    model: args.model,
-    messages: [{ role: 'user', content: 'Ответь одним словом: готов.' }],
-    tools: [],
-    signal: AbortSignal.timeout(args.timeoutMs ?? WARMUP_TIMEOUT_MS),
-    temperature: null,
-    params: { ...(args.params ?? {}), max_tokens: WARMUP_MAX_TOKENS },
-  });
+  const timeoutMs = args.timeoutMs ?? WARMUP_TIMEOUT_MS;
+  const signal = AbortSignal.timeout(timeoutMs);
+  try {
+    await args.provider.chat({
+      model: args.model,
+      messages: [{ role: 'user', content: 'Ответь одним словом: готов.' }],
+      tools: [],
+      signal,
+      temperature: null,
+      params: { ...(args.params ?? {}), max_tokens: WARMUP_MAX_TOKENS },
+    });
+  } catch (e) {
+    // Свой потолок прогрева приходит в провайдер как `req.signal`, и тот честно бросает
+    // «запрос отменён» — не `ProviderEnvError`: зависший или долго грузящийся движок
+    // выглядел отменой оператора, и `--engine-reload` на нём не срабатывал
+    // (code-review-all 2026-09-23). Неответ за потолок прогрева — сбой движка.
+    if (signal.aborted) {
+      throw new ProviderEnvError(`движок не ответил на прогрев за ${timeoutMs} мс`, { cause: e });
+    }
+    throw e;
+  }
 }
 
 /** Исход попытки перезагрузки: от него зависит, есть ли смысл в повторе срезавшейся пробы. */
@@ -85,36 +104,60 @@ interface CmdResult {
   timedOut: boolean;
 }
 
+/** Сколько ждать закрытия stdio после выхода процесса, прежде чем перестать ждать. */
+const STDIO_GRACE_MS = 2_000;
+
 /**
  * Произвольная команда с потолком стенных часов. `spawnNode` (`nodeTest.ts`) не подходит:
  * он жёстко спавнит `process.execPath` — node, а здесь нужен внешний бинарь (`lms`).
  * Шелл не подключается: имя модели приходит из конфига, и через `shell: true` оно стало бы
  * интерполяцией в командную строку.
+ *
+ * Исход решается не только по 'close': оно ждёт закрытия stdio, а `lms` может поднять
+ * демон LM Studio, унаследовавший пайпы, — тогда 'close' не приходит никогда, и преполёт
+ * висел бы вечно (code-review-all 2026-09-23). Поэтому — 'exit' с короткой форой на
+ * дочитывание вывода, а по таймауту — снятие дерева процессов и немедленный исход.
  */
 function runCmd(cmd: string, args: readonly string[], timeoutMs: number): Promise<CmdResult> {
   return new Promise((resolve) => {
     const child = spawn(cmd, [...args], { windowsHide: true });
     const out: string[] = [];
-    let notFound = false;
-    let timedOut = false;
+    let settled = false;
+    let grace: NodeJS.Timeout | undefined;
+    const settle = (r: Omit<CmdResult, 'output'>): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (grace !== undefined) clearTimeout(grace);
+      resolve({ ...r, output: out.join('').trim() });
+    };
     child.stdout.on('data', (d: Buffer) => out.push(d.toString('utf8')));
     child.stderr.on('data', (d: Buffer) => out.push(d.toString('utf8')));
     const timer = setTimeout(() => {
-      timedOut = true;
+      killTree(child.pid);
       child.kill();
+      settle({ exitCode: null, notFound: false, timedOut: true });
     }, timeoutMs);
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ exitCode: code, output: out.join('').trim(), notFound, timedOut });
+    child.on('exit', (code) => {
+      grace = setTimeout(() => settle({ exitCode: code, notFound: false, timedOut: false }), STDIO_GRACE_MS);
     });
+    child.on('close', (code) => settle({ exitCode: code, notFound: false, timedOut: false }));
     child.on('error', () => {
       // ENOENT — команды нет в PATH. Текст ошибки ОС («spawn lms ENOENT») оператору
       // ни о чём не говорит — сводим к флагу notFound, формулировка выше по стеку.
-      clearTimeout(timer);
-      notFound = true;
-      resolve({ exitCode: null, output: '', notFound, timedOut });
+      settle({ exitCode: null, notFound: true, timedOut: false });
     });
   });
+}
+
+/** На Windows `kill()` снимает только сам процесс, не его потомков — дерево гасит taskkill. */
+function killTree(pid: number | undefined): void {
+  if (pid === undefined || process.platform !== 'win32') return;
+  try {
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on('error', () => {});
+  } catch {
+    // Снять дерево не удалось — остаётся `child.kill()` вызывающего.
+  }
 }
 
 /**
@@ -123,8 +166,12 @@ function runCmd(cmd: string, args: readonly string[], timeoutMs: number): Promis
  * моделей нельзя.
  *
  * Команды по провайдерам:
- * - LM Studio — `lms load <модель>`: упавший движок поднимается только перезагрузкой;
- *   наличие CLI проверяется дешёвым `lms --version`, без sudo и без самой загрузки;
+ * - LM Studio — `lms unload <модель>` и `lms load <модель> -c <окно> --parallel 1 -y`:
+ *   упавший движок поднимается только перезагрузкой. Окно и один слот — ровно те, что
+ *   требует проверка окна преполёта (`checkLmStudioContext`): голый `lms load` поднимал
+ *   модель с окном и `--parallel` по умолчанию (класс test22), выгрузка перед загрузкой не
+ *   даёт поднять второй экземпляр `:2`, а `-y` — зависнуть на интерактивном выборе
+ *   (code-review-all 2026-09-23). Наличие CLI проверяется дешёвым `lms --version`;
  * - ollama — отдельной команды НЕТ: движок сам поднимает модель на повторном запросе,
  *   поэтому «перезагрузка» — сам повтор пробы (`ollama pull` качал бы веса заново и не
  *   нужен);
@@ -133,6 +180,10 @@ function runCmd(cmd: string, args: readonly string[], timeoutMs: number): Promis
 export async function reloadEngine(args: {
   provider: string;
   model: string;
+  /** Адрес сервера модели: `lms` управляет только ЛОКАЛЬНЫМ LM Studio. */
+  baseUrl?: string;
+  /** Окно из конфига модели (`ModelDef.contextWindow`); без него `lms` берёт своё умолчание. */
+  contextWindow?: number;
   timeoutMs?: number;
 }): Promise<EngineReloadOutcome> {
   if (args.provider === 'ollama') {
@@ -147,6 +198,14 @@ export async function reloadEngine(args: {
       detail: `автоперезагрузка для провайдера «${args.provider}» не поддержана: осмысленной команды нет — перезагрузите движок вручную`,
     };
   }
+  // `lms` перезагружает модель на ЭТОЙ машине. Сервер за удалённым `LMSTUDIO_BASE_URL`
+  // так не поднять, а локальный общий GPU получил бы загрузку, которую никто не просил.
+  if (args.baseUrl !== undefined && !isLoopbackUrl(args.baseUrl)) {
+    return {
+      kind: 'unsupported',
+      detail: `сервер LM Studio не локальный (${args.baseUrl}) — lms перезагружает только модели этой машины, перезагрузите движок вручную`,
+    };
+  }
   const version = await runCmd('lms', ['--version'], 15_000);
   if (version.notFound || version.exitCode !== 0) {
     return {
@@ -155,12 +214,23 @@ export async function reloadEngine(args: {
     };
   }
   const timeoutMs = args.timeoutMs ?? ENGINE_RELOAD_TIMEOUT_MS;
-  const r = await runCmd('lms', ['load', args.model], timeoutMs);
+  // Исход выгрузки не важен: модели может и не быть в памяти (движок лёг вместе с ней).
+  await runCmd('lms', ['unload', args.model], 60_000);
+  const loadArgs = [
+    'load',
+    args.model,
+    ...(args.contextWindow === undefined ? [] : ['-c', String(args.contextWindow)]),
+    '--parallel',
+    '1',
+    '-y',
+  ];
+  const shown = `lms ${loadArgs.join(' ')}`;
+  const r = await runCmd('lms', loadArgs, timeoutMs);
   if (r.timedOut) {
-    return { kind: 'failed', detail: `lms load ${args.model} снят по таймауту ${timeoutMs} мс` };
+    return { kind: 'failed', detail: `${shown} снят по таймауту ${timeoutMs} мс` };
   }
   if (r.exitCode !== 0) {
-    return { kind: 'failed', detail: `lms load ${args.model} завершился кодом ${r.exitCode}: ${r.output.slice(0, 200)}` };
+    return { kind: 'failed', detail: `${shown} завершился кодом ${r.exitCode}: ${r.output.slice(0, 200)}` };
   }
-  return { kind: 'reloaded', detail: `lms load ${args.model} зелёный` };
+  return { kind: 'reloaded', detail: `${shown} зелёный` };
 }

@@ -106,7 +106,7 @@ describe('разбор комбинированного ответа по ося
     strictEqual(answers.length, 0);
   });
 
-  it('номер вне диапазона и дубль отбрасываются, остальное разбирается', () => {
+  it('номер вне диапазона отбрасывается; повтор номера — поправка, побеждает поздний', () => {
     const answer = [
       '0. да | x | claim-1',
       '9. да | x | claim-1',
@@ -116,7 +116,7 @@ describe('разбор комбинированного ответа по ося
     const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(AXES2, answer);
     deepStrictEqual([...answeredIdx], [0]);
     strictEqual(answers.length, 1);
-    strictEqual(answers[0]!.outcome, 'claim-1');
+    strictEqual(answers[0]!.outcome, 'н/п — п');
   });
 
   it('пустой исход или незаполненное «да/нет» — строка не считается ответом', () => {
@@ -188,6 +188,76 @@ describe('разбор комбинированного ответа по ося
   });
 });
 
+describe('разбор комбинированного ответа: границы блоков и сверка читателем (code-review-all 2026-09-23)', () => {
+  const AXES3: AxisName[] = ['Безопасность', 'Настройки', 'Наблюдаемость'];
+
+  it('заголовки `### N. Ось` между строками ответа не дробят его: разбираются все оси', () => {
+    const answer = [
+      '### 1. Ось «Безопасность»',
+      '1. нет | — | н/п — входа нет',
+      '### 2. Ось «Настройки»',
+      '2. нет | — | н/п — настроек нет',
+      '### 3. Ось «Наблюдаемость»',
+      '3. да | шаг 2 пишет лог | claim-1',
+    ].join('\n');
+    const { answeredIdx } = parsePlanAxesCombinedAnswer(AXES3, answer);
+    strictEqual(answeredIdx.size, 3);
+  });
+
+  it('две версии, разделённые только оградой кода, — побеждает поздняя', () => {
+    const answer = [
+      '```',
+      '1. нет | старое | н/п — старое',
+      '2. нет | старое | н/п — старое',
+      '```',
+      '```',
+      '1. нет | новое | н/п — новое',
+      '2. нет | новое | н/п — новое',
+      '```',
+    ].join('\n');
+    const { answers } = parsePlanAxesCombinedAnswer(AXES2, answer);
+    deepStrictEqual(answers.map((a) => a.what), ['новое', 'новое']);
+  });
+
+  it('строка, которую читатель плана отвергнет, ответом не считается', () => {
+    const ctx = { claimIds: ['claim-1'], enabledGates: ['Тесты'], hasOpenQuestion: true, hasInvariants: true };
+    for (const line of [
+      '1. нет | — | н/п',
+      '1. нет | — | claim-1',
+      '1. н/п — не затронута | — | claim-1',
+      '1. да | шаг 1 | н/п — x',
+      '1. да | шаг 1 | гейт Тесты',
+      '1. нет | — | н/п — ‹почему›',
+      '1. да | шаг 1 | claim-9',
+    ]) {
+      const { answeredIdx } = parsePlanAxesCombinedAnswer(AXES2, line, ctx);
+      strictEqual(answeredIdx.size, 0, line);
+    }
+    const { answeredIdx } = parsePlanAxesCombinedAnswer(AXES2, '1. да | шаг 1 | гейт «Тесты»', ctx);
+    strictEqual(answeredIdx.size, 1);
+  });
+
+  it('исправленный полный блок с негодной строкой не возвращает отозванный ответ по её оси', () => {
+    const ctx = { claimIds: ['claim-1', 'claim-2'], enabledGates: [], hasOpenQuestion: false, hasInvariants: false };
+    const answer = ['1. да | a | claim-1', '2. да | b | claim-2', 'Исправляю:', '1. да | a | claim-9', '2. да | b | claim-1'].join('\n');
+    const { answers } = parsePlanAxesCombinedAnswer(AXES2, answer, ctx);
+    deepStrictEqual(answers.map((a) => [a.axis, a.outcome]), [['Наблюдаемость', 'claim-1']]);
+  });
+
+  it('ответ по имени оси в табличной форме, кавычках и списком разбирается', () => {
+    for (const line of [
+      '| Безопасность | нет | — | н/п — входа нет |',
+      '«Безопасность» | нет | — | н/п — входа нет',
+      '"Безопасность" | нет | — | н/п — входа нет',
+      '- Безопасность | нет | — | н/п — входа нет',
+    ]) {
+      const { answers } = parsePlanAxesCombinedAnswer(AXES2, line);
+      strictEqual(answers.length, 1, line);
+      strictEqual(answers[0]!.outcome, 'н/п — входа нет', line);
+    }
+  });
+});
+
 /**
  * Ответ из живого дампа `bench/traces/raw/test24e-ministral-st60-selfreview-freeship/
  * 00107-plan-planAxisFill.json` (2026-09-22) — ДОСЛОВНО: первый блок с осями вразнобой
@@ -230,16 +300,22 @@ describe('разбор ответа из дампа 00107 (самокоррек�
     'Наблюдаемость',
   ];
 
-  it('все 6 осей разбираются, из ИСПРАВЛЕННОГО (последнего полного) блока', () => {
+  it('оси берутся из ИСПРАВЛЕННОГО блока; его негодная строка не возвращает отозванный ответ', () => {
     const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(CANON, DUMP_00107_ANSWER);
-    strictEqual(answeredIdx.size, 6);
-    deepStrictEqual(answers.map((a) => a.axis), CANON);
+    // Ось 3 исправленного блока — «нет | … | исход: claim-4»: незатронутая ось с исходом
+    // claim читатель плана отвергает. Ответ по ней из ПЕРВОГО, отозванного моделью блока
+    // брать нельзя — ось остаётся открытой (смесь двух версий — code-review-all 2026-09-23).
+    strictEqual(answeredIdx.size, 5);
+    deepStrictEqual(
+      answers.map((a) => a.axis),
+      CANON.filter((a) => a !== 'Отказы зависимостей'),
+    );
     // Признак второго блока: в первом «что именно» оси 1 было про «проверку уровня клиента».
     ok(answers[0]!.what.includes('фильтрация'), 'взят первый, отозванный самой моделью блок');
     strictEqual(answers[0]!.outcome, 'исход: claim-2');
     strictEqual(answers[1]!.affectedText, 'нет');
-    strictEqual(answers[3]!.axis, 'Настройки');
-    strictEqual(answers[4]!.outcome, 'исход: инвариант');
+    strictEqual(answers[2]!.axis, 'Настройки');
+    strictEqual(answers[3]!.outcome, 'исход: инвариант');
   });
 
   it('разобранные ответы записываются в таблицу «Последствия шагов» — разбор читается обратно без претензий про строки', () => {
@@ -254,10 +330,12 @@ describe('разбор ответа из дампа 00107 (самокоррек�
     ].join('\n');
     const { answers } = parsePlanAxesCombinedAnswer(CANON, DUMP_00107_ANSWER);
     const updated = applyAxisAnswers(plan, answers);
-    deepStrictEqual(unansweredAxes(updated), []);
+    deepStrictEqual(unansweredAxes(updated), ['Отказы зависимостей']);
     const problems = planAxisProblems(updated);
+    // Строки нет только у оси, чей исправленный ответ отверг читатель, — остальные записаны.
+    const missing = problems.filter((p) => p.includes('нет строк для осей'));
     ok(
-      !problems.some((p) => p.includes('нет строк для осей')),
+      missing.length === 1 && missing[0]!.includes('нет строк для осей: Отказы зависимостей —'),
       problems.join('\n'),
     );
   });
@@ -282,7 +360,7 @@ describe('разбор ответа из дампа 00107 (самокоррек�
     ].join('\n');
     const { answers } = parsePlanAxesCombinedAnswer(CANON, DUMP_00107_ANSWER);
     const updated = applyAxisAnswers(plan, answers);
-    deepStrictEqual(unansweredAxes(updated), []);
+    deepStrictEqual(unansweredAxes(updated), ['Отказы зависимостей']);
   });
 });
 

@@ -45,7 +45,14 @@ const NAME_TO_KIND = new Map<string, CallKind>([
   ['record_finding', 'record_finding'],
 ]);
 
-function str(input: Record<string, unknown>, ...keys: string[]): string | null {
+/**
+ * Ключи, под которыми инструменты файла передают путь, — в порядке приоритета. Экспорт для
+ * обратной операции «подставить путь» (`approval/artifactAddress.ts`): знание об именах
+ * аргументов живёт здесь одном, иначе новый алиас разъехался бы между чтением и подстановкой.
+ */
+export const PATH_ARG_KEYS = ['file_path', 'path', 'filePath'] as const;
+
+function str(input: Record<string, unknown>, ...keys: readonly string[]): string | null {
   for (const k of keys) {
     const v = input[k];
     if (typeof v === 'string') return v;
@@ -197,7 +204,7 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
 
   switch (kind) {
     case 'read': {
-      const path = str(input, 'file_path', 'path', 'filePath');
+      const path = str(input, ...PATH_ARG_KEYS);
       if (path === null) return { kind: 'unknown', toolName, raw: input };
       const offset = num(input, 'offset');
       const limit = num(input, 'limit');
@@ -225,13 +232,13 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
     }
 
     case 'write': {
-      const path = str(input, 'file_path', 'path', 'filePath');
+      const path = str(input, ...PATH_ARG_KEYS);
       if (path === null) return { kind: 'unknown', toolName, raw: input };
       return { kind: 'write', path, content: str(input, 'content') ?? '' };
     }
 
     case 'edit': {
-      const path = str(input, 'file_path', 'path', 'filePath');
+      const path = str(input, ...PATH_ARG_KEYS);
       if (path === null) return { kind: 'unknown', toolName, raw: input };
       const edits = editsOf(input);
       // Правка без единой операции — не правка, а набор с битым элементом — не набор.

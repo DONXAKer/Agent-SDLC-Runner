@@ -18,6 +18,25 @@ export type { ArtifactKey } from '@sdlc-runner/shared';
 
 export const SDLC_DIR = '.sdlc';
 
+/**
+ * Базовое имя файла — канонический артефакт витка (`WitokPaths`, без служебных дот-файлов).
+ * Нужно там, где путь известен, а витка — нет (стенд классифицирует отказ по имени, а не
+ * по тому, чей это каталог): запись `clarification-report.md` мимо `.sdlc/<slug>/` —
+ * ошибка адресации своего артефакта, а не попытка выйти за границы.
+ */
+export function isWitokArtifactName(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  if (['intent.md', 'readiness.md', 'exploration-report.md', 'clarification-report.md', 'plan.md', 'handoff.md', 'iterations.md'].includes(n)) {
+    return true;
+  }
+  return (
+    /^chunk-\d+-journal\.md$/.test(n) ||
+    /^self-review-\d+-attempt-\d+\.md$/.test(n) ||
+    /^verification-report-\d+-attempt-\d+(-r\d+)?\.md$/.test(n) ||
+    /^chunk-\d+-attempt-\d+-(diff\.patch|tests\.txt|steps\.md)$/.test(n)
+  );
+}
+
 export function artifactPathOf(
   paths: WitokPaths,
   key: ArtifactKey,

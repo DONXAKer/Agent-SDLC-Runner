@@ -34,6 +34,7 @@ import {
   ENGINE_UNAVAILABLE_SUBSTRINGS,
   PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS,
   ProviderEnvError,
+  ProviderHttpError,
   applyParams,
 } from './ChatProvider.ts';
 import { dumpExchange, type TraceLabel } from './rawLog.ts';
@@ -599,7 +600,7 @@ export class OpenAiCompatProvider implements ChatProvider {
           PROVIDER_ROUTING_EXHAUSTED_SUBSTRINGS.test(routingExhaustedText() ?? ''));
       const envStatus =
         status === 429 || status >= 500 || status === 401 || status === 402 || status === 403 || engineCrash;
-      throw envStatus ? new ProviderEnvError(message) : new Error(message);
+      throw envStatus ? new ProviderEnvError(message) : new ProviderHttpError(message, status);
     }
 
     let data: OpenAiResponse;

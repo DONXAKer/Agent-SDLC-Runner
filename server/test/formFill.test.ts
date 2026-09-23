@@ -7,7 +7,7 @@
  * за стражем завершения, а не за счётчиком полей.
  */
 
-import { ok, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -167,6 +167,41 @@ describe('cleanRowAnswer: чистка ответа-строки', () => {
   it('разделитель без замыкающей черты тоже снимается (модели её теряют)', () => {
     // Ревью-2: своя регулярка требовала замыкающую |, и «|---|---» вклеивался данными.
     strictEqual(cleanRowAnswer('|---|---\n| claim-1 | а | б |', header), '| claim-1 | а | б |');
+  });
+});
+
+describe('карточка поля не несёт инструментов (2026-09-23)', () => {
+  it('каждый запрос поля уходит с tools: [] — модель не может уйти в разведку вместо ответа', async () => {
+    // Живой класс (`ornith-1.5-9b`, test28d/test30, 2026-09-23): модель в свободном ходу
+    // тратит 400–800 с на поле, читая шаблон инструментами вместо ответа. Карточка
+    // намеренно не даёт ей чем читать — регрессия здесь означала бы, что кто-то дал
+    // карточке `req.prompt.tools` или инструменты этапа по ошибке.
+    const { root, artifact } = setup();
+    const seenTools: unknown[][] = [];
+    const provider: ChatProvider = {
+      name: 'stub',
+      async chat(req: ChatRequest) {
+        seenTools.push([...req.tools]);
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        const text = user.includes('что должно стать правдой')
+          ? '- **Итог:** цена считается на границе 300 см'
+          : user.includes('почему сейчас')
+            ? '- **Зачем:** теряем заказы'
+            : '';
+        return {
+          text,
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    ok(seenTools.length > 0, 'ни одного запроса поля не было — тест не проверил ничего');
+    for (const tools of seenTools) deepStrictEqual(tools, [], JSON.stringify(seenTools));
   });
 });
 

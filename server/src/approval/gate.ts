@@ -29,6 +29,7 @@ import type {
   PolicyVerdict,
   StageId,
 } from '@sdlc-runner/shared';
+import { readdressOwnArtifact, withReaddressedPath } from './artifactAddress.ts';
 import { buildPreview } from './preview.ts';
 import { destructiveNote, destructiveOverwrite, repairErasedDecisions } from './destructive.ts';
 import type { DestructiveOverwrite } from './destructive.ts';
@@ -61,6 +62,13 @@ export interface PendingApproval {
   destructive: string | null;
   /** Рантайм вернул стёртое поле решения человека — вход уже исправлен. См. `repairErasedDecisions`. */
   repaired?: string;
+  /**
+   * Рантайм перенаправил запись собственного артефакта этапа на его канонический путь —
+   * вход уже исправлен. См. `artifactAddress.ts`. Отдельно от `repaired`: стенд считает
+   * эти починки разными классами (стёртое поле — неумение править, адрес — неумение
+   * назвать путь), и одна строка на обе слила бы их обратно.
+   */
+  readdressed?: string;
   /**
    * Метки полей решений человека, которые стирал ИСХОДНЫЙ вызов — до починки. Структурно,
    * а не текстом ноты: при включённой починке нота считается по исправленному вызову и
@@ -261,7 +269,7 @@ export class ApprovalGate {
    * Основной путь вызова инструмента. Возвращает решение; политика считается первой и
    * обжалованию не подлежит.
    */
-  async request(args: {
+  async request(input: {
     runId: string;
     stage: StageId;
     requestId: string;
@@ -270,9 +278,31 @@ export class ApprovalGate {
     call: NormalizedCall;
     ctx: PolicyContext;
   }): Promise<Decision> {
+    // Свой артефакт этапа не по своему пути — адрес подставляет рантайм ДО политики: всё
+    // ниже (политика, превью, потеря, очередь, решение) считается по перенаправленному
+    // вызову, и исполнитель получает его через `updatedInput` — тем же каналом, что
+    // исправленное содержимое `repairErasedDecisions` (см. `artifactAddress.ts`).
+    const address = readdressOwnArtifact(input.call, input.ctx);
+    const args =
+      address === null || (input.call.kind !== 'write' && input.call.kind !== 'edit')
+        ? input
+        : {
+            ...input,
+            call: { ...input.call, path: address.to } as NormalizedCall,
+            rawInput: withReaddressedPath(input.rawInput, address.to),
+          };
+    const readdressedInput = address === null ? null : args.rawInput;
+    const readdressed =
+      address === null
+        ? {}
+        : {
+            readdressed:
+              `рантайм перенаправил запись «${address.from}» в артефакт этапа «${address.key}» ` +
+              `(${address.to}): имя файла совпало с артефактом этапа, путь — нет`,
+          };
     const info = { runId: args.runId, stage: args.stage, requestId: args.requestId, createdAt: 0 };
     const writeTargets = writeTargetsOf(args.call, args.ctx);
-    const base = { ...args, writeTargets, createdAt: Date.now() };
+    const base = { ...args, ...readdressed, writeTargets, createdAt: Date.now() };
     info.createdAt = base.createdAt;
 
     // Одна и та же bash-команда упала уже `MAX_REPEAT_BASH_FAILURES` раз подряд — отказ
@@ -306,7 +336,7 @@ export class ApprovalGate {
     }
 
     if (NO_HUMAN_STEP.has(args.call.kind)) {
-      return { allowed: true, updatedInput: null, by: 'auto' };
+      return { allowed: true, updatedInput: readdressedInput, by: 'auto' };
     }
 
     // Читающий MCP-вызов — та же нулевая цена, что у `Read`, но решает не вид вызова, а
@@ -336,7 +366,8 @@ export class ApprovalGate {
     } else {
       repair = null;
     }
-    const repairedInput = repair === null ? null : { ...args.rawInput, content: repair.content };
+    // Перенаправленный путь уносится исполнителю тем же полем, что исправленное содержимое.
+    const repairedInput = repair === null ? readdressedInput : { ...args.rawInput, content: repair.content };
     const repaired =
       repair === null
         ? {}
@@ -368,7 +399,7 @@ export class ApprovalGate {
       repair === null &&
       this.matchesRule(repairedCall, args.ctx, this.autoApproveRules(args.runId, args.stage), loss)
     ) {
-      const decision: Decision = { allowed: true, updatedInput: null, by: 'auto' };
+      const decision: Decision = { allowed: true, updatedInput: readdressedInput, by: 'auto' };
       this.events.onPending(visible({ ...effectiveBase, ...decisionsLost, policy, preview, destructive, resolve: () => {} }));
       this.events.onResolved({ ...info, cancelled: false }, decision);
       return decision;
@@ -481,8 +512,8 @@ export class ApprovalGate {
       return {
         allowed: false,
         reason:
-          'вход исправлен рантаймом (возвращено поле решения человека) — перенаправить его в другой файл нельзя: ' +
-          'отклони запрос, и модель запишет нужный файл заново',
+          'вход исправлен рантаймом (возвращено поле решения человека либо путь артефакта этапа) — ' +
+          'перенаправить его в другой файл нельзя: отклони запрос, и модель запишет нужный файл заново',
         by: 'policy',
       };
     }

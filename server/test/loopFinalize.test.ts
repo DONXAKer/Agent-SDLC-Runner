@@ -383,6 +383,118 @@ describe('закрытие готового этапа рантаймом (close
   });
 });
 
+describe('закрытие после FinalizeArtifact — после всего пакета вызовов хода (code-review-all 2026-09-23)', () => {
+  it('вызовы, стоящие в том же ходе ЗА заявкой, исполняются, этап всё равно закрыт этим ходом', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const seen: Seen = { results: [], reminders: 0, warns: [] };
+
+    const result = await exec([
+      {
+        text: '',
+        toolCalls: [
+          editCall('e1', artifact, '‹риск›', 'ничего'),
+          finalizeCall('exploration-report.md'),
+          editCall('e2', artifact, 'ничего', 'ничего существенного'),
+        ],
+      },
+      { text: '', toolCalls: [readCall('r1', 'a.txt')] },
+    ]).run(
+      request(root, {
+        maxTurns: 10,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      hooks(seen),
+    );
+
+    strictEqual(result.ok, true, result.note);
+    strictEqual(result.turns, 1, result.note);
+    strictEqual(seen.results.length, 3, 'правка за заявкой обязана исполниться, а не пропасть');
+    ok(readFileSync(artifact, 'utf8').includes('ничего существенного'));
+  });
+
+  it('вызов за заявкой снова открыл место — этап этим ходом не закрывается', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const seen: Seen = { results: [], reminders: 0, warns: [] };
+
+    const result = await exec([
+      {
+        text: '',
+        toolCalls: [
+          editCall('e1', artifact, '‹риск›', 'ничего'),
+          finalizeCall('exploration-report.md'),
+          editCall('e2', artifact, 'ничего', '‹риск›'),
+        ],
+      },
+      { text: '', toolCalls: [editCall('e3', artifact, '‹риск›', 'ничего'), finalizeCall('exploration-report.md')] },
+    ]).run(
+      request(root, {
+        maxTurns: 10,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      hooks(seen),
+    );
+
+    strictEqual(result.ok, true, result.note);
+    strictEqual(result.turns, 2, result.note);
+  });
+
+  it('чередование «открыла/закрыла» после исчерпания напоминаний доходит до закрытия по диску', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const seen: Seen = { results: [], reminders: 0, warns: [] };
+    const turns = [];
+    for (let k = 0; k < 12; k++) {
+      turns.push(
+        k % 2 === 0
+          ? { text: '', toolCalls: [editCall(`o${k}`, artifact, '‹риск›', `з${k}`)] }
+          : { text: '', toolCalls: [editCall(`c${k}`, artifact, `з${k - 1}`, '‹риск›')] },
+      );
+    }
+    const result = await exec(turns).run(
+      request(root, { maxTurns: 20, finishGuard: finishGuardFor(artifact), formArtifacts: [artifact], closeOnFinalizeReady: true }),
+      hooks(seen),
+    );
+    strictEqual(result.ok, true, result.note);
+    ok(result.note.includes('закрыт по диску'), result.note);
+  });
+
+  it('напоминаний «артефакт готов» за этап не больше двух, сколько бы серий готовности ни было', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-ready-'));
+    const artifact = join(root, 'exploration-report.md');
+    writeFileSync(artifact, '# Отчёт\n\n- **Риски:** ‹риск›\n');
+    const seen: Seen = { results: [], reminders: 0, warns: [] };
+
+    await exec([
+      { text: '', toolCalls: [editCall('e1', artifact, '‹риск›', 'а')] },
+      { text: '', toolCalls: [editCall('e2', artifact, 'а', '‹риск›')] },
+      { text: '', toolCalls: [editCall('e3', artifact, '‹риск›', 'б')] },
+      { text: '', toolCalls: [editCall('e4', artifact, 'б', '‹риск›')] },
+      { text: '', toolCalls: [editCall('e5', artifact, '‹риск›', 'в')] },
+      { text: '', toolCalls: [editCall('e6', artifact, 'в', '‹риск›')] },
+      { text: '', toolCalls: [editCall('e7', artifact, '‹риск›', 'г')] },
+    ]).run(
+      request(root, {
+        maxTurns: 7,
+        finishGuard: finishGuardFor(artifact),
+        formArtifacts: [artifact],
+        closeOnFinalizeReady: true,
+      }),
+      hooks(seen),
+    );
+
+    strictEqual(seen.reminders, 2);
+  });
+});
+
 // Хвост вывода для улики тестов: см. BuiltinOutcome.outputTail.
 import { outputTailOf } from '../src/gates/builtin/index.ts';
 

@@ -8,9 +8,10 @@
 import { ok, strictEqual } from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { hostname } from 'node:os';
 import { after, describe, it } from 'node:test';
 
-import { checkLmStudioContext } from '../src/provider/lmstudioContext.ts';
+import { checkLmStudioContext, isLoopbackUrl } from '../src/provider/lmstudioContext.ts';
 
 let servers: Server[] = [];
 
@@ -136,5 +137,18 @@ describe('checkLmStudioContext', () => {
       readParallel: async () => null,
     });
     strictEqual(hitPath, '/api/v0/models');
+  });
+});
+
+describe('isLoopbackUrl: lms ps спрашивается только про локальный сервер', () => {
+  it('петля — да, другой хост — нет', () => {
+    strictEqual(isLoopbackUrl('http://localhost:1234/v1'), true);
+    strictEqual(isLoopbackUrl('http://127.0.0.1:1434/v1'), true);
+    strictEqual(isLoopbackUrl('http://[::1]:1234/v1'), true);
+    strictEqual(isLoopbackUrl('http://0.0.0.0:1234/v1'), true);
+    strictEqual(isLoopbackUrl('http://[::ffff:127.0.0.1]:1234/v1'), true);
+    strictEqual(isLoopbackUrl(`http://${hostname()}:1434/v1`), true);
+    strictEqual(isLoopbackUrl('http://192.0.2.10:1234/v1'), false);
+    strictEqual(isLoopbackUrl('http://host.docker.internal:1234/v1'), false);
   });
 });

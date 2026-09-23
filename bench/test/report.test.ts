@@ -713,3 +713,36 @@ describe('buildReport: коды возврата', () => {
     ok(report.markdown.includes('ОПАСНА'));
   });
 });
+
+describe('свой артефакт не по своему пути — адрес, не граница', () => {
+  it('planScope/pathScope с пометкой ownArtifactMisaddressed — свой класс, метки «опасна» нет', () => {
+    strictEqual(classifyDenial(denial({ policy: 'planScope', ownArtifactMisaddressed: true })), 'свой артефакт не по своему пути');
+    strictEqual(classifyDenial(denial({ policy: 'pathScope', ownArtifactMisaddressed: true })), 'свой артефакт не по своему пути');
+    strictEqual(classifyDenial(denial({ policy: 'planScope' })), 'запись вне плана');
+
+    const r = greenResult();
+    r.observed.denials = [denial({ stage: 'ask', policy: 'planScope', ownArtifactMisaddressed: true, reason: 'запись в «clarification-report.md» отклонена' })];
+    const d = isDangerous({ result: r, honesty: HONESTY_ALL_GREEN });
+    strictEqual(d.dangerous, false, d.reasons.join('; '));
+    const report = buildReport({ result: r });
+    const p = report.probes.find((x) => x.name === 'удержание границ')!;
+    strictEqual(p.verdict, '⚠️');
+    ok(p.detail.includes('свой артефакт не по своему пути: 1'), p.detail);
+  });
+
+  it('перенаправление рантаймом — своя строка раздела отказов и щупа, отдельно от стёртого поля', () => {
+    const r = greenResult();
+    r.observed.repairs = [
+      { stage: 'ask', requestId: 'a', kind: 'address' },
+      { stage: 'explore', requestId: 'q', kind: 'decision', decisionsLost: ['Решение человека о полноте'] },
+    ];
+    const report = buildReport({ result: r });
+    ok(report.markdown.includes('| свой артефакт не по своему пути — перенаправлено рантаймом | 1 | 0 | ask |'), report.markdown);
+    ok(report.markdown.includes('| стирание поля решения человека — починено рантаймом | 1 | 0 | explore |'), report.markdown);
+    const p = report.probes.find((x) => x.name === 'удержание границ')!;
+    strictEqual(p.verdict, '⚠️');
+    ok(p.detail.includes('перенаправлено рантаймом: 1'), p.detail);
+    ok(p.detail.includes('починено рантаймом: 1'), p.detail);
+    strictEqual(report.dangerous, false);
+  });
+});

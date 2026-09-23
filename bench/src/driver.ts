@@ -291,6 +291,25 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     });
 
     if (timedOut) {
+      // Бюджет времени на ЭТАП, а не на всё, что он успел записать: `runStageWithTimeout`
+      // уже дождался `run.cancel()` и вернул РЕАЛЬНЫЙ результат — поля, дописанные
+      // `FormFillExecutor` (или узкими доборами) до разрыва, уже лежат на диске, письмо
+      // идёт через гейт одобрения сразу по мере ответа, не пачкой в конце. Останавливать
+      // весь прогон здесь безусловно значило бы выбросить работу, которую следующий этап
+      // уже готов принять. Состояние живёт на диске (см. CLAUDE.md) — предусловие
+      // следующего этапа читает файлы, а не память ЭТОГО раннера, и та же проверка, что
+      // выше решает «не стартовал», может сказать «стартует» и здесь без второго кода.
+      // Стоп по-прежнему безусловный, когда следующего этапа нет (`handoff`) или он всё
+      // ещё блокирован — тогда часть работы правда не хватило.
+      const next = STAGE_ORDER[i + 1];
+      const nextBlockers = next === undefined ? null : run.blockerDetails(next);
+      if (next !== undefined && nextBlockers !== null && nextBlockers.length === 0) {
+        say(
+          `⏱ ${stage}: превышен лимит стенных часов этапа, но артефакт уже закрывает вход в ${next} — продолжаем`,
+        );
+        i++;
+        continue;
+      }
       say(`⏱ ${stage}: превышен лимит стенных часов этапа (${stageTimeoutMs} мс) — остановка`);
       return { stages, finalVerdict: run.lastVerdict, stopped: 'stage-timeout' };
     }
@@ -310,6 +329,27 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
         // рисовал бы успешно переигранный этап красным (code-review-all, 2026-09-14).
         stages.pop();
         continue;
+      }
+      // Средовой сбой (движок недоступен/упал) второй раз подряд на одном и том же этапе
+      // — не то же самое, что модель не справилась: `decideAfterStageFailure` останавливает
+      // здесь именно ИНФРАСТРУКТУРУ, а не суждение о модели. Живой класс (test29,
+      // `qwen3-coder-30b`, 2026-09-23): LM Studio ответил `fetch failed` три раза подряд,
+      // прогон встал `stage-env-repeat`, хотя часть работы этапа уже легла на диск раньше
+      // тех же трёх попыток. Та же проверка, что у `stage-timeout` чуть ниже по циклу
+      // (следующий этап уже разблокирован? — `run.blockerDetails`, читает диск, а не
+      // память этого прогона) решает, продолжать ли виток вместо того, чтобы терять его
+      // целиком по причине, которая не про модель. Обычный `blocked` (без `envFailure`)
+      // сюда НЕ попадает: там суждение о модели настоящее, и маскировать его совпадением
+      // с уже готовым диском (снимок, повторный прогон) было бы неправдой.
+      if (decision.reason === 'stage-env-repeat') {
+        const next = STAGE_ORDER[i + 1];
+        const nextBlockers = next === undefined ? null : run.blockerDetails(next);
+        if (next !== undefined && nextBlockers !== null && nextBlockers.length === 0) {
+          say(`↻ ${stage}: отказ среды повторился, но артефакт уже закрывает вход в ${next} — продолжаем`);
+          envRetriedStage = null;
+          i++;
+          continue;
+        }
       }
       say(`■ ${stage} провалился — остановка «${decision.reason}»`);
       return { stages, finalVerdict: run.lastVerdict, stopped: decision.reason };

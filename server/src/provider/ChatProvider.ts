@@ -109,6 +109,21 @@ export class ProviderEnvError extends Error {
 }
 
 /**
+ * Не-средовой HTTP-отказ провайдера (400 схемы, 404 id модели): ответ пришёл, и провайдер
+ * уже классифицировал его по разобранному телу. Отдельный тип — чтобы потребители
+ * (прогрев bench) отличали его по типу, а не по формату текста сообщения: подстроки по
+ * сырому телу ловили `fetch failed` из чужого текста внутри 400 (code-review-all 2026-09-23).
+ */
+export class ProviderHttpError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ProviderHttpError';
+    this.status = status;
+  }
+}
+
+/**
  * Подстроки живого падения движка провайдера (LM Studio упал посреди генерации или
  * недоступен) — общий источник для ДВУХ независимых потребителей с разными данными и
  * разной целью: `OpenAiCompatProvider` матчит по разобранному полю `error` тела HTTP-

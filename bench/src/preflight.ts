@@ -30,6 +30,7 @@ import { stageById } from '../../server/src/run/stages.ts';
 import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
+import { isLoopbackUrl } from '../../server/src/provider/http.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
 import { isEngineEnvFailure, reloadEngine, warmupEngine } from './engine.ts';
 import { spawnNode, spawnNodeTest } from './nodeTest.ts';
@@ -404,59 +405,99 @@ async function checkContextWindows(deps: PreflightDeps, ctx: PreflightContext): 
  * а не модель. Длительность попадает в отчёт как у любой проверки — по ней холодный старт
  * и читается.
  *
- * Сбой прогрева — всегда средовый (⛔, код 2), не модельный: на один токен не отвечает
- * только лёгший/холодный движок или битый конфиг, и гонять дальше семь кейсов по 120 с
- * бессмысленно — проба не запускается. При сбое именно движка (та же классификация, что у
- * провайдера — `isEngineEnvFailure`) и ЯВНОМ `--engine-reload` — ОДНА попытка перезагрузки
- * и один повтор: GPU общий, поэтому без флага преполёт ограничивается диагнозом и
- * подсказкой, а повтор после перезагрузки — ровно один, второй серии не будет.
+ * Сбой ДВИЖКА на прогреве — средовый (⛔, код 2): на один токен не отвечает только
+ * лёгший/холодный движок, и гонять дальше семь кейсов по 120 с бессмысленно — проба не
+ * запускается. При таком сбое (та же классификация, что у провайдера — `isEngineEnvFailure`)
+ * и ЯВНОМ `--engine-reload` — ОДНА попытка перезагрузки и один повтор: GPU общий, поэтому
+ * без флага преполёт ограничивается диагнозом и подсказкой, а повтор после перезагрузки —
+ * ровно один, второй серии не будет.
+ *
+ * Прочий сбой прогрева (400 на `max_tokens: 1` у провайдера с порогом, кривой параметр)
+ * преполёт не красит: прогрев — не замер, и его ошибку классифицирует проба тем же
+ * запросом с настоящими параметрами. Прежде такой сбой красил «средой» (код 2) и не давал
+ * стартовать маршруту, на котором проба прошла бы (code-review-all 2026-09-23). Облачные
+ * провайдеры не прогреваются вовсе: холодных весов у них нет.
  */
-async function checkWarmup(deps: PreflightDeps, config: LoadedConfig, opts: BenchOptions): Promise<PreflightCheck> {
+async function checkWarmup(
+  deps: PreflightDeps,
+  config: LoadedConfig,
+  opts: BenchOptions,
+): Promise<{ check: PreflightCheck | null; reloaded: boolean }> {
   const name = 'модель: прогрев движка';
   const target = resolveProbeTarget(config.models, opts.model);
   // Цель не разрешилась (sdk-флоу, битый конфиг) — диагноз назовёт проба ниже,
   // дублировать его строкой прогрева незачем.
-  if ('error' in target) return ok(name, true, 'цель пробы не разрешилась — прогрев пропущен, диагноз назовёт проба');
+  if ('error' in target) {
+    return { check: ok(name, true, 'цель пробы не разрешилась — прогрев пропущен, диагноз назовёт проба'), reloaded: false };
+  }
   const { def, providerDef } = target;
+  if (!isLocalEngine(def.provider, providerDef)) return { check: null, reloaded: false };
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
   const args = { provider, model: def.model, params: def.params ?? null };
+  const noReload = (check: PreflightCheck) => ({ check, reloaded: false });
 
   const started = Date.now();
   try {
     await deps.warmup(args);
-    return ok(name, true, 'движок ответил — веса подняты до замеряемых проб', Date.now() - started);
+    return noReload(ok(name, true, 'движок ответил — веса подняты до замеряемых проб', Date.now() - started));
   } catch (e) {
     const message = (e instanceof Error ? e.message : String(e)).slice(0, 200);
     const ms = Date.now() - started;
     if (!isEngineEnvFailure(e)) {
-      return bad(name, true, `прогрев не удался: ${message}`, ms);
+      return noReload(ok(name, false, `прогрев не удался не по движку: ${message} — классифицирует проба`, ms));
     }
     if (opts.engineReload !== true) {
-      return bad(
-        name,
-        true,
-        `движок не ответил на прогрев: ${message}; перезагрузить движок и повторить пробу может преполёт с явным --engine-reload`,
-        ms,
+      return noReload(
+        bad(
+          name,
+          true,
+          `движок не ответил на прогрев: ${message}; перезагрузить движок и повторить прогрев может преполёт с явным --engine-reload`,
+          ms,
+        ),
       );
     }
-    const reload = await deps.reloadEngine({ provider: def.provider, model: def.model });
+    const reload = await deps.reloadEngine({
+      provider: def.provider,
+      model: def.model,
+      ...(providerDef.baseUrl === undefined ? {} : { baseUrl: providerDef.baseUrl }),
+      ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),
+    });
     if (reload.kind !== 'reloaded') {
-      return bad(name, true, `движок не ответил на прогрев: ${message}; ${reload.detail}`, ms);
+      return noReload(bad(name, true, `движок не ответил на прогрев: ${message}; ${reload.detail}`, ms));
     }
     const retryStarted = Date.now();
     try {
       await deps.warmup(args);
-      return ok(name, true, `движок поднялся после перезагрузки (${reload.detail})`, ms + (Date.now() - retryStarted));
+      return {
+        check: ok(name, true, `движок поднялся после перезагрузки (${reload.detail})`, ms + (Date.now() - retryStarted)),
+        reloaded: true,
+      };
     } catch (e2) {
       const message2 = (e2 instanceof Error ? e2.message : String(e2)).slice(0, 200);
-      return bad(
-        name,
-        true,
-        `перезагрузка выполнена (${reload.detail}), но движок не ответил и на повтор: ${message2}`,
-        ms + (Date.now() - retryStarted),
-      );
+      return {
+        check: bad(
+          name,
+          true,
+          `перезагрузка выполнена (${reload.detail}), но движок не ответил и на повтор: ${message2}`,
+          ms + (Date.now() - retryStarted),
+        ),
+        reloaded: true,
+      };
     }
   }
+}
+
+/**
+ * Локальный движок с холодными весами — прогрев и перезагрузка имеют смысл только у него.
+ * Известные локальные провайдеры по имени — и любой openai-совместимый провайдер на адресе
+ * этой машины: провайдер, заведённый под другим именем (`lmstudio2`), иначе молча терял
+ * прогрев (code-review-all 2026-09-23).
+ */
+const LOCAL_ENGINES: ReadonlySet<string> = new Set(['ollama', 'lmstudio', 'vllm']);
+
+function isLocalEngine(provider: string, def: { kind: string; baseUrl?: string }): boolean {
+  if (LOCAL_ENGINES.has(provider)) return true;
+  return def.kind === 'openai-compat' && def.baseUrl !== undefined && isLoopbackUrl(def.baseUrl);
 }
 
 /**
@@ -553,7 +594,14 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
     if (planFit !== null) checks.push(planFit);
     checks.push(...(await checkContextWindows(d, ctx)));
     if (checks.every((c) => c.ok)) {
-      checks.push(await checkWarmup(d, ctx.config, opts));
+      const warm = await checkWarmup(d, ctx.config, opts);
+      if (warm.check !== null) checks.push(warm.check);
+      // Перезагрузка подняла модель заново — окно и слоты, проверенные ДО неё, уже не про
+      // эту загрузку: перепроверяются, иначе урезанное окно прошло бы преполёт зелёным.
+      if (warm.reloaded && checks.every((c) => c.ok)) {
+        const again = await checkContextWindows(d, ctx);
+        checks.push(...again.map((c) => ({ ...c, name: `${c.name} (после перезагрузки)` })));
+      }
     }
     if (checks.every((c) => c.ok)) {
       checks.push(...(await checkModel(d, ctx.config, opts)));

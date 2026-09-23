@@ -5,7 +5,7 @@ import { DECISION, countPlaceholdersInSection, pathExistsAny, readArtifact } fro
 import { declaredAsNew } from '../../artifacts/planFiles.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
-import { TOUCH_SECTION, claimsMinimum, exists, filledExceptTouchSection, isSmallContour, relOf } from './preconditions.ts';
+import { TOUCH_SECTION, claimsMinimum, exists, intentFilled, isSmallContour, relOf } from './preconditions.ts';
 import type { Precondition, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 import { autofillTitle } from '../formAutofill.ts';
 import { edgeExampleLines } from '../../artifacts/edgeExample.ts';
@@ -214,9 +214,9 @@ export function explorationPathProblem(c: StageContext): string | null {
 /**
  * Секция задачи «Что придётся тронуть» закрыта — проверка в ходу САМОЙ разведки.
  *
- * Секция исключена из предусловия входа в разведку (`filledExceptTouchSection`): на первом
+ * Секция исключена из предусловия входа в разведку (`intentFilled(…, false)`): на первом
  * проходе она законно пуста, заполнить её обязана разведка. Но предусловие входа в ПЛАН
- * считает места обычным `filled`, то есть эту секцию уже считает — а требовать её закрытия
+ * (`intentFilled(…, true)`) эту секцию уже считает (кроме мелкого контура) — а требовать её закрытия
  * было некому: страж `intent` её исключает по построению, у `explore` проверки не было
  * вовсе. Два счётчика на одном файле давали противоположные решения, и разбор серии v9
  * (2026-09-15) показал цену: 5 прогонов из 5 закрыли `intent` и `explore` зелёными и
@@ -253,7 +253,7 @@ export const exploreStage: StageDef = {
   subagents: ['sdlc-claims'],
   produces: (c) => [c.paths.explorationReport],
   requires: [
-    filledExceptTouchSection('задача заполнена без плейсхолдеров', (c) => c.paths.intent),
+    intentFilled('задача заполнена без плейсхолдеров', false),
     exists('проверка готовности пройдена (прогон 1)', (c) => c.paths.readiness),
     claimsMinimum(),
   ],

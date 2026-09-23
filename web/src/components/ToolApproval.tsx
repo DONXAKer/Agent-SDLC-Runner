@@ -123,6 +123,14 @@ export function ToolApproval({
         </div>
       ) : null}
 
+      {/* Перенаправленный адрес — та же природа: дифф показывает канонический файл, а модель
+          называла другой; без пометки оператор решал бы по пути, которого модель не писала. */}
+      {pending.readdressed !== undefined ? (
+        <div className="mb-3 rounded border border-sky-700 bg-sky-950/40 p-2 text-xs text-sky-200">
+          {pending.readdressed}
+        </div>
+      ) : null}
+
       {pending.preview !== null ? (
         <div className="mb-3">
           <div className="mb-1 font-mono text-xs text-neutral-400">{pending.preview.path}</div>

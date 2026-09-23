@@ -3,7 +3,14 @@
  * артефакта, решение человека, контур витка и минимум приёмочного листа.
  */
 
-import { artifactExists, countPlaceholdersExceptSections, pathIsDirectory, readArtifact, readDecision } from '../../artifacts/artifact.ts';
+import {
+  artifactExists,
+  countPlaceholders,
+  countPlaceholdersExceptSections,
+  pathIsDirectory,
+  readArtifact,
+  readDecision,
+} from '../../artifacts/artifact.ts';
 import { CLAIMS_MINIMUM, countClaims } from '../../artifacts/claims.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import type { Precondition, StageContext } from './types.ts';
@@ -55,22 +62,45 @@ export function intentPlaceholdersOutsideTouch(text: string): number {
 }
 
 /**
- * Вариант `filled` для входа в разведку: секция «Что придётся тронуть» интента законно
- * пустая на первом проходе — её заполняет сама разведка (см. `countPlaceholdersExceptSections`).
+ * ОДНА функция полноты `intent.md` на всех потребителей: страж завершения этапа 1
+ * (`intentPlaceholderProblem`), предусловие входа в разведку и предусловие входа в план.
+ *
+ * Секция «Что придётся тронуть» законно пуста, пока её не заполнила разведка: на полном
+ * контуре — до входа в `plan`, на мелком — всегда (этапы 2–3 схлопываются в точечную
+ * разведку этапа 5, `templates/intent.template.md` → «Контур»; секцию там не заполняет
+ * никто, а `files_to_touch` план пишет сам). Пока проверки было две — страж этапа 1 считал
+ * без секции, вход в `plan` считал всё, — этап 1 на мелком контуре отчитывался `ok⚠`, а
+ * `plan` не стартовал по тому же файлу с «незаполненных мест: 2» (test28, `qwen3-8b`,
+ * 2026-09-23): два ответа на вопрос «артефакт полон?» по одному артефакту.
  */
-export function filledExceptTouchSection(describe: string, file: (c: StageContext) => string): Precondition {
+export function intentPlaceholderCount(c: StageContext, text: string, afterExploration: boolean): number {
+  const touchRequired = afterExploration && !isSmallContour(c);
+  return touchRequired ? countPlaceholders(text) : intentPlaceholdersOutsideTouch(text);
+}
+
+/**
+ * Предусловие «задача заполнена» той же функцией, что страж этапа 1. `afterExploration` —
+ * ждём ли уже заполненную разведкой секцию «Что придётся тронуть» (вход в `plan`), или
+ * она ещё законно пуста (вход в `explore`).
+ */
+export function intentFilled(describe: string, afterExploration: boolean): Precondition {
   return {
     describe,
-    artifact: file,
+    artifact: (c) => c.paths.intent,
     check: (c) => {
-      const a = readArtifact(file(c));
-      if (!a.exists) return `нет файла ${a.path}`;
-      const n = intentPlaceholdersOutsideTouch(a.text);
+      const a = readArtifact(c.paths.intent);
+      if (!a.exists) {
+        return pathIsDirectory(a.path)
+          ? `по пути ${a.path} лежит каталог, а не файл артефакта`
+          : `нет файла ${a.path}`;
+      }
+      const n = intentPlaceholderCount(c, a.text, afterExploration);
       if (n > 0) return `в ${a.path} осталось незаполненных мест: ${n} — артефакт не готов`;
       return null;
     },
   };
 }
+
 
 /** Причины «решения нет», за которые отвечает человек, а не модель этапа-производителя. */
 const HUMAN_PENDING_WHY: ReadonlySet<string> = new Set([

@@ -21,8 +21,9 @@ import { ProviderEnvError } from '../../provider/ChatProvider.ts';
 import { createProvider } from '../../provider/registry.ts';
 import { autofillPlan, autofillReadiness } from '../formAutofill.ts';
 import { fillPlanAxes } from '../planAxisFill.ts';
+import { fillPlanAxesStepwise } from '../planAxisStepwise.ts';
 import { explorationPathsExist } from './explore.ts';
-import { claimsMinimum, filled, hasOpenQuestions, isSmallContour, relOf } from './preconditions.ts';
+import { claimsMinimum, hasOpenQuestions, intentFilled, isSmallContour, relOf } from './preconditions.ts';
 import type { StageContext, StageDef, StageHost, StageModule } from './types.ts';
 
 /**
@@ -177,7 +178,10 @@ export async function topUpAxes(host: StageHost, route: ResolvedRoute, system: s
     : '';
 
   const limits = host.limits();
-  const { answers, envFailure } = await fillPlanAxes({
+  // Форма добора — по ручке: пошаговый (одна степень свободы на вопрос) либо прежний
+  // комбинированный; оба отдают один `PlanAxisFillResult` и пишутся одним путём ниже.
+  const fill = route.planAxisFill === 'combined' ? fillPlanAxes : fillPlanAxesStepwise;
+  const { answers, envFailure } = await fill({
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('plan', 'planAxisFill')),
     model: route.model,
     params: route.params,
@@ -194,6 +198,9 @@ export async function topUpAxes(host: StageHost, route: ResolvedRoute, system: s
     onUsage: (usage) => host.accountOffPathUsage('plan', usage, route.providerDef.currency),
   });
 
+  // Этап отменён, пока шёл добор: запрос одобрения после `Run.cancel` встал бы в уже
+  // снятую очередь гейта и ждал бы человека вечно (code-review-all 2026-09-23).
+  if (host.signal().aborted) return;
   if (answers.length > 0) {
     // Перечитываем план ПОСЛЕ `fillPlanAxes` — тот только что сделал долгий сетевой
     // запрос (минуты для локальных моделей), а `plan.text` снят ДО него. Строить запись
@@ -256,7 +263,10 @@ export const planStage: StageDef = {
           : `нет файла ${c.paths.explorationReport}. На мелком контуре разведка не ` +
             `запускается — тогда пометь это в поле «Контур» задачи.`,
     },
-    filled('задача заполнена без плейсхолдеров', (c) => c.paths.intent),
+    // Та же функция полноты, что у стража этапа 1 и входа в разведку (`intentFilled`): на
+    // мелком контуре секцию «Что придётся тронуть» не заполняет никто, и требовать её здесь
+    // значило бы блокировать план по файлу, который этап 1 честно закрыл.
+    intentFilled('задача заполнена без плейсхолдеров', true),
     explorationPathsExist(),
     // И здесь тоже, не только на explore: мелкий контур пропускает разведку целиком
     // (`explore.skipIf`), и без этой строки его ветка `small ? 1 : 3` внутри проверки
@@ -301,10 +311,10 @@ export const planModule: StageModule = {
   checksBranchOnEntry: true,
   begin: (host, route) => ({
     // Топ-ап осей плана (`ModelDef.planAxisFill`): оси, о которых секция «Последствия
-    // шагов» ничего не сказала, добираются ОДНИМ запросом. До стража завершения этапа —
-    // он увидит меньше проблем, если топ-ап уже закрыл часть строк.
+    // шагов» ничего не сказала, добираются узкими вопросами рантайма. До стража завершения
+    // этапа — он увидит меньше проблем, если топ-ап уже закрыл часть строк.
     afterTurn: async (stagePrompt, signal) => {
-      if (route.flow === 'loop' && route.planAxisFill && !signal.aborted) {
+      if (route.flow === 'loop' && route.planAxisFill !== false && !signal.aborted) {
         await topUpAxes(host, route, stagePrompt.system);
       }
     },

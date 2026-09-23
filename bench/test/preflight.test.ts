@@ -11,7 +11,7 @@ import { after, describe, it } from 'node:test';
 
 import { loadConfig } from '../../server/src/config/load.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
-import { ProviderEnvError } from '../../server/src/provider/ChatProvider.ts';
+import { ProviderEnvError, ProviderHttpError } from '../../server/src/provider/ChatProvider.ts';
 import { spawnNode } from '../src/nodeTest.ts';
 import { parseArgs } from '../src/options.ts';
 import type { BenchOptions } from '../src/options.ts';
@@ -400,13 +400,18 @@ describe('runPreflight: прогрев движка и автоперезагр�
     ok(c?.detail.includes('не поддержана'), c?.detail);
   });
 
-  it('не-средовой сбой прогрева перезагрузку не вызывает даже с флагом', async () => {
+  it('не-средовой сбой прогрева перезагрузку не вызывает даже с флагом и преполёт не красит — классифицирует проба', async () => {
     let reloads = 0;
+    let probeCalled = false;
     const report = await runPreflight(
       opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
       greenDeps({
         warmup: async () => {
-          throw new Error('HTTP 400 bad request');
+          throw new ProviderHttpError('ollama: HTTP 400 от http://x — {"error":"max_tokens слишком мал"}', 400);
+        },
+        probe: async (a) => {
+          probeCalled = true;
+          return greenProbe(a);
         },
         reloadEngine: async () => {
           reloads += 1;
@@ -415,7 +420,48 @@ describe('runPreflight: прогрев движка и автоперезагр�
       }),
     );
     strictEqual(reloads, 0, 'перезагрузка — только при сбое движка, не при любой ошибке');
+    strictEqual(probeCalled, true, 'ошибку не-движка классифицирует проба тем же запросом');
+    strictEqual(preflightExitCode(report), 0, JSON.stringify(report.checks.filter((c) => !c.ok)));
+  });
+
+  it('HTTP-ошибка с «fetch failed» в сыром теле — не сбой движка: перезагрузки нет', async () => {
+    let reloads = 0;
+    await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          throw new ProviderHttpError('ollama: HTTP 400 от http://x — {"error":{"message":"upstream fetch failed"}}', 400);
+        },
+        reloadEngine: async () => {
+          reloads += 1;
+          return { kind: 'reloaded' as const, detail: 'x' };
+        },
+      }),
+    );
+    strictEqual(reloads, 0);
+  });
+
+  it('после перезагрузки окно контекста перепроверяется: урезанное окно краснит преполёт', async () => {
+    let warmups = 0;
+    let contextCalls = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        warmup: async () => {
+          warmups += 1;
+          if (warmups === 1) throw new ProviderEnvError('движок не ответил на прогрев');
+        },
+        contextProblem: async () => {
+          contextCalls += 1;
+          return contextCalls === 1 ? null : 'загружено с окном 4096, конфиг ждёт 16384';
+        },
+      }),
+    );
     strictEqual(preflightExitCode(report), 2);
+    ok(
+      report.checks.some((c) => !c.ok && c.name.includes('после перезагрузки')),
+      JSON.stringify(report.checks.filter((c) => !c.ok)),
+    );
   });
 });
 

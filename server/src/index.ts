@@ -95,6 +95,7 @@ const gate = new ApprovalGate({
       writeTargets: p.writeTargets,
       destructive: p.destructive,
       ...(p.repaired === undefined ? {} : { repaired: p.repaired }),
+      ...(p.readdressed === undefined ? {} : { readdressed: p.readdressed }),
       ...(p.decisionsLost === undefined ? {} : { decisionsLost: p.decisionsLost }),
       createdAt: p.createdAt,
     }),

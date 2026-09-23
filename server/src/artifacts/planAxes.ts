@@ -240,6 +240,24 @@ function isHeaderRow(row: readonly string[]): boolean {
   return first === 'ось' || first.startsWith('ось ') || first === '';
 }
 
+/**
+ * Строка оси из её ячеек — тем же чтением, что у таблицы плана. Отдельно от
+ * `parsePlanAxes` для топ-апа (`run/planAxisFill.ts`): он проверяет свою строку ДО записи
+ * тем же читателем, чтобы в план не уходило то, что `planAxisProblems` потом отвергнет.
+ */
+export function axisRowOf(name: string, affectedCell: string, outcomeCell: string): AxisRow {
+  const outcomeRaw = outcomeCell.trim();
+  return {
+    name,
+    canonical: CANONICAL.get(key(name)) ?? null,
+    affected: readAffected(affectedCell),
+    outcome: readOutcome(outcomeRaw),
+    outcomeRaw,
+    claimIds: claimIdsOf(outcomeRaw),
+    gateName: gateNameOf(outcomeRaw),
+  };
+}
+
 export function parsePlanAxes(planText: string): PlanAxes {
   // Заголовок матчится ЦЕЛИКОМ, а не подстрокой: свободная `/последстви/i` затягивала в
   // разбор чужую секцию плана («## Последствия для клиентов»), и её строки становились
@@ -285,16 +303,7 @@ export function parsePlanAxes(planText: string): PlanAxes {
         // строка без колонки исхода проходила гейт ЗЕЛЁНОЙ, если в описании шага случайно
         // попадалось слово словаря («…включить гейт „Тесты“»). Отсутствующая ячейка обязана
         // читаться как отсутствующая: `unknown` и претензия про исход (ревью).
-        const outcomeRaw = (row[iOutcome >= 0 ? iOutcome : 3] ?? '').trim();
-        rows.push({
-          name,
-          canonical: CANONICAL.get(key(name)) ?? null,
-          affected: readAffected(row[iAffected >= 0 ? iAffected : 1] ?? ''),
-          outcome: readOutcome(outcomeRaw),
-          outcomeRaw,
-          claimIds: claimIdsOf(outcomeRaw),
-          gateName: gateNameOf(outcomeRaw),
-        });
+        rows.push(axisRowOf(name, row[iAffected >= 0 ? iAffected : 1] ?? '', row[iOutcome >= 0 ? iOutcome : 3] ?? ''));
       }
     }
   }
@@ -334,6 +343,101 @@ export function unansweredAxes(planText: string): AxisName[] {
     const row = rows[0]!;
     return row.affected === null || row.outcome === 'unknown';
   });
+}
+
+/**
+ * Претензии к ОДНОЙ строке оси — всё, кроме сверки риска с таблицей принятых рисков (её
+ * делает `planAxisProblems`: нужна вся секция). Одна функция на читателя плана и на
+ * проверку топ-апа до записи (`run/planAxisFill.ts`): две копии правил расходились бы.
+ */
+export function axisRowProblems(row: AxisRow, ctx: AxisContext = {}): string[] {
+  const problems: string[] = [];
+  const claims = new Set((ctx.claimIds ?? []).map((c) => c.toLowerCase()));
+  const gates = new Set((ctx.enabledGates ?? []).map((g) => key(g)));
+  if (row.affected === null) {
+    problems.push(
+      `ось «${row.name}»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»`,
+    );
+  }
+  switch (row.outcome) {
+    case 'unknown':
+      problems.push(
+        `ось «${row.name}»: исход не из словаря (${row.outcomeRaw === '' ? 'пусто' : row.outcomeRaw}) — ` +
+          'нужен claim-N, инвариант, гейт «имя», риск, следующий виток либо «н/п — почему». ' +
+          'Свободный текст исходом не является: у рекомендации нет исполнителя',
+      );
+      break;
+    case 'notApplicable':
+      if (!hasReason(row.outcomeRaw)) {
+        problems.push(`ось «${row.name}»: «н/п» без причины — молчание решением не считается`);
+      }
+      if (row.affected === true) {
+        problems.push(
+          `ось «${row.name}»: объявлена затронутой, а исход «н/п» — затронутая ось ` +
+            'закрывается решением, а не пометкой «не применимо»',
+        );
+      }
+      break;
+    case 'claim': {
+      if (ctx.claimIds === undefined) break;
+      const unknownIds = row.claimIds.filter((id) => !claims.has(id));
+      if (unknownIds.length > 0) {
+        problems.push(
+          `ось «${row.name}»: в задаче нет пунктов ${unknownIds.join(', ')} — ` +
+            'пункт в приёмочный лист дописывает человек, и только после этого его id ' +
+            'становится исходом. Ссылка на несуществующий пункт исходом не является',
+        );
+      }
+      break;
+    }
+    case 'gate': {
+      if (ctx.enabledGates === undefined) break;
+      if (row.gateName === null) {
+        problems.push(
+          `ось «${row.name}»: исход «гейт», но имя гейта не названо в кавычках — ` +
+            'сверка с набором идёт по имени дословно',
+        );
+      } else if (!gates.has(key(row.gateName))) {
+        problems.push(
+          `ось «${row.name}»: гейта «${row.gateName}» нет среди включённых строк набора — ` +
+            'включение гейта это решение человека с записью в журнале набора, и оно ' +
+            'делается до того, как гейт становится исходом',
+        );
+      }
+      break;
+    }
+    case 'invariant': {
+      if (ctx.hasInvariants === undefined) break;
+      if (!ctx.hasInvariants) {
+        problems.push(
+          `ось «${row.name}»: исход «инвариант», но в задаче не назван ни один инвариант — ` +
+            'инвариант живёт парой «утверждение + чем проверяется» в задаче, а не словом ' +
+            'в клетке плана',
+        );
+      }
+      break;
+    }
+    case 'nextWitok': {
+      if (ctx.hasOpenQuestion === undefined) break;
+      if (!ctx.hasOpenQuestion) {
+        problems.push(
+          `ось «${row.name}»: исход «следующий виток», но в задаче нет ни одного открытого ` +
+            'вопроса — отложенное решение живёт записью в «Открытых вопросах», а не словами',
+        );
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  if (row.affected === false && row.outcome !== 'notApplicable' && row.outcome !== 'unknown') {
+    problems.push(
+      `ось «${row.name}»: объявлена незатронутой, а исход — «${row.outcomeRaw}». ` +
+        'Незатронутая ось закрывается «н/п — почему»; если решение всё-таки принято, ' +
+        'колонка «Затронута шагами» должна говорить «да»',
+    );
+  }
+  return problems;
 }
 
 /**
@@ -377,111 +481,25 @@ export function planAxisProblems(planText: string, ctx: AxisContext = {}): strin
   }
 
   const riskAxes = new Set(parsed.risks.map((r) => key(r.axis)));
-  const claims = new Set((ctx.claimIds ?? []).map((c) => c.toLowerCase()));
-  const gates = new Set((ctx.enabledGates ?? []).map((g) => key(g)));
 
   for (const row of parsed.rows) {
-    if (row.affected === null) {
+    problems.push(...axisRowProblems(row, ctx));
+    if (row.outcome !== 'risk') continue;
+    const risk = parsed.risks.find((r) => key(r.axis) === key(row.name));
+    if (risk === undefined) {
       problems.push(
-        `ось «${row.name}»: колонка «Затронута шагами» не заполнена — нужно «да» либо «нет»`,
+        `ось «${row.name}»: исход «риск», но строки с этой осью нет в таблице принятых ` +
+          'рисков — риск без записи это «никто не делает и никто не решал»',
       );
-    }
-    switch (row.outcome) {
-      case 'unknown':
-        problems.push(
-          `ось «${row.name}»: исход не из словаря (${row.outcomeRaw === '' ? 'пусто' : row.outcomeRaw}) — ` +
-            'нужен claim-N, инвариант, гейт «имя», риск, следующий виток либо «н/п — почему». ' +
-            'Свободный текст исходом не является: у рекомендации нет исполнителя',
-        );
-        break;
-      case 'notApplicable':
-        if (!hasReason(row.outcomeRaw)) {
-          problems.push(`ось «${row.name}»: «н/п» без причины — молчание решением не считается`);
-        }
-        if (row.affected === true) {
-          problems.push(
-            `ось «${row.name}»: объявлена затронутой, а исход «н/п» — затронутая ось ` +
-              'закрывается решением, а не пометкой «не применимо»',
-          );
-        }
-        break;
-      case 'risk': {
-        const risk = parsed.risks.find((r) => key(r.axis) === key(row.name));
-        if (risk === undefined) {
-          problems.push(
-            `ось «${row.name}»: исход «риск», но строки с этой осью нет в таблице принятых ` +
-              'рисков — риск без записи это «никто не делает и никто не решал»',
-          );
-        } else if (blank(risk.revisit)) {
-          // Подписи в строке нет намеренно (риски принимаются полем «Одобрение» плана),
-          // поэтому единственное, что отличает решение от забывания, — срок пересмотра.
-          problems.push(
-            `ось «${row.name}»: в строке принятого риска пусто «Когда вернуться» — ` +
-              'принятый риск без срока пересмотра это не решение, а забывание',
-          );
-        } else if (blank(risk.why)) {
-          problems.push(`ось «${row.name}»: в строке принятого риска не названа причина`);
-        }
-        break;
-      }
-      case 'claim': {
-        if (ctx.claimIds === undefined) break;
-        const unknownIds = row.claimIds.filter((id) => !claims.has(id));
-        if (unknownIds.length > 0) {
-          problems.push(
-            `ось «${row.name}»: в задаче нет пунктов ${unknownIds.join(', ')} — ` +
-              'пункт в приёмочный лист дописывает человек, и только после этого его id ' +
-              'становится исходом. Ссылка на несуществующий пункт исходом не является',
-          );
-        }
-        break;
-      }
-      case 'gate': {
-        if (ctx.enabledGates === undefined) break;
-        if (row.gateName === null) {
-          problems.push(
-            `ось «${row.name}»: исход «гейт», но имя гейта не названо в кавычках — ` +
-              'сверка с набором идёт по имени дословно',
-          );
-        } else if (!gates.has(key(row.gateName))) {
-          problems.push(
-            `ось «${row.name}»: гейта «${row.gateName}» нет среди включённых строк набора — ` +
-              'включение гейта это решение человека с записью в журнале набора, и оно ' +
-              'делается до того, как гейт становится исходом',
-          );
-        }
-        break;
-      }
-      case 'invariant': {
-        if (ctx.hasInvariants === undefined) break;
-        if (!ctx.hasInvariants) {
-          problems.push(
-            `ось «${row.name}»: исход «инвариант», но в задаче не назван ни один инвариант — ` +
-              'инвариант живёт парой «утверждение + чем проверяется» в задаче, а не словом ' +
-              'в клетке плана',
-          );
-        }
-        break;
-      }
-      case 'nextWitok': {
-        if (ctx.hasOpenQuestion === undefined) break;
-        if (!ctx.hasOpenQuestion) {
-          problems.push(
-            `ось «${row.name}»: исход «следующий виток», но в задаче нет ни одного открытого ` +
-              'вопроса — отложенное решение живёт записью в «Открытых вопросах», а не словами',
-          );
-        }
-        break;
-      }
-      default:
-        break;
-    }
-    if (row.affected === false && row.outcome !== 'notApplicable' && row.outcome !== 'unknown') {
+    } else if (blank(risk.revisit)) {
+      // Подписи в строке нет намеренно (риски принимаются полем «Одобрение» плана),
+      // поэтому единственное, что отличает решение от забывания, — срок пересмотра.
       problems.push(
-        `ось «${row.name}»: объявлена незатронутой, а исход — «${row.outcomeRaw}». ` +
-          'Незатронутая ось закрывается «н/п — почему»; если решение всё-таки принято, ' +
-          'колонка «Затронута шагами» должна говорить «да»',
+        `ось «${row.name}»: в строке принятого риска пусто «Когда вернуться» — ` +
+          'принятый риск без срока пересмотра это не решение, а забывание',
       );
+    } else if (blank(risk.why)) {
+      problems.push(`ось «${row.name}»: в строке принятого риска не названа причина`);
     }
   }
 

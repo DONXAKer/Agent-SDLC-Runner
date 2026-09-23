@@ -26,7 +26,9 @@
 
 import { execFile } from 'node:child_process';
 
-import { apiOrigin, describeFetchFailure, fetchJson } from './http.ts';
+import { apiOrigin, describeFetchFailure, fetchJson, isLoopbackUrl } from './http.ts';
+
+export { isLoopbackUrl };
 
 export interface LmStudioContextCheck {
   ok: boolean;
@@ -71,8 +73,14 @@ function readLmsParallel(modelId: string): Promise<number | null> {
         try {
           const list = JSON.parse(stdout) as LmsPsEntry[];
           if (!Array.isArray(list)) { resolve(null); return; }
-          const entry = list.find((m) => m.modelKey === modelId || m.identifier === modelId);
-          resolve(typeof entry?.parallel === 'number' ? entry.parallel : null);
+          // Запросы по id уходят в экземпляр с ТЕМ ЖЕ `identifier`; второй экземпляр той же
+          // модели (`id:2`) делит её `modelKey`. Точного экземпляра нет — худший из
+          // совпавших по ключу: проверка слотов не должна зеленеть на первом попавшемся.
+          const exact = list.find((m) => m.identifier === modelId);
+          const slots = (exact === undefined ? list.filter((m) => m.modelKey === modelId) : [exact])
+            .map((m) => m.parallel)
+            .filter((n): n is number => typeof n === 'number');
+          resolve(slots.length === 0 ? null : Math.max(...slots));
         } catch {
           resolve(null);
         }
@@ -80,6 +88,10 @@ function readLmsParallel(modelId: string): Promise<number | null> {
     );
   });
 }
+
+// `lms ps` опрашивает ЛОКАЛЬНЫЙ LM Studio — адреса сервера у него нет. Для сервера на
+// другой машине его ответ про чужую загрузку давал бы ложный красный или ложный зелёный,
+// поэтому слоты сверяются только для локального адреса (`isLoopbackUrl`, provider/http.ts).
 
 /** Точка подмены для тестов — HTTP-половина стабается сервером, CLI-половина этим параметром. */
 export interface LmStudioContextDeps {
@@ -149,7 +161,8 @@ export async function checkLmStudioContext(
     };
   }
 
-  const parallel = await readParallel(modelId);
+  const local = isLoopbackUrl(baseUrl);
+  const parallel = local ? await readParallel(modelId) : null;
   if (parallel !== null && parallel > 1) {
     return {
       ok: false,
@@ -171,6 +184,10 @@ export async function checkLmStudioContext(
     parallel,
     message:
       'окно контекста совпадает с конфигом' +
-      (parallel === null ? '; parallel-слоты НЕ проверены (lms CLI не ответил)' : ''),
+      (parallel !== null
+        ? ''
+        : local
+          ? '; parallel-слоты НЕ проверены (lms CLI не ответил или не видит эту модель в `lms ps`)'
+          : '; parallel-слоты НЕ проверены (сервер не локальный — `lms ps` видит только эту машину)'),
   };
 }

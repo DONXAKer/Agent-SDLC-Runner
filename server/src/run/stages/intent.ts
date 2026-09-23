@@ -3,7 +3,7 @@
 import { DecisionFormError, readArtifact, readField, setDecision } from '../../artifacts/artifact.ts';
 import { currentBranch, isRepo } from '../../gates/git.ts';
 import { autofillReadiness } from '../formAutofill.ts';
-import { claimsMinimum, intentPlaceholdersOutsideTouch } from './preconditions.ts';
+import { claimsMinimum, intentPlaceholderCount } from './preconditions.ts';
 import type { SeededArtifact, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 
 /**
@@ -79,7 +79,7 @@ export async function autofillBranchField(host: StageHost, seeded: SeededArtifac
 }
 
 /**
- * Та же проверка, что `filledExceptTouchSection` (`preconditions.ts`, предусловие входа в разведку), но
+ * Та же проверка, что `intentFilled` (`preconditions.ts`, предусловие входа в разведку и в план), но
  * вызванная СВОИМ ходом модели на этапе `intent`, а не чужим предусловием следующего
  * этапа. Общий страж завершения хода (`notDone()`, `Run.ts`) видит только «файл тронут
  * vs пустой бланк», а не «плейсхолдеры закрыты» — `FormFillExecutor` считает точное число
@@ -93,7 +93,9 @@ export async function autofillBranchField(host: StageHost, seeded: SeededArtifac
 export function intentPlaceholderProblem(c: StageContext): string | null {
   const a = readArtifact(c.paths.intent);
   if (!a.exists) return null;
-  const n = intentPlaceholdersOutsideTouch(a.text);
+  // Тот же счётчик, что у предусловий `explore`/`plan` (`intentPlaceholderCount`): один
+  // ответ на «артефакт полон?» на всех потребителей.
+  const n = intentPlaceholderCount(c, a.text, false);
   if (n === 0) return null;
   return `в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: ${n} — задача не готова`;
 }

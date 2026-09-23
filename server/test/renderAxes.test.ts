@@ -4,12 +4,12 @@
  * намеренно (см. докстринг `renderAxes.ts`), поэтому и тесты разведены.
  */
 
-import { strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { AxisFillAnswer } from '../src/artifacts/renderAxes.ts';
 import { applyAxisAnswers } from '../src/artifacts/renderAxes.ts';
-import type { AxisName } from '../src/artifacts/planAxes.ts';
+import { AXES, planAxisProblems, type AxisName } from '../src/artifacts/planAxes.ts';
 
 const NL = '\n';
 
@@ -90,6 +90,33 @@ describe('applyAxisAnswers: строка-образец методологии',
     strictEqual(out.includes('‹имя оси из канона›'), false, 'образец должен исчезнуть');
     ok(out.includes('| Безопасность | нет | шаг 1 | н/п — не затронута |'));
     ok(out.includes('| Ресурсы и скорость | нет | шаг 1 | н/п — не затронута |'));
+  });
+
+  it('образец удаляется и тогда, когда модель вписала свои строки ВЫШЕ него', () => {
+    const rows = [
+      ось('Безопасность', 'нет', 'шаг 1', 'н/п — не затронута'),
+      ось('‹имя оси из канона›', '‹да/нет›', '‹шаг N›', '‹исход›'),
+    ];
+    const out = applyAxisAnswers(план(rows), [answer('Настройки', 'нет', 'шаг 1', 'н/п — не затронута')]);
+    strictEqual(out.includes('‹имя оси из канона›'), false);
+  });
+
+  it('образец таблицы рисков `‹ось›` удаляется: полный ответ даёт план без претензий', () => {
+    const text = план([ось('‹имя оси из канона›', '‹да/нет›', '‹шаг N›', '‹исход›')], {
+      risks: [риск('‹ось›', '‹что может пойти не так›', '‹почему допустимо сейчас›', '‹событие или срок›')],
+    });
+    const out = applyAxisAnswers(
+      text,
+      AXES.map((a) => answer(a, 'нет', 'шаг 1', 'н/п — не затронута')),
+    );
+    strictEqual(out.includes('‹ось›'), false);
+    deepStrictEqual(planAxisProblems(out), []);
+  });
+
+  it('строка с плейсхолдером-именем, но заполненными моделью ячейками не удаляется', () => {
+    const rows = [ось('‹имя оси из канона›', 'да', 'шаг 2 меняет таймаут', 'claim-1')];
+    const out = applyAxisAnswers(план(rows), [answer('Настройки', 'нет', 'шаг 1', 'н/п — не затронута')]);
+    strictEqual(out.includes('| ‹имя оси из канона› | да | шаг 2 меняет таймаут | claim-1 |'), true);
   });
 
   it('если ответов нет — образец остаётся, текст не трогается', () => {

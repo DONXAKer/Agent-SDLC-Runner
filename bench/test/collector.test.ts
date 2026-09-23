@@ -302,7 +302,7 @@ describe('createCollector', () => {
         collector.state.denials?.map((d) => [d.requestId, d.decisionsLost]),
         [['lost', ['Решение человека о полноте']], ['fix-denied', undefined]],
       );
-      deepStrictEqual(collector.state.repairs, [{ stage: 'plan', requestId: 'fix', decisionsLost: ['Одобрение'] }]);
+      deepStrictEqual(collector.state.repairs, [{ stage: 'plan', requestId: 'fix', kind: 'decision', decisionsLost: ['Одобрение'] }]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -316,6 +316,90 @@ describe('createCollector', () => {
       const e: RunEvent = { type: 'run_started', runId: 'r1', slug: 's', profile: 'control', projectRoot: root };
       collector.emit(e);
       deepStrictEqual(seen, [e]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * Свой артефакт не по своему пути (test27/test29, 2026-09-22…23): голое имя и опечатка в
+ * слаге — ошибка адресации, не граница. Коллектор помечает такой отказ структурно, а
+ * перенаправленный гейтом вызов (`readdressed`) считает починкой своего класса.
+ */
+describe('createCollector: адрес своего артефакта', () => {
+  it('отказ по артефакту витка мимо каталога витка помечен ownArtifactMisaddressed; в своём каталоге и чужое имя — нет', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-collector-'));
+    try {
+      const collector = createCollector({ projectRoot: () => root, slug: () => 'freeship' });
+      const deny = (requestId: string, path: string) => {
+        collector.emit(
+          toolRequest({ stage: 'ask', requestId, call: { kind: 'write', path, content: 'x' }, policy: { ok: false, policy: 'planScope', reason: 'вне плана' } }),
+        );
+        collector.emit({ type: 'tool_resolved', runId: 'r1', stage: 'ask', requestId, decision: { allowed: false, reason: '[planScope] вне плана', by: 'policy' } });
+      };
+      deny('bare', 'clarification-report.md');
+      deny('typo', '.sdlc/freesship/clarification-report.md');
+      deny('own', '.sdlc/freeship/intent.md');
+      deny('alien', 'notes.md');
+      // Выход за проект и то же имя в продуктовом каталоге — граница, не адресация.
+      deny('outside', '../../plan.md');
+      deny('product', 'docs/plan.md');
+      deepStrictEqual(
+        collector.state.denials?.map((d) => [d.requestId, d.ownArtifactMisaddressed]),
+        [['bare', true], ['typo', true], ['own', undefined], ['alien', undefined], ['outside', undefined], ['product', undefined]],
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('перенаправленный гейтом вызов — починка класса «address», не «decision»', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-collector-'));
+    try {
+      const collector = createCollector({ projectRoot: () => root, slug: () => 'freeship' });
+      collector.emit({
+        ...(toolRequest({ stage: 'ask', requestId: 'moved', call: { kind: 'write', path: `${root}/.sdlc/freeship/clarification-report.md`, content: 'x' } }) as ToolRequestEvent),
+        readdressed: 'рантайм перенаправил запись «clarification-report.md» в артефакт этапа «clarification»',
+      });
+      collector.emit({ type: 'tool_resolved', runId: 'r1', stage: 'ask', requestId: 'moved', decision: { allowed: true, updatedInput: { file_path: 'x' }, by: 'auto' } });
+      deepStrictEqual(collector.state.repairs, [{ stage: 'ask', requestId: 'moved', kind: 'address' }]);
+      deepStrictEqual(collector.state.denials, []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('вызов с двумя починками (поле решения и адрес) считается обеими', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-collector-'));
+    try {
+      const collector = createCollector({ projectRoot: () => root, slug: () => 'freeship' });
+      collector.emit({
+        ...(toolRequest({ stage: 'plan', requestId: 'both', call: { kind: 'write', path: `${root}/.sdlc/freeship/plan.md`, content: 'x' } }) as ToolRequestEvent),
+        repaired: 'возвращено поле «Одобрение»',
+        decisionsLost: ['Одобрение'],
+        readdressed: 'рантайм перенаправил запись «plan.md» в артефакт этапа «plan»',
+      });
+      collector.emit({ type: 'tool_resolved', runId: 'r1', stage: 'plan', requestId: 'both', decision: { allowed: true, updatedInput: { file_path: 'x' }, by: 'auto' } });
+      deepStrictEqual(
+        collector.state.repairs?.map((r) => r.kind),
+        ['decision', 'address'],
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('перенаправленный, но отклонённый вызов помечен ownArtifactMisaddressed', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-collector-'));
+    try {
+      const collector = createCollector({ projectRoot: () => root, slug: () => 'freeship' });
+      collector.emit({
+        ...(toolRequest({ stage: 'ask', requestId: 'moved-denied', call: { kind: 'write', path: `${root}/.sdlc/freeship/clarification-report.md`, content: 'x' } }) as ToolRequestEvent),
+        readdressed: 'рантайм перенаправил запись',
+      });
+      collector.emit({ type: 'tool_resolved', runId: 'r1', stage: 'ask', requestId: 'moved-denied', decision: { allowed: false, reason: 'отказ оператора', by: 'operator' } });
+      strictEqual(collector.state.denials?.[0]?.ownArtifactMisaddressed, true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

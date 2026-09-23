@@ -126,6 +126,8 @@ const BASH_STREAK_REMINDERS = 2;
  * напоминанием не лечится, а ходы стоят полного промпта.
  */
 const READY_STALL_TURNS = 3;
+/** Сколько напоминаний «артефакт готов» получает этап за всю жизнь (по одному на серию). */
+const READY_NUDGES_PER_STAGE = 2;
 
 /**
  * Доля бюджета ходов, после которой нулевой прогресс (`req.progressSignal`, у `chunk` —
@@ -287,6 +289,12 @@ export class LoopExecutor implements StageExecutor {
     let readyStreak = 0;
     /** Напоминание «артефакт готов» — одно на НЕПРЕРЫВНУЮ серию готовности, не на ход. */
     let readyNudged = false;
+    // Общий потолок напоминаний на этап: без него модель, чередующая «правка открыла
+    // место / правка закрыла», получала напоминание на каждой новой серии. Исчерпав
+    // потолок, счётчик готовых ходов уже не сбрасывается потерей готовности — иначе при
+    // чередовании серия ни разу не доживала до закрытия по диску, и этап горел до
+    // `maxTurns` (code-review-all 2026-09-23).
+    let readyNudges = 0;
     /** Напоминание про нулевой прогресс — один раз за ход этапа, не серия. */
     let noProgressNudged = false;
 
@@ -649,6 +657,11 @@ export class LoopExecutor implements StageExecutor {
         continue;
       }
 
+      // Успешная заявка при готовом этапе закрывает его — но ПОСЛЕ всего пакета вызовов
+      // хода: ранний выход посреди пакета молча терял вызовы, стоящие за FinalizeArtifact
+      // (на verify — `RecordFinding`, и вердикт считался без находки; code-review-all
+      // 2026-09-23).
+      let finalizedReady = false;
       for (const call of answer.toolCalls) {
         const fingerprint = callFingerprint(call);
         repeats = fingerprint === lastFingerprint ? repeats + 1 : 0;
@@ -762,11 +775,7 @@ export class LoopExecutor implements StageExecutor {
             req.finishGuard !== null &&
             stageReady()
           ) {
-            const note =
-              'FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску ' +
-              'сразу, без лишних ходов цикла';
-            hooks.onWarn(note);
-            return { ok: true, finalText, usage, note, closedBy: 'runtime' };
+            finalizedReady = true;
           }
 
           if (rejection?.placeholders === undefined) {
@@ -800,6 +809,15 @@ export class LoopExecutor implements StageExecutor {
             }
           }
         }
+      }
+
+      // Готовность перепроверяется: вызовы пакета после заявки могли снова открыть места.
+      if (finalizedReady && stageReady()) {
+        const note =
+          'FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску ' +
+          'сразу, без лишних ходов цикла';
+        hooks.onWarn(note);
+        return { ok: true, finalText, usage, note, closedBy: 'runtime' };
       }
 
       // Напоминание идёт ПОСЛЕ результатов инструментов хода: user-сообщение между
@@ -847,14 +865,16 @@ export class LoopExecutor implements StageExecutor {
       // qwen3-coder-30b, 40 ходов без единой заявки: серия отказов финализации тут не
       // считается, потому что самих вызовов не было. Счётчик — не «N ходов подряд», а
       // «готов по диску, а заявки нет»: потеря готовности (новая правка снова открыла
-      // места) сбрасывает серию вместе с кредитом напоминания. Успешная заявка сюда не
-      // доходит — её этап закрывает выше, сразу после FinalizeArtifact. Напоминание ОДНО
-      // на серию, после него — READY_STALL_TURNS хода форы и закрытие по диску.
+      // места) сбрасывает серию вместе с кредитом напоминания — пока напоминания не
+      // исчерпаны. Успешная заявка сюда не доходит — её этап закрывает выше, после пакета
+      // вызовов хода. Напоминание ОДНО на серию, после него — READY_STALL_TURNS хода форы
+      // и закрытие по диску.
       if (req.closeOnFinalizeReady === true && req.finishGuard !== null) {
         if (stageReady()) {
           readyStreak++;
-          if (!readyNudged) {
+          if (!readyNudged && readyNudges < READY_NUDGES_PER_STAGE) {
             readyNudged = true;
+            readyNudges++;
             hooks.onFriction('reminder');
             pushUserNote(
               messages,
@@ -868,7 +888,7 @@ export class LoopExecutor implements StageExecutor {
             hooks.onWarn(note);
             return { ok: true, finalText, usage, note, closedBy: 'runtime' };
           }
-        } else {
+        } else if (readyNudges < READY_NUDGES_PER_STAGE) {
           readyStreak = 0;
           readyNudged = false;
         }

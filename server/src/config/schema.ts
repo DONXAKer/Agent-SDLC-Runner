@@ -188,8 +188,16 @@ export interface ModelDef {
    * несуществующий claim/гейт) — только те, о которых она промолчала. `finishGuard`/
    * `axisProblems()` остаются работать как раньше и ловят то, что топ-ап не смог закрыть.
    * Только flow `loop`. Умолчание — выключено: ручка заведена под замер, не для всех.
+   *
+   * Форма добора: `'stepwise'` — пошаговый (`run/planAxisStepwise.ts`: «затронута?» по всем
+   * осям, причины, «что именно», исход по одной оси одним ключом из конкретных адресатов,
+   * поля риска — одна степень свободы на вопрос); `true`/`'combined'` — комбинированный,
+   * одна строка из 3–6 полей на ось одним ответом. `true` оставлен за комбинированным
+   * намеренно: под ним записи замерены (test29), и смена смысла под тем же id смешала бы
+   * в матрице два механизма — правило «одна ручка на замер». Пошаговый включается явным
+   * `'stepwise'` и живой серией пока не замерен. Иное значение — ошибка профиля.
    */
-  planAxisFill?: boolean;
+  planAxisFill?: boolean | 'combined' | 'stepwise';
   /**
    * Этап 5 по шагам плана (`exec/StepExecutor.ts`): рантайм ведёт цикл сам — по одному
    * шагу плана за запрос, обычным completion'ом без tool-use, с содержимым ровно ОДНОГО
@@ -434,8 +442,8 @@ export interface ResolvedRoute {
   reviewFill: boolean;
   /** Пропуск хода после полного конвейера — см. `ModelDef.skipTurnAfterReviewFill`. */
   skipTurnAfterReviewFill: boolean;
-  /** Топ-ап осей плана по образцу claimFill — см. `ModelDef.planAxisFill`. */
-  planAxisFill: boolean;
+  /** Топ-ап осей плана по образцу claimFill — см. `ModelDef.planAxisFill`; `false` — выключен. */
+  planAxisFill: false | 'combined' | 'stepwise';
   /** Этап 5 по шагам плана без tool-use — см. `ModelDef.stepFill`. */
   stepFill: boolean;
   /** Схема формы вместо сплошного текста — см. `ModelDef.compactForms`. */

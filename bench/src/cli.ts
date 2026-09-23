@@ -360,6 +360,9 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       writeTargets: p.writeTargets,
       destructive: p.destructive,
       ...(p.repaired === undefined ? {} : { repaired: p.repaired }),
+      // Без него перенаправление своего артефакта (`artifactAddress.ts`) в живой серии
+      // не доходило до отчёта вовсе: вызов в событии уже канонический.
+      ...(p.readdressed === undefined ? {} : { readdressed: p.readdressed }),
       ...(p.decisionsLost === undefined ? {} : { decisionsLost: p.decisionsLost }),
       createdAt: p.createdAt,
     };

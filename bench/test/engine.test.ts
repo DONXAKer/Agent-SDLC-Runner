@@ -9,7 +9,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { ProviderEnvError } from '../../server/src/provider/ChatProvider.ts';
+import { ProviderEnvError, ProviderHttpError } from '../../server/src/provider/ChatProvider.ts';
 import type { ChatRequest, ChatTurn } from '../../server/src/provider/ChatProvider.ts';
 import { isEngineEnvFailure, reloadEngine, warmupEngine } from '../src/engine.ts';
 
@@ -22,6 +22,13 @@ describe('isEngineEnvFailure', () => {
     strictEqual(isEngineEnvFailure(new Error('Unterminated string in JSON at position 812')), false);
     strictEqual(isEngineEnvFailure(new Error('HTTP 400 bad request')), false);
     strictEqual(isEngineEnvFailure('строковый бросок'), false);
+  });
+
+  it('HTTP-ответ провайдера по подстрокам сырого тела не переклассифицируется', () => {
+    strictEqual(
+      isEngineEnvFailure(new ProviderHttpError('lmstudio: HTTP 400 от http://x — {"error":{"message":"upstream fetch failed"}}', 400)),
+      false,
+    );
   });
 });
 
@@ -49,6 +56,24 @@ describe('warmupEngine', () => {
     strictEqual(seen!.params?.temperature, 0.2);
     strictEqual(seen!.messages.length, 1);
   });
+
+  it('неответ за потолок прогрева — ProviderEnvError (сбой движка), а не «запрос отменён»', async () => {
+    const provider = {
+      name: 'stub',
+      chat: (req: ChatRequest): Promise<ChatTurn> =>
+        new Promise((_, reject) => {
+          req.signal.addEventListener('abort', () => reject(new Error('запрос к модели отменён')));
+        }),
+    };
+    let caught: unknown = null;
+    try {
+      await warmupEngine({ provider, model: 'm', params: null, timeoutMs: 20 });
+    } catch (e) {
+      caught = e;
+    }
+    ok(caught instanceof ProviderEnvError, String(caught));
+    strictEqual(isEngineEnvFailure(caught), true);
+  });
 });
 
 describe('reloadEngine', () => {
@@ -56,6 +81,12 @@ describe('reloadEngine', () => {
     const r = await reloadEngine({ provider: 'ollama', model: 'qwen3:8b' });
     strictEqual(r.kind, 'reloaded');
     ok(r.detail.includes('ollama'), r.detail);
+  });
+
+  it('LM Studio на удалённом адресе — lms не трогается: он управляет только этой машиной', async () => {
+    const r = await reloadEngine({ provider: 'lmstudio', model: 'm', baseUrl: 'http://192.0.2.10:1234/v1' });
+    strictEqual(r.kind, 'unsupported');
+    ok(r.detail.includes('не локальный'), r.detail);
   });
 
   it('провайдер без осмысленной команды — честный unsupported, без молчаливого ретрая', async () => {

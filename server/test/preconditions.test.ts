@@ -7,10 +7,15 @@
  * оставался «есть, но незакрываемым».
  */
 
-import { strictEqual } from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { ok, strictEqual } from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
 
-import { hasOpenQuestions } from '../src/run/stages/preconditions.ts';
+import { WitokPaths } from '../src/artifacts/paths.ts';
+import { hasOpenQuestions, intentFilled, intentPlaceholderCount } from '../src/run/stages/preconditions.ts';
+import type { StageContext } from '../src/run/stages/types.ts';
 
 describe('hasOpenQuestions', () => {
   it('обычный незакрытый чек-бокс — открыт', () => {
@@ -37,5 +42,61 @@ describe('hasOpenQuestions', () => {
   it('маркеры `*`/`+` тоже считаются', () => {
     strictEqual(hasOpenQuestions('* [ ] вопрос?\n'), true);
     strictEqual(hasOpenQuestions('+ [ ] вопрос?\n'), true);
+  });
+});
+
+/**
+ * `intentFilled` — одна функция полноты `intent.md` на страж этапа 1 и предусловия
+ * этапов 2/4. Класс дефекта, который она закрывает (test28, `qwen3-8b`, 2026-09-23):
+ * на мелком контуре страж этапа 1 считал без секции «Что придётся тронуть» (её заполняет
+ * разведка), а вход в `plan` считал всё — этап 1 уходил `ok⚠`, `plan` не стартовал по тому
+ * же файлу.
+ */
+describe('intentFilled: одна функция полноты intent.md на страж этапа 1 и входы в explore/plan', () => {
+  const roots: string[] = [];
+  after(() => {
+    for (const r of roots) rmSync(r, { recursive: true, force: true });
+  });
+
+  function ctx(contour: 'полный' | 'мелкий'): StageContext {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-intent-filled-')));
+    roots.push(root);
+    mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
+    const paths = new WitokPaths(root, 'demo');
+    writeFileSync(
+      paths.intent,
+      [
+        '# Задача: демо',
+        '',
+        `- **Контур:** ${contour}`,
+        '- **Итог:** бесплатная доставка',
+        '',
+        '## Что придётся тронуть',
+        '',
+        '‹заполняет разведка на этапе 2›',
+        '',
+      ].join('\n'),
+    );
+    return { paths, chunk: 1, attempt: 1 };
+  }
+
+  it('полный контур: до разведки секция «Что придётся тронуть» законно пуста, после — обязана быть заполнена', () => {
+    const c = ctx('полный');
+    strictEqual(intentFilled('x', false).check(c), null);
+    ok(intentFilled('x', true).check(c)?.includes('незаполненных мест: 1'));
+  });
+
+  it('мелкий контур: секцию не заполняет никто — вход в plan считает так же, как страж этапа 1', () => {
+    const c = ctx('мелкий');
+    strictEqual(intentFilled('x', false).check(c), null);
+    strictEqual(intentFilled('x', true).check(c), null);
+    strictEqual(intentPlaceholderCount(c, readFileSync(c.paths.intent, 'utf8'), true), 0);
+  });
+
+  it('незакрытое место вне секции считается на любом контуре и в любой точке', () => {
+    const c = ctx('мелкий');
+    writeFileSync(c.paths.intent, readFileSync(c.paths.intent, 'utf8').replace('бесплатная доставка', '‹итог›'));
+    ok(intentFilled('x', false).check(c)?.includes('незаполненных мест: 1'));
+    ok(intentFilled('x', true).check(c)?.includes('незаполненных мест: 1'));
   });
 });

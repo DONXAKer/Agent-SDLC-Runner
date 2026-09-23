@@ -13,6 +13,7 @@
  */
 
 import { escapeCell, headerKey, isSeparatorRow, splitRow } from '../md/table.ts';
+import { placeholderRanges } from './artifact.ts';
 import { AXES, readAffected, type AxisName } from './planAxes.ts';
 
 export interface AxisFillAnswer {
@@ -38,11 +39,28 @@ function axisKey(s: string): string {
 
 const CANONICAL_BY_KEY = new Map<string, AxisName>(AXES.map((a) => [axisKey(a), a]));
 
-/** Строка-образец методологии: `| ‹имя оси из канона› | ‹да/нет› | … |`. */
-function isExampleAxisRow(line: string): boolean {
-  const cells = splitRow(line.trim());
-  const name = (cells[0] ?? '').replace(/[‹›]/g, '').trim();
-  return axisKey(name) === axisKey('имя оси из канона');
+/** Ячейка — целиком незаполненное место формы (`‹…›`), без единого слова модели. */
+function isPlaceholderCell(cell: string): boolean {
+  const text = cell.trim();
+  if (text === '') return false;
+  let rest = text;
+  for (const r of placeholderRanges(text).reverse()) rest = rest.slice(0, r.start) + rest.slice(r.end);
+  // Между местами формы в образце бывают разделители («‹шаг N› / ‹почему›») — не слова модели.
+  return rest.replace(/[\s/,;—–-]/g, '') === '' && rest.length < text.length;
+}
+
+/**
+ * Строка-образец бланка: КАЖДАЯ ячейка — незаполненное место (`| ‹имя оси из канона› |
+ * ‹да/нет› | … |` в таблице осей, `| ‹ось› | … |` в таблице рисков). Узнаётся тем же
+ * разборщиком мест, что у стража, а не сравнением с текстом шаблона: шаблон читается из
+ * эталона в рантайме, и переформулировка образца молча выключала бы удаление. Строка, где
+ * модель заполнила хоть одну ячейку, образцом не считается и не удаляется: стирать её
+ * значило бы молча выбросить решение модели — пусть на неё честно укажет страж
+ * (code-review-all 2026-09-23).
+ */
+function isTemplateRow(line: string): boolean {
+  const cells = splitRow(line);
+  return cells.length > 0 && cells.every(isPlaceholderCell);
 }
 
 function axisRowLine(a: AxisFillAnswer): string {
@@ -86,30 +104,20 @@ export function applyAxisAnswers(planText: string, answers: readonly AxisFillAns
   }
   if (sectionStart === -1) return planText;
 
-  // Шаблон методологии кладёт в таблицу осей одну строку-образец с placeholder-именем.
-  // Если топ-ап заполняет оси, эта строка мешает стражу завершения: он видит
-  // незаполненную «ось ‹имя оси из канона›» и честно роняет этап. Удаляем образец
-  // заранее — до разбора таблицы, чтобы новые строки вставлялись уже в чистую таблицу.
-  let foundTable = false;
-  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+  // Шаблон методологии кладёт в обе таблицы секции по строке-образцу с placeholder-именем
+  // (осей и принятых рисков). Когда топ-ап заполняет оси, образцы мешают стражу завершения:
+  // он видит незаполненную ось «‹имя оси из канона›» и строку риска «‹ось›» без оси-риска и
+  // честно роняет этап. Удаляются ВСЕ такие строки секции, где бы они ни стояли, — до
+  // разбора таблиц, чтобы новые строки вставлялись уже в чистые таблицы. Прежде удалялся
+  // только образец осей и только сразу под шапкой: строки модели над образцом и образец
+  // рисков оставляли стража красным при полном ответе (code-review-all 2026-09-23).
+  for (let i = sectionEnd - 1; i > sectionStart; i--) {
     const line = lines[i]!.trim();
     if (!line.startsWith('|') || isSeparatorRow(line)) continue;
-    const first = axisKey(splitRow(line)[0] ?? '');
-    if (first === 'ось') {
-      foundTable = true;
-      continue; // шапка таблицы осей — образец идёт сразу за ней
-    }
-    if (!foundTable) {
-      // до таблицы осей могут быть строки-описания; как только встретили реальную строку
-      // таблицы осей без шапки — образца нет
-      if (looksLikeAxisRow(splitRow(line))) break;
-      continue;
-    }
-    if (isExampleAxisRow(line)) {
+    if (isTemplateRow(line)) {
       lines.splice(i, 1);
       sectionEnd--;
     }
-    break; // либо удалили образец, либо первая реальная строка оси — дальше искать не надо
   }
 
   // Таблица осей — ПЕРВАЯ таблица секции под шапкой «Ось …» (шаблон методологии кладёт её

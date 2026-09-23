@@ -233,6 +233,43 @@ export function isFormattingFailure(note: string): boolean {
   );
 }
 
+/**
+ * Пересчёт стража завершения после доборов рантайма (`afterTurn`).
+ *
+ * Пересчитываются два класса провала:
+ *  - находка стража этапа (`note` совпадает с последней выданной `stageProblem`) — добор
+ *    мог закрыть именно её; оставшиеся находки идут в заметку свежим текстом;
+ *  - провал на ОФОРМЛЕНИИ (`isFormattingFailure`: лимит ходов, обрезка длины, застревание
+ *    финализации) при полностью заполненных артефактах (`formComplete`) — тот же случай,
+ *    что спасает `finishFormArtifact`: слабая модель сожгла ходы на таблице осей, добор её
+ *    закрыл. Здесь провал снимается, только если страж молчит; иначе исходная причина
+ *    остаётся — добор её не отменил.
+ * Бюджет, отказ политики, анти-цикл повтора остаются провалом со своей причиной. Прежде
+ * условие смотрело лишь на `!ok`, и план, упёршийся в бюджет при молчащем страже,
+ * становился зелёным, а причина провала затиралась (code-review-all 2026-09-23).
+ * Пересчёт — полным стражем, тем же, что видел исполнитель: добор мог и испортить форму.
+ * Закрытие помечается `closedBy: 'runtime'` — в отчёте bench это заслуга рантайма, не модели.
+ */
+export function recheckGuardAfterTopUp(
+  result: StageResult,
+  stageProblem: string | null,
+  guard: () => string | null,
+  formComplete: () => boolean = () => false,
+): StageResult {
+  if (result.ok || result.envFailure !== undefined) return result;
+  const guardFailure = stageProblem !== null && result.note === stageProblem;
+  const formatting = !guardFailure && isFormattingFailure(result.note) && formComplete();
+  if (!guardFailure && !formatting) return result;
+  const afterTopUp = guard();
+  if (afterTopUp === null) {
+    const note = guardFailure
+      ? 'страж завершения этапа закрыт добором рантайма после хода модели'
+      : `${result.note} — этап закрыт: доборы рантайма довели артефакт, страж завершения молчит`;
+    return { ...result, ok: true, note, closedBy: 'runtime' };
+  }
+  return guardFailure ? { ...result, note: afterTopUp } : result;
+}
+
 /** Этапы, после которых запись ограничена одобренным планом. */
 const PLAN_SCOPED_STAGES: readonly StageId[] = ['chunk', 'verify', 'handoff'];
 
@@ -1190,6 +1227,7 @@ export class Run {
       readDenied: this.readDeniedFor(stage),
       stageArtifacts: this.stageArtifacts(stage),
       ...(this.config.runner.limits.restoreErasedDecisions === true ? { restoreErasedDecisions: true } : {}),
+      ...(this.profile.routes[stage]?.flow === 'sdk' ? { noArtifactReaddress: true } : {}),
     };
   }
 
@@ -2404,10 +2442,17 @@ ${block}`;
           // заведено (журнал заполнен, код не тронут — серия v4, `ministral`/`security-bait`).
           // Путь — сырая строка модели: сравнивается тем же лексическим приведением, что у
           // политики (регистр диска, `..`, обратные слэши), иначе `src/../.sdlc/x` засчитывался.
+          // Путь — фактически исполняемый: гейт мог перенаправить запись своего артефакта
+          // (`approval/artifactAddress.ts`) из корня в `.sdlc`, и журнал chunk'а, записанный
+          // «не по адресу», иначе засчитывался правкой кода (code-review-all 2026-09-23).
+          const written =
+            decision.allowed && decision.updatedInput !== null && (call.kind === 'write' || call.kind === 'edit')
+              ? normalize(meta.toolName, decision.updatedInput as Record<string, unknown>)
+              : call;
           if (
             decision.allowed &&
-            (call.kind === 'write' || call.kind === 'edit') &&
-            !inSdlcDir(this.ctx.paths.projectRoot, call.path)
+            (written.kind === 'write' || written.kind === 'edit') &&
+            !inSdlcDir(this.ctx.paths.projectRoot, written.path)
           ) {
             pendingWrites.add(meta.requestId);
           }
@@ -2548,6 +2593,27 @@ ${block}`;
       const pre = (await inv.preTurn?.(prompt, agents, hooks)) ?? { block: null, skip: null };
       const stagePrompt = pre.block === null ? prompt : withExtra(prompt, pre.block);
 
+      // Последняя находка собственной проверки этапа, выданная стражем. Нужна пересчёту
+      // после доборов ниже: переворачивать исход можно, только если этап упал ИМЕННО на
+      // ней, — иначе провал по бюджету, лимиту ходов или анти-циклу при молчащем страже
+      // становился бы зелёным (code-review-all 2026-09-23).
+      let lastStageProblem: string | null = null;
+      // «Ход завершён» и «работа сделана» — разные утверждения, и второе проверяется
+      // диском. Замечание даёт модели доделать в том же этапе, а не отчитаться пустым.
+      const finishGuard = (): string | null => {
+        const missing = notDone();
+        if (missing.length > 0) {
+          return (
+            `артефакт этапа не заполнен: ${missing.join(', ')}. Ход не закончен — ` +
+            `открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.`
+          );
+        }
+        // Своя проверка этапа в его же ходу (полнота intent, фактичность карты разведки,
+        // разбор последствий плана): находка нужна модели, пока она ещё здесь.
+        lastStageProblem = inv.finishProblem?.() ?? null;
+        return lastStageProblem;
+      };
+
       let result: StageResult = pre.skip !== null
         ? pre.skip
         : await executor.run(
@@ -2559,20 +2625,7 @@ ${block}`;
           readOnlyDirs: this.readOnlyRoots,
           subagents: agents,
           mcp,
-          // «Ход завершён» и «работа сделана» — разные утверждения, и второе проверяется
-          // диском. Замечание даёт модели доделать в том же этапе, а не отчитаться пустым.
-          finishGuard: () => {
-            const missing = notDone();
-            if (missing.length > 0) {
-              return (
-                `артефакт этапа не заполнен: ${missing.join(', ')}. Ход не закончен — ` +
-                `открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.`
-              );
-            }
-            // Своя проверка этапа в его же ходу (полнота intent, фактичность карты разведки,
-            // разбор последствий плана): находка нужна модели, пока она ещё здесь.
-            return inv.finishProblem?.() ?? null;
-          },
+          finishGuard,
           // Спасение напечатанного артефакта: модель составила его правильно, но не
           // записала. Идёт тем же путём, что обычная запись — политика и гейт одобрения.
           salvageFromText: (text) => this.salvageFromText(text, produced, stage),
@@ -2608,20 +2661,21 @@ ${block}`;
       // `axis-fill-0` одобрена гейтом, — а этап отчитался «нет строк для осей» протухшим
       // текстом стража). Пересчёт только там, где есть И страж, И добор (сегодня это
       // `plan`), и ход не сломан по среде: добор, закрывший последнюю находку, этап
-      // спасает; оставшиеся находки идут в заметку свежим текстом. Незаполненные места
-      // формы здесь не считаются нарочно — их ниже ловит `notDone()` своей формулировкой.
-      if (
-        !result.ok &&
-        result.envFailure === undefined &&
-        inv.afterTurn !== undefined &&
-        inv.finishProblem !== undefined &&
-        !this.aborter.signal.aborted
-      ) {
-        const afterTopUp = inv.finishProblem();
-        result =
-          afterTopUp === null
-            ? { ...result, ok: true, note: 'страж завершения этапа закрыт добором рантайма после хода модели' }
-            : { ...result, note: afterTopUp };
+      // спасает; оставшиеся находки идут в заметку свежим текстом. Какие провалы
+      // пересчитываются — см. `recheckGuardAfterTopUp`.
+      if (inv.afterTurn !== undefined && !this.aborter.signal.aborted) {
+        // Провал на оформлении спасается здесь только у этапа без своего дозаполнения
+        // (`formFinish`, сегодня это plan): у остальных его спасает `finishFormArtifact` ниже
+        // — со своими проверками честности и правки кода, которые здесь обходить нельзя.
+        const formComplete =
+          inv.formFinish === undefined
+            ? () =>
+                produced.every((p) => {
+                  const a = readArtifact(p);
+                  return a.exists && countPlaceholdersExceptDecisions(a.text) === 0;
+                })
+            : () => false;
+        result = recheckGuardAfterTopUp(result, lastStageProblem, finishGuard, formComplete);
       }
 
       // Дозаполнение артефакта этапа по полям (`ModelDef.formFill`) — ПОСЛЕ хода: модель с

@@ -18,6 +18,29 @@ export class ProfileError extends Error {
   }
 }
 
+/**
+ * Форма добора осей плана из `ModelDef.planAxisFill`. `true` — комбинированный добор, как
+ * до появления пошагового: под этим значением записи `config/models.json` замерены
+ * (test29), и тихая смена смысла `true` сравнивала бы в матрице два механизма под одним
+ * id. Неизвестное значение — проблема профиля, а не молчаливое включение пошагового режима
+ * опечаткой (`'combned'`, `"false"`) (code-review-all 2026-09-23).
+ */
+function planAxisFillMode(
+  value: unknown,
+  stage: StageId,
+  modelId: string,
+  problems: string[],
+): false | 'combined' | 'stepwise' {
+  if (value === undefined || value === false) return false;
+  if (value === true || value === 'combined') return 'combined';
+  if (value === 'stepwise') return 'stepwise';
+  problems.push(
+    `этап «${stage}»: у модели «${modelId}» planAxisFill = ${JSON.stringify(value)} — ` +
+      'допустимо true/false, "combined" или "stepwise"',
+  );
+  return false;
+}
+
 function resolveRoute(
   stage: StageId,
   modelId: string,
@@ -50,7 +73,7 @@ function resolveRoute(
     claimFill: def.claimFill ?? false,
     reviewFill: def.reviewFill ?? false,
     skipTurnAfterReviewFill: def.skipTurnAfterReviewFill ?? false,
-    planAxisFill: def.planAxisFill ?? false,
+    planAxisFill: planAxisFillMode(def.planAxisFill, stage, modelId, problems),
     stepFill: def.stepFill ?? false,
     compactForms: def.compactForms ?? 'off',
     ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),

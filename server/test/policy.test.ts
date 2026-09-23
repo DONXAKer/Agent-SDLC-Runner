@@ -392,6 +392,22 @@ describe('права на шаг', () => {
     ok(v.reason.includes('не объявлен'), v.reason);
   });
 
+  it('ремонт с дельтой: отказ называет ключи, которые модель реально прислала', () => {
+    const v = evaluate({ kind: 'unknown', toolName: 'Task', raw: { task: 'сходи разведай', extra: 1 } }, ctx(null));
+    ok(!v.ok);
+    ok(v.reason.includes('Ты прислал поля'), v.reason);
+    ok(v.reason.includes('`task`') && v.reason.includes('`extra`'), v.reason);
+  });
+
+  it('ремонт с дельтой: пустые/не-объектные аргументы называются явно, не молчат', () => {
+    const empty = evaluate({ kind: 'unknown', toolName: 'Task', raw: {} }, ctx(null));
+    ok(!empty.ok);
+    ok(empty.reason.includes('пусты'), empty.reason);
+    const notObject = evaluate({ kind: 'unknown', toolName: 'Task', raw: 'сходи разведай' }, ctx(null));
+    ok(!notObject.ok);
+    ok(notObject.reason.includes('не объект'), notObject.reason);
+  });
+
   it('субагент разрешён там, где этап его объявил', () => {
     const call: NormalizedCall = { kind: 'subagent', agent: 'sdlc-locator', prompt: 'смотри план' };
     ok(evaluate(call, ctx(null)).ok);

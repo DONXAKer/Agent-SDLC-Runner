@@ -15,7 +15,7 @@
 import { strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { isFormattingFailure } from '../src/run/Run.ts';
+import { isFormattingFailure, recheckGuardAfterTopUp } from '../src/run/Run.ts';
 
 describe('падение на оформлении закрывается дозаполнением', () => {
   it('исчерпан лимит ходов — закрывается', () => {
@@ -84,5 +84,52 @@ describe('провал по существу дозаполнением НЕ з�
   it('антицикл застрявшего журнала — оформление', () => {
     strictEqual(isFormattingFailure('этап зациклился на правке «.sdlc/s/chunk-1-journal.md» без прогресса'), true);
     strictEqual(isFormattingFailure('исчерпан лимит ходов этапа (40)'), true);
+  });
+});
+
+describe('recheckGuardAfterTopUp — пересчёт стража после доборов (code-review-all 2026-09-23)', () => {
+  const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 };
+  const failed = (note: string) => ({ ok: false, finalText: '', usage, note });
+
+  it('провал на находке стража, добор её закрыл — ok с closedBy runtime', () => {
+    const r = recheckGuardAfterTopUp(failed('нет строк для осей'), 'нет строк для осей', () => null);
+    strictEqual(r.ok, true);
+    strictEqual(r.closedBy, 'runtime');
+  });
+
+  it('находка осталась — провал со свежим текстом стража', () => {
+    const r = recheckGuardAfterTopUp(failed('старая находка'), 'старая находка', () => 'новая находка');
+    strictEqual(r.ok, false);
+    strictEqual(r.note, 'новая находка');
+  });
+
+  it('провал НЕ на страже (бюджет) при молчащем страже — остаётся провалом со своей причиной', () => {
+    const note = 'бюджет прогона исчерпан: $1.10 из $1';
+    const r = recheckGuardAfterTopUp(failed(note), 'давняя находка', () => null);
+    strictEqual(r.ok, false);
+    strictEqual(r.note, note);
+    const never = recheckGuardAfterTopUp(failed('исчерпан лимит ходов этапа (40)'), null, () => null);
+    strictEqual(never.ok, false, 'без полного артефакта лимит ходов не спасается');
+  });
+
+  it('лимит ходов при полном артефакте и молчащем страже — спасён с исходной причиной в заметке', () => {
+    const note = 'исчерпан лимит ходов этапа (40)';
+    const r = recheckGuardAfterTopUp(failed(note), null, () => null, () => true);
+    strictEqual(r.ok, true);
+    strictEqual(r.closedBy, 'runtime');
+    strictEqual(r.note.startsWith(note), true, r.note);
+  });
+
+  it('лимит ходов, страж не молчит — исходная причина сохраняется', () => {
+    const note = 'исчерпан лимит ходов этапа (40)';
+    const r = recheckGuardAfterTopUp(failed(note), null, () => 'нет строк для осей', () => true);
+    strictEqual(r.ok, false);
+    strictEqual(r.note, note);
+  });
+
+  it('бюджет не спасается даже при полном артефакте', () => {
+    const note = 'бюджет прогона исчерпан: $1.10 из $1';
+    const r = recheckGuardAfterTopUp(failed(note), null, () => null, () => true);
+    strictEqual(r.ok, false);
   });
 });
