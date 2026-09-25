@@ -171,8 +171,8 @@ function BlocksView({ blocks }: { blocks: Block[] }): JSX.Element {
   );
 }
 
-export const Markdown = memo(function Markdown({ text }: { text: string }): JSX.Element {
-  const blocks = useMemo(() => parseMarkdown(text), [text]);
+export const Markdown = memo(function Markdown({ text, topLevel = true }: { text: string; /** `false` — фрагмент (промпт, ответ модели), не целый файл: шапка `---…---` в начале не читается как YAML-фронтматтер. */ topLevel?: boolean }): JSX.Element {
+  const blocks = useMemo(() => parseMarkdown(text, topLevel), [text, topLevel]);
   return (
     <div className="text-sm leading-relaxed text-neutral-300">
       <BlocksView blocks={blocks} />
@@ -188,11 +188,14 @@ export function MarkdownOrSource({
   text,
   source,
   maxHeight = 'max-h-[60vh]',
+  topLevel = true,
 }: {
   text: string;
   /** Как рисовать исходник. */
   source: ReactNode;
   maxHeight?: string;
+  /** См. `Markdown` — `false` для фрагментов (промпт, ответ модели). */
+  topLevel?: boolean;
 }): JSX.Element {
   const [md, setMd] = useState(true);
   const btn = (active: boolean): string =>
@@ -209,7 +212,7 @@ export function MarkdownOrSource({
       </div>
       {md ? (
         <div className={`${maxHeight} overflow-auto px-3 py-2`}>
-          <Markdown text={text} />
+          <Markdown text={text} topLevel={topLevel} />
         </div>
       ) : (
         source

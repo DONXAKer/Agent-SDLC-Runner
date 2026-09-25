@@ -30,7 +30,7 @@ const utf8Bytes = (text: string): number => new TextEncoder().encode(text).lengt
 function PromptBlock({ title, text }: { title: string; text: string }): JSX.Element {
   return (
     <CollapsibleSection title={title} summary={<span className="text-neutral-500">{fmtBytes(utf8Bytes(text))}</span>} compact defaultOpen={false}>
-      {text === '' ? <div className="px-3 py-2 text-xs text-neutral-500">(пусто)</div> : <MarkdownOrSource text={text} source={<MarkedText text={text} />} />}
+      {text === '' ? <div className="px-3 py-2 text-xs text-neutral-500">(пусто)</div> : <MarkdownOrSource text={text} source={<MarkedText text={text} />} topLevel={false} />}
     </CollapsibleSection>
   );
 }
@@ -99,7 +99,7 @@ function OutputTab({ card, stage }: { card: DashboardCard; stage: DashboardStage
         <Empty>{run === null ? 'в ленте нет прогона этого этапа' : 'модель не писала текста — только вызовы инструментов'}</Empty>
       ) : (
         <div className="mt-2 rounded border border-neutral-800">
-          <MarkdownOrSource text={run.assistantText} source={<MarkedText text={run.assistantText} />} />
+          <MarkdownOrSource text={run.assistantText} source={<MarkedText text={run.assistantText} />} topLevel={false} />
         </div>
       )}
       {run?.outcome != null ? (

@@ -108,6 +108,38 @@ describe('parseMarkdown', () => {
   it('CRLF не ломает разбор', () => {
     deepStrictEqual(kinds(parseMarkdown('# A\r\n\r\n- b\r\n')), ['heading', 'list']);
   });
+
+  // `topLevel: false` — фрагмент (промпт, ответ модели), не файл: шапка `---…---` в начале
+  // не читается как YAML-фронтматтер, а `---` — обычная горизонтальная черта (промпт часто
+  // начинается с неё как с разделителя разделов, `prompt/build.ts`; ответ модели иногда
+  // тоже — code-review-all, 2026-09-26).
+  it('topLevel: false — шапка `---…---` не проглатывается как YAML-фронтматтер', () => {
+    const text = '---\nне фронтматтер\n---\nпродолжение';
+    deepStrictEqual(kinds(parseMarkdown(text, true)), ['code', 'para']);
+    deepStrictEqual(kinds(parseMarkdown(text, false)), ['hr', 'para', 'hr', 'para']);
+  });
+
+  it('без второго аргумента — прежнее поведение (topLevel по умолчанию true)', () => {
+    deepStrictEqual(kinds(parseMarkdown('---\nx: 1\n---\nтекст')), ['code', 'para']);
+  });
+
+  // Прежде тело таблицы кончалось только на пустой строке или строке без единого `|`:
+  // проза со случайным пайпом сразу после таблицы (пример команды с шелл-пайпом в обратных
+  // кавычках, без ведущей/замыкающей черты) поглощалась как ложная строка таблицы — сам
+  // пайп внутри `` ` `` не даёт splitRow разделить строку на ячейки.
+  it('тело таблицы не поглощает прозу со случайным `|` без структуры строки', () => {
+    const b = parseMarkdown('| Гейт | Статус |\n|---|---|\n| Тесты | ✅ |\nсмотри `команда | filter` для примера');
+    deepStrictEqual(kinds(b), ['table', 'para']);
+    const t = b[0];
+    ok(t !== undefined && t.t === 'table');
+    strictEqual(t.rows.length, 1);
+  });
+
+  it('но строка с настоящими ячейками без пустой строки перед ней — по-прежнему строка таблицы', () => {
+    const [t] = parseMarkdown('| Гейт | Статус |\n|---|---|\n| Тесты | ✅ |\n| Сборка | ❌ |');
+    ok(t !== undefined && t.t === 'table');
+    strictEqual(t.rows.length, 2);
+  });
 });
 
 describe('isMarkdownName', () => {

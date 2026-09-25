@@ -94,6 +94,17 @@ function isTableStart(line: string, next: string | undefined): boolean {
   return line.includes('|') && next !== undefined && next.includes('-') && TABLE_SEP.test(next);
 }
 
+/**
+ * Продолжает ли строка тело уже открытой таблицы: непустая и либо начинается/кончается
+ * чертой, либо реально делится на больше одной ячейки (`splitRow` уже не считает `|`
+ * внутри `` ` `` разделителем — прозу вроде «пример: `a | b`» это не заденет).
+ */
+function looksLikeTableRow(line: string): boolean {
+  const t = line.trim();
+  if (t === '') return false;
+  return t.startsWith('|') || (t.endsWith('|') && !t.endsWith('\\|')) || splitRow(line).length > 1;
+}
+
 /** Начинает ли строка блок, прерывающий абзац. */
 function startsBlock(line: string, next: string | undefined): boolean {
   return (
@@ -107,8 +118,15 @@ function startsBlock(line: string, next: string | undefined): boolean {
   );
 }
 
-export function parseMarkdown(src: string): Block[] {
-  return parseLines(src.replace(/\r\n?/g, '\n').split('\n'), true);
+/**
+ * `topLevel` — рисуется ли `src` как целый документ (артефакт-файл) или как фрагмент
+ * (текст промпта, ответ модели): шапка `---…---` в начале — YAML-фронтматтер файла;
+ * то же самое в начале фрагмента — совпадение (промпт часто начинается с горизонтальной
+ * черты-разделителя между разделами, `prompt/build.ts` пишет её ровно так) и НЕ фронтматтер.
+ * Умолчание — целый документ, единственный прежний смысл вызова без второго аргумента.
+ */
+export function parseMarkdown(src: string, topLevel = true): Block[] {
+  return parseLines(src.replace(/\r\n?/g, '\n').split('\n'), topLevel);
 }
 
 function parseLines(lines: string[], top: boolean): Block[] {
@@ -190,7 +208,11 @@ function parseLines(lines: string[], top: boolean): Block[] {
       const align = splitRow(lines[i + 1]!).map(alignOf);
       const rows: Inline[][][] = [];
       i += 2;
-      while (i < lines.length && lines[i]!.trim() !== '' && lines[i]!.includes('|')) {
+      // Тело таблицы кончается на первой строке, не похожей на строку таблицы: голое
+      // `line.includes('|')` цепляло прозу сразу ПОСЛЕ настоящей таблицы, где `|` есть, но
+      // только внутри `` `кода` `` (splitRow его не считает разделителем — та же строка
+      // делится на ОДНУ ячейку) — например, пример шелл-пайпа в обратных кавычках.
+      while (i < lines.length && looksLikeTableRow(lines[i]!)) {
         const cells = splitRow(lines[i]!);
         // Недостающие ячейки дополняются: строка короче шапки не должна сдвигать колонки.
         while (cells.length < head.length) cells.push('');

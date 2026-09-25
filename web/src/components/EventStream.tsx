@@ -11,7 +11,8 @@ import { GATE_TONE } from '../lib/gateTone.ts';
 import { groupEvents, type EventItem } from '../lib/eventGroups.ts';
 import { verdictTextTone, verdictTone } from '../lib/tones.ts';
 import { useToggleSet } from '../lib/useToggleSet.ts';
-import { Markdown } from './Markdown.tsx';
+import { MarkedText } from './dashboard/ArtifactViewer.tsx';
+import { MarkdownOrSource } from './Markdown.tsx';
 
 /**
  * Вызов инструмента одной строкой: запрос, решение и результат вместе.
@@ -96,7 +97,7 @@ function PlainEvent({ e, currency }: { e: RunEvent; currency?: string }): JSX.El
     case 'assistant_text':
       return (
         <div className="font-sans text-neutral-200">
-          <Markdown text={e.text} />
+          <MarkdownOrSource text={e.text} source={<MarkedText text={e.text} />} topLevel={false} />
         </div>
       );
 
