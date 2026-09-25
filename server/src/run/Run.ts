@@ -130,7 +130,7 @@ import {
 import { ChunkState } from './stages/chunk/index.ts';
 import { stepFillExecutor } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты и прежние импорты берут выбор гейтов шага отсюда. */
-export { gatesForStep } from './stages/chunk/steps.ts';
+export { gatesForStep, pickStepFailure } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты берут блок рецензента для входа этапа 6 отсюда. */
 export { reviewerBlock } from './stages/verify/reviewer.ts';
 import { compareAttemptDiffs, readBaseline, runNamedGate } from './stages/chunk/evidence.ts';

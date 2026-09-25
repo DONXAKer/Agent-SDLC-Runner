@@ -279,18 +279,55 @@ function escapeRegExp(s: string): string {
 }
 
 /**
- * Упомянут ли файл шага в тексте ошибки гейта. Сначала — полный относительный путь (обеими
- * формами слэша). Если его нет — голый `basename`, НО с оговоркой: если перед найденным
+ * Явные МЕСТА ПАДЕНИЯ в тексте ошибки Node/`node --test` — не любое упоминание пути, а
+ * прямое «вот здесь»: `file:///…/<путь>:N` (сам Node, SyntaxError/uncaught на загрузке
+ * модуля), `✖ <путь> (Nms)` и `test at <путь>:N:M` (итог и повтор `node --test`). Формат
+ * `outputTailOf`/`NODE_TEST_SUMMARY_RE` в `verdict/retryBrief.ts` — тот же самый.
+ */
+const FAILURE_LOCATION_RES = [
+  /file:\/\/\/(?:[A-Za-z]:)?([^\s:]+):\d+/g,
+  /✖\s+(\S+)\s+\(\d+(?:\.\d+)?ms\)/g,
+  /\btest at (\S+):\d+:\d+/g,
+];
+
+function failureLocations(problem: string): string[] {
+  const out: string[] = [];
+  for (const re of FAILURE_LOCATION_RES) {
+    for (const m of problem.matchAll(re)) {
+      if (m[1] !== undefined) out.push(m[1]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Упомянут ли файл шага в тексте ошибки гейта.
+ *
+ * Есть явные места падения (`failureLocations`) — судим ТОЛЬКО по ним: текст ошибки часто
+ * называет ещё и модуль, на который ссылается упавший импорт (`… '../src/lines.ts' does
+ * not provide an export named 'Line'`), и голое совпадение подстроки отправляло бы ремонт
+ * не в тот файл — падает `test/vat.test.ts:4`, а правку получал `src/lines.ts`, потому что
+ * его путь тоже есть в тексте (найдено 2026-09-25, `d2-devstral-vat-rounding`, попытка 3:
+ * модель три раунда крутила `interface`↔`type` в файле, где падать нечему). Мест падения
+ * нет вовсе (гейт не в формате Node) — прежнее правило: сначала полный относительный путь
+ * (обеими формами слэша), иначе голый `basename`, НО с оговоркой: если перед найденным
  * `basename` в тексте стоит СВОЙ каталог (не пустой и не наш), это чужой файл с тем же
  * именем в другом месте (`server/src/tools/index.ts` и `server/src/exec/index.ts` — оба
- * `index.ts`), а не наш — раньше голое совпадение имени принимало такую ошибку за свою.
- * `basename` без всякого пути перед ним (многие гейты печатают ошибку без полного пути)
- * по-прежнему считается своим — второго кандидата с тем же именем в этом случае в тексте
- * просто нет, различать нечего.
+ * `index.ts`), а не наш. `basename` без пути перед ним (многие гейты печатают ошибку без
+ * полного пути) по-прежнему считается своим — второго кандидата с тем же именем в этом
+ * случае в тексте просто нет, различать нечего.
  */
-function mentionsFile(problem: string, file: string): boolean {
+export function mentionsFile(problem: string, file: string): boolean {
   const posix = toPosix(file);
   const win = posix.replace(/\//g, '\\');
+  const isThisFile = (candidate: string): boolean => {
+    const c = toPosix(candidate);
+    return c === posix || c.endsWith(`/${posix}`);
+  };
+
+  const locations = failureLocations(problem);
+  if (locations.length > 0) return locations.some(isThisFile);
+
   if (problem.includes(posix) || problem.includes(win)) return true;
 
   const base = basename(file);
@@ -311,6 +348,48 @@ function mentionsFile(problem: string, file: string): boolean {
 function matchEol(current: string, s: string): string {
   if (!current.includes('\r\n')) return s;
   return s.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+}
+
+/**
+ * Из блоков SEARCH/REPLACE одного ответа отбирает те, что применились бы ЧИСТО (ровно одно
+ * вхождение) в порядке блоков — симуляцией той части логики `Edit`
+ * (`exec/tools/index.ts::editTool`), что решает «однозначно или нет»: точный счёт
+ * вхождений, split/join, без «мягкого» совпадения по переносам строк (оно остаётся за
+ * настоящим `Edit` — блок, отсеянный здесь как «не найден», тот иногда всё же применит).
+ * Неоднозначный или не найденный блок пропускается КАК БУДТО его не было: следующие блоки
+ * проверяются против текста БЕЗ него, а не против исходного файла целиком — блоки часто
+ * независимы (несколько вхождений одного паттерна в разных местах файла), и один
+ * неоднозначный блок не должен топить остальные.
+ *
+ * Найдено 2026-09-25 (`d2-devstral-vat-rounding`, попытка 2, запрос `00021`): модель
+ * починила `SyntaxError` верно — убрала импорт типа и три аннотации блоками
+ * SEARCH/REPLACE, — но ОДИН из шести блоков совпадал в файле трижды. Прежде это отклоняло
+ * все шесть правок разом («Ни одна правка не применена»), а повторный запрос уже не нёс
+ * текста исходной ошибки (см. `steps.ts` — гейт «про этот файл») — модель отвечала
+ * пустыми правками.
+ */
+function selectApplicableEdits(
+  current: string,
+  edits: { oldStr: string; newStr: string }[],
+): { keep: { oldStr: string; newStr: string }[]; skipped: { index: number; reason: string }[] } {
+  const keep: { oldStr: string; newStr: string }[] = [];
+  const skipped: { index: number; reason: string }[] = [];
+  let simulated = current;
+  edits.forEach((e, i) => {
+    const oldStr = matchEol(simulated, e.oldStr);
+    const count = simulated.split(oldStr).length - 1;
+    if (count === 0) {
+      skipped.push({ index: i, reason: 'фрагмент не найден' });
+      return;
+    }
+    if (count > 1) {
+      skipped.push({ index: i, reason: `фрагмент встречается ${count} раз` });
+      return;
+    }
+    simulated = simulated.split(oldStr).join(matchEol(simulated, e.newStr));
+    keep.push(e);
+  });
+  return { keep, skipped };
 }
 
 const SYSTEM = [
@@ -478,6 +557,9 @@ export class StepExecutor implements StageExecutor {
     ): Promise<{ ok: boolean; text: string; denied: boolean; noChange: string | null }> => {
       let toolName: 'Write' | 'Edit';
       let rawInput: Record<string, unknown>;
+      // Заполняется только в ветке Edit, когда часть блоков ответа применена, а часть
+      // отставлена на следующий раунд — см. `selectApplicableEdits`.
+      let partialNote = '';
       if (current !== null) {
         const edits = parseSearchReplace(answer);
         if (edits.length === 0) {
@@ -519,10 +601,20 @@ export class StepExecutor implements StageExecutor {
               'а не правится. Возьми в SEARCH только тот фрагмент, который меняется.',
           };
         }
+        // Неоднозначный или не найденный блок больше не топит остальные: симуляция
+        // отбирает блоки, применимые чисто, в порядке ответа — см. `selectApplicableEdits`.
+        // Пусто применимого нет (или отобрать нечего отсеивать) — отдаём ВСЕ блоки как
+        // раньше: сообщение реального `Edit` (с мягким совпадением по переносам строк,
+        // чего симуляция не делает) точнее моей грубой прикидки.
+        const { keep, skipped } = selectApplicableEdits(current, edits);
+        const useEdits = keep.length === 0 ? edits : keep;
+        if (keep.length > 0 && skipped.length > 0) {
+          partialNote = `\n(без изменений в этой правке: ${skipped.map((s) => `блок ${s.index + 1} — ${s.reason}`).join('; ')})`;
+        }
         toolName = 'Edit';
         rawInput = {
           file_path: step.file,
-          edits: edits.map((e) => ({
+          edits: useEdits.map((e) => ({
             old_string: matchEol(current, e.oldStr),
             new_string: matchEol(current, e.newStr),
           })),
@@ -571,7 +663,7 @@ export class StepExecutor implements StageExecutor {
         summary: outcome.text.split('\n')[0]?.slice(0, 200) ?? '',
         durationMs: Date.now() - started,
       });
-      return { ok: outcome.ok, denied: false, noChange: null, text: outcome.text };
+      return { ok: outcome.ok, denied: false, noChange: null, text: outcome.text + (outcome.ok ? partialNote : '') };
     };
 
     for (const step of this.o.steps) {
@@ -594,7 +686,16 @@ export class StepExecutor implements StageExecutor {
       let calls = 0;
       let status: StepStatus = '❌';
       let note = '';
-      let problem: string | null = null;
+      // Два раздельных источника «что не так» — не одна переменная: ошибка гейта
+      // («твой файл не проходит проверку») и ошибка применения («твой SEARCH не найден в
+      // файле») отвечают на разные вопросы, и раунд может застать оба сразу (гейт красный
+      // с попытки N, а на попытке N+1 сама правка не легла). Общая переменная затирала
+      // диагноз гейта диагнозом применения — 2026-09-25 (`d2-devstral-vat-rounding`,
+      // попытка 2): модель верно починила `SyntaxError` по его тексту, правка не легла
+      // из-за одного неоднозначного блока, и СЛЕДУЮЩИЙ ремонт уже не нёс текста
+      // `SyntaxError` — только «фрагмент встречается 3 раз», и починка съехала мимо.
+      let checkProblem: string | null = null;
+      let applyProblem: string | null = null;
       let lastAnswer: string | null = null;
       /** Раунд уже применил правку к диску — «не начат» после этого было бы неверно. */
       let stepApplied = false;
@@ -621,12 +722,12 @@ export class StepExecutor implements StageExecutor {
           messages.push({
             role: 'user',
             content: [
-              '## Проверка после применения не прошла',
-              '',
-              '```',
-              cap(problem ?? '', this.o.maxResultBytes),
-              '```',
-              '',
+              ...(checkProblem === null
+                ? []
+                : ['## Проверка после применения не прошла', '', '```', cap(checkProblem, this.o.maxResultBytes), '```', '']),
+              ...(applyProblem === null
+                ? []
+                : ['## Твоя правка не применилась', '', '```', cap(applyProblem, this.o.maxResultBytes), '```', '']),
               'Ошибки в ДРУГИХ файлах не чини — они закрываются другими шагами.',
               '',
               ...(current === null
@@ -692,10 +793,13 @@ export class StepExecutor implements StageExecutor {
           break;
         }
         if (!applied.ok) {
-          problem = applied.text;
+          applyProblem = applied.text;
           note = applied.text.split('\n')[0] ?? applied.text;
           continue;
         }
+        // Применилось — прежняя ошибка применения больше не актуальна (диагноз гейта,
+        // если он был, остаётся: применённая правка ещё не проверена).
+        applyProblem = null;
         stepApplied = true;
 
         // Гейт исполняет ВСТРОЕННУЮ реализацию (`gates/run.ts: runOne`) без своего try/catch
@@ -734,7 +838,7 @@ export class StepExecutor implements StageExecutor {
           hooks.onWarn(`шаг ${step.n}: ${note}`);
           break;
         }
-        problem = check.problem;
+        checkProblem = check.problem;
         note = `после правки проверка красная: ${check.problem.split('\n')[0] ?? check.problem}`;
       }
 

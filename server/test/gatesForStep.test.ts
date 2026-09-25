@@ -15,8 +15,9 @@
 import { deepStrictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import type { StepCheck } from '../src/exec/StepExecutor.ts';
 import { parseGates } from '../src/gates/gatesFile.ts';
-import { gatesForStep } from '../src/run/Run.ts';
+import { gatesForStep, pickStepFailure } from '../src/run/Run.ts';
 
 const BOTH_ENABLED = [
   '## Набор',
@@ -86,5 +87,28 @@ describe('gatesForStep', () => {
 
   it('набора гейтов нет вовсе (null) — пустой список', () => {
     deepStrictEqual(gatesForStep(null), []);
+  });
+});
+
+describe('pickStepFailure', () => {
+  const failure = (problem: string): StepCheck => ({ status: 'failed', problem });
+
+  it('пустой список — гейты пройдены (null)', () => {
+    deepStrictEqual(pickStepFailure([], 'test/vat.test.ts'), null);
+  });
+
+  it('своя строка красная последней — всё равно побеждает над чужой первой', () => {
+    // 2026-09-25 (`d2-devstral-vat-rounding`): «Сборка» краснела по чужой причине первой
+    // и не давала «Тестам» даже запуститься — эта функция и есть противоядие: она решает
+    // ПОСЛЕ того, как прогнаны все строки, а не по первой попавшейся.
+    const own = failure("file:///ws/test/vat.test.ts:4\nSyntaxError: does not provide an export named 'Line'");
+    const foreign = failure('src/other.ts(3,1): нет экспорта');
+    deepStrictEqual(pickStepFailure([foreign, own], 'test/vat.test.ts'), own);
+  });
+
+  it('ни одна строка не про файл шага — первая красная как раньше (StepExecutor пометит «вне этого файла»)', () => {
+    const a = failure('src/other.ts(3,1): нет экспорта');
+    const b = failure('src/third.ts(1,1): нет экспорта');
+    deepStrictEqual(pickStepFailure([a, b], 'test/vat.test.ts'), a);
   });
 });

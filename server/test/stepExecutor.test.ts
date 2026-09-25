@@ -19,6 +19,7 @@ import type { PlanStep } from '../src/artifacts/planSteps.ts';
 import {
   StepExecutor,
   type StepCheck,
+  mentionsFile,
   noChangeReason,
   parseFileContent,
   parseSearchReplace,
@@ -219,6 +220,60 @@ describe('исполнение по шагам', () => {
     const provider = scripted([SR('  return a + b;', '  return a + b + 1;')]);
     await exec(provider, [step({})]).run(request(root), hooks(seen));
     ok(!provider.asked[0]!.includes('уже сделано'), provider.asked[0]);
+  });
+
+  it('один неоднозначный блок не топит остальные — применяются все однозначные, ремонт не нужен', async () => {
+    // 2026-09-25 (`d2-devstral-vat-rounding`, попытка 2, запрос `00021`): модель верно
+    // убрала импорт типа и три аннотации блоками SEARCH/REPLACE, но один из шести блоков
+    // совпадал в файле трижды — раньше это отклоняло ВСЕ шесть правок разом.
+    const root = setup('const x = 1;\nconst dup = 1;\nconst dup = 1;\nconst y = 2;\n');
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const answer = [
+      SR('const x = 1;', 'const x = 10;'),
+      SR('const dup = 1;', 'const dup = 9;'), // встречается дважды — неоднозначно, пропускается
+      SR('const y = 2;', 'const y = 20;'),
+    ].join('\n');
+    const provider = scripted([answer]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
+    ok(r.ok, r.note);
+    strictEqual(provider.asked.length, 1, 'однозначных блоков хватило — ремонтный раунд не понадобился');
+    strictEqual(readFileSync(join(root, 'src/a.ts'), 'utf8'), 'const x = 10;\nconst dup = 1;\nconst dup = 1;\nconst y = 20;\n');
+  });
+
+  it('ни один блок не применился чисто — прежнее поведение: реальный Edit решает сам (с мягким совпадением)', async () => {
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    // Оба блока — не найденные фрагменты: keep пуст, значит уходят ВСЕ блоки как раньше,
+    // и настоящий текст ошибки Edit'а (не моя грубая прикидка) доходит до модели.
+    const answer = [SR('такого текста нет', 'x'), SR('и этого тоже нет', 'y')].join('\n');
+    const provider = scripted([answer, 'БЕЗ ПРАВОК: не нашла место правки']);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
+    ok(provider.asked[1]!.includes('фрагмент не найден'), provider.asked[1]);
+  });
+
+  it('диагноз гейта не теряется, когда следующая правка не применяется (checkProblem и applyProblem — раздельные блоки)', async () => {
+    // 2026-09-25: модель починила SyntaxError по его тексту верно на первом ремонте, но
+    // правка не легла из-за неоднозначного блока — следующий ремонт уже не нёс текста
+    // исходной ошибки (общая переменная затирала диагноз гейта диагнозом применения), и
+    // починка съехала мимо.
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([
+      SR('  return a + b;', '  return a + b + 1;'), // раунд 0: применяется, гейт краснеет
+      SR('текста, которого нет в файле', 'неважно'), // раунд 1: не применяется
+      'БЕЗ ПРАВОК: нужный фрагмент вне показанной части файла', // раунд 2
+    ]);
+    let checks = 0;
+    const r = await exec(provider, [step({ file: 'src/a.ts' })], async () => {
+      checks++;
+      return { status: 'failed', problem: 'src/a.ts: ОРИГИНАЛЬНАЯ_ПРИЧИНА гейт «Тесты» красный на SyntaxError' };
+    }).run(request(root), hooks(seen));
+    strictEqual(checks, 1, 'check зовётся только после успешного apply — во втором раунде apply не удался');
+    ok(provider.asked[1]!.includes('ОРИГИНАЛЬНАЯ_ПРИЧИНА'), provider.asked[1]);
+    ok(!provider.asked[1]!.includes('Твоя правка не применилась'), provider.asked[1]);
+    ok(provider.asked[2]!.includes('ОРИГИНАЛЬНАЯ_ПРИЧИНА'), provider.asked[2]);
+    ok(provider.asked[2]!.includes('фрагмент не найден'), provider.asked[2]);
+    ok(provider.asked[2]!.includes('Твоя правка не применилась'), provider.asked[2]);
   });
 
   it('промах SEARCH даёт ремонтный запрос с содержимым файла; второй ответ применяется', async () => {
@@ -454,5 +509,31 @@ describe('исполнение по шагам', () => {
     await exec(provider, [step({ file: '../outside.ts' })]).run(request(root), hooks(seen, false));
     ok(provider.asked[0]!.includes('(новый)'));
     ok(!provider.asked[0]!.includes('Текущее содержимое'));
+  });
+});
+
+describe('mentionsFile', () => {
+  it('есть явное место падения — судим только по нему, не по любому упоминанию пути', () => {
+    // Живой текст (сокращённый) d2-devstral-vat-rounding, попытка 3: ошибка называет и
+    // файл, где падает (test/vat.test.ts:4), и модуль, на который ссылается импорт
+    // ('../src/lines.ts') — раньше голое совпадение подстроки отправляло ремонт в
+    // src/lines.ts, где падать нечему (2026-09-25).
+    const problem = [
+      'гейт «Тесты» (node --test, код 1): 1 fail',
+      'file:///C:/ws/test/vat.test.ts:4',
+      'import { Line } from "../src/lines.ts";',
+      "SyntaxError: The requested module '../src/lines.ts' does not provide an export named 'Line'",
+      '✖ test\\vat.test.ts (166.0493ms)',
+    ].join('\n');
+    ok(mentionsFile(problem, 'test/vat.test.ts'));
+    strictEqual(mentionsFile(problem, 'src/lines.ts'), false);
+  });
+
+  it('мест падения нет — прежнее правило: полный путь, иначе basename со своим каталогом', () => {
+    ok(mentionsFile('src/other.ts(3,1): нет экспорта', 'src/other.ts'));
+    // basename совпадает, но каталог перед ним — чужой (два разных index.ts).
+    strictEqual(mentionsFile('server/src/tools/index.ts(5,1): ошибка', 'server/src/exec/index.ts'), false);
+    // basename без всякого пути перед ним — второго кандидата в тексте нет, считается своим.
+    ok(mentionsFile('index.ts(5,1): ошибка', 'server/src/exec/index.ts'));
   });
 });

@@ -8,7 +8,8 @@ import { readArtifact } from '../../../artifacts/artifact.ts';
 import { extractFilesToTouch } from '../../../artifacts/planFiles.ts';
 import { describeStep, planSteps } from '../../../artifacts/planSteps.ts';
 import type { ResolvedRoute } from '../../../config/schema.ts';
-import { StepExecutor } from '../../../exec/StepExecutor.ts';
+import { StepExecutor, mentionsFile } from '../../../exec/StepExecutor.ts';
+import type { StepCheck } from '../../../exec/StepExecutor.ts';
 import { gateKey } from '../../../gates/gatesFile.ts';
 import type { GateRow, GatesFile } from '../../../gates/gatesFile.ts';
 import { normalizePlanPath } from '../../../policy/paths.ts';
@@ -46,6 +47,24 @@ import { runNamedGate } from './evidence.ts';
  * остался бы неиспользуемым и вводил бы в заблуждение, что выбор гейтов всё ещё зависит от
  * того, какой файл правит шаг.
  */
+/**
+ * Из уже прогнанных красных строк после шага — какая идёт в `problem` карточки: первая,
+ * чей текст называет файл ЭТОГО шага (`mentionsFile`), иначе первая красная вообще —
+ * прежнее поведение («чужая» краснота не тормозит шаг, `StepExecutor` пометит его ✅ «вне
+ * этого файла») не меняется, когда ни одна строка про файл шага. Пустой список — гейты
+ * пройдены (`null`).
+ *
+ * Вынесена чистой функцией отдельно от прогона гейтов ради теста: раньше первая красная
+ * строка обрывала проход по остальным, и «Сборка», красная по чужой причине, не давала
+ * даже запуститься «Тестам» — модель ни разу не видела ошибку СВОЕГО же тестового файла,
+ * пока не собирался бриф на следующую ПОПЫТКУ этапа (найдено 2026-09-25,
+ * `d2-devstral-vat-rounding`: `test/vat.test.ts` не грузился три попытки подряд).
+ */
+export function pickStepFailure(failures: readonly StepCheck[], file: string): StepCheck | null {
+  const own = failures.find((f) => f.status === 'failed' && mentionsFile(f.problem, file));
+  return own ?? failures[0] ?? null;
+}
+
 export function gatesForStep(gates: GatesFile | null): GateRow[] {
   const rows: GateRow[] = [];
   const build = gates?.rows.find((r) => gateKey(r.name) === gateKey('Сборка') && r.enabled);
@@ -130,22 +149,28 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
         ? null
         : {
             name: checkLabel,
-            run: async () => {
+            run: async (step) => {
               const rows = gatesForStep(gates);
               if (rows.length === 0) {
                 return { status: 'skipped', note: 'для этого шага в наборе нет применимой строки гейта' };
               }
+              // Все строки проходятся до конца, не только до первой красной — иначе
+              // «Сборка», красная по чужой причине, не давала «Тестам» даже
+              // запуститься, и модель ни разу не видела ошибку СВОЕГО же тестового
+              // файла (см. `pickStepFailure`).
+              const failures: StepCheck[] = [];
               for (const row of rows) {
                 const r = await runNamedGate(host, row.name);
                 if (r === null) return { status: 'skipped', note: 'строка гейта не найдена при прогоне' };
                 if (r.status === '❌') {
                   const tail = (r.outputTail ?? '').trim();
-                  return {
+                  failures.push({
                     status: 'failed',
                     problem:
                       `гейт «${r.name}» (${r.command ?? 'встроенная реализация'}, код ${r.exitCode ?? '—'}): ${r.lastLine}` +
                       (tail === '' ? '' : `\n${tail}`),
-                  };
+                  });
+                  continue;
                 }
                 if (r.status === '⏭') {
                   // `envBlocked` различает «среда не дала запуститься» (раннера нет,
@@ -156,13 +181,11 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
                   // `StepExecutor` красил шаг `✅` с находкой в хвосте `note`, а не в
                   // статусе (code-review-all, 2026-09-11).
                   if (r.envBlocked) return { status: 'skipped', note: r.lastLine };
-                  return {
-                    status: 'failed',
-                    problem: `гейт «${r.name}» вернул ⏭ по содержанию, не по среде: ${r.lastLine}`,
-                  };
+                  failures.push({ status: 'failed', problem: `гейт «${r.name}» вернул ⏭ по содержанию, не по среде: ${r.lastLine}` });
+                  continue;
                 }
               }
-              return { status: 'ok' };
+              return pickStepFailure(failures, step.file) ?? { status: 'ok' };
             },
           },
   });
