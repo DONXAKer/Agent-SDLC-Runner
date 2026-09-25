@@ -218,6 +218,45 @@ describe('выжимка причин для ретрая', () => {
     strictEqual(/node_modules/.test(brief), false);
   });
 
+  it('визитка node --test (счётчики + повторный список провалов) не вытесняет саму ошибку', () => {
+    // Живой вывод (сокращённый) d2-devstral-vat-rounding, chunk-1-attempt-3, 2026-09-25:
+    // модель добавила `import { Line } from "../src/lines.ts"` при экспорте `Line` только
+    // типом (`export interface Line`) — Node стирает интерфейсы при исполнении TS и падает
+    // на загрузке модуля. Окно ретрая ДО фикса состояло целиком из строк ниже SyntaxError:
+    // счётчиков и повторного «✖ failing tests:» — три попытки подряд без единого слова о
+    // причине.
+    const out = [
+      '✔ деньги (4.9425ms)',
+      'file:///ws/test/vat.test.ts:4',
+      'import { Line } from "../src/lines.ts";',
+      '         ^^^^',
+      "SyntaxError: The requested module '../src/lines.ts' does not provide an export named 'Line'",
+      '    at #asyncInstantiate (node:internal/modules/esm/module_job:327:21)',
+      '    at async ModuleJob.run (node:internal/modules/esm/module_job:431:5)',
+      'Node.js v24.18.0',
+      '✖ test\\vat.test.ts (166.0493ms)',
+      'ℹ tests 11',
+      'ℹ suites 3',
+      'ℹ pass 10',
+      'ℹ fail 1',
+      'ℹ cancelled 0',
+      'ℹ skipped 0',
+      'ℹ todo 0',
+      'ℹ duration_ms 257.3565',
+      '✖ failing tests:',
+      'test at test\\vat.test.ts:1:1',
+      '✖ test\\vat.test.ts (166.0493ms)',
+      "  'test failed'",
+    ].join('\n');
+    const brief = buildRetryBrief(input(), [gate({ outputTail: out })]);
+    ok(brief !== null);
+    match(brief, /does not provide an export named 'Line'/);
+    match(brief, /import \{ Line \} from "\.\.\/src\/lines\.ts"/);
+    strictEqual(/ℹ tests \d/.test(brief), false, 'счётчики выброшены');
+    strictEqual(/✖ failing tests:/.test(brief), false, 'заголовок повтора выброшен');
+    strictEqual(/'test failed'/.test(brief), false);
+  });
+
   it('«н\/п» в графе «что чинить» не показывается', () => {
     const brief = buildRetryBrief(input({ claims: [{ id: 'claim-1', status: '⚠' }] }), [], {
       whatToFix: new Map([['claim-1', 'н/п']]),

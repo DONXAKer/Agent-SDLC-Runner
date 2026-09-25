@@ -40,6 +40,26 @@ const GATE_TAIL_LINES = 12;
  * проекта (`at … file:///…/src/stock.ts:155`) под шаблон не подпадает и остаётся.
  */
 const INTERNAL_FRAME_RE = /^\s*at\s+(?:async\s+)?\S.*\((?:node:|internal\/)|^\s*at\s+(?:async\s+)?(?:node:|internal\/)|node_modules/;
+
+/**
+ * Собственная «визитка» `node --test` после ЛЮБОГО провала: 8 строк счётчиков
+ * (`ℹ tests/suites/pass/fail/…`) и повторный блок «✖ failing tests:» / `test at
+ * файл:N:N` / `✖ файл (Nms)` / `'test failed'` — по 3-4 строки на каждый упавший файл.
+ * Она не несёт диагноза и сама по себе съедает `GATE_TAIL_LINES` раньше настоящей
+ * причины — та же болезнь, что у `INTERNAL_FRAME_RE`, другой источник переполнения.
+ *
+ * Найдено на двух независимых прогонах 2026-09-25 (`d2-devstral-vat-rounding`,
+ * `s3-ministral3-vat-rounding`): три попытки подряд, оба разных модели, окно ретрая
+ * состояло ЦЕЛИКОМ из этой визитки — ни слова о `SyntaxError`, из-за которого их
+ * собственный новый тестовый файл не грузится. Рецензент (полный доступ к артефактам,
+ * не к брифу) каждый раз называл точную строку падения верно; модель на повторной
+ * попытке не видела её вовсе. Вероятный корень класса #13
+ * (`docs/model-error-taxonomy.md`) — «свой тест невалиден при верном коде»: открыт по
+ * 5+ случаям на 3+ моделях, и все известные — под `node --test`.
+ */
+const NODE_TEST_SUMMARY_RE =
+  /^\s*ℹ (tests|suites|pass|fail|cancelled|skipped|todo|duration_ms|start of coverage report|end of coverage report)\b|^\s*✖ failing tests:\s*$|^\s*test at .+:\d+:\d+\s*$|^\s*✖ .+\(\d+(\.\d+)?ms\)\s*$|^\s*'test failed'\s*$/;
+
 /** Сколько находок ревью показывается — дальше это уже отчёт, а не выжимка. */
 const FINDINGS_MAX = 8;
 
@@ -98,9 +118,11 @@ function gateLines(g: GateRunResult): string[] {
     .split(/\r?\n/)
     .map((l) => l.trimEnd())
     .filter((l) => l.trim() !== '')
-    // Внутренние кадры выбрасываются ДО среза: иначе они съедают окно, и в бриф попадает
-    // последний провал вместо всех (см. INTERNAL_FRAME_RE).
+    // Внутренние кадры и собственная визитка `node --test` выбрасываются ДО среза: иначе
+    // они съедают окно, и в бриф попадает последний провал вместо всех — или, у визитки,
+    // не попадает НИ ОДИН (см. INTERNAL_FRAME_RE, NODE_TEST_SUMMARY_RE).
     .filter((l) => !INTERNAL_FRAME_RE.test(l))
+    .filter((l) => !NODE_TEST_SUMMARY_RE.test(l))
     .slice(-GATE_TAIL_LINES);
   if (tail.length === 0) return [head];
   // Четыре кавычки, как у `fence` в prompt/build.ts: хвост тестов, сравнивающих markdown,
