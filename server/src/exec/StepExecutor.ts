@@ -281,8 +281,13 @@ function escapeRegExp(s: string): string {
 /**
  * Явные МЕСТА ПАДЕНИЯ в тексте ошибки Node/`node --test` — не любое упоминание пути, а
  * прямое «вот здесь»: `file:///…/<путь>:N` (сам Node, SyntaxError/uncaught на загрузке
- * модуля), `✖ <путь> (Nms)` и `test at <путь>:N:M` (итог и повтор `node --test`). Формат
- * `outputTailOf`/`NODE_TEST_SUMMARY_RE` в `verdict/retryBrief.ts` — тот же самый.
+ * модуля), `✖ <путь> (Nms)` и `test at <путь>:N:M` (итог и повтор `node --test`).
+ *
+ * Тот же формат разбирает `verdict/retryBrief.ts::stripNodeTestBoilerplate` — с ДРУГОЙ
+ * задачей (обрезка визитки для брифа ретрая, не роутинг ремонта по файлу), поэтому это не
+ * один код, а два независимых набора регулярок на один формат вывода. Правишь формат
+ * распознавания здесь — проверь, не разошёлся ли он с тем файлом, и наоборот
+ * (code-review-all, 2026-09-26: тест-скрепа между ними пока не заведён).
  */
 const FAILURE_LOCATION_RES = [
   /file:\/\/\/(?:[A-Za-z]:)?([^\s:]+):\d+/g,
@@ -303,19 +308,24 @@ function failureLocations(problem: string): string[] {
 /**
  * Упомянут ли файл шага в тексте ошибки гейта.
  *
- * Есть явные места падения (`failureLocations`) — судим ТОЛЬКО по ним: текст ошибки часто
- * называет ещё и модуль, на который ссылается упавший импорт (`… '../src/lines.ts' does
- * not provide an export named 'Line'`), и голое совпадение подстроки отправляло бы ремонт
- * не в тот файл — падает `test/vat.test.ts:4`, а правку получал `src/lines.ts`, потому что
- * его путь тоже есть в тексте (найдено 2026-09-25, `d2-devstral-vat-rounding`, попытка 3:
- * модель три раунда крутила `interface`↔`type` в файле, где падать нечему). Мест падения
- * нет вовсе (гейт не в формате Node) — прежнее правило: сначала полный относительный путь
- * (обеими формами слэша), иначе голый `basename`, НО с оговоркой: если перед найденным
- * `basename` в тексте стоит СВОЙ каталог (не пустой и не наш), это чужой файл с тем же
- * именем в другом месте (`server/src/tools/index.ts` и `server/src/exec/index.ts` — оба
- * `index.ts`), а не наш. `basename` без пути перед ним (многие гейты печатают ошибку без
- * полного пути) по-прежнему считается своим — второго кандидата с тем же именем в этом
- * случае в тексте просто нет, различать нечего.
+ * Есть явные места падения (`failureLocations`) СВОЕГО файла — считаем упомянутым сразу:
+ * текст ошибки часто называет ещё и модуль, на который ссылается упавший импорт (`…
+ * '../src/lines.ts' does not provide an export named 'Line'`), и голое совпадение подстроки
+ * отправляло бы ремонт не в тот файл — падает `test/vat.test.ts:4`, а правку получал
+ * `src/lines.ts`, потому что его путь тоже есть в тексте (найдено 2026-09-25,
+ * `d2-devstral-vat-rounding`, попытка 3: модель три раунда крутила `interface`↔`type` в
+ * файле, где падать нечему) — вот для ЭТОГО случая места падения и приоритетны. Но если
+ * места падения нашлись и НИ ОДНО не про файл шага, это не приговор «чужая ошибка»: они
+ * могли быть про совсем другую часть текста (кадр стека зависимости, чужой рецепт), а
+ * простое упоминание своего пути в тексте — тоже сигнал, который раньше здесь ловился.
+ * Поэтому при отсутствии совпадения по местам падения проверка идёт дальше, как при их
+ * отсутствии: сначала полный относительный путь (обеими формами слэша), иначе голый
+ * `basename`, НО с оговоркой: если перед найденным `basename` в тексте стоит СВОЙ каталог
+ * (не пустой и не наш), это чужой файл с тем же именем в другом месте
+ * (`server/src/tools/index.ts` и `server/src/exec/index.ts` — оба `index.ts`), а не наш.
+ * `basename` без пути перед ним (многие гейты печатают ошибку без полного пути) по-прежнему
+ * считается своим — второго кандидата с тем же именем в этом случае в тексте просто нет,
+ * различать нечего.
  */
 export function mentionsFile(problem: string, file: string): boolean {
   const posix = toPosix(file);
@@ -325,8 +335,7 @@ export function mentionsFile(problem: string, file: string): boolean {
     return c === posix || c.endsWith(`/${posix}`);
   };
 
-  const locations = failureLocations(problem);
-  if (locations.length > 0) return locations.some(isThisFile);
+  if (failureLocations(problem).some(isThisFile)) return true;
 
   if (problem.includes(posix) || problem.includes(win)) return true;
 
@@ -554,21 +563,25 @@ export class StepExecutor implements StageExecutor {
       current: string | null,
       answer: string,
       finishReason: FinishReason,
-    ): Promise<{ ok: boolean; text: string; denied: boolean; noChange: string | null }> => {
+    ): Promise<{ ok: boolean; text: string; denied: boolean; noChange: string | null; partialNote: string }> => {
       let toolName: 'Write' | 'Edit';
       let rawInput: Record<string, unknown>;
       // Заполняется только в ветке Edit, когда часть блоков ответа применена, а часть
-      // отставлена на следующий раунд — см. `selectApplicableEdits`.
+      // отставлена на следующий раунд — см. `selectApplicableEdits`. Отдельное поле, а
+      // не приписка к `text`: три сайта, что строят `note` из `applied.text`, берут
+      // только первую строку (`.split('\n')[0]`) — приписка молча терялась (code-
+      // review-all, 2026-09-26). Вызывающая сторона решает сама, показывать ли её.
       let partialNote = '';
       if (current !== null) {
         const edits = parseSearchReplace(answer);
         if (edits.length === 0) {
           const reason = noChangeReason(answer);
-          if (reason !== null) return { ok: true, text: reason, denied: false, noChange: reason };
+          if (reason !== null) return { ok: true, text: reason, denied: false, noChange: reason, partialNote: '' };
           return {
             ok: false,
             denied: false,
             noChange: null,
+            partialNote: '',
             text:
               answer.trim() === '' && finishReason === 'max_tokens'
                 ? truncatedNote
@@ -596,6 +609,7 @@ export class StepExecutor implements StageExecutor {
             ok: false,
             denied: false,
             noChange: null,
+            partialNote: '',
             text:
               'блок SEARCH покрывает файл целиком (или почти целиком) — так файл переписывается, ' +
               'а не правится. Возьми в SEARCH только тот фрагмент, который меняется.',
@@ -609,7 +623,7 @@ export class StepExecutor implements StageExecutor {
         const { keep, skipped } = selectApplicableEdits(current, edits);
         const useEdits = keep.length === 0 ? edits : keep;
         if (keep.length > 0 && skipped.length > 0) {
-          partialNote = `\n(без изменений в этой правке: ${skipped.map((s) => `блок ${s.index + 1} — ${s.reason}`).join('; ')})`;
+          partialNote = `без изменений в этой правке: ${skipped.map((s) => `блок ${s.index + 1} — ${s.reason}`).join('; ')}`;
         }
         toolName = 'Edit';
         rawInput = {
@@ -623,11 +637,12 @@ export class StepExecutor implements StageExecutor {
         const content = parseFileContent(answer);
         if (content === null) {
           const reason = noChangeReason(answer);
-          if (reason !== null) return { ok: true, text: reason, denied: false, noChange: reason };
+          if (reason !== null) return { ok: true, text: reason, denied: false, noChange: reason, partialNote: '' };
           return {
             ok: false,
             denied: false,
             noChange: null,
+            partialNote: '',
             text:
               answer.trim() === '' && finishReason === 'max_tokens'
                 ? truncatedNote
@@ -649,7 +664,7 @@ export class StepExecutor implements StageExecutor {
       if (!decision.allowed) {
         hooks.onFriction('denied');
         hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
-        return { ok: false, denied: true, noChange: null, text: `запись отклонена: ${decision.reason}` };
+        return { ok: false, denied: true, noChange: null, partialNote: '', text: `запись отклонена: ${decision.reason}` };
       }
       const effective =
         decision.updatedInput === null
@@ -663,7 +678,7 @@ export class StepExecutor implements StageExecutor {
         summary: outcome.text.split('\n')[0]?.slice(0, 200) ?? '',
         durationMs: Date.now() - started,
       });
-      return { ok: outcome.ok, denied: false, noChange: null, text: outcome.text + (outcome.ok ? partialNote : '') };
+      return { ok: outcome.ok, denied: false, noChange: null, text: outcome.text, partialNote: outcome.ok ? partialNote : '' };
     };
 
     for (const step of this.o.steps) {
@@ -816,14 +831,18 @@ export class StepExecutor implements StageExecutor {
             check = { status: 'failed', problem: `гейт «${checkName ?? ''}» упал с исключением: ${(e as Error).message}` };
           }
         }
+        // `.split('\n')[0]` режет `applied.text` до первой строки — `partialNote` (какие
+        // блоки правки не легли) сюда бы не попал молча (code-review-all, 2026-09-26).
+        // Добавляется явно, отдельным хвостом, во всех трёх исходах ниже.
+        const partialSuffix = applied.partialNote === '' ? '' : `; ${applied.partialNote}`;
         if (check.status === 'ok') {
           status = '✅';
-          note = applied.text.split('\n')[0] ?? 'применено';
+          note = (applied.text.split('\n')[0] ?? 'применено') + partialSuffix;
           break;
         }
         if (check.status === 'skipped') {
           status = '✅';
-          note = `${applied.text.split('\n')[0] ?? 'применено'}; проверка после шага не состоялась: ${check.note}`;
+          note = `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; проверка после шага не состоялась: ${check.note}`;
           break;
         }
         // Красная сборка, в которой файл шага не упомянут, — чужая: порядок fallback-шагов
@@ -833,7 +852,7 @@ export class StepExecutor implements StageExecutor {
         if (!mentionsFile(check.problem, step.file)) {
           status = '✅';
           note =
-            `${applied.text.split('\n')[0] ?? 'применено'}; гейт «${checkName ?? ''}» красный вне этого файла: ` +
+            `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; гейт «${checkName ?? ''}» красный вне этого файла: ` +
             `${check.problem.split('\n')[0] ?? ''}`;
           hooks.onWarn(`шаг ${step.n}: ${note}`);
           break;

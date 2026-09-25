@@ -513,11 +513,10 @@ describe('исполнение по шагам', () => {
 });
 
 describe('mentionsFile', () => {
-  it('есть явное место падения — судим только по нему, не по любому упоминанию пути', () => {
+  it('явное место падения побеждает — своя строка возвращает true сразу, без substring-фолбэка', () => {
     // Живой текст (сокращённый) d2-devstral-vat-rounding, попытка 3: ошибка называет и
     // файл, где падает (test/vat.test.ts:4), и модуль, на который ссылается импорт
-    // ('../src/lines.ts') — раньше голое совпадение подстроки отправляло ремонт в
-    // src/lines.ts, где падать нечему (2026-09-25).
+    // ('../src/lines.ts').
     const problem = [
       'гейт «Тесты» (node --test, код 1): 1 fail',
       'file:///C:/ws/test/vat.test.ts:4',
@@ -526,7 +525,22 @@ describe('mentionsFile', () => {
       '✖ test\\vat.test.ts (166.0493ms)',
     ].join('\n');
     ok(mentionsFile(problem, 'test/vat.test.ts'));
-    strictEqual(mentionsFile(problem, 'src/lines.ts'), false);
+  });
+
+  it('места падения нашлись, но НЕ про этот файл — substring-фолбэк всё равно проверяется (code-review-all, 2026-09-26)', () => {
+    // Прежняя версия при locations.length>0 возвращала false сразу, не пробуя substring —
+    // и легитимный кадр file:/// из ЧУЖОГО места (например зависимости) гасил substring-
+    // совпадение реального своего пути в тексте. Здесь `src/lines.ts` в местах падения не
+    // числится (только `test/vat.test.ts`), но упомянут подстрокой в тексте импорта —
+    // теперь тоже true: лучше лишний ремонт-раунд не туда, чем полная слепота своего файла.
+    const problem = [
+      'гейт «Тесты» (node --test, код 1): 1 fail',
+      'file:///C:/ws/test/vat.test.ts:4',
+      'import { Line } from "../src/lines.ts";',
+      "SyntaxError: The requested module '../src/lines.ts' does not provide an export named 'Line'",
+      '✖ test\\vat.test.ts (166.0493ms)',
+    ].join('\n');
+    ok(mentionsFile(problem, 'src/lines.ts'));
   });
 
   it('мест падения нет — прежнее правило: полный путь, иначе basename со своим каталогом', () => {

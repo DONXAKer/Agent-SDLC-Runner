@@ -157,11 +157,21 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
               // Все строки проходятся до конца, не только до первой красной — иначе
               // «Сборка», красная по чужой причине, не давала «Тестам» даже
               // запуститься, и модель ни разу не видела ошибку СВОЕГО же тестового
-              // файла (см. `pickStepFailure`).
+              // файла (см. `pickStepFailure`). «Строка не найдена»/`envBlocked` —
+              // тоже НЕ обрывают проход: раньше немедленный `return` на этих двух
+              // ветках топил уже накопленный `failures` целиком, включая реальный
+              // диагноз более ранней строки (code-review-all, 2026-09-26) — тот же
+              // класс потери, ради устранения которого писался весь цикл. Они лишь
+              // запоминаются как «эта строка ничего не сказала» и участвуют в решении
+              // только если содержательных failures не набралось вовсе.
               const failures: StepCheck[] = [];
+              let unavailable: { note: string } | null = null;
               for (const row of rows) {
                 const r = await runNamedGate(host, row.name);
-                if (r === null) return { status: 'skipped', note: 'строка гейта не найдена при прогоне' };
+                if (r === null) {
+                  unavailable = { note: 'строка гейта не найдена при прогоне' };
+                  continue;
+                }
                 if (r.status === '❌') {
                   const tail = (r.outputTail ?? '').trim();
                   failures.push({
@@ -180,12 +190,17 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
                   // до этой правки обе ветки уходили в один и тот же `skipped`, и
                   // `StepExecutor` красил шаг `✅` с находкой в хвосте `note`, а не в
                   // статусе (code-review-all, 2026-09-11).
-                  if (r.envBlocked) return { status: 'skipped', note: r.lastLine };
+                  if (r.envBlocked) {
+                    unavailable = { note: r.lastLine };
+                    continue;
+                  }
                   failures.push({ status: 'failed', problem: `гейт «${r.name}» вернул ⏭ по содержанию, не по среде: ${r.lastLine}` });
                   continue;
                 }
               }
-              return pickStepFailure(failures, step.file) ?? { status: 'ok' };
+              const picked = pickStepFailure(failures, step.file);
+              if (picked !== null) return picked;
+              return unavailable === null ? { status: 'ok' } : { status: 'skipped', note: unavailable.note };
             },
           },
   });

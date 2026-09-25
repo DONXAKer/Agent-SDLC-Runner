@@ -254,7 +254,35 @@ describe('выжимка причин для ретрая', () => {
     match(brief, /import \{ Line \} from "\.\.\/src\/lines\.ts"/);
     strictEqual(/ℹ tests \d/.test(brief), false, 'счётчики выброшены');
     strictEqual(/✖ failing tests:/.test(brief), false, 'заголовок повтора выброшен');
+    // Живая строка «✖ test\vat.test.ts (166.0493ms)» (до заголовка recap) остаётся —
+    // резать нужно только её повтор внутри «✖ failing tests:», не первое появление.
+    strictEqual((brief.match(/✖ test\\vat\.test\.ts \(166\.0493ms\)/g) ?? []).length, 1);
     strictEqual(/'test failed'/.test(brief), false);
+  });
+
+  it('живая строка «✖ <говорящее имя теста> (Nms)» — единственный диагноз без сообщения об ошибке — не вырезается', () => {
+    // code-review-all, 2026-09-26: безусловный фильтр по форме «✖ … (Nms)» резал бы и
+    // ЖИВОЙ (первый) экземпляр — а для теста без явного assert.message (assert.fail(),
+    // кастомный throw без текста) говорящее название it() остаётся ЕДИНСТВЕННЫМ местом с
+    // содержательным текстом. Recap-блок здесь есть — режется только его повтор.
+    const out = [
+      "✖ сумма по складам не сходится с ожидаемой (2.1ms)",
+      '  AssertionError [ERR_ASSERTION]',
+      '',
+      'ℹ tests 5',
+      'ℹ pass 4',
+      'ℹ fail 1',
+      '✖ failing tests:',
+      'test at test/stock.test.ts:12:3',
+      "✖ сумма по складам не сходится с ожидаемой (2.1ms)",
+      "  'test failed'",
+    ].join('\n');
+    const brief = buildRetryBrief(input(), [gate({ outputTail: out })]);
+    ok(brief !== null);
+    match(brief, /сумма по складам не сходится с ожидаемой/);
+    strictEqual((brief.match(/сумма по складам не сходится с ожидаемой/g) ?? []).length, 1, 'живая строка одна, recap-повтор вырезан');
+    strictEqual(/✖ failing tests:/.test(brief), false);
+    strictEqual(/test at test\/stock\.test\.ts/.test(brief), false);
   });
 
   it('«н\/п» в графе «что чинить» не показывается', () => {
