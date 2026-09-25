@@ -10,8 +10,11 @@
  */
 
 import { hasPlaceholder, signatureProblem } from '../artifacts/artifact.ts';
+import { SDLC_CONSTANTS, assertSameList } from '../config/constants.ts';
 import { parseTables } from '../md/table.ts';
 
+// Кортеж — ради типа `MinimumGate`; единственный источник — `sdlc-constants.json`, и
+// расхождение с ним — ошибка старта, а не молчаливая вторая копия минимума.
 const MINIMUM = [
   'Сборка',
   'Тесты',
@@ -19,6 +22,7 @@ const MINIMUM = [
   'Анти-обход тест-гейта',
   'Ревью независимым агентом',
 ] as const;
+assertSameList('минимум гейтов (mandatory_gates)', MINIMUM, SDLC_CONSTANTS.mandatory_gates);
 
 export type MinimumGate = (typeof MINIMUM)[number];
 

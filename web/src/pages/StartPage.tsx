@@ -40,6 +40,7 @@ export function StartPage({
   onRefreshHistory,
   onAddProject,
   onStart,
+  onOpenDashboard,
 }: {
   config: ConfigInfo;
   error: string | null;
@@ -64,6 +65,8 @@ export function StartPage({
   onRefreshHistory: () => void;
   onAddProject: (name: string, path: string) => Promise<ProjectInfo | null>;
   onStart: () => void;
+  /** Дашборд запусков: все витки всех проектов и прогоны стенда. */
+  onOpenDashboard: () => void;
 }): JSX.Element {
   const runsCount = runs?.length ?? 0;
   const historyCount = history?.length ?? 0;
@@ -76,7 +79,16 @@ export function StartPage({
 
   return (
     <div className="mx-auto max-w-4xl p-8">
-      <h1 className="mb-1 text-xl font-medium">Agent-SDLC Runner</h1>
+      <div className="mb-1 flex items-center gap-3">
+        <h1 className="text-xl font-medium">Agent-SDLC Runner</h1>
+        <button
+          type="button"
+          onClick={onOpenDashboard}
+          className="ml-auto rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+        >
+          Запуски →
+        </button>
+      </div>
       <p className="mb-6 text-sm text-neutral-400">
         Один виток: цель → разведка → вопросы → план → chunk → верификация → передача.
         Артефакты пишутся в <code className="font-mono">.sdlc/&lt;slug&gt;/</code> целевого проекта.

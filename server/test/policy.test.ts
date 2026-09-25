@@ -393,6 +393,24 @@ describe('права на шаг', () => {
     ok(v.reason.includes('не объявлен'), v.reason);
   });
 
+  /**
+   * gpt-oss-20b (bench, vat-rounding, 2026-09-24) звала `patch` в стиле `apply_patch`:
+   * получала «инструмент не объявлен», тратила ход и лишь ПОСЛЕ него делала ту же правку
+   * через `Edit`. Отказ обязан сразу называть инструмент, которым правка здесь делается.
+   */
+  it('patch/apply_patch: отказ называет Edit, а не только отсутствие инструмента', () => {
+    for (const name of ['patch', 'apply_patch', 'Apply-Patch']) {
+      const v = evaluate({ kind: 'unknown', toolName: name, raw: { patch: '*** Begin Patch' } }, ctx(null));
+      ok(!v.ok);
+      ok(v.reason.includes('не объявлен'), v.reason);
+      ok(v.reason.includes('`Edit`') && v.reason.includes('old_string'), v.reason);
+    }
+    // Контроль: прочим незнакомым инструментам подсказка про Edit не приписывается.
+    const other = evaluate({ kind: 'unknown', toolName: 'NotebookEdit', raw: {} }, ctx(null));
+    ok(!other.ok);
+    ok(!other.reason.includes('формата patch'), other.reason);
+  });
+
   it('ремонт с дельтой: отказ называет ключи, которые модель реально прислала', () => {
     const v = evaluate({ kind: 'unknown', toolName: 'Task', raw: { task: 'сходи разведай', extra: 1 } }, ctx(null));
     ok(!v.ok);
@@ -472,9 +490,47 @@ describe('волна 2 code-review-all 2026-09-23: интерпретаторы 
     strictEqual(evaluate(bash('npm test'), ctx(['src/a.ts'])).ok, true);
   });
 
-  it('слово powershell в аргументе — не вызов; команда гейта под PowerShell — не запрет', () => {
-    strictEqual(evaluate(bash('grep -rn powershell src'), ctx(['src/a.ts'])).ok, true);
-    strictEqual(evaluate(bash('git log --grep=cmd /c'), ctx(['src/a.ts'])).ok, true);
+  it('обёртки, перевод строки и ввод в cmd не обходят запрет; пол один для модели и гейтов', () => {
+    for (const c of [
+      'echo src | xargs pwsh -c "Remove-Item -Recurse src"',
+      'env powershell -c ls',
+      'nohup pwsh -c ls',
+      'ls\npowershell -c x',
+      'if true; then powershell -c x; fi',
+      'find . -exec cmd /c del {} ;',
+      'cmd //c "del /f /q *.*"',
+      'cmd /q /c del x',
+      'echo del /f /q *.* | cmd',
+      '"cmd" /c del /q *',
+      "'cmd.exe' /c dir",
+      'C:/Windows/System32/cmd.exe /c dir',
+      'C:\\Windows\\System32\\cmd.exe /c dir',
+      'cmd < a.bat',
+      '"powershell" -c x',
+    ]) {
+      strictEqual(checkBash(c).ok, false, c);
+    }
+  });
+
+  it('имя cmd/pwsh как путь или часть имени — не вызов', () => {
+    for (const c of [
+      'go test ./cmd',
+      'ls cmd',
+      'mvn -pl cmd',
+      'npm run build:cmd',
+      'npm run test:pwsh',
+      'cat docs/pwsh.md',
+      'git add -- "docs/powershell.md" && git commit -m x',
+      'grep -rn Remove-Item scripts/',
+      'grep -rn command src',
+      'git commit -m "fix cmd parser"',
+      'cmd | tee src/Foo.java',
+    ]) {
+      strictEqual(checkBash(c).ok, true, c);
+    }
+  });
+
+  it('команды гейтов пишутся под платформу оператора: запрет на cmd/PowerShell — только модели', () => {
     strictEqual(checkBash('powershell -File test.ps1', 'gate').ok, true);
     strictEqual(checkBash('powershell -File test.ps1').ok, false);
     // Рекурсивное удаление не снимается и для гейта.

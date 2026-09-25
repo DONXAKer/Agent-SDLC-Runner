@@ -43,6 +43,7 @@ import { extractFilesToTouch } from '../artifacts/planFiles.ts';
 import { runShell } from '../gates/shell.ts';
 import { changedPaths, git, isRepo } from '../gates/git.ts';
 import { isWindowsStyle, normalizePlanPath, pathsEqual } from '../policy/paths.ts';
+import { isRuntimeServicePath } from '../artifacts/paths.ts';
 import type { StageHost } from './stages/types.ts';
 
 /** Пересечение изменённого дерева с планом и каталогом витка — чистая функция, легко тестируется. */
@@ -56,7 +57,12 @@ export function commitTargets(
   const plan = planFiles.map((p) => normalizePlanPath(projectRoot, p));
   return changed.filter((raw) => {
     const p = normalizePlanPath(projectRoot, raw);
-    return plan.some((candidate) => pathsEqual(p, candidate, ci)) || p.startsWith(sdlcPrefix);
+    if (plan.some((candidate) => pathsEqual(p, candidate, ci))) return true;
+    if (!p.startsWith(sdlcPrefix)) return false;
+    // Служебные файлы рантайма (вердикт попытки, лента, снимки, метрики) — состояние этой
+    // машины, а не артефакты методологии: в репозиторий проекта они не коммитятся.
+    const rest = p.slice(sdlcPrefix.length);
+    return !isRuntimeServicePath(rest);
   });
 }
 

@@ -58,6 +58,9 @@ export interface ShellOptions {
   posix?: boolean;
 }
 
+/** Найденный Git Bash — постоянен на процесс, а спрашивается на каждый `Bash` модели. */
+let posixShellCache: string | null | undefined;
+
 /**
  * Bash для Windows: явный путь из окружения (`SDLC_BASH_PATH`, тот же, что у Claude Code —
  * `CLAUDE_CODE_GIT_BASH_PATH`), иначе стандартная установка Git. `null` — не нашёлся:
@@ -66,6 +69,12 @@ export interface ShellOptions {
  */
 export function posixShell(): string | true | null {
   if (process.platform !== 'win32') return true;
+  if (posixShellCache !== undefined) return posixShellCache;
+  posixShellCache = findPosixShell();
+  return posixShellCache;
+}
+
+function findPosixShell(): string | null {
   const candidates = [
     process.env['SDLC_BASH_PATH'],
     process.env['CLAUDE_CODE_GIT_BASH_PATH'],
@@ -81,6 +90,8 @@ export function posixShell(): string | true | null {
 export function runShell(command: string, opts: ShellOptions): Promise<ShellResult> {
   const started = Date.now();
 
+  // Команды гейтов пишутся под платформу оператора и исполняются её шеллом — запрет на
+  // вызов cmd/PowerShell только для команд модели (`denyList.ts`, DENIED_MODEL_ONLY).
   const guard = checkBash(command, opts.posix === true ? 'model' : 'gate');
   if (!guard.ok) {
     return Promise.resolve({
@@ -94,13 +105,17 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     });
   }
 
+  const sandbox = findSandboxForCwd(opts.cwd);
+  const inDocker = sandbox !== null && sandbox.exec.kind === 'docker';
+
   // Без Git Bash команда модели ушла бы в `cmd.exe`: пол безопасности и лексер записи
   // рассчитаны на bash, и у cmd нашлись разрушительные формы, которых они не видят
   // (`for /r . %f in (*) do del %f`, `copy nul .env`) — закрывать их по одной регуляркой
   // бесконечно. Отказ с названной причиной вместо молчаливой смены интерпретатора
-  // (code-review-all 2026-09-23).
+  // (code-review-all 2026-09-23). Команде в docker-песочнице локальный bash не нужен: она
+  // идёт в `sh` контейнера.
   const shell = opts.posix === true ? posixShell() : true;
-  if (shell === null) {
+  if (shell === null && !inDocker) {
     const why =
       'Bash не найден: команды модели исполняются только POSIX-шеллом, а на этой машине нет ' +
       'Git Bash. Установи Git for Windows или задай путь к bash.exe в SDLC_BASH_PATH.';
@@ -115,8 +130,7 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     });
   }
 
-  const sandbox = findSandboxForCwd(opts.cwd);
-  if (sandbox !== null && sandbox.exec.kind === 'docker') {
+  if (inDocker) {
     return sandbox.exec
       .exec(command, opts)
       .then((r) => ({
@@ -140,7 +154,7 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     // сигналом нельзя. На Windows группу заменяет `taskkill /T`.
     const child = spawn(command, {
       cwd: opts.cwd,
-      shell,
+      shell: shell ?? true,
       windowsHide: true,
       detached: process.platform !== 'win32',
     });
@@ -198,14 +212,20 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     // в выводе команды приедет искажённой; угадывать кодировку по содержимому — хуже,
     // чем показать искажение: вывод сборщиков и тест-раннеров на латинице, а молчаливая
     // перекодировка ломала бы его.
-    child.stdout.on('data', (d: Buffer) => out.push(d.toString('utf8')));
-    child.stderr.on('data', (d: Buffer) => err.push(d.toString('utf8')));
+    // Байты копятся буферами и декодируются один раз: покусочное декодирование резало
+    // многобайтовый символ на границе чанка в U+FFFD (тот же дефект, что в `git.ts`).
+    const outBuf: Buffer[] = [];
+    const errBuf: Buffer[] = [];
+    child.stdout.on('data', (d: Buffer) => outBuf.push(d));
+    child.stderr.on('data', (d: Buffer) => errBuf.push(d));
 
     const finish = (exitCode: number | null, extraErr?: string): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       opts.signal?.removeEventListener('abort', onAbort);
+      out.push(Buffer.concat(outBuf).toString('utf8'));
+      err.push(Buffer.concat(errBuf).toString('utf8'));
       if (extraErr !== undefined) err.push(extraErr);
       const stdout = cap(out);
       const stderr = cap(err);

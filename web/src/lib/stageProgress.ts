@@ -44,16 +44,26 @@ export function computeStageStates(
   return out;
 }
 
+/** Куда красный вердикт возвращает виток: `retry` — доработка, `escalate` — решение человека. */
+export type RedVerdictRoute = 'retry' | 'escalate' | null;
+
+/** Красный вердикт → маршрут подсказки; `blocked_env` повторяет verify и маршрута не даёт. */
+export function redVerdictRoute(verdict: { passed: boolean; action: string } | null): RedVerdictRoute {
+  if (verdict === null || verdict.passed) return null;
+  if (verdict.action === 'escalate') return 'escalate';
+  return verdict.action === 'blocked_env' ? null : 'retry';
+}
+
 /**
  * На какой этап вставать открытому витку — туда, где он реально находится, а не на `intent`.
  *
- * Идёт этап — на него. Красный вердикт (кроме `blocked_env`) — на chunk: методология
- * возвращает виток именно туда, а по «первому без артефактов» интерфейс предлагал бы
- * верифицировать нечиненное. Блокеров chunk'а при этом не спрашиваем: по отвергнутой
- * попытке chunk закрыт, пока не нажата «Новая попытка», — и его карточка говорит об этом
- * текстом блокера; с проверкой блокеров ветка была недостижима, и виток вставал на verify
- * (code-review-all 2026-09-23). `blocked_env` сюда не приходит: там повторяют verify.
- * Иначе — первый доступный, чьи артефакты ещё не
+ * Идёт этап — на него. Красный `retry` — на chunk: методология возвращает виток именно
+ * туда, а по «первому без артефактов» интерфейс предлагал бы верифицировать нечиненное.
+ * Блокеров chunk'а при этом не спрашиваем: по отвергнутой попытке chunk закрыт, пока не
+ * нажата «Новая попытка», — и его карточка говорит об этом текстом блокера. `escalate` —
+ * на handoff: бюджет попыток исчерпан, «Новая попытка» закрыта, и chunk был бы тупиком;
+ * решение человека — обрыв витка (code-review-all 2026-09-23). `blocked_env` сюда не
+ * приходит: там повторяют verify. Иначе — первый доступный, чьи артефакты ещё не
  * готовы И который не пропускается методологией (условный `ask` без развилок артефакта
  * не произведёт никогда — виток парковался на нём навсегда). Все доступные уже
  * отработали — самый дальний из них: виток стоит у своего фронта.
@@ -61,10 +71,11 @@ export function computeStageStates(
 export function suggestedStage(
   runningStage: StageId | null,
   stages: readonly StageProgressInput[],
-  verdictRed = false,
+  red: RedVerdictRoute = null,
 ): StageId | null {
   if (runningStage !== null) return runningStage;
-  if (verdictRed && stages.some((s) => s.id === 'chunk')) return 'chunk';
+  if (red === 'retry' && stages.some((s) => s.id === 'chunk')) return 'chunk';
+  if (red === 'escalate' && stages.some((s) => s.id === 'handoff')) return 'handoff';
   const next = stages.find((s) => s.blockers.length === 0 && !s.produced && !s.skipped);
   if (next !== undefined) return next.id;
   const runnable = [...stages].reverse().find((s) => s.blockers.length === 0);

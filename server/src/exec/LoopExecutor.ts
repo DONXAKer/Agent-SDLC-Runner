@@ -35,11 +35,11 @@ import type {
   SubagentDef,
 } from './StageExecutor.ts';
 import { REVIEWER_AGENTS } from './StageExecutor.ts';
-import { trimHistory } from './history.ts';
+import { HISTORY_KEEP_LAST, trimHistory } from './history.ts';
 import { cap, executeTool, type ToolContext } from './tools/index.ts';
 import { isToolName, specsFor } from './toolSpecs.ts';
 import { finalizeRejection } from '../artifacts/finalizeCheck.ts';
-import { budgetParams, estimateMessageTokens, marginFor } from './contextBudget.ts';
+import { budgetParams, estimateMessageTokens, historyKeepLastFor, marginFor } from './contextBudget.ts';
 
 export interface LoopOptions {
   provider: ChatProvider;
@@ -399,13 +399,18 @@ export class LoopExecutor implements StageExecutor {
       const outgoing =
         this.o.historyBudgetBytes === undefined
           ? messages
-          : trimHistory(messages, this.o.historyBudgetBytes, undefined, (total, budget) => {
-              historyOverBudget = true;
-              hooks.onWarn(
-                `история хода превышает бюджет даже после сокращения заглушками: ${total} байт ` +
-                  `из ${budget} — ответы человека и последние результаты рантайм не трогает никогда`,
-              );
-            });
+          : trimHistory(
+              messages,
+              this.o.historyBudgetBytes,
+              historyKeepLastFor(this.o.historyBudgetBytes, this.o.maxResultBytes, HISTORY_KEEP_LAST),
+              (total, budget) => {
+                historyOverBudget = true;
+                hooks.onWarn(
+                  `история хода превышает бюджет даже после сокращения заглушками: ${total} байт ` +
+                    `из ${budget} — ответы человека и последние результаты рантайм не трогает никогда`,
+                );
+              },
+            );
       const startedAt = Date.now();
       const answer = await this.o.provider.chat({
         model: req.model,
@@ -1012,6 +1017,7 @@ export class LoopExecutor implements StageExecutor {
       // Права текущего вызывающего, а не этапа: во вложенном прогоне субагента здесь
       // уже суженный список, и политика решает по нему.
       callerTools: req.allowedTools,
+      ...(req.callerAgent === undefined ? {} : { caller: req.callerAgent }),
     });
     if (!decision.allowed) {
       hooks.onFriction('denied');
@@ -1030,8 +1036,9 @@ export class LoopExecutor implements StageExecutor {
 
     let text: string;
     let toolOk: boolean;
+    let full: string | undefined;
     try {
-      ({ ok: toolOk, text } = await this.execute(effective, req, hooks, toolCtx, spentUsd));
+      ({ ok: toolOk, text, full } = await this.execute(effective, req, hooks, toolCtx, spentUsd));
     } catch (e) {
       // Инструмент, который не может отработать, отчитывается ОШИБКОЙ — иначе «ok» на
       // заглушке становится доказательством того, чего не было (гейт ревью зеленел от
@@ -1060,7 +1067,7 @@ export class LoopExecutor implements StageExecutor {
       ok: toolOk,
       summary: text.split('\n')[0]?.slice(0, 200) ?? '',
       durationMs: Date.now() - started,
-      resultText: text,
+      resultText: full ?? text,
     });
     return text;
   }
@@ -1113,7 +1120,7 @@ export class LoopExecutor implements StageExecutor {
     task: string,
     allowedTools: readonly ToolName[],
     spentUsd: number,
-  ): Promise<string> {
+  ): Promise<{ text: string; full: string }> {
     hooks.onWarn(
       `запущен субагент «${def.name}»: инструменты ${allowedTools.join(', ') || '(нет)'} — ` +
         'пересечение прав этапа и объявленных прав субагента',
@@ -1141,6 +1148,8 @@ export class LoopExecutor implements StageExecutor {
         model: this.subagentModel(def, req, hooks),
         allowedTools,
         subagents: [],
+        // Кто вызывает — до политики: по имени она сужает чтение (`sdlc-claims`).
+        callerAgent: def.name,
         // Страж завершения — про артефакт ЭТАПА, а его пишет вызывающий, не субагент:
         // `sdlc-locator` вообще не имеет прав записи, и требовать с него файл значило бы
         // обрывать вложенный прогон за чужую недоделку.
@@ -1163,9 +1172,12 @@ export class LoopExecutor implements StageExecutor {
     // потолка мог превысить `maxResultBytes` (разбор серии v11, 2026-09-15: результат
     // `Task` на 16 096 байт против потолка 12 000 — единственный из пяти путей результата,
     // где `cap()` не стоял).
+    // Полный текст уходит рантайму отдельно (`resultText`): планки ревью (`reviewProblem`)
+    // судят весь ответ, а не обрезок для истории хода — иначе хвост с последними claim-N
+    // отрезался, и состоявшееся ревью оставляло гейт ⏭ (code-review-all 2026-09-23).
     return result.finalText === ''
-      ? `субагент «${def.name}» вернул пустой ответ`
-      : cap(result.finalText, this.o.maxResultBytes);
+      ? { text: `субагент «${def.name}» вернул пустой ответ`, full: '' }
+      : { text: cap(result.finalText, this.o.maxResultBytes), full: result.finalText };
   }
 
   private async execute(
@@ -1175,14 +1187,22 @@ export class LoopExecutor implements StageExecutor {
     toolCtx: ToolContext,
     /** Уже потрачено на витке — вложенный прогон субагента делит потолок с родителем. */
     spentUsd: number,
-  ): Promise<{ ok: boolean; text: string }> {
+  ): Promise<{ ok: boolean; text: string; full?: string }> {
     const done = (text: string): { ok: boolean; text: string } => ({ ok: true, text });
     switch (call.kind) {
       case 'ask_human': {
         const answers = await hooks.onAskHuman(call);
+        const note = hooks.afterAskHuman?.(call, answers) ?? null;
+        if (note !== null && Object.keys(answers).length > 0) {
+          return done(`${JSON.stringify(answers, null, 2)}\n\n${note}`);
+        }
         return done(
           Object.keys(answers).length === 0
-            ? 'человек не ответил — считай вопрос пропущенным и запиши это в артефакт'
+            // Прежний текст «запиши это в артефакт» модель читала буквально и шла в поле
+            // решения («**Подтвердил:** — · — / не подтверждено (человек не ответил)»,
+            // gpt-oss-20b 2026-09-24) — запись, которую тут же отклоняет `humanDecision.ts`.
+            ? 'человек не ответил — считай вопрос пропущенным; поля решений человека не заполняй, ' +
+              'отметь пропуск в своём содержательном поле артефакта'
             : JSON.stringify(answers, null, 2),
         );
       }
@@ -1253,7 +1273,8 @@ export class LoopExecutor implements StageExecutor {
           throw new SubagentUnavailable(note);
         }
 
-        return done(await this.runSubagent(req, hooks, def, call.prompt, nested, spentUsd));
+        const sub = await this.runSubagent(req, hooks, def, call.prompt, nested, spentUsd);
+        return { ok: true, text: sub.text, full: sub.full };
       }
 
       case 'mcp': {

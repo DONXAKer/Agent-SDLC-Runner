@@ -215,9 +215,19 @@ describe('инструменты цикла', () => {
     ok(/src\/deep\/A\.ts:1:/.test(r.text), r.text);
   });
 
-  it('сломанное выражение не роняет этап', async () => {
+  it('сломанное выражение не роняет этап — падает на буквальный поиск с честной пометкой (Р4, серия local6 2026-09-24)', async () => {
     const r = await executeTool({ kind: 'grep', pattern: '([', path: null }, ctx);
-    strictEqual(r.ok, false);
+    ok(r.ok, r.text);
+    ok(r.text.includes('не разобралось как регулярка'), r.text);
+    ok(r.text.includes('совпадений нет'), r.text);
+  });
+
+  it('невалидная группа (незакрытая) — буквальный поиск находит подстроку по имени файла', async () => {
+    writeFileSync(join(root, 'src/deep/paren.ts'), 'const marker = "product(";\n');
+    const r = await executeTool({ kind: 'grep', pattern: '/product(/i', path: null }, ctx);
+    ok(r.ok, r.text);
+    ok(r.text.includes('не разобралось как регулярка'), r.text);
+    ok(r.text.includes('product('), r.text);
   });
 
   it('Bash отдаёт код возврата и вывод', async () => {
@@ -590,6 +600,32 @@ describe('цикл tool-use', () => {
     await executor(p).run(request({ allowedTools: ['Read', 'Task'] }), h);
     ok(h.warns.some((w) => /не объявлен/.test(w)), h.warns.join('; '));
   });
+
+  // Живой прогон gpt-oss-20b (2026-09-24): «запиши это в артефакт» модель понимала как
+  // «заполни «Подтвердил»» — и упиралась в отказ политики. Ответ без ответа не должен звать
+  // в поле решения человека.
+  it('AskHuman без ответа — ответ инструмента не велит писать в поле решения', async () => {
+    const p = provider([
+      {
+        toolCalls: [
+          {
+            id: 'q1',
+            name: 'AskHuman',
+            arguments: { questions: [{ question: 'Подтвердите место правки?' }] },
+            rawArguments: '{}',
+          },
+        ],
+        finishReason: 'tool_use',
+      },
+      { text: 'понял', finishReason: 'end_turn' },
+    ]);
+    await executor(p).run(request({ allowedTools: ['Read', 'AskHuman'] }), hooks());
+    const reply = p.seen[1]?.messages.find((m) => m.role === 'tool');
+    const text = typeof reply?.content === 'string' ? reply.content : JSON.stringify(reply?.content);
+    ok(/не ответил/.test(text), text);
+    ok(/поля решений человека не заполняй/.test(text), text);
+    ok(!/запиши это в артефакт/.test(text), text);
+  });
 });
 
 describe('max_tokens по остатку окна (LoopOptions.contextWindow)', () => {
@@ -792,7 +828,9 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
     );
   });
 
-  it('явный max_tokens в ModelDef.params перекрывает вычисленное значение', async () => {
+  it('явный max_tokens в ModelDef.params — ПОТОЛОК поверх вычисленного, а не замена (Р2, серия local6 2026-09-24)', async () => {
+    // Тот же сценарий, что «остаток ушёл в минус» выше: вычисленный пол — 256. Явное
+    // число 999 БОЛЬШЕ пола — раньше побеждало безусловно и отключало защиту де-факто.
     const p = provider([
       {
         toolCalls: [readCall('src/deep/A.ts')],
@@ -805,8 +843,21 @@ describe('max_tokens по остатку окна (LoopOptions.contextWindow)', 
       request(),
       hooks(),
     );
-    // Оператор назвал число явно — он знает больше рантайма (тот же порядок, что у
-    // `applyParams` в провайдере).
-    deepStrictEqual(p.seen[1]?.params, { max_tokens: 999, temperature: 0.1 });
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 256, temperature: 0.1 });
+  });
+
+  it('явный max_tokens МЕНЬШЕ вычисленного остатка — по-прежнему действует как потолок оператора', async () => {
+    const p = provider([
+      {
+        toolCalls: [readCall('src/deep/A.ts')],
+        finishReason: 'tool_use',
+        usage: { ...emptyUsage(), inputTokens: 100 },
+      },
+      { text: 'готово', finishReason: 'end_turn' },
+    ]);
+    // Окно щедрое (32768), вычисленный остаток намного больше 300 — явное число должно
+    // победить, потому что оно МЕНЬШЕ, а не потому что оно явное.
+    await executor(p, { contextWindow: 32768, params: { max_tokens: 300 } }).run(request(), hooks());
+    deepStrictEqual(p.seen[1]?.params, { max_tokens: 300 });
   });
 });

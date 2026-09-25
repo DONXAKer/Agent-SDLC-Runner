@@ -30,6 +30,7 @@ import { stageById } from '../../server/src/run/stages.ts';
 import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
+import type { ContextProblem } from '../../server/src/provider/contextCheck.ts';
 import { isLoopbackUrl } from '../../server/src/provider/http.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
 import { isEngineEnvFailure, reloadEngine, warmupEngine } from './engine.ts';
@@ -379,23 +380,97 @@ function checkSnapshot(deps: PreflightDeps, opts: BenchOptions): PreflightCheck 
   );
 }
 
+/** Один маршрут с красным окном, чинимым перезагрузкой движка (`reloadEngine`). */
+interface ReloadableRoute {
+  provider: string;
+  model: string;
+  contextWindow?: number;
+  baseUrl?: string;
+}
+
+interface ContextWindowsResult {
+  checks: PreflightCheck[];
+  /** Маршруты с `ContextProblem.reloadable === true`, по одному на разный provider/model. */
+  reloadable: ReloadableRoute[];
+}
+
 /** Окно контекста измеряемых маршрутов (LM Studio — фактическое, Ollama — зашитое/4096). */
-async function checkContextWindows(deps: PreflightDeps, ctx: PreflightContext): Promise<PreflightCheck[]> {
+async function checkContextWindows(deps: PreflightDeps, ctx: PreflightContext): Promise<ContextWindowsResult> {
   const name = 'модель: окно контекста';
   const seen = new Set<string>();
   const out: PreflightCheck[] = [];
+  const reloadable: ReloadableRoute[] = [];
   for (const stage of ctx.built.measured) {
     const route = ctx.built.profile.routes[stage];
     const key = `${route.provider}/${route.model}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const started = Date.now();
-    const problem = await deps.contextProblem(route.provider, route.model, route.contextWindow, route.providerDef.baseUrl);
+    const problem: ContextProblem | null = await deps.contextProblem(
+      route.provider,
+      route.model,
+      route.contextWindow,
+      route.providerDef.baseUrl,
+    );
     const ms = Date.now() - started;
-    if (problem !== null) out.push(bad(name, true, problem, ms));
+    if (problem !== null) {
+      out.push(bad(name, true, problem.message, ms));
+      if (problem.reloadable) {
+        reloadable.push({
+          provider: route.provider,
+          model: route.model,
+          ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
+          ...(route.providerDef.baseUrl === undefined ? {} : { baseUrl: route.providerDef.baseUrl }),
+        });
+      }
+    }
   }
   if (out.length === 0) out.push(ok(name, true, 'окна измеряемых маршрутов в порядке (или провайдер без управляемого окна)'));
-  return out;
+  return { checks: out, reloadable };
+}
+
+/**
+ * `checkContextWindows` плюс автоперезагрузка (`--engine-reload`): дыра, пойманная
+ * серией local6 (2026-09-24) — `--engine-reload` чинил только сбой ДВИЖКА на прогреве
+ * (`checkWarmup`), а красное окно (модель не загружена, загружена не с тем окном или
+ * с `parallel>1`) красило преполёт РАНЬШЕ прогрева и до реакции на флаг не доходило:
+ * 12 из 18 прогонов серии сгорели именно так, при том что и диагноз, и команда фикса
+ * уже были в тексте ошибки.
+ *
+ * Красные проверки первого прохода ЗАМЕНЯЮТСЯ (не дополняются) результатом повтора —
+ * иначе устаревший красный `bad()` остался бы в списке даже после удачной перезагрузки,
+ * и `checks.every(c => c.ok)` ниже по `runPreflight` не увидел бы зелёного окна.
+ */
+async function checkContextWindowsWithReload(
+  deps: PreflightDeps,
+  ctx: PreflightContext,
+  opts: BenchOptions,
+): Promise<PreflightCheck[]> {
+  const first = await checkContextWindows(deps, ctx);
+  if (first.checks.every((c) => c.ok) || first.reloadable.length === 0) return first.checks;
+  if (opts.engineReload !== true) return first.checks;
+
+  const done = new Set<string>();
+  const outcomes: string[] = [];
+  let anyReloaded = false;
+  for (const r of first.reloadable) {
+    const key = `${r.provider}/${r.model}`;
+    if (done.has(key)) continue;
+    done.add(key);
+    const reload = await deps.reloadEngine({
+      provider: r.provider,
+      model: r.model,
+      ...(r.baseUrl === undefined ? {} : { baseUrl: r.baseUrl }),
+      ...(r.contextWindow === undefined ? {} : { contextWindow: r.contextWindow }),
+    });
+    outcomes.push(`${key}: ${reload.detail}`);
+    if (reload.kind === 'reloaded') anyReloaded = true;
+  }
+  if (!anyReloaded) {
+    return [...first.checks, bad('модель: окно контекста (перезагрузка)', true, outcomes.join('; '))];
+  }
+  const again = await checkContextWindows(deps, ctx);
+  return again.checks.map((c) => ({ ...c, name: `${c.name} (после перезагрузки)` }));
 }
 
 /**
@@ -527,7 +602,7 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
     provider,
     model: def.model,
     params: def.params ?? null,
-    caseTimeoutMs: PROBE_CASE_TIMEOUT_MS,
+    caseTimeoutMs: opts.probeTimeoutMs ?? PROBE_CASE_TIMEOUT_MS,
   };
   const report: ProbeReport = await deps.probe({ ...probeArgs, cases: PREFLIGHT_CASES });
   const toCheck = (c: ProbeReport['cases'][number], detail = c.detail, durationMs = c.durationMs): PreflightCheck => ({
@@ -540,8 +615,11 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
 
   const checks: PreflightCheck[] = [];
   for (const c of report.cases) {
-    if (c.ok || c.env) {
-      checks.push(toCheck(c));
+    // Таймаут кейса (`timedOut`) — измерение о модели (красит кодом 1, не 2 — `env` уже
+    // `false`), но повтор бессмыслен: он удвоил бы тот же потолок без нового сигнала
+    // (найдено серией local6, 2026-09-24 — apriel-1.6-15b, 120–218 с на кейс).
+    if (c.ok || c.env || c.timedOut) {
+      checks.push(toCheck(c, c.timedOut ? `${c.detail} — попробуй больший --probe-timeout, если это разовая нагрузка` : c.detail));
       continue;
     }
     const retryCase = PREFLIGHT_CASES.find((p) => p.name === c.name);
@@ -592,7 +670,7 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
     checks.push(checkTurnLimit(ctx.config, opts));
     const planFit = checkPlanPromptFits(ctx, opts);
     if (planFit !== null) checks.push(planFit);
-    checks.push(...(await checkContextWindows(d, ctx)));
+    checks.push(...(await checkContextWindowsWithReload(d, ctx, opts)));
     if (checks.every((c) => c.ok)) {
       const warm = await checkWarmup(d, ctx.config, opts);
       if (warm.check !== null) checks.push(warm.check);
@@ -600,7 +678,7 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
       // эту загрузку: перепроверяются, иначе урезанное окно прошло бы преполёт зелёным.
       if (warm.reloaded && checks.every((c) => c.ok)) {
         const again = await checkContextWindows(d, ctx);
-        checks.push(...again.map((c) => ({ ...c, name: `${c.name} (после перезагрузки)` })));
+        checks.push(...again.checks.map((c) => ({ ...c, name: `${c.name} (после перезагрузки)` })));
       }
     }
     if (checks.every((c) => c.ok)) {

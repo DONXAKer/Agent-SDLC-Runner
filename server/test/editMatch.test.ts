@@ -96,3 +96,58 @@ describe('границы: мягкий поиск не размывает кон
     );
   });
 });
+
+// Живой прогон s2 (2026-09-25, `gpt-oss-20b`): журнал chunk'а разложен из эталона с
+// `core.autocrlf=true` — CRLF, а модель шлёт многострочный `old_string` через `\n` и с
+// `replace_all: true`, при котором мягкий поиск не включается. 9 промахов подряд, ход сгорел.
+describe('adaptEol: правка с `\n` против файла с `\r\n`', () => {
+  const JOURNAL =
+    '## Место правки\r\n\r\n' +
+    '- Точки правки по итогам точечной разведки: ‹файл:символ, …›\r\n' +
+    '- Карта разведки: совпала / разошлась — ‹что именно; расхождение = возврат на план›\r\n\r\n' +
+    '- **Подтвердил:** ‹имя› · ‹дата›\r\n';
+  const OLD =
+    '- Точки правки по итогам точечной разведки: ‹файл:символ, …›\n' +
+    '- Карта разведки: совпала / разошлась — ‹что именно; расхождение = возврат на план›';
+  const NEW = '- Точки правки по итогам точечной разведки: src/vat.ts:rate\n- Карта разведки: совпала';
+
+  it('с replace_all — применяется, файл сохраняет CRLF и не получает смешанных окончаний', () => {
+    const out = applyEdits(JOURNAL, [{ oldStr: OLD, newStr: NEW, replaceAll: true }]);
+    strictEqual(out.includes('src/vat.ts:rate\r\n- Карта разведки: совпала\r\n'), true);
+    strictEqual(/[^\r]\n/.test(out), false);
+  });
+
+  it('без replace_all — то же (дословно после перевода, до мягкого поиска)', () => {
+    const out = applyEdits(JOURNAL, [{ oldStr: OLD, newStr: NEW, replaceAll: false }]);
+    strictEqual(/[^\r]\n/.test(out), false);
+    strictEqual(out.includes('‹файл:символ, …›'), false);
+  });
+
+  it('инструмент Edit loop-флоу применяет её так же, как предпросмотр', async () => {
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const { executeTool } = await import('../src/exec/tools/index.ts');
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-crlf-'));
+    try {
+      writeFileSync(join(root, 'j.md'), JOURNAL);
+      const r = await executeTool(
+        { kind: 'edit', path: 'j.md', edits: [{ oldStr: OLD, newStr: NEW, replaceAll: true }] },
+        { projectRoot: root, maxResultBytes: 100_000, signal: new AbortController().signal } as never,
+      );
+      strictEqual(r.ok, true, r.text);
+      strictEqual(readFileSync(join(root, 'j.md'), 'utf8'), applyEdits(JOURNAL, [{ oldStr: OLD, newStr: NEW, replaceAll: true }]));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('смешанные окончания: фрагмент из LF-части правится как есть, без перевода', () => {
+    const mixed = 'a\r\nb\r\n' + 'x\ny\n';
+    strictEqual(applyEdits(mixed, [{ oldStr: 'x\ny', newStr: 'X\nY', replaceAll: false }]), 'a\r\nb\r\nX\nY\n');
+  });
+
+  it('LF-файл не трогается', () => {
+    strictEqual(applyEdits('p\nq\n', [{ oldStr: 'p\nq', newStr: 'P\nQ', replaceAll: true }]), 'P\nQ\n');
+  });
+});

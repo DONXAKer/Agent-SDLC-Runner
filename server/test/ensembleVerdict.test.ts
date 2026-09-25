@@ -180,6 +180,8 @@ function makeRun(reports: string[]): Run {
 
   // Маршрут 0 — канонический путь (его читают скиллы `/sdlc-*`), дальше — по маршрутам.
   reports.forEach((text, i) => {
+    // Отчёты дополнительных маршрутов — служебные файлы раннера в `.runner/`.
+    mkdirSync(run.paths.runnerDir, { recursive: true });
     writeFileSync(run.paths.verificationReport(run.chunk, run.attempt, i), text);
   });
   return run;

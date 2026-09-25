@@ -232,6 +232,76 @@ export function autofillVerificationReport(
   return { text: mech.text, filled: filled + mech.filled };
 }
 
+/**
+ * Строки шапки «Сверка с деревом» и «Свидетельства попытки» — фактами рантайма.
+ *
+ * Форма предлагает выбор из двух вариантов («да / нет — passed=false», «произведены
+ * инструментом / написаны исполнителем»), и без этой записи выбор делала модель — а
+ * вердикт по обоим условиям считает рантайм. `null`/`undefined` у факта — строка не
+ * трогается: сверки не было, и писать «да» было бы ложью в ту же сторону.
+ */
+export function writeEvidenceLines(
+  text: string,
+  facts: { diffMatchesTree: boolean | null | undefined; evidenceProblem: string | null | undefined },
+): { text: string; changed: boolean } {
+  const lines = text.split('\n');
+  let changed = false;
+  const put = (label: RegExp, value: string): void => {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const cr = line.endsWith('\r') ? '\r' : '';
+      const bare = cr === '' ? line : line.slice(0, -1);
+      const m = label.exec(bare);
+      if (m === null) continue;
+      const next = `${m[1]!}${value}${cr}`;
+      if (next !== line) {
+        lines[i] = next;
+        changed = true;
+      }
+      return;
+    }
+  };
+  if (facts.diffMatchesTree !== null && facts.diffMatchesTree !== undefined) {
+    put(
+      /^(\s*[-*]\s*\*\*Сверка с деревом:\*\*\s*)(.*)$/i,
+      facts.diffMatchesTree
+        ? 'перегенерированный `git diff` совпал с патчем: да (сверил рантайм побайтово)'
+        : 'перегенерированный `git diff` совпал с патчем: **нет — passed=false** (сверил рантайм побайтово)',
+    );
+  }
+  if (facts.evidenceProblem !== undefined) {
+    put(
+      /^(\s*[-*]\s*\*\*Свидетельства попытки:\*\*\s*)(.*)$/i,
+      facts.evidenceProblem === null
+        ? 'произведены инструментом (`evidence.json` на месте, хэши сошлись — сверил рантайм)'
+        : `**написаны исполнителем — свидетельством не считаются** (${facts.evidenceProblem})`,
+    );
+  }
+  return { text: lines.join('\n'), changed };
+}
+
+/**
+ * Статус и результат ОДНОЙ строки таблицы «Гейты» по имени гейта (ключ `gateKey`) —
+ * фактом рантайма, посчитанным после автозаполнения (сверка отчёта с набором — условие
+ * вердикта, а её строка стояла зелёной до расчёта). Строки нет — ничего не меняется.
+ */
+export function writeGateRowStatus(text: string, gateName: string, status: string, result: string): { text: string; changed: boolean } {
+  const lines = text.split('\n');
+  const key = gateKey(gateName);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (!line.trimStart().startsWith('|')) continue;
+    const cells = splitRow(line.trim());
+    if (cells.length < 3 || gateKey(cells[0] ?? '') !== key) continue;
+    const cr = line.endsWith('\r') ? '\r' : '';
+    const next = `| ${escapeCell(cells[0]!)} | ${status} | ${escapeCell(result.replace(/\s*\r?\n\s*/g, ' '))} |${cr}`;
+    if (next === line) return { text, changed: false };
+    lines[i] = next;
+    return { text: lines.join('\n'), changed: true };
+  }
+  return { text, changed: false };
+}
+
 /** Строка поля секции «Вердикт»: `- **passed:** …` — маркер списка и жирность прощаются. */
 function verdictFieldRe(label: string): RegExp {
   return new RegExp(`^(\\s*[-*]\\s*[*_]*${label}[*_]*\\s*:\\s*[*_]*\\s*)(.*)$`, 'i');

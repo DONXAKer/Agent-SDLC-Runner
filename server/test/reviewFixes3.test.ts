@@ -49,6 +49,8 @@ const blockedGate = {
   status: '⏭' as const,
   inapplicableSignedBy: null,
   envBlocked: true,
+  // Улика инструмента обязательна: без неё незапуск — обычный красный (`SDLC.md`).
+  missingTool: 'bash: java: command not found',
 };
 
 describe('blocked_env не отменяет остановки витка', () => {

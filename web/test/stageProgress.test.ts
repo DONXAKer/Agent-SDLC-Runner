@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 
 import type { StageId } from '@sdlc-runner/shared';
 
-import { computeStageStates, suggestedStage } from '../src/lib/stageProgress.ts';
+import { computeStageStates, redVerdictRoute, suggestedStage } from '../src/lib/stageProgress.ts';
 import type { StageProgressInput } from '../src/lib/stageProgress.ts';
 
 const ORDER: StageId[] = ['intent', 'explore', 'ask', 'plan', 'chunk', 'verify', 'handoff'];
@@ -39,14 +39,23 @@ describe('пропущенный условный этап и красный в�
       ['intent', 'explore', 'ask', 'plan', 'chunk', 'verify'],
       ['intent', 'explore', 'plan', 'chunk', 'verify'],
     );
-    strictEqual(suggestedStage(null, input, true), 'chunk');
+    strictEqual(suggestedStage(null, input, 'retry'), 'chunk');
     // Без вердикта прежнее правило в силе: первый доступный без артефактов.
-    strictEqual(suggestedStage(null, input, false), 'ask');
+    strictEqual(suggestedStage(null, input, null), 'ask');
   });
 
   it('красный вердикт ведёт на chunk и тогда, когда chunk закрыт до «Новой попытки»', () => {
     const input = stages(['intent', 'explore', 'ask', 'plan', 'verify'], ['intent', 'explore', 'plan', 'chunk', 'verify']);
-    strictEqual(suggestedStage(null, input, true), 'chunk');
+    strictEqual(suggestedStage(null, input, 'retry'), 'chunk');
+  });
+
+  it('escalate ведёт на handoff (обрыв), а не в закрытый chunk; blocked_env — без подсказки', () => {
+    const input = stages(['intent', 'explore', 'ask', 'plan', 'verify', 'handoff'], ['intent', 'explore', 'plan', 'chunk', 'verify']);
+    strictEqual(suggestedStage(null, input, 'escalate'), 'handoff');
+    strictEqual(redVerdictRoute({ passed: false, action: 'escalate' }), 'escalate');
+    strictEqual(redVerdictRoute({ passed: false, action: 'blocked_env' }), null);
+    strictEqual(redVerdictRoute({ passed: false, action: 'retry' }), 'retry');
+    strictEqual(redVerdictRoute({ passed: true, action: 'continue' }), null);
   });
 });
 

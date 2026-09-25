@@ -40,7 +40,7 @@ const WITOK_ARTIFACTS = new Set([
   'handoff.md',
   'gates.md',
 ]);
-const WITOK_ARTIFACT_RE = /^(chunk-\d+-journal\.md|verification-report-\d+-attempt-\d+\.md|self-review-\d+-attempt-\d+\.md|chunk-\d+-attempt-\d+-(diff\.patch|tests\.txt))$/i;
+const WITOK_ARTIFACT_RE = /^(chunk-\d+-journal\.md|plan-v\d+\.md|verification-report-\d+-attempt-\d+\.md|self-review-\d+-attempt-\d+\.md|chunk-\d+-attempt-\d+-(diff\.patch|tests\.txt|evidence\.json|review\.md))$/i;
 
 /** Файлы без расширения, которые встречаются в планах как обычные цели правки. */
 const EXTENSIONLESS = new Set([

@@ -33,6 +33,7 @@ function title(call: NormalizedCall): string {
 
 const POLICY_LABEL: Record<string, string> = {
   pathScope: 'за пределами проекта',
+  readScope: 'закрыто на чтение по устройству этапа',
   denyList: 'запрещённая категория',
   planScope: 'вне files_to_touch плана',
   stageTools: 'инструмент не разрешён на этапе',

@@ -1,10 +1,48 @@
 /** Этап 1 — цель витка: определение этапа и его проверки. */
 
+import { existsSync } from 'node:fs';
+
+import type { StageId } from '@sdlc-runner/shared';
+
 import { DecisionFormError, readArtifact, readField, setDecision } from '../../artifacts/artifact.ts';
+import { writeIntentSnapshot } from '../../artifacts/intentSections.ts';
 import { currentBranch, isRepo } from '../../gates/git.ts';
 import { autofillReadiness } from '../formAutofill.ts';
-import { claimsMinimum, intentPlaceholderCount } from './preconditions.ts';
+import { claimsMinimum, intentPlaceholderCount, readinessVerdict } from './preconditions.ts';
 import type { SeededArtifact, StageContext, StageDef, StageHost, StageModule } from './types.ts';
+
+/**
+ * Снимок секций `intent.md` (`SDLC.md` → «Вердикт», восьмое условие): снимается на первом
+ * прогоне готовности и заново — после одобрения плана. `force` — пересъёмка (одобрение
+ * плана: с этого момента лист снова неизменяем); без него — только если снимка ещё нет.
+ * Пропускается, пока прогон 1 готовности не сказал «готова»: задача ещё правится по праву.
+ */
+export function ensureIntentSnapshot(
+  host: StageHost,
+  stage: StageId,
+  opts: { force?: boolean; why?: string } = {},
+): boolean {
+  const intent = readArtifact(host.paths.intent);
+  if (!intent.exists) return false;
+  const path = host.paths.intentSections;
+  if (!opts.force && existsSync(path)) return false;
+  if (!opts.force) {
+    const readiness = readArtifact(host.paths.readiness);
+    if (!readiness.exists || readinessVerdict(readiness.text, 1) !== 'ready') return false;
+  }
+  writeIntentSnapshot(path, intent.text);
+  host.emit({
+    type: 'warning',
+    runId: host.id,
+    stage,
+    message:
+      opts.why ??
+      (stage === 'intent'
+        ? 'снимок секций задачи снят: с этого момента intent.md правится только тремя законными правками'
+        : `снимок секций задачи снят только сейчас (этап ${stage}): правки задачи до этого момента не проверены`),
+  });
+  return true;
+}
 
 /**
  * Факт прогона для этапа 1: на какой ветке РЕАЛЬНО стоит рабочее дерево.
@@ -145,6 +183,12 @@ export const intentModule: StageModule = {
     // модели гадать не о чем. Только на intent — это единственный этап, где поле ещё не
     // заполнено (`branchMismatchBlocker` сверяет его на входе plan/chunk/verify/handoff).
     autofill: (seeded) => autofillBranchField(host, seeded),
+
+    // Снимок секций задачи — по факту готовности (прогон 1 сказал «готова»): дальше
+    // intent.md правится только тремя законными правками, и этапы 4 и 6 сверяют с ним.
+    evidence: async () => {
+      ensureIntentSnapshot(host, 'intent');
+    },
 
     // Полнота intent.md — здесь, а не только предусловием этапа 2. `notDone()`
     // выше видит только «файл тронут vs пустой бланк»: дозаполнение, тронувшее

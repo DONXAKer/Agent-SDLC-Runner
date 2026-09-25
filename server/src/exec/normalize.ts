@@ -46,6 +46,31 @@ const NAME_TO_KIND = new Map<string, CallKind>([
 ]);
 
 /**
+ * Имя инструмента в канонической форме: нижний регистр без `_` и `-`.
+ *
+ * Модели школы harmony (gpt-oss) пишут имена инструментов строчными и в стиле
+ * `apply_patch`: за одну попытку это дало пять отказов «инструмент не объявлен» на вызовах
+ * `grep`/`read`/`glob` с ВЕРНЫМИ аргументами (bench, rename-field и vat-rounding,
+ * 2026-09-24) — ход сгорал на регистре, а не на правах. Политика от этого не слабеет:
+ * вызов приводится к тому же `NormalizedCall`, и права по-прежнему проверяет `stageTools`.
+ */
+function canonToolName(name: string): string {
+  return name.toLowerCase().replace(/[_-]/g, '');
+}
+
+/**
+ * Канонические формы ключей `NAME_TO_KIND` — выведены из неё же, а не выписаны руками:
+ * новый инструмент иначе получал бы алиас только в одной из двух карт. `Map` по той же
+ * причине, что и выше: у литерала ключ `toString` нашёлся бы функцией.
+ *
+ * Внешние MCP-инструменты этим не задеты: их имя несёт префикс `mcp__`, а он в
+ * канонической форме остаётся (`mcp__unreal__read` → `mcpunrealread`) и в карту не попадает.
+ */
+const CANON_TO_KIND = new Map<string, CallKind>(
+  [...NAME_TO_KIND].map(([n, k]): [string, CallKind] => [canonToolName(n), k]),
+);
+
+/**
  * Ключи, под которыми инструменты файла передают путь, — в порядке приоритета. Экспорт для
  * обратной операции «подставить путь» (`approval/artifactAddress.ts`): знание об именах
  * аргументов живёт здесь одном, иначе новый алиас разъехался бы между чтением и подстановкой.
@@ -192,9 +217,41 @@ export function parseMcpName(toolName: string): { server: string; tool: string }
   return { server, tool };
 }
 
+/**
+ * Типы ripgrep (`Grep {type}`) → шаблон имён, по определениям `rg --type-list` для частых
+ * типов. `Map`, а не литерал: ключ `toString` не должен найтись.
+ */
+const RG_TYPE_GLOBS = new Map<string, string>([
+  ['js', '*.{js,jsx,mjs,cjs,vue}'],
+  ['ts', '*.{ts,tsx,mts,cts}'],
+  ['py', '*.{py,pyi}'],
+  ['java', '*.java'],
+  ['kotlin', '*.{kt,kts}'],
+  ['go', '*.go'],
+  ['rust', '*.rs'],
+  ['cs', '*.cs'],
+  ['csharp', '*.cs'],
+  ['cpp', '*.{cpp,cc,cxx,hpp,hh,hxx,h}'],
+  ['c', '*.{c,h}'],
+  ['ruby', '*.rb'],
+  ['php', '*.php'],
+  ['swift', '*.swift'],
+  ['scala', '*.scala'],
+  ['sh', '*.{sh,bash}'],
+  ['json', '*.json'],
+  ['yaml', '*.{yaml,yml}'],
+  ['toml', '*.toml'],
+  ['xml', '*.xml'],
+  ['html', '*.{html,htm,ejs}'],
+  ['css', '*.{css,scss}'],
+  ['sql', '*.sql'],
+  ['md', '*.{md,markdown,mdown,mdwn,mkd,mkdn,mdx}'],
+  ['markdown', '*.{md,markdown,mdown,mdwn,mkd,mkdn,mdx}'],
+]);
+
 export function normalize(toolName: string, input: Record<string, unknown>): NormalizedCall {
   const name = baseToolName(toolName);
-  const kind = NAME_TO_KIND.get(name);
+  const kind = NAME_TO_KIND.get(name) ?? CANON_TO_KIND.get(canonToolName(name));
 
   if (kind === undefined) {
     const mcp = parseMcpName(toolName);
@@ -228,8 +285,13 @@ export function normalize(toolName: string, input: Record<string, unknown>): Nor
     case 'grep': {
       const pattern = str(input, 'pattern');
       if (pattern === null) return { kind: 'unknown', toolName, raw: input };
-      const glob = str(input, 'glob');
-      return { kind: 'grep', pattern, path: str(input, 'path'), ...(glob === null || glob === '' ? {} : { glob }) };
+      // Фильтр имён — `glob`, а при его отсутствии `type` ripgrep'а, переведённый в тот же
+      // шаблон: по фильтру политика решает, задевает ли поиск закрытые отчёты, и `Grep
+      // {type:'ts'}` от корня иначе отклонялся как поиск без фильтра (code-review-all
+      // 2026-09-23). Незнакомый тип фильтром не считается — худший случай.
+      const explicit = str(input, 'glob');
+      const glob = explicit !== null && explicit !== '' ? explicit : RG_TYPE_GLOBS.get((str(input, 'type') ?? '').toLowerCase()) ?? null;
+      return { kind: 'grep', pattern, path: str(input, 'path'), ...(glob === null ? {} : { glob }) };
     }
 
     case 'write': {

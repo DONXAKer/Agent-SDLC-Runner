@@ -442,7 +442,7 @@ describe('запись снапшота метрик не роняет этап'
     const root = tempRoot();
     // `metrics.json` — каталог: запись обязана упасть, но исход этапа считает этап, а не
     // наблюдаемость. Ревью: `catch` в `writeMetricsSnapshot` не был покрыт ничем.
-    mkdirSync(join(root, '.sdlc', 'demo', 'metrics.json'), { recursive: true });
+    mkdirSync(join(root, '.sdlc', 'demo', '.runner', 'metrics.json'), { recursive: true });
 
     const events: RunEvent[] = [];
     const outcome = await runIntentWithStub(root, events);
@@ -495,7 +495,8 @@ describe('сквозной: runStage пишет metrics.json и metrics.md', () 
       // Модель-заглушка не заполнила бланк — этап честно падает; это ожидаемо.
       strictEqual(outcome.ok, false);
 
-      const dir = join(root, '.sdlc', 'demo');
+      // Служебные файлы раннера — в `.runner/`: методология считает `.sdlc/<slug>/*.md` своими.
+      const dir = join(root, '.sdlc', 'demo', '.runner');
       const jsonPath = join(dir, 'metrics.json');
       const mdPath = join(dir, 'metrics.md');
       ok(existsSync(jsonPath), 'metrics.json записан в finally этапа');

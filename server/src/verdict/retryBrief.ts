@@ -50,6 +50,12 @@ export interface RetryDetail {
   whatToFix?: ReadonlyMap<string, string>;
   /** Находки ревью §2–§5: суть и место. `anchored` — ссылка на место нашлась в патче. */
   findings?: readonly { text: string; evidence: string; anchored: boolean }[];
+  /**
+   * `retry_instruction` рецензента — одна строка «что чинить в первую очередь». Считалась
+   * (`reviewJson.ts`) и не подавалась: gpt-oss-20b три попытки подряд не тронул `sku !== ''`,
+   * дважды сделав правку old==new ровно на этом пункте (rename-field, 2026-09-25).
+   */
+  retryInstruction?: string;
 }
 
 /**
@@ -130,6 +136,13 @@ export function buildRetryBrief(
   detail?: RetryDetail,
 ): string | null {
   const sections: string[] = [];
+
+  // Первой строкой — потому что это единственное место брифа, где рецензент назвал
+  // приоритет; ниже идут факты без порядка важности.
+  const instruction = detail?.retryInstruction?.trim() ?? '';
+  if (instruction !== '' && !/^н\/п$/i.test(instruction)) {
+    sections.push(`Рецензент: в первую очередь — ${instruction}`);
+  }
 
   const failedClaims = input.claims.filter((c) => c.status !== '✅' && c.status !== 'manual');
   if (failedClaims.length > 0) {

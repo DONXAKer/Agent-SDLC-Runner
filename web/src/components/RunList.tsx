@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import type { RunSummary } from '@sdlc-runner/shared';
 
 import { fmtCost, fmtDuration } from '../lib/format.ts';
 import { statusLabel, statusTone } from '../lib/runStatus.ts';
+import { useVisiblePoll } from '../lib/useVisiblePoll.ts';
 
 /**
  * Витки, открытые в этом процессе сервера.
@@ -52,12 +53,7 @@ export function RunList({
 
   // Списку больше не нужна только ручная кнопка «обновить»: он тянет состояние сам.
   // На скрытой вкладке тики пропускаются — фоновый опрос ушедшего оператора ни к чему.
-  useEffect(() => {
-    const t = setInterval(() => {
-      if (!document.hidden) onAutoRefresh();
-    }, AUTO_REFRESH_MS);
-    return () => clearInterval(t);
-  }, [onAutoRefresh]);
+  useVisiblePoll(onAutoRefresh, AUTO_REFRESH_MS);
 
   // Ждущие человека — первыми: виток, крутящийся сам, и виток, стоящий на решении,
   // выглядели одинаково, хотя второй — единственный, где человек нужен прямо сейчас.

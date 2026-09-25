@@ -14,8 +14,6 @@
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
 
 import type { Usage } from '@sdlc-runner/shared';
 import { describeCall, emptyUsage } from '@sdlc-runner/shared';
@@ -71,7 +69,9 @@ function sdlcMcpServer(
       // Второй заход сюда давал оператору ДВЕ карточки на один вопрос, и закрытие только
       // одной оставляло вторую висеть неотвеченной.
       const answers = await hooks.onAskHuman(call);
-      return { content: [{ type: 'text' as const, text: JSON.stringify(answers, null, 2) }] };
+      const note = hooks.afterAskHuman?.(call, answers) ?? null;
+      const text = JSON.stringify(answers, null, 2) + (note === null ? '' : `\n\n${note}`);
+      return { content: [{ type: 'text' as const, text }] };
     },
   );
 
@@ -164,16 +164,6 @@ function sdlcMcpServer(
     version: '0.1.0',
     tools: registered,
   });
-}
-
-/**
- * Каталог сессий Claude Code для проекта: `<CLAUDE_CONFIG_DIR или ~/.claude>/projects/<cwd>`,
- * где `<cwd>` — путь с заменой всего, кроме латиницы и цифр, на `-` (так его кодирует сам
- * Claude Code). Туда харнесс складывает длинный вывод инструментов (`PolicyContext.harnessResultsRoot`).
- */
-export function claudeProjectDir(projectRoot: string): string {
-  const base = process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude');
-  return join(base, 'projects', resolve(projectRoot).replace(/[^A-Za-z0-9]/g, '-'));
 }
 
 /**
@@ -270,6 +260,12 @@ export class SdkExecutor implements StageExecutor {
      * спросил второй раз.
      */
     const decided = new Map<string, { allow: true; updatedInput: Record<string, unknown> | null } | { allow: false; message: string }>();
+    /**
+     * Каталог текущей сессии — из `transcript_path` хука, а не вычислением по корню проекта:
+     * кодирование пути у Claude Code внутреннее (и усекает длинные пути), а открыть на
+     * чтение надо только СВОЮ сессию, не все сессии проекта (code-review-all 2026-09-23).
+     */
+    let sessionDir: string | null = null;
     const decide = async (
       toolName: string,
       input: unknown,
@@ -287,6 +283,7 @@ export class SdkExecutor implements StageExecutor {
         // Во флоу `sdk` вложенные прогоны крутит сам SDK, и своего списка прав у
         // вызова здесь нет — правами вызывающего остаются права этапа.
         callerTools: req.allowedTools,
+        sdk: { sessionDir },
       });
       if (!decision.allowed) {
         hooks.onToolResult({
@@ -373,6 +370,9 @@ export class SdkExecutor implements StageExecutor {
               hooks: [
                 async (input, toolUseID) => {
                   if (input.hook_event_name !== 'PreToolUse') return {};
+                  if (typeof input.transcript_path === 'string' && input.transcript_path !== '') {
+                    sessionDir = input.transcript_path.replace(/\.jsonl$/i, '');
+                  }
                   const id = toolUseID ?? input.tool_use_id;
                   const d = await decide(input.tool_name, input.tool_input, id);
                   return d.allow

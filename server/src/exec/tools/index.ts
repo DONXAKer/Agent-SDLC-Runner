@@ -14,15 +14,15 @@
 import type { Dirent } from 'node:fs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { glob } from 'node:fs/promises';
-import { dirname, join, matchesGlob, relative, resolve as resolvePath } from 'node:path';
+import { dirname, join, relative, resolve as resolvePath } from 'node:path';
 
 import type { ArtifactKey, NormalizedCall } from '@sdlc-runner/shared';
 
 import { applyFill } from '../../artifacts/applyFill.ts';
 import { applyExactReplace } from '../../artifacts/artifact.ts';
-import { findLooseRange } from '../editMatch.ts';
+import { adaptEol, findLooseRange } from '../editMatch.ts';
 import { resolveTsSpecifier } from '../../fs/tsSpecifier.ts';
-import { resolveUserPath, toPosix } from '../../policy/paths.ts';
+import { compileSearchFilter, isWindowsStyle, resolveUserPath, toPosix } from '../../policy/paths.ts';
 import { runShell } from '../../gates/shell.ts';
 import { templateNameFor } from '../../run/seed.ts';
 
@@ -283,7 +283,8 @@ function editTool(call: NormalizedCall & { kind: 'edit' }, ctx: ToolContext): To
   let text = readFileSync(abs, 'utf8');
   const applied: string[] = [];
 
-  for (const [i, e] of call.edits.entries()) {
+  for (const [i, raw] of call.edits.entries()) {
+    const e = adaptEol(text, raw);
     const count = text.split(e.oldStr).length - 1;
     if (count === 0) {
       // Дословно не нашлось — пробуем то же место с точностью до переносов строк
@@ -380,6 +381,51 @@ async function globTool(
  */
 const GREP_BUDGET_MS = 20_000;
 
+/** `pattern` как буквальный текст поиска — экранированный, не составленный регулярным выражением. */
+function escapeRegExpLiteral(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function tryRegExp(pattern: string, flags: string): RegExp | null {
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Разбор `pattern` от модели, прежде чем сдаться классу «выражение не разобралось»
+ * (серия local6, 2026-09-24: модель потеряла ход на `/product(/i` — незакрытая группа,
+ * записанная в синтаксисе JS regex-литерала, который сам конструктор `RegExp` не понимает
+ * как обёртку — слэши для него обычные символы паттерна):
+ *
+ * 1. как есть (обычный случай);
+ * 2. буквальный поиск подстроки — если `pattern` похож на обёртку `/…/flags`, ищем текст
+ *    ИЗ НЕЁ (то, что модель хотела найти), иначе экранируем строку целиком; в любом случае
+ *    результат честно помечается (не молчаливая подмена несуществующей регулярки текстом,
+ *    который мог значить другое).
+ *
+ * Снять обёртку и заново собрать РЕГУЛЯРКУ из внутреннего текста намеренно не пытаемся:
+ * слэши в паттерне `RegExp` не имеют особого смысла, и если внутренний текст сам по себе
+ * был невалиден (незакрытая группа/класс символов) — он остаётся невалидным что с
+ * обёрткой, что без; единственное, что обёртка меняет, — это на что литерально смотреть.
+ *
+ * Экранированная строка — всегда валидная регулярка, поэтому фолбэк практически не
+ * возвращает `null`; он остаётся `null`-способным только на случай патологического входа
+ * (движок регулярных выражений и на экранированную строку теоретически может отказать по
+ * длине/сложности), а не как рабочий путь отказа.
+ */
+function compileGrepPattern(pattern: string): { re: RegExp; literal: boolean; literalText: string } | null {
+  const direct = tryRegExp(pattern, 'i');
+  if (direct !== null) return { re: direct, literal: false, literalText: pattern };
+
+  const wrapped = /^\/(.*)\/[a-zA-Z]*$/.exec(pattern);
+  const literalText = wrapped === null ? pattern : wrapped[1]!;
+  const literal = tryRegExp(escapeRegExpLiteral(literalText), 'i');
+  return literal === null ? null : { re: literal, literal: true, literalText };
+}
+
 /**
  * Отказ по вложенному повторению (`(a+)+`) живёт в `policy/denyList.ts`, а не здесь:
  * решения «можно/нельзя» принимают общие для обоих флоу чистые функции, и правило,
@@ -390,14 +436,20 @@ async function grepTool(
   call: NormalizedCall & { kind: 'grep' },
   ctx: ToolContext,
 ): Promise<ToolOutcome> {
-  let re: RegExp;
-  try {
-    re = new RegExp(call.pattern, 'i');
-  } catch (e) {
-    return { ok: false, text: `выражение не разобралось: ${(e as Error).message}` };
+  const compiled = compileGrepPattern(call.pattern);
+  if (compiled === null) {
+    return { ok: false, text: `выражение не разобралось и не разобралось даже буквально: «${call.pattern.slice(0, 200)}»` };
   }
+  const re = compiled.re;
+  const literalNote = compiled.literal
+    ? `⚠ выражение «${call.pattern.slice(0, 120)}» не разобралось как регулярка — ` +
+      `искал буквальным текстом «${compiled.literalText.slice(0, 120)}».\n`
+    : '';
 
   const base = call.path === null ? ctx.projectRoot : resolveUserPath(ctx.projectRoot, call.path);
+  // Фильтр разбирается один раз на вызов и той же функцией, что у политики, — регистр по
+  // тому же признаку корня проекта (`isWindowsStyle`), а не по платформе процесса.
+  const passes = call.glob === undefined ? null : compileSearchFilter(call.glob, 'grep', isWindowsStyle(ctx.projectRoot));
   const hits: string[] = [];
   const MAX_HITS = 200;
   const deadline = Date.now() + GREP_BUDGET_MS;
@@ -450,10 +502,7 @@ async function grepTool(
       // закрытые файлы (`pathScope::deniedInScope`): без `/` — имя файла, иначе путь от
       // каталога поиска. Игнорировать его значило бы пропустить мимо политики то, что она
       // разрешила только с фильтром.
-      if (call.glob !== undefined) {
-        const target = call.glob.includes('/') ? toPosix(relative(base, abs)) : entry.name;
-        if (!matchesGlob(target, call.glob)) continue;
-      }
+      if (passes !== null && !passes(entry.name, toPosix(relative(base, abs)))) continue;
       let content: string;
       try {
         // Бинарные и огромные файлы пропускаем: искать в них нечего, а память они съедят.
@@ -492,13 +541,13 @@ async function grepTool(
   const cut = stopped === null ? '' : `\n…[${stopped}: дерево просмотрено НЕ полностью]`;
 
   if (hits.length === 0) {
-    return { ok: true, text: stopped === null ? 'совпадений нет' : `совпадений нет.${cut}` };
+    return { ok: true, text: literalNote + (stopped === null ? 'совпадений нет' : `совпадений нет.${cut}`) };
   }
   const note = hits.length >= MAX_HITS ? `\n…[показаны первые ${MAX_HITS} совпадений]` : '';
   // Пометка идёт ПЕРЕД совпадениями: `cap` режет хвост, и предупреждение о неполноте
   // исчезало бы ровно на длинном результате, где оно нужнее всего.
   const body = cut === '' ? '' : `${cut.trim()}\n`;
-  return { ok: true, text: cap(body + hits.join('\n') + note, ctx.maxResultBytes) };
+  return { ok: true, text: cap(literalNote + body + hits.join('\n') + note, ctx.maxResultBytes) };
 }
 
 async function bashTool(

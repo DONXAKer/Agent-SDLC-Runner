@@ -49,6 +49,10 @@ function dropMetrics(root: string, slug: string): void {
   const paths = new WitokPaths(root, slug);
   rmSync(paths.metrics, { force: true });
   rmSync(paths.metricsReport, { force: true });
+  // Прежнее место чисел (до `.runner/`): `Run` читает его как запасное для витков,
+  // начатых раньше, — снимок контрольного прогона той поры нёс бы чужие числа тем же путём.
+  rmSync(paths.metricsLegacy, { force: true });
+  rmSync(join(paths.dir, 'metrics.md'), { force: true });
 }
 
 export class SnapshotError extends Error {}

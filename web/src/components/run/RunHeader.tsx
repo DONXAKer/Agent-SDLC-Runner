@@ -14,6 +14,7 @@ export function RunHeader({
   onConfirmCancel,
   onCancel,
   onExit,
+  onOpenDashboard,
 }: {
   detail: RunDetail;
   connected: boolean;
@@ -23,12 +24,18 @@ export function RunHeader({
   onConfirmCancel: (v: boolean) => void;
   onCancel: () => void;
   onExit: () => void;
+  onOpenDashboard?: () => void;
 }): JSX.Element {
   return (
     <header className="flex items-center gap-4 border-b border-neutral-800 px-4 py-2.5">
       <button type="button" onClick={onExit} className="text-sm text-neutral-400 hover:text-neutral-200">
         ←
       </button>
+      {onOpenDashboard !== undefined ? (
+        <button type="button" onClick={onOpenDashboard} className="text-xs text-neutral-400 hover:text-neutral-200" title="все запуски">
+          запуски
+        </button>
+      ) : null}
       <div className="min-w-0">
         {/* Крошки: проект · slug одним моноширинным блоком — это идентичность витка,
             а не предложение. Полный корень не помещается в строку: хвост в тексте,

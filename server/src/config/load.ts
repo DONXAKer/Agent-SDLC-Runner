@@ -158,6 +158,8 @@ function envOverrides(): Partial<RunnerConfig> {
   if (skillsDir !== undefined) overrides.skillsDir = skillsDir;
   if (agentsDir !== undefined) overrides.agentsDir = agentsDir;
   if (methodologyDir !== undefined) overrides.methodologyDir = methodologyDir;
+  const benchDir = nonBlank(process.env['SDLC_BENCH_DIR']);
+  if (benchDir !== undefined) overrides.benchDir = benchDir;
   const port = portOverride();
   if (port !== undefined) overrides.port = port;
   return overrides;
@@ -266,6 +268,10 @@ export function loadConfig(dir: string = configDir()): LoadedConfig {
     agentsDir: expand(nonBlank(merged.agentsDir) ?? fromMethodology('agents')),
     methodologyDir,
   };
+  // Пустое значение — «не задано»: дашборд возьмёт `bench/` рядом с сервером.
+  const benchDir = typeof merged.benchDir === 'string' ? nonBlank(merged.benchDir) : undefined;
+  if (benchDir === undefined) delete runner.benchDir;
+  else runner.benchDir = expand(benchDir);
   const models = readJson<ModelsConfig>(join(dir, 'models.json'));
 
   const projectsDir = join(dir, 'projects');

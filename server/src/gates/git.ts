@@ -12,6 +12,8 @@ export interface GitResult {
   code: number | null;
   stdout: string;
   stderr: string;
+  /** Вывод обрезан потолком захвата — `stdout` НЕ полон (пометка стоит и в `stderr`). */
+  truncated: boolean;
 }
 
 /** Потолок на одну git-команду. Локальные и read-only, но дерево бывает огромным. */
@@ -29,8 +31,12 @@ export function git(args: string[], cwd: string, signal?: AbortSignal): Promise<
       signal,
     });
 
-    const out: string[] = [];
-    const err: string[] = [];
+    // Байты копятся буферами и декодируются ОДИН раз в конце: покусочное `toString('utf8')`
+    // резало многобайтовый символ на границе 64-КБ чанка в U+FFFD, и патч попытки на
+    // кириллическом diff'е > 64 КБ переставал быть «байт в байт» — sha256 плавал между
+    // прогонами на неизменном дереве (ревью, подтверждено пробой).
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
     let size = 0;
     let settled = false;
     let timedOut = false;
@@ -44,14 +50,13 @@ export function git(args: string[], cwd: string, signal?: AbortSignal): Promise<
     }, GIT_TIMEOUT_MS);
 
     let truncated = false;
-    const collect = (bucket: string[], d: Buffer): void => {
+    const collect = (bucket: Buffer[], d: Buffer): void => {
       if (size >= GIT_MAX_OUTPUT) {
         truncated = true;
         return;
       }
-      const chunk = d.toString('utf8');
-      size += chunk.length;
-      bucket.push(chunk);
+      size += d.length;
+      bucket.push(d);
     };
     child.stdout.on('data', (d: Buffer) => collect(out, d));
     child.stderr.on('data', (d: Buffer) => collect(err, d));
@@ -65,9 +70,14 @@ export function git(args: string[], cwd: string, signal?: AbortSignal): Promise<
       // diff'а, и молча урезанный вывод даёт им «чисто» ровно там, где смотреть было
       // нечего. Отсутствие доказательства не есть доказательство отсутствия.
       const cut = truncated
-        ? `\n[рантайм] вывод git обрезан на ${GIT_MAX_OUTPUT} символах — проверено НЕ ВСЁ`
+        ? `\n[рантайм] вывод git обрезан на ${GIT_MAX_OUTPUT} байтах — проверено НЕ ВСЁ`
         : '';
-      resolve({ code, stdout: out.join(''), stderr: err.join('') + (extra ?? '') + note + cut });
+      resolve({
+        code,
+        stdout: Buffer.concat(out).toString('utf8'),
+        stderr: Buffer.concat(err).toString('utf8') + (extra ?? '') + note + cut,
+        truncated,
+      });
     };
     child.on('error', (e) => done(null, e.message));
     child.on('close', (code) => done(code));
@@ -110,7 +120,7 @@ export async function changedPaths(cwd: string, signal?: AbortSignal): Promise<s
   const base = (await hasCommits(cwd))
     ? ['diff', '--ignore-cr-at-eol', '--name-only', '--relative', 'HEAD', '--', '.']
     : [];
-  const tracked = base.length > 0 ? await git(base, cwd, signal) : { code: 0, stdout: '', stderr: '' };
+  const tracked = base.length > 0 ? await git(base, cwd, signal) : { code: 0, stdout: '', stderr: '', truncated: false };
   const untracked = await git(['ls-files', '--others', '--exclude-standard', '--', '.'], cwd, signal);
   return [...new Set([...lines(tracked.stdout), ...lines(untracked.stdout)])].sort();
 }
@@ -175,6 +185,72 @@ export async function workingDiff(
     );
   }
   return parts.join('\n');
+}
+
+/**
+ * Кэш-мусор — тот же список, что `junk-names.sh` репозитория методологии: нетракованный
+ * `.pyc` в проекте без `.gitignore` — не работа chunk'а, в патч попытки не входит.
+ */
+const JUNK_DIRS = new Set(['__pycache__', '.pytest_cache', '.mypy_cache', 'node_modules']);
+const JUNK_FILES = /(^|\/)(\.DS_Store|Thumbs\.db)$|\.pyc$|\.pyo$/;
+
+export function isJunkPath(path: string): boolean {
+  const norm = path.replace(/\\/g, '/');
+  return norm.split('/').some((p) => JUNK_DIRS.has(p)) || JUNK_FILES.test(norm);
+}
+
+/**
+ * Патч попытки — тем же способом, что `attempt-evidence.py` методологии, байт в байт:
+ * `git diff <base_sha> -- . :(exclude).sdlc` с полным контекстом и без `--ignore-cr-at-eol`
+ * (патч обязан быть применим `git apply`, а сверка этапа 6 и терминальный инструмент
+ * перегенерируют его тем же вызовом), плюс новые нетракованные файлы через `--no-index`
+ * против `/dev/null` (git на Windows понимает этот путь сам), без кэш-мусора.
+ *
+ * База — `base_sha` плана; без неё (нет базы в плане, репозиторий без коммитов) — от HEAD
+ * либо от индекса. Ошибка git — исключение, а не пустая строка: пустой патч — отдельный
+ * исход попытки («дерево не изменилось»), и подменять им сбой значит выдать сбой за факт.
+ *
+ * `workingDiff` (ниже) остаётся входом встроенных гейтов: у них своя семантика (`-U0`,
+ * игнорирование CR на CRLF-репозиториях).
+ */
+export async function attemptDiff(
+  cwd: string,
+  opts: { baseSha: string | null; signal?: AbortSignal | undefined },
+): Promise<string> {
+  if (!(await isRepo(cwd))) return '';
+  const base = opts.baseSha !== null ? [opts.baseSha] : (await hasCommits(cwd)) ? ['HEAD'] : [];
+  const tracked = await git(['diff', ...base, '--', '.', SDLC_EXCLUDE], cwd, opts.signal);
+  if (tracked.code !== 0) {
+    throw new Error(`git diff ${base.join(' ')}: код ${tracked.code}${tracked.stderr.trim() === '' ? '' : ` — ${tracked.stderr.trim()}`}`);
+  }
+  // Обрезанный патч — не патч: молча урезанная улика читалась бы как полная (и не легла бы
+  // `git apply`), поэтому это отказ, а не результат.
+  if (tracked.truncated) throw new Error(`git diff: вывод больше потолка ${GIT_MAX_OUTPUT} байт — патч попытки не снят`);
+  const untracked = await git(['ls-files', '--others', '--exclude-standard', '--', '.', SDLC_EXCLUDE], cwd, opts.signal);
+  if (untracked.code !== 0) throw new Error(`git ls-files --others: код ${untracked.code}`);
+
+  let out = tracked.stdout;
+  // Имена — как их печатает git (без trim: пробел в имени — часть имени).
+  const newFiles = untracked.stdout
+    .split(/\r?\n/)
+    .filter((p) => p !== '' && !isJunkPath(p))
+    .sort();
+  for (const file of newFiles.slice(0, MAX_UNTRACKED_DIFFS)) {
+    // Прерывание — отказ, не частичный патч: неполная улика с sha256 читалась бы как полная.
+    if (opts.signal?.aborted === true) throw new Error('снятие патча прервано отменой этапа');
+    const d = await git(['diff', '--no-index', '--', '/dev/null', file], cwd, opts.signal);
+    // `--no-index` отдаёт 1, когда файлы различаются, — это штатный исход, а не ошибка.
+    if (d.code !== 0 && d.code !== 1) throw new Error(`git diff --no-index ${file}: код ${d.code}`);
+    if (d.truncated) throw new Error(`git diff --no-index ${file}: вывод больше потолка — патч попытки не снят`);
+    out += d.stdout;
+  }
+  if (newFiles.length > MAX_UNTRACKED_DIFFS) {
+    throw new Error(
+      `неотслеживаемых файлов ${newFiles.length} — больше потолка ${MAX_UNTRACKED_DIFFS}; ` +
+        'патч попытки не снят: неполный патч читался бы как полный',
+    );
+  }
+  return out;
 }
 
 export async function deletedPaths(cwd: string, signal?: AbortSignal): Promise<string[]> {

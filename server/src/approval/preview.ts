@@ -12,7 +12,7 @@
 import { readFileSync, statSync } from 'node:fs';
 
 import { applyFill } from '../artifacts/applyFill.ts';
-import { findLooseRange } from '../exec/editMatch.ts';
+import { adaptEol, findLooseRange } from '../exec/editMatch.ts';
 import { resolveUserPath } from '../policy/paths.ts';
 import { templateNameFor } from '../run/seed.ts';
 import type { ArtifactKey, DiffPreview, NormalizedCall } from '@sdlc-runner/shared';
@@ -32,8 +32,9 @@ export function applyEdits(
   edits: readonly { oldStr: string; newStr: string; replaceAll: boolean }[],
 ): string {
   let text = source;
-  for (const e of edits) {
-    if (e.oldStr === '') throw new EditApplyError('пустой old_string — нечего заменять');
+  for (const raw of edits) {
+    if (raw.oldStr === '') throw new EditApplyError('пустой old_string — нечего заменять');
+    const e = adaptEol(text, raw);
 
     const first = text.indexOf(e.oldStr);
     if (first < 0) {

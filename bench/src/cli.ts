@@ -46,6 +46,7 @@ import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
 import { draftJournalEntry } from './journal.ts';
 import { createProgressPrinter } from './progress.ts';
+import { createRunStateWriter } from './runState.ts';
 
 const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RESULTS_DIR = join(BENCH_DIR, 'results');
@@ -281,7 +282,9 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     const route = built.profile.routes[stage];
     const problem = await contextProblemFor(route.provider, route.model, route.contextWindow, route.providerDef.baseUrl);
     if (problem !== null) {
-      console.error(`\nокно контекста (этап «${stage}»): ${problem}`);
+      // `contextProblemFor` возвращает объект (`ContextProblem`), а не строку: интерполяция
+      // целиком печатала «[object Object]» вместо причины.
+      console.error(`\nокно контекста (этап «${stage}»): ${problem.message}`);
       wsDispose();
       return { code: 2, hidden: null, durationMs: 0, rawLogDisabled: null };
     }
@@ -335,10 +338,40 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     routeFor: (stage) => built.routes[stage],
     write: logLine,
   });
+  // Машинное состояние прогона для дашборда (`runState.ts`): pid, рабочая копия, этапы.
+  const runState = createRunStateWriter(dirname(progressFile), {
+    slug: opts.slug,
+    model: opts.model,
+    task: opts.task,
+    pid: process.pid,
+    workspace: wsRoot,
+    startedAt: new Date().toISOString(),
+    mode: opts.mode,
+    routes: built.routes,
+    measured: [...built.measured],
+    startStage: startStage ?? 'intent',
+    currencies: built.currencies,
+  });
+  /**
+   * Исключение до `try` прогона (оператор, создание `Run`) — тоже конец прогона: без записи
+   * его состояние оставалось бы «идёт», а в `--repeat` процесс жив до конца серии.
+   */
+  const guard = <T,>(f: () => T): T => {
+    try {
+      return f();
+    } catch (e) {
+      runState.exception(e instanceof Error ? e.message : String(e));
+      runState.close();
+      throw e;
+    }
+  };
   const collector = createCollector({
     projectRoot: () => wsRoot,
     slug: () => opts.slug,
-    onEvent: progress,
+    onEvent: (e) => {
+      progress(e);
+      runState.onEvent(e);
+    },
   });
 
   // Коллектор и автоответчик — два независимых подписчика ОДНОГО и того же потока
@@ -409,15 +442,15 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     }),
   );
 
-  const operatorHandle = attachOperator({
+  const operatorHandle = guard(() => attachOperator({
     gate: approvalBus,
     askGate: askBus,
     runId: () => runId,
     script,
     log: operatorLog,
-  });
+  }));
 
-  const run = new Run({
+  const run = guard(() => new Run({
     config,
     project: built.project,
     profile: built.profile,
@@ -431,7 +464,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     // `costUsd === null`, то есть измеряемая модель не тратила НИЧЕГО, а прогон вставал
     // на «бюджет прогона исчерпан: $8.1476 из $5.0000» — это потратил opus на verify.
     budgetStages: new Set(built.measured),
-  });
+  }));
   runId = run.id;
 
   // Трение о человека считает ВИТОК — на стенде тем же способом, что в проде: шины лишь
@@ -464,6 +497,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
         `${driverResult.finalVerdict === null ? '—' : driverResult.finalVerdict.action} · ` +
         `${Math.round((finishedAt.getTime() - startedAt.getTime()) / 60000)} мин`,
     );
+    runState.stopped(driverResult.stopped, driverResult.finalVerdict === null ? null : driverResult.finalVerdict.action);
 
     if (opts.makeSnapshot !== null && driverResult.stopped === 'snapshot-point') {
       makeSnapshot({
@@ -475,6 +509,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
         stoppedAfterStage: opts.snapshotAfter,
         task: opts.task,
       });
+      runState.snapshot(opts.makeSnapshot);
       console.log(`\nснимок сохранён: ${opts.makeSnapshot} (после ${opts.snapshotAfter})`);
       return {
         code: 0,
@@ -555,6 +590,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
 
     const resultPath = join(RESULTS_DIR, `${opts.slug}.json`);
     writeResult(resultPath, result);
+    runState.resultWritten();
     console.log(`\nостановка: ${driverResult.stopped}`);
     console.log(`вердикт:   ${driverResult.finalVerdict === null ? '—' : JSON.stringify(driverResult.finalVerdict)}`);
     console.log(`результат: ${resultPath}`);
@@ -598,6 +634,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     // Прогон, упавший исключением, — строкой в логе: без неё по файлу он неотличим от ещё
     // идущего или убитого процесса.
     writeProgressFile(`\n# ${new Date().toTimeString().slice(0, 8)} исключение: ${e instanceof Error ? e.message : String(e)}`);
+    runState.exception(e instanceof Error ? e.message : String(e));
     throw e;
   } finally {
     if (progressFd !== null) {
@@ -607,6 +644,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
         // лог уже дописан; закрытие не должно ронять итог прогона
       }
     }
+    runState.close();
     operatorHandle.detach();
     await run.dispose();
     if (opts.keepWorkspace) console.log(`\nрабочая копия оставлена: ${wsRoot}`);
@@ -631,7 +669,7 @@ async function probeRun(opts: BenchOptions): Promise<number> {
   const { def, providerDef } = target;
   const contextProblem = await contextProblemFor(def.provider, def.model, def.contextWindow, providerDef.baseUrl);
   if (contextProblem !== null) {
-    console.error(`окно контекста: ${contextProblem}`);
+    console.error(`окно контекста: ${contextProblem.message}`);
     return 2;
   }
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);

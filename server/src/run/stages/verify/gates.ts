@@ -3,15 +3,18 @@
  * сверка патча с деревом и строки гейтов ранних этапов, чей статус рантайм знает сам.
  */
 
+import { existsSync, readFileSync } from 'node:fs';
+
 import type { GateRunResult, GateStatus } from '@sdlc-runner/shared';
 
 import { readArtifact } from '../../../artifacts/artifact.ts';
 import { REVIEWER_AGENTS } from '../../../exec/StageExecutor.ts';
 import { loadSubagents } from '../../../exec/subagents.ts';
 import { gateKey, gatesExpectedInReport } from '../../../gates/gatesFile.ts';
-import { isRepo, workingDiff } from '../../../gates/git.ts';
+import { attemptDiff, isRepo } from '../../../gates/git.ts';
 import { runGates } from '../../../gates/run.ts';
-import { readBaseline } from '../chunk/evidence.ts';
+import { sha256Text } from '../../evidence.ts';
+import { attemptGateFacts, readBaseline } from '../chunk/evidence.ts';
 import { axesGateRow, axisProblems } from '../plan.ts';
 import type { StageHost } from '../types.ts';
 
@@ -28,16 +31,40 @@ export const RECONCILE_GATE = 'Сверка отчёта с набором';
 
 /**
  * Гейты этапа 6 из шаблона набора, у которых нет механики рантайма и которые по
- * `SKILL.md` исполняет проверяющий: их строку заполняет рецензент (тест↔claim-id, инварианты
- * задачи — §1 и §4 его ответа). Прежде включённая строка без команды блокировала старт
- * витка «исполнить нечем» — включить гейт по шаблону эталона было нельзя
- * (code-review-all 2026-09-23).
+ * `SKILL.md` исполняет проверяющий: их строку заполняет рецензент (инварианты задачи — §4
+ * его ответа). Прежде включённая строка без команды блокировала старт витка «исполнить
+ * нечем» — включить гейт по шаблону эталона было нельзя (code-review-all 2026-09-23).
+ * «Сверка тестов с claims» отсюда ушла: у неё есть встроенная реализация
+ * (`builtin/testsClaims.ts`, порт эталона), и строку заполняет факт прогона.
  */
-export const MODEL_REPORTED_GATES: readonly string[] = ['Проектные инварианты как ассерты', 'Сверка тестов с claims'];
+export const MODEL_REPORTED_GATES: readonly string[] = ['Проектные инварианты как ассерты'];
 
-/** Гейт, статус которого берётся из отчёта, а не из прогона команды. */
-export function isReportedGate(name: string): boolean {
-  return [RECONCILE_GATE, ...MODEL_REPORTED_GATES].some((n) => gateKey(n) === gateKey(name));
+/**
+ * Гейты этапа 6 без скрипта и кто за них отчитывается: `model` — рецензент (ревью и гейты
+ * проверяющего), `runtime` — рантайм (сверка отчёта с набором). ОДНА таблица на старт витка
+ * (`UNSCRIPTED_GATES`), прогон гейтов и автозаполнение отчёта (`reportedBy`): три копии
+ * списка уже расходились (code-review-all 2026-09-23).
+ */
+const REPORTED = new Map<string, 'model' | 'runtime'>([
+  [gateKey(REVIEW_GATE), 'model'],
+  [gateKey(RECONCILE_GATE), 'runtime'],
+  ...MODEL_REPORTED_GATES.map((n): [string, 'model'] => [gateKey(n), 'model']),
+]);
+
+/** Гейты этапа 6 без скрипта: исключение для старта витка (`Run.blockers`, `unimplementedGates`). */
+export const UNSCRIPTED_GATES: readonly string[] = [REVIEW_GATE, RECONCILE_GATE, ...MODEL_REPORTED_GATES];
+
+/**
+ * Кто отчитывается за строку набора, если не скрипт; `null` — строку исполняет команда или
+ * встроенная реализация. Команда в обратных кавычках побеждает имя — «где стоит команда —
+ * выполняется она», иначе проектная команда гейта инвариантов не исполнялась. Кроме
+ * ревью: его статус — всегда факт прогона рецензента (`externalGateStatuses`), команду
+ * строки рантайм не исполняет, и строку заполняет модель.
+ */
+export function reportedBy(row: { name: string; command: string | null }): 'model' | 'runtime' | null {
+  const key = gateKey(row.name);
+  if (key === gateKey(REVIEW_GATE)) return 'model';
+  return row.command !== null ? null : (REPORTED.get(key) ?? null);
 }
 
 /**
@@ -57,7 +84,13 @@ export function gateReportBlock(results: readonly GateRunResult[]): string {
     (r) =>
       `| ${cell(r.name)} | ${r.status} | ${cell(r.command ?? 'встроенная проверка')} · код ${
         r.exitCode ?? '—'
-      } · ${r.durationMs} мс |\n| | | ${cell(r.lastLine)} |`,
+      } · ${r.durationMs} мс |\n| | | ${cell(r.lastLine)} |` +
+      // Улики гейт-скрипта по контракту — то, что рецензент цитирует в отчёте; без них
+      // «❌ Scope» оставалось голым словом, и рецензент шёл искать пути сам.
+      (r.evidence ?? [])
+        .slice(0, 8)
+        .map((e) => `\n| | | улика: ${cell(e)} |`)
+        .join(''),
   );
   return [
     '## Итоги автоматических гейтов (прогон рантайма, этот этап)',
@@ -93,13 +126,16 @@ export async function runVerifyGates(host: StageHost, signal?: AbortSignal): Pro
   verify.lastGateResults = [];
   verify.lastGatesAborted = false;
 
+  const facts = await attemptGateFacts(host, gates);
   const results = await runGates({
+    ...facts,
     // Гейты без исполнителя-скрипта (строки проверяющего и сверка набора) рантаймом не
     // «прогоняются»: прогон давал им `⏭ исполнить нечем`, этот факт шёл в вердикт худшим
     // из двух и ронял каждую попытку, а строка отчёта для модели не появлялась вовсе —
     // автозаполнение считало её уже заполненной фактом (code-review-all 2026-09-23).
     // Статус таких строк — в отчёте: у сверки его пишет рантайм, у остальных — рецензент.
-    gates: { ...gates, rows: gates.rows.filter((r) => !isReportedGate(r.name)) },
+    // Ревью остаётся в прогоне: его статус подставляет `externalStatuses` ниже.
+    gates: { ...gates, rows: gates.rows.filter((r) => reportedBy(r) === null || gateKey(r.name) === gateKey(REVIEW_GATE)) },
     projectRoot: host.projectRoot,
     projectName: host.projectName,
     planFiles: host.planFilesFor('verify') ?? [],
@@ -114,7 +150,11 @@ export async function runVerifyGates(host: StageHost, signal?: AbortSignal): Pro
     ...(signal === undefined ? {} : { signal }),
     externalStatuses: externalGateStatuses(host),
     onWarn: (message) => host.emit({ type: 'warning', runId: host.id, stage: 'verify', message }),
-    onResult: (gate) => {
+    onResult: (raw) => {
+      // Полный вывод команды (до сотен КБ) — только улике этапа 5 (`recordEvidence`), не
+      // ленте событий и не состоянию попытки: иначе каждый гейт с командой раздувал бы
+      // `.events.ndjson` и SSE (ревью).
+      const gate = withoutOutput(raw);
       verify.lastGateResults.push(gate);
       // В метрики результат идёт не отсюда: гейты прогоняются ДО вызова рецензента,
       // поэтому «Ревью независимым агентом» здесь всегда `⏭`, и каждый зелёный виток
@@ -128,8 +168,14 @@ export async function runVerifyGates(host: StageHost, signal?: AbortSignal): Pro
   // отметки частичный набор выглядел в интерфейсе полным: две зелёные строки читались
   // как «весь набор пройден», хотя обязательная пятёрка не запускалась.
   verify.lastGatesAborted = signal?.aborted === true;
-  verify.lastGateResults = results;
-  return results;
+  verify.lastGateResults = results.map(withoutOutput);
+  return verify.lastGateResults;
+}
+
+function withoutOutput(r: GateRunResult): GateRunResult {
+  if (r.output === undefined) return r;
+  const { output: _dropped, ...lean } = r;
+  return lean;
 }
 
 /**
@@ -162,24 +208,70 @@ export function externalGateStatuses(host: StageHost): Record<string, GateStatus
  * Совпадает ли патч попытки с фактическим деревом — ФАКТ рантайма, не слова отчёта.
  *
  * `null` — проверить нечем (патча нет, дерево не репозиторий): тогда действует прежнее
- * правило «сказано в отчёте». Сравнение — по тому же `workingDiff`, которым патч и
- * снимался, поэтому расхождение означает ровно одно: дерево изменилось ПОСЛЕ снятия
- * улики, и артефакт этапа 5 устарел по-настоящему.
+ * правило «сказано в отчёте». Сравнение — по тому же `attemptDiff` от той же базы, которым
+ * патч и снимался, поэтому расхождение означает ровно одно: дерево изменилось ПОСЛЕ снятия
+ * улики, и артефакт этапа 5 устарел по-настоящему. База — из `evidence.json` попытки
+ * (та, от которой патч снят фактически), без записи — текущая база витка.
  */
 export async function diffStillMatchesTree(host: StageHost): Promise<boolean | null> {
   const patchPath = host.paths.chunkDiff(host.chunk(), host.attempt());
-  const saved = readArtifact(patchPath);
-  if (!saved.exists) return null;
+  if (!existsSync(patchPath)) return null;
   try {
     if (!(await isRepo(host.projectRoot))) return null;
     const signal = host.aborterSignal();
-    const now = await workingDiff(host.projectRoot, [], ...(signal === undefined ? [] : [signal]));
-    return now.trim() === saved.text.trim();
+    const rec = readEvidence(host);
+    const baseSha = rec !== null && typeof rec.base_sha === 'string' ? rec.base_sha : (await host.baseSha()).sha;
+    const now = await attemptDiff(host.projectRoot, { baseSha, ...(signal === undefined ? {} : { signal }) });
+    // Побайтово, как терминальный `attempt-evidence.py verify`: патч записан байтами git.
+    return sha256Text(now) === sha256Text(readFileSync(patchPath, 'utf8'));
   } catch {
     // Сверка не состоялась — это «не знаю», а не «разошлось»: превращать сбой git в
     // красный вердикт значило бы ронять виток из-за среды.
     return null;
   }
+}
+
+function readEvidence(host: StageHost): Record<string, unknown> | null {
+  const path = host.paths.chunkEvidence(host.chunk(), host.attempt());
+  if (!existsSync(path)) return null;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Свидетельства попытки произведены инструментом и сошлись с файлами — ФАКТ рантайма.
+ *
+ * `null` — запись на месте, хэши патча и вывода тестов совпали. Строка — причина, по
+ * которой патч и вывод свидетельством не считаются (`SDLC.md` → этап 5): записи нет,
+ * она не читается, либо файлы правлены после её снятия. `undefined` не бывает: у этапа 6
+ * патч — обязательное предусловие, и отсутствие записи рядом с ним — уже находка.
+ */
+export function attemptEvidenceFact(host: StageHost): string | null {
+  const chunk = host.chunk();
+  const attempt = host.attempt();
+  const path = host.paths.chunkEvidence(chunk, attempt);
+  if (!existsSync(path)) {
+    return `записи ${path} нет — патч и вывод тестов написаны не инструментом, свидетельством не считаются`;
+  }
+  const rec = readEvidence(host);
+  if (rec === null) return `запись ${path} не читается как JSON`;
+  const problems: string[] = [];
+  const patchPath = host.paths.chunkDiff(chunk, attempt);
+  const testsPath = host.paths.chunkTests(chunk, attempt);
+  if (!existsSync(patchPath)) problems.push('патча попытки нет');
+  else if (rec.diff_sha256 !== sha256Text(readFileSync(patchPath, 'utf8'))) {
+    problems.push('хэш патча не сошёлся с записью — патч правлен после снятия свидетельств');
+  }
+  if (!existsSync(testsPath)) problems.push('записи о тестах нет');
+  else if (rec.tests_sha256 !== sha256Text(readFileSync(testsPath, 'utf8'))) {
+    problems.push('хэш вывода тестов не сошёлся с записью — файл правлен после снятия свидетельств');
+  }
+  if (typeof rec.tool !== 'string' || rec.tool === '') problems.push('в записи не назван инструмент');
+  return problems.length === 0 ? null : problems.join('; ');
 }
 
 /** Итоги прогона с пересчитанными статусами «не скриптовых» гейтов. */

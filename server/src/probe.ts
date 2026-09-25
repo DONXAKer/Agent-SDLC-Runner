@@ -29,6 +29,17 @@ export interface ProbeCaseResult {
   detail: string;
   /** Кейс упал ошибкой транспорта/среды — это не наблюдение о модели. */
   env: boolean;
+  /**
+   * Кейс не уложился в `caseTimeoutMs` — движок ответил (прогрев прошёл), но конкретный
+   * запрос слишком долгий. Это наблюдение О МОДЕЛИ (медленная на этом железе/в этой роли),
+   * а не сбой среды: `env` здесь `false`, но кейс, в отличие от обычного провала модели,
+   * не перезапускается (см. `checkModel` в `bench/src/preflight.ts`) — повтор удвоил бы
+   * тот же таймаут без нового сигнала. Найдено серией local6 (2026-09-24):
+   * `ollama:apriel-1.6-15b` (плотная 15B, always-thinking) стабильно отменялась по
+   * 120–218 с на нескольких кейсах пробы и красилась средой (код 2), хотя прогрев
+   * отвечал — прогон не начинался НИ РАЗУ вместо честного «код 1: не тянет за потолок».
+   */
+  timedOut: boolean;
   durationMs: number;
 }
 
@@ -482,17 +493,34 @@ export async function probeModel(args: {
     };
     try {
       const r = await run(ctx);
-      cases.push({ name, ...r, env: false, durationMs: Date.now() - started });
+      cases.push({ name, ...r, env: false, timedOut: false, durationMs: Date.now() - started });
     } catch (e) {
       // Не-Error бросок (строка, DOMException) не должен ронять пробу тем исключением,
       // которое она обещала не выпускать.
       const message = e instanceof Error ? e.message : String(e);
+      const ms = Date.now() - started;
+      // Свой потолок кейса истёк ДО ответа модели — движок жив (иначе прогрев уже отсеял
+      // бы её раньше), а конкретный запрос был медленнее потолка. Это наблюдение о модели
+      // (код 1 у preflight), не о среде (`env: false`), и кейс не перезапускается —
+      // см. `timedOut` в `ProbeCaseResult`.
+      if (ctx.signal.aborted) {
+        cases.push({
+          name,
+          ok: false,
+          detail: `кейс не уложился в потолок ${args.caseTimeoutMs} мс — медленная модель, не сбой среды`,
+          env: false,
+          timedOut: true,
+          durationMs: ms,
+        });
+        continue;
+      }
       cases.push({
         name,
         ok: false,
         detail: `ошибка запроса: ${message.slice(0, 200)}`,
         env: true,
-        durationMs: Date.now() - started,
+        timedOut: false,
+        durationMs: ms,
       });
     }
   }

@@ -1,42 +1,10 @@
 import { useState } from 'react';
 
-import type { FlowId, RunDetail, StageId } from '@sdlc-runner/shared';
+import type { RunDetail, StageId } from '@sdlc-runner/shared';
 
 import { relativizePaths } from '../lib/paths.ts';
+import { CIRCLE, FLOW_BADGE, STATE_LABEL, TITLE, stageGlyph } from '../lib/stageTone.ts';
 import { computeStageStates } from '../lib/stageProgress.ts';
-import type { StageState } from '../lib/stageProgress.ts';
-
-// Ключ — `FlowId`, а не строка: новый флоу должен ловиться сборкой, а не оставаться
-// без бейджа молча.
-const FLOW_BADGE: Record<FlowId, string> = {
-  sdk: 'bg-violet-900/60 text-violet-200',
-  loop: 'bg-teal-900/60 text-teal-200',
-};
-
-// Ключ — `StageState`: новое состояние без своего вида кружка должно ловиться сборкой.
-// «Доступен» — голубой, а не зелёный: зелёный у пройденных, и одинаковый цвет в двух
-// значениях («сделано» и «можно запускать») и был той путаницей, ради которой легенда.
-const CIRCLE: Record<StageState, string> = {
-  done: 'bg-emerald-900/70 text-emerald-300',
-  running: 'animate-pulse bg-amber-600 text-black',
-  available: 'bg-sky-800 text-sky-100 ring-2 ring-sky-500/50',
-  blocked: 'bg-neutral-800 text-neutral-500',
-};
-
-const TITLE: Record<StageState, string> = {
-  done: 'text-neutral-400',
-  running: 'text-neutral-200',
-  available: 'text-neutral-200',
-  blocked: 'text-neutral-500',
-};
-
-// Подпись состояния справа от названия — цветом своего кружка. Показывается всем
-// состояниям, кроме blocked: у того вместо подписи список причин.
-const STATE_LABEL: Record<Exclude<StageState, 'blocked'>, { text: string; cls: string }> = {
-  done: { text: 'пройден', cls: 'text-emerald-500' },
-  running: { text: 'выполняется', cls: 'text-amber-400' },
-  available: { text: 'доступен', cls: 'text-sky-400' },
-};
 
 export function StageRail({
   run,
@@ -96,7 +64,7 @@ export function StageRail({
               <span
                 className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${CIRCLE[state]}`}
               >
-                {state === 'done' ? '✓' : idx + 1}
+                {stageGlyph(state, idx)}
               </span>
               <span className={TITLE[state]}>{s.title}</span>
               {state !== 'blocked' ? (

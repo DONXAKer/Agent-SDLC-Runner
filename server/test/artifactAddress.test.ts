@@ -112,10 +112,11 @@ describe('withReaddressedPath', () => {
 
 describe('isWitokArtifactName', () => {
   it('канонические имена артефактов витка узнаются, служебные и чужие — нет', () => {
-    for (const n of ['intent.md', 'plan.md', 'clarification-report.md', 'chunk-2-journal.md', 'verification-report-1-attempt-2-r1.md', 'self-review-1-attempt-1.md']) {
+    for (const n of ['intent.md', 'plan.md', 'plan-v1.md', 'clarification-report.md', 'chunk-2-journal.md', 'verification-report-1-attempt-2.md', 'self-review-1-attempt-1.md', 'chunk-1-attempt-2-review.md', 'chunk-1-attempt-2-evidence.json']) {
       ok(isWitokArtifactName(n), n);
     }
-    for (const n of ['.events.ndjson', 'metrics.json', 'notes.md', 'README.md', 'chunk-journal.md']) {
+    // Отчёты маршрутов ансамбля и журнал итераций — служебные файлы раннера в `.runner/`.
+    for (const n of ['.events.ndjson', 'metrics.json', 'notes.md', 'README.md', 'chunk-journal.md', 'verification-report-1-attempt-2-r1.md', 'iterations.md']) {
       ok(!isWitokArtifactName(n), n);
     }
   });

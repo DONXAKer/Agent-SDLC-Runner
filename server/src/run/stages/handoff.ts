@@ -1,7 +1,7 @@
 /** Этап 7 — передача: определение этапа и проверка зелёного отчёта приёмки. */
 
-import { statSync } from 'node:fs';
-import { basename } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { basename, join } from 'node:path';
 
 import {
   DECISION,
@@ -10,9 +10,12 @@ import {
   decisionLineIndexes,
   decisionStateAt,
   hasPlaceholder,
+  lastLoopSectionStart,
   lineStarts,
+  loopSectionCount,
   readArtifact,
   readField,
+  readLastDecision,
   replaceDecisionFieldAt,
 } from '../../artifacts/artifact.ts';
 import { h2SectionRanges } from '../../md/table.ts';
@@ -25,7 +28,8 @@ import { commitByRuntime } from '../commitByRuntime.ts';
 import type { HandoffFacts } from '../formAutofill.ts';
 import { autofillHandoff } from '../formAutofill.ts';
 import { postmortemBlock } from '../postmortem.ts';
-import { readRunVerdict } from '../verdictStore.ts';
+import { markCommitted, readRunVerdict, stalePatchReason } from '../verdictStore.ts';
+import { diffStillMatchesTree } from './verify/gates.ts';
 import { runNamedGate } from './chunk/evidence.ts';
 import { relOf } from './preconditions.ts';
 import type { StageContext, StageDef, StageHost, StageModule } from './types.ts';
@@ -43,7 +47,7 @@ export function profileCurrency(profile: ResolvedProfile): string {
 }
 
 /**
- * Вердикт рантайма по последней попытке — зелёный. Читается служебный файл попытки
+ * Вердикт рантайма по последней попытке — зелёный. Читается вердикт в состоянии рантайма
  * (`verdictStore.ts`), а не строка `passed:` отчёта: бланк `- **passed:** true / false`
  * прежде проходил проверку по префиксу `true`, а строку `passed: true` в отчёт может
  * записать и сама модель этапа 6 — и то и другое открывало handoff с коммитом
@@ -70,9 +74,12 @@ export const handoffStage: StageDef = {
       describe: 'вердикт этапа 6 passed=true (или явно объявленный обрыв витка)',
       artifact: (c) => c.paths.verificationReport(c.chunk, c.attempt),
       check: (c) => {
-        if (verificationPassed(c)) return null;
+        const verdict = readRunVerdict(c.paths, c.chunk, c.attempt);
+        // Патч, переписанный после вердикта, — вердикт уже не о нём: этап не стартует,
+        // а не пропускает коммит молча посреди этапа.
+        if (verdict?.passed === true) return stalePatchReason(c.paths, c.chunk, c.attempt, verdict);
         const report = c.paths.verificationReport(c.chunk, c.attempt);
-        if (readRunVerdict(c.paths, c.chunk, c.attempt) !== null) {
+        if (verdict !== null) {
           return (
             `вердикт попытки ${c.attempt} (${report}) не passed=true. Коммит из этого состояния ` +
             `методология запрещает: возврат на доработку или эскалация, но не передача. Чтобы ` +
@@ -80,8 +87,8 @@ export const handoffStage: StageDef = {
           );
         }
         return artifactExists(report)
-          ? `вердикта рантайма по попытке ${c.attempt} нет: verify прерван до расчёта вердикта ` +
-              `или виток начат до того, как рантайм стал хранить вердикт у себя. Строке ` +
+          ? `вердикта рантайма по попытке ${c.attempt} нет: verify прерван до расчёта вердикта, ` +
+              `виток начат до того, как рантайм стал хранить вердикт у себя, или на другой машине. Строке ` +
               `\`passed:\` в ${report} рантайм не доверяет — её пишет и модель. Повтори verify, ` +
               `или запусти этап с флагом «обрыв».`
           : `нет отчёта приёмки ${report}. Передача без вердикта возможна только как ` +
@@ -93,6 +100,7 @@ export const handoffStage: StageDef = {
   protectedArtifacts: (c) => [relOf(c, c.paths.plan), relOf(c, c.paths.intent)],
   humanGate: { artifact: 'handoff', label: DECISION.accepted },
   skipIf: null,
+  showsVerdict: true,
 };
 
 /**
@@ -189,7 +197,7 @@ function commitFact(host: StageHost, head: { sha: string | null; why: string }):
   return outcome.sha ?? head.sha ?? head.why;
 }
 
-async function handoffFacts(host: StageHost): Promise<HandoffFacts> {
+async function handoffFacts(host: StageHost, aborted: boolean): Promise<HandoffFacts> {
   const gitRepo = await isRepo(host.projectRoot);
   const branch = gitRepo ? await currentBranch(host.projectRoot) : '';
   const [repo, head, publishGate] = await Promise.all([
@@ -209,10 +217,30 @@ async function handoffFacts(host: StageHost): Promise<HandoffFacts> {
     attempts: host.attempt(),
     // Обрыв — решение оператора: отчёт передачи обрыва не говорит «passed», даже если
     // вердикт последней попытки зелёный (коммита при обрыве нет, см. `afterStart`).
-    verdict: !host.handoffAborted() && verificationPassed(host.ctx()) ? 'passed' : 'aborted',
+    verdict: !aborted && verificationPassed(host.ctx()) ? 'passed' : 'aborted',
     published: 'нет',
     publishGate,
+    loop: Math.max(1, loopSectionCount(readArtifact(host.paths.handoff).text)),
+    date: new Date().toISOString().slice(0, 10),
   };
+}
+
+/**
+ * Следующий виток той же задачи дописывает в handoff НОВУЮ секцию «## Виток ‹K› — ‹дата›»
+ * (`SDLC.md` → «Раскладка артефактов»: handoff дописывается новой секцией на виток, а не
+ * переписывается). Секция дописывается, когда последняя уже закрыта решением человека
+ * («Приёмка» принята или обрыв): открытая секция — этот же виток, вернувшийся в этап 7.
+ * Тело секции — форма от заголовка `## Виток` до конца; плейсхолдеры заполнит автозаполнение.
+ */
+export function appendLoopSection(handoffText: string, template: string): string | null {
+  if (loopSectionCount(handoffText) === 0) return null; // старая форма без секций — не трогаем
+  const last = readLastDecision(handoffText, DECISION.accepted);
+  if (last.state !== 'granted' && last.state !== 'declined') return null;
+  const m = /^##\s+Виток(?=\s|$)/mu.exec(template);
+  if (m === null) return null;
+  const at = lastLoopSectionStart(template);
+  const body = template.slice(at === 0 ? m.index : at);
+  return `${handoffText.replace(/\s+$/, '')}\n\n${body}`;
 }
 
 const POSTPONED_SECTION_RE = /Отложено/i;
@@ -300,7 +328,10 @@ const DEFAULT_WHO_APPROVED =
  * сочинять: он никогда не пишет `granted`, только `declined`-текст самого шаблона.
  */
 export function defaultUnapprovedRecords(handoffText: string): { text: string; repaired: number } {
-  const h2 = h2SectionRanges(handoffText, RECORD_SECTION_RE)[0];
+  // Секция ТЕКУЩЕГО витка — последняя из одноимённых: у handoff секции по виткам, и
+  // первая «Запись о проскочившем дефекте» — прошлого витка (ревью).
+  const h2 = h2SectionRanges(handoffText, RECORD_SECTION_RE).filter((r) => r.start >= lastLoopSectionStart(handoffText)).at(-1)
+    ?? h2SectionRanges(handoffText, RECORD_SECTION_RE).at(-1);
   if (h2 === undefined) return { text: handoffText, repaired: 0 };
 
   const section = handoffText.slice(h2.start, h2.end);
@@ -354,18 +385,56 @@ export function defaultUnapprovedRecords(handoffText: string): { text: string; r
   return { text, repaired };
 }
 
+/**
+ * Почему зелёный вердикт больше не описывает дерево — `null`, если описывает. После
+ * сделанного коммита сверка не делается: дерево чистое, патч уже в HEAD, и повторный вход
+ * в handoff (ретрай, рестарт) иначе видел «дерево разошлось» и советовал повторить verify,
+ * который тогда краснел навсегда (code-review-all 2026-09-23).
+ */
+async function staleVerdictReason(host: StageHost): Promise<string | null> {
+  const c = host.ctx();
+  const verdict = readRunVerdict(c.paths, c.chunk, c.attempt);
+  if (verdict === null) return 'вердикта попытки нет';
+  if (verdict.committedSha !== null) return null;
+  const stale = stalePatchReason(c.paths, c.chunk, c.attempt, verdict);
+  if (stale !== null) return stale;
+  if ((await diffStillMatchesTree(host)) === false) {
+    return `рабочее дерево разошлось с проверенным патчем попытки ${c.attempt} — повтори verify`;
+  }
+  return null;
+}
+
 export const handoffModule: StageModule = {
   def: handoffStage,
   formFillExecutor: false,
   leanDocTools: false,
-  mechanicalJobs: (host: StageHost) => [
+  mechanicalJobs: (host: StageHost, opts) => [
     {
       path: host.paths.handoff,
-      fill: async (t) => autofillHandoff(t, await handoffFacts(host)),
+      fill: async (t) => autofillHandoff(t, await handoffFacts(host, opts?.abortHandoff === true)),
     },
   ],
   checksBranchOnEntry: true,
   begin: (host, _route, opts) => ({
+    // Новый виток той же задачи — новая секция «## Виток K — дата» в существующем handoff:
+    // до раскладки форм, чтобы автозаполнение заполнило её номер и дату вместе с шапкой.
+    beforeSeed: async () => {
+      const a = readArtifact(host.paths.handoff);
+      if (!a.exists) return;
+      const dir = host.runner().methodologyDir;
+      const templatePath = typeof dir === 'string' && dir !== '' ? join(dir, 'templates', 'handoff.template.md') : '';
+      if (templatePath === '' || !existsSync(templatePath)) return;
+      const next = appendLoopSection(a.text, readFileSync(templatePath, 'utf8'));
+      if (next === null) return;
+      host.writeAutofilled(host.paths.handoff, next, []);
+      host.emit({
+        type: 'warning',
+        runId: host.id,
+        stage: 'handoff',
+        message: `handoff: прошлый виток закрыт — дописана секция «## Виток ${loopSectionCount(next)}», прежние секции не тронуты`,
+      });
+    },
+
     // Пост-виток отчёт — вход этапа 7, тем же механизмом, что и итоги гейтов на этапе 6:
     // модель переносит числа в артефакт, но не сочиняет их.
     enterFacts: async () => {
@@ -393,8 +462,20 @@ export const handoffModule: StageModule = {
       // здесь: без проверки коммит всё равно просил одобрения после `gate.cancelRun`, и
       // карточка висела, а этап оставался `running`.
       if (host.signal().aborted) return;
+      // Вердикт подписан вместе с хешем патча попытки: коммит — только того дерева, которое
+      // проверялось. Патч, переписанный после вердикта, или дерево, ушедшее от патча
+      // (правка оператора, модель handoff в прошлом входе), коммита не получают.
+      const stale = await staleVerdictReason(host);
+      if (stale !== null) {
+        // Исход записывается и здесь: иначе строка `commit:` отчёта говорила «виток
+        // оборван» при зелёном вердикте.
+        host.recordCommitOutcome({ committed: false, sha: null, note: `коммит не сделан: ${stale}` });
+        host.emit({ type: 'warning', runId: host.id, stage: 'handoff', message: `локальный коммит не сделан: ${stale}` });
+        return;
+      }
       const outcome = await commitByRuntime(host, 'passed');
       host.recordCommitOutcome(outcome);
+      if (outcome.committed && outcome.sha !== null) markCommitted(host.paths, host.chunk(), host.attempt(), outcome.sha);
       host.emit({
         type: 'warning',
         runId: host.id,

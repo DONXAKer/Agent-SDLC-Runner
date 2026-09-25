@@ -141,6 +141,10 @@ export async function runEnsembleReviewers(
   // подписью «по словам рецензента», а находки — дублями от каждого маршрута.
   const primaryClaims = new Map(verify.claimRecords);
   const primaryFindings = [...verify.findingRecords];
+  // Ответ рецензента по контракту — тоже основного маршрута: `Task`-путь маршрута
+  // ансамбля иначе перезаписывал его своим (ревью).
+  const primaryReview = verify.reviewJson;
+  const primaryReviewText = verify.reviewText;
 
   for (const [i, other] of extraRoutes.entries()) {
     if (host.aborterSignal()?.aborted === true) break;
@@ -239,4 +243,6 @@ export async function runEnsembleReviewers(
   writeArtifact(canonical, primary);
   verify.claimRecords = primaryClaims;
   verify.findingRecords = primaryFindings;
+  verify.reviewJson = primaryReview;
+  verify.reviewText = primaryReviewText;
 }

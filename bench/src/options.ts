@@ -42,6 +42,14 @@ export interface BenchOptions {
   stageTimeoutMs: number;
   runTimeoutMs: number;
   /**
+   * Потолок стенных часов на ОДИН кейс расширенной пробы преполёта (`--preflight`),
+   * `null` — умолчание `PROBE_CASE_TIMEOUT_MS` (`server/src/probe.ts`, 120 с). Найдено
+   * серией local6 (2026-09-24): плотная медленная модель (`apriel-1.6-15b`) стабильно
+   * отменялась по этому потолку и красилась средой (код 2), хотя движок отвечал —
+   * ручка нужна, чтобы отличить «дай ей больше времени» от смены модели/роли.
+   */
+  probeTimeoutMs: number | null;
+  /**
    * Значение `--max-turns`. Действует ТОЛЬКО при `maxTurnsExplicit`: без ключа лимит —
    * штатный из загруженного конфига (`resolveTurnLimits`), а здесь лежит заглушка разбора.
    */
@@ -217,6 +225,7 @@ ${taskListForUsage()}
   --slug <имя>          слаг витка (умолчание: bench-<модель>-<режим>)
   --control-<этап> <id> заменить контрольный маршрут этапа
   --stage-timeout <мин> потолок стенных часов на этап (умолчание 30)
+  --probe-timeout <мин> потолок на ОДИН кейс расширенной пробы преполёта (умолчание 2 мин)
   --run-timeout <мин>   потолок на весь виток (умолчание 180)
   --max-turns <n>       ходов на этап (умолчание — штатный лимит config/runner.json); явный
                         ключ снимает и поэтапные потолки конфига, включая verify
@@ -263,6 +272,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   const controlOverrides: Partial<Record<StageId, string>> = {};
   let stageTimeoutMs = DEFAULTS.stageTimeoutMs;
   let runTimeoutMs = DEFAULTS.runTimeoutMs;
+  let probeTimeoutMs: number | null = null;
   let maxIterationsPerStage = DEFAULTS.maxIterationsPerStage;
   let maxTurnsExplicit = false;
   let rawLog = true;
@@ -341,6 +351,10 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         break;
       case '--run-timeout':
         runTimeoutMs = positiveNumber(next(i, key), key) * 60_000;
+        i++;
+        break;
+      case '--probe-timeout':
+        probeTimeoutMs = positiveNumber(next(i, key), key) * 60_000;
         i++;
         break;
       case '--max-turns':
@@ -489,6 +503,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     controlOverrides,
     stageTimeoutMs,
     runTimeoutMs,
+    probeTimeoutMs,
     maxIterationsPerStage,
     maxTurnsExplicit,
     rawLog,

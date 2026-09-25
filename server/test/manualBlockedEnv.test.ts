@@ -55,12 +55,26 @@ describe('пункт приёмки manual', () => {
 });
 
 describe('красный из-за окружения', () => {
-  const blocked = { name: 'Тесты', status: '⏭' as const, inapplicableSignedBy: null, envBlocked: true };
+  const blocked = {
+    name: 'Тесты',
+    status: '⏭' as const,
+    inapplicableSignedBy: null,
+    envBlocked: true,
+    missingTool: 'bash: java: command not found',
+  };
 
   it('гейт, не сумевший запуститься, даёт blocked_env, а не retry', () => {
     const v = computeVerdict(input({ gates: [blocked] }), []);
     strictEqual(v.passed, false);
     strictEqual(v.action, 'blocked_env');
+  });
+
+  it('без улики инструмента незапуск — обычный retry: blocked_env держится на цитате, не на слове', () => {
+    // `SDLC.md` → «Красный из-за окружения»: «Тесты упали» без строки, назвавшей
+    // отсутствующий инструмент, — код или тест сломан, а не окружение.
+    const v = computeVerdict(input({ gates: [{ ...blocked, missingTool: null }] }), []);
+    strictEqual(v.passed, false);
+    strictEqual(v.action, 'retry');
   });
 
   it('рядом с настоящим провалом это обычный красный: чинить есть что', () => {

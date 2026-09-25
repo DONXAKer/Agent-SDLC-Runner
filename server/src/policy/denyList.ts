@@ -67,17 +67,33 @@ const DENIED_BASH: { re: RegExp; what: string }[] = [
 ];
 
 /**
- * Вызов интерпретаторов Windows — запрет только для команд МОДЕЛИ. Лексер целей записи
- * (`shellRedirects.ts`) внутрь `cmd /c` и `powershell -c` не заходит, а сам список
- * рассчитан на bash — `del /f /q *.*`, `Set-Content .env` проходили оба уровня. Команды
- * гейтов из `.sdlc/gates.md` пишет человек под свою платформу (`powershell -File
- * test.ps1`), и запрет там ронял гейт в `⏭` на каждом витке (code-review-all
- * 2026-09-23). Совпадение — в позиции КОМАНДЫ (начало, после разделителя, кавычки или
- * `$(`), а не где угодно: `grep -r powershell src` — поиск слова, а не вызов.
+ * Вызов интерпретаторов Windows — запрет для команд МОДЕЛИ. Лексер целей записи
+ * (`shellRedirects.ts`) внутрь `cmd` и `powershell` не заходит, а сам список рассчитан на
+ * bash — `del /f /q *.*`, `Set-Content .env` проходили оба уровня. `Bash` модели на Windows
+ * исполняется Git Bash'ем (`gates/shell.ts`), так что это правило — единственное, что
+ * отделяет её от cmd.exe и PowerShell.
+ *
+ * Совпадение — по СЛОВУ-КОМАНДЕ в любом месте строки, а не по «позиции вызова»: позиция
+ * пропускала обёртки (`xargs pwsh`, `env powershell`, `find -exec cmd`) и перевод строки,
+ * а слово где угодно — било по `go test ./cmd`, `npm run test:pwsh`, `docs/powershell.md`
+ * (code-review-all 2026-09-23). Словом-командой считается имя, перед которым нет символа
+ * пути или имени (`/`, `.`, `:`, `-`, буква), — кавычки не спасают (`"cmd" /c`). Явный путь
+ * к `cmd.exe`/`powershell.exe` ловится отдельно.
+ *
+ * Команды гейтов из `.sdlc/gates.md` эти правила не проходят: их пишут под платформу
+ * оператора (`powershell -File test.ps1`, `.\gradlew.bat test`), исполняет шелл платформы,
+ * а запись в `gates.md` — через одобрение человека с предпросмотром, как любая запись.
  */
+const WORD = '(^|[^a-z0-9_.:/\\\\-])[\'"`]?';
 const DENIED_MODEL_ONLY: { re: RegExp; what: string }[] = [
-  { re: /(^|[;&|(`'"]|\$\()\s*(\S*[/\\])?cmd(\.exe)?\s+\/[ck]\b/, what: 'вызов cmd /c' },
-  { re: /(^|[;&|(`'"]|\$\()\s*(\S*[/\\])?(powershell|pwsh)(\.exe)?(\s|$)/, what: 'вызов PowerShell' },
+  { re: new RegExp(`${WORD}(powershell|pwsh)(\\.exe)?[\'"\`]?(\\s|$|[;&|)])`), what: 'вызов PowerShell' },
+  { re: /[/\\](powershell|pwsh)\.exe\b/, what: 'вызов PowerShell' },
+  // `cmd` с флагом (`/c`, `//c` MSYS, `/q /c`) или с вводом из файла/пайпа. Голое `cmd` в
+  // конце — не вызов: `ls cmd`, `go test ./cmd`; без аргументов cmd.exe из Bash молча
+  // выходит на пустом вводе.
+  { re: new RegExp(`${WORD}cmd(\\.exe)?[\'"\`]?(\\s+\\/{1,2}[a-z]|\\s*<)`), what: 'вызов cmd' },
+  { re: /\|\s*['"`]?(\S*[/\\])?cmd(\.exe)?['"`]?(\s|$)/, what: 'вызов cmd' },
+  { re: /[/\\]cmd\.exe\b/, what: 'вызов cmd' },
 ];
 
 /**

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ArchivedRunView } from './pages/ArchivedRunView.tsx';
+import { DashboardPage } from './pages/DashboardPage.tsx';
 import { RunPage } from './pages/RunPage.tsx';
 import { StartPage } from './pages/StartPage.tsx';
 import { api } from './lib/api.ts';
@@ -217,6 +218,7 @@ export default function App(): JSX.Element {
         }
         initialRequirement={requirement}
         onExit={() => navigate({ kind: 'start' })}
+        onOpenDashboard={() => navigate({ kind: 'dashboard', card: null })}
       />
     );
   }
@@ -227,6 +229,22 @@ export default function App(): JSX.Element {
         project={route.project}
         slug={route.slug}
         stageTitles={Object.fromEntries((config?.stages ?? []).map((s) => [s.id, s.title]))}
+        onExit={() => navigate({ kind: 'start' })}
+        onOpenDashboard={() => navigate({ kind: 'dashboard', card: null })}
+      />
+    );
+  }
+
+  // Дашборд — до проверки конфигурации: он её не читает, кроме заголовков этапов.
+  if (route.kind === 'dashboard') {
+    return (
+      <DashboardPage
+        card={route.card}
+        stageTitles={Object.fromEntries((config?.stages ?? []).map((s) => [s.id, s.title]))}
+        onOpenCard={(card) => navigate({ kind: 'dashboard', card })}
+        onCloseCard={() => navigate({ kind: 'dashboard', card: null })}
+        onOpenLive={(runId) => navigate({ kind: 'run', runId, view: 'now' })}
+        onOpenArchive={(project, slug) => navigate({ kind: 'archive', project, slug })}
         onExit={() => navigate({ kind: 'start' })}
       />
     );
@@ -281,6 +299,7 @@ export default function App(): JSX.Element {
       }}
       onAddProject={addProject}
       onStart={() => void start()}
+      onOpenDashboard={() => navigate({ kind: 'dashboard', card: null })}
     />
   );
 }

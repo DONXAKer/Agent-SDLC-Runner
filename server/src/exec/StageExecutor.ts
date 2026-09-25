@@ -50,6 +50,20 @@ export interface ExecHooks {
        * единственной точки решения, иначе они держатся на послушании модели.
        */
       callerTools: readonly ToolName[];
+      /**
+       * Имя субагента, чей это вызов (`ExecRequest.callerAgent`); нет — вызов самого этапа.
+       * Задаёт только флоу `loop`: харнесс `sdk` вызывающего не называет. По нему политика
+       * сужает чтение конструкцией (`sdlc-claims` не видит авторский лист).
+       */
+      caller?: string;
+      /**
+       * Вызов исполнен харнессом Claude Code (флоу `sdk`) — задаёт ТОЛЬКО `SdkExecutor`.
+       * Правила, зависящие от флоу (`noArtifactReaddress`, `harnessResultsRoot`), решаются
+       * по вызову, а не по основному маршруту этапа: у маршрутов ансамбля флоу бывает
+       * другим. `sessionDir` — каталог ТЕКУЩЕЙ сессии (`transcript_path` без `.jsonl`), куда
+       * харнесс сохраняет длинный вывод инструментов; `null` — ещё не известен.
+       */
+      sdk?: { sessionDir: string | null };
     },
   ) => Promise<Decision>;
   onToolResult: (meta: {
@@ -68,6 +82,12 @@ export interface ExecHooks {
   }) => void;
   /** Вопрос человеку из инструмента `AskHuman`. Возвращает ответы по id вопроса. */
   onAskHuman: (call: NormalizedCall) => Promise<Record<string, string[]>>;
+  /**
+   * Шаг рантайма по полученным ответам (запись их в артефакт этапа — `ask`). Строка —
+   * пометка, которую исполнитель дописывает к ответу инструмента: что рантайм уже сделал
+   * с ответом и что осталось модели. `null` или отсутствие хука — ответ отдаётся как есть.
+   */
+  afterAskHuman?: (call: NormalizedCall, answers: Record<string, string[]>) => string | null;
   /**
    * Запись в отчёт этапа 6 (`RecordClaim`/`RecordFinding`) — принимает её рантайм.
    *
@@ -168,6 +188,8 @@ export interface ExecRequest {
   readOnlyDirs: readonly string[];
   /** Субагенты, доступные на этом этапе. */
   subagents: readonly SubagentDef[];
+  /** Имя субагента, которым исполняется этот вложенный прогон; нет — прогон самого этапа. */
+  callerAgent?: string;
   /** Внешние MCP-серверы. `null` — на этом этапе MCP не выдан. */
   mcp: McpAccess | null;
   /**

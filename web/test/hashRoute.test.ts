@@ -16,7 +16,27 @@ describe('разбор и сборка адреса', () => {
     { kind: 'run', runId: 'r-17c3f', view: 'obs', tab: 'events' },
     { kind: 'run', runId: 'r-17c3f', view: 'obs', tab: 'diff' },
     { kind: 'archive', project: 'myproj', slug: 'pay-412' },
+    { kind: 'dashboard', card: null },
+    { kind: 'dashboard', card: { source: 'ui', project: 'myproj', slug: 'pay-412' } },
+    { kind: 'dashboard', card: { source: 'bench', project: 'results', slug: 's2-gptoss-vat' } },
   ];
+
+  it('карточка дашборда: кириллица и слэш в сегментах переживают round-trip', () => {
+    const r: Route = { kind: 'dashboard', card: { source: 'terminal', project: 'WarCard-MCP-проба', slug: 'фикс/1 2' } };
+    deepStrictEqual(parseHash(formatHash(r)), r);
+  });
+
+  it('битая карточка дашборда — сетка, а не старт', () => {
+    deepStrictEqual(parseHash('#/dashboard/чушь/p/s'), { kind: 'dashboard', card: null });
+    deepStrictEqual(parseHash('#/dashboard/ui/onlyproject'), { kind: 'dashboard', card: null });
+    deepStrictEqual(parseHash('#/dashboard'), { kind: 'dashboard', card: null });
+  });
+
+  it('битая %-последовательность не бросает: карточка — сетка, виток и архив — старт', () => {
+    deepStrictEqual(parseHash('#/dashboard/ui/%E0/x'), { kind: 'dashboard', card: null });
+    deepStrictEqual(parseHash('#/run/%E0%A4'), { kind: 'start' });
+    deepStrictEqual(parseHash('#/archive/p/%'), { kind: 'start' });
+  });
 
   it('туда и обратно без потерь', () => {
     for (const r of cases) deepStrictEqual(parseHash(formatHash(r)), r);

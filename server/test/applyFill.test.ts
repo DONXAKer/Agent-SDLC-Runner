@@ -22,7 +22,7 @@ import { WitokPaths } from '../src/artifacts/paths.ts';
 import { countClaims } from '../src/artifacts/claims.ts';
 import { deriveSchema, findField, modelFields } from '../src/artifacts/formSchema.ts';
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
-import { extractHumanFacts } from '../src/artifacts/humanFacts.ts';
+import { appendAnswerRows, extractHumanFacts, renderAnswerRow } from '../src/artifacts/humanFacts.ts';
 import { isSmallContour } from '../src/run/stages.ts';
 import { parseTables } from '../src/md/table.ts';
 
@@ -333,23 +333,31 @@ describe('applyFill: раунд-трип на заполненных приме�
     ok(edges >= 1);
   });
 
-  it('clarification-report.md шаблон: humanFacts читает результат applyFill', () => {
+  // Таблица «Вопросы и ответы» больше не поле модели целиком: «Ответ человека» — ячейка
+  // человека (`artifact.ts::isHumanAnswerCell`), строку с ответом пишет рантайм
+  // (`renderAnswerRow` + `appendAnswerRows`), модели остаётся «Что изменилось в задаче».
+  // Раунд-трип проверяет этот путь: humanFacts читает и ответ рантайма, и ячейку модели.
+  it('clarification-report.md шаблон: строка рантайма + «Что изменилось» модели читаются humanFacts', () => {
     const template = readFileSync(
       join(cfg.runner.methodologyDir, 'templates', 'clarification-report.template.md'),
       'utf8',
     );
-    const schema = deriveSchema(template, 'clarification-report.template.md');
-    const table = modelFields(schema).find((f) => f.kind === 'records' && f.shape === 'table');
-    ok(table !== undefined);
-    const r = applyFill(
-      template,
-      table.id,
-      '- вопрос: Что возвращать при повторе?\n  блокирующий: да\n  ответ человека: 200\n  что изменилось в задаче: claim-1 уточнён',
+    const blank = deriveSchema(template, 'clarification-report.template.md');
+    ok(
+      !modelFields(blank).some((f) => f.shape === 'table'),
+      'строка-образец с «Ответ человека» модели не отдаётся',
     );
+    const withRow = appendAnswerRows(template, [
+      renderAnswerRow(1, { question: 'Что возвращать при повторе?', blocking: true }, '200'),
+    ]);
+    const cell = modelFields(deriveSchema(withRow, 'clarification-report.template.md')).find(
+      (f) => f.shape === 'cell' && f.label === 'что изменилось в задаче',
+    );
+    ok(cell !== undefined, 'ячейка «Что изменилось в задаче» — поле модели');
+    const r = applyFill(withRow, cell.id, 'claim-1 уточнён: код 200');
     ok(r.ok);
     const facts = extractHumanFacts(r.text);
-    ok(facts.length >= 1);
-    ok(facts.some((f) => f.answer.includes('200')));
+    ok(facts.some((f) => f.answer.includes('200') && f.changed.includes('claim-1')));
   });
 
   it('intent.md: isSmallContour читает поле «Контур», заполненное applyFill', () => {

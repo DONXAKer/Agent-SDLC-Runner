@@ -194,6 +194,13 @@ describe('makeSnapshot / restoreSnapshot', () => {
       'utf8',
     );
     writeFileSync(join(workspaceRoot, '.sdlc', 'demo', 'metrics.md'), '## Метрики витка\n', 'utf8');
+    // Текущее место чисел — `.runner/`; прежнее (корень витка) `Run` читает как запасное.
+    mkdirSync(join(workspaceRoot, '.sdlc', 'demo', '.runner'), { recursive: true });
+    writeFileSync(
+      join(workspaceRoot, '.sdlc', 'demo', '.runner', 'metrics.json'),
+      '{"stages":[{"stage":"chunk","runs":9,"durationMs":999}]}\n',
+      'utf8',
+    );
     const snapshotsDir = tmp('sdlc-bench-snap-dir-');
     makeSnapshot({
       workspaceRoot,
@@ -206,6 +213,7 @@ describe('makeSnapshot / restoreSnapshot', () => {
     });
 
     strictEqual(existsSync(join(snapshotsDir, 'слот', '.sdlc', 'demo', 'metrics.json')), false);
+    strictEqual(existsSync(join(snapshotsDir, 'слот', '.sdlc', 'demo', '.runner', 'metrics.json')), false);
 
     const restored = restoreSnapshot({ snapshotsDir, name: 'слот', targetSlug: 'кандидат', expectedTask: 'oversize' });
     roots.push(restored.root);

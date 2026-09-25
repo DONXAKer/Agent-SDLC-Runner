@@ -23,6 +23,29 @@ import { escapeRe } from '../artifacts/artifact.ts';
 
 export type LooseMatch = { start: number; end: number } | 'none' | 'ambiguous';
 
+/**
+ * Правка с переносами `\n` против файла с окончаниями `\r\n`.
+ *
+ * Модель пишет `old_string` через `\n` всегда, а файл на Windows бывает CRLF — и бланки витка
+ * тоже: эталон методологии выписан с `core.autocrlf=true`, и рантайм раскладывает формы из
+ * его рабочей копии. Мягкий поиск ниже переносы уравнивает, но только без `replace_all`;
+ * с ним правка шла дословно и промахивалась по любому многострочному фрагменту. Замер
+ * 2026-09-25 (`bench/traces/raw`): `gpt-oss-20b` ставит `replace_all: true` в 44 % правок,
+ * 17 из 36 многострочных таких правок получили «фрагмент не найден», и на них сгорел ход
+ * chunk серии s2 целиком.
+ *
+ * Переводится и `new_string` — файл сохраняет свои окончания, а не получает смешанные.
+ * Дословное совпадение как есть по-прежнему первое: файл со смешанными окончаниями, где
+ * фрагмент лежит в LF-части, не должен пострадать от перевода.
+ */
+export function adaptEol<E extends { oldStr: string; newStr: string }>(text: string, e: E): E {
+  if (!e.oldStr.includes('\n') || e.oldStr.includes('\r') || !text.includes('\r\n')) return e;
+  if (text.includes(e.oldStr)) return e;
+  const crlf = (s: string): string => s.replace(/\r?\n/g, '\r\n');
+  const oldStr = crlf(e.oldStr);
+  return text.includes(oldStr) ? { ...e, oldStr, newStr: crlf(e.newStr) } : e;
+}
+
 export function findLooseRange(text: string, oldStr: string): LooseMatch {
   // Фрагмент без пробелов переносом сломать нельзя — мягкому поиску здесь нечего дать,
   // кроме риска: он выродился бы в дословный, уже отработавший выше.

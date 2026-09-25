@@ -2,14 +2,21 @@
  * Запись, впервые проставляющая поле решения человека, — отдельная проверка гейта
  * одобрений, не политика: как и `symlink.ts`, требует чтения файла с диска.
  *
- * `destructive.ts` уже ловит ПОТЕРЮ поля решения (метка исчезла из документа при
- * перезаписи), но не ловит его ПОЯВЛЕНИЕ: `Edit`, меняющий только значение уже
- * существующей метки («‹имя› · ‹дата›» → «Иван Петров · 2026-09-18»), метку не трогает —
- * `lostDecisionLabels` его не видит, а точечная правка вообще выведена из-под
+ * `destructive.ts` уже ловит ПОТЕРЮ поля решения через `Write`/`FillField` целиком (метка
+ * исчезла из документа при перезаписи), но не ловит его ПОЯВЛЕНИЕ: `Edit`, меняющий только
+ * значение уже существующей метки («‹имя› · ‹дата›» → «Иван Петров · 2026-09-18»), метку не
+ * трогает — `lostDecisionLabels` его не видит, а точечная правка вообще выведена из-под
  * `destructiveOverwrite` («не про Edit: точечная замена фрагмента не может потерять файл
- * целиком»). Поле решения при этом не теряется — оно ФАБРИКУЕТСЯ, и это другой класс
- * потери: «Приёмка», «Одобрение», «Подтвердил», «Кто утвердил» решает оператор через свой
- * путь (`setDecision`, минуя политику вовсе), а не модель инструментом `Edit`/`Write`.
+ * целиком» — верно для доли строк, но не для разметки одной метки). Поле решения при этом
+ * не теряется — оно ФАБРИКУЕТСЯ, и это другой класс потери: «Приёмка», «Одобрение»,
+ * «Подтвердил», «Кто утвердил» решает оператор через свой путь (`setDecision`, минуя
+ * политику вовсе), а не модель инструментом `Edit`/`Write`. Третий класс, тем же приёмом
+ * пойманный ниже: `Edit`, стирающий саму жирную разметку метки заодно со значением
+ * («- **Подтвердил:** ‹имя› · ‹дата›» → «- Подтвердил: X · Y») — файл при этом не теряет
+ * ни строки, `destructiveOverwrite` молчит по конструкции, а `fabricatedLabel` слеп: без
+ * узнаваемой метки в `after` ему не с чем сравнивать `before`. Живой прогон поймал это
+ * (`ollama:gpt-oss-20b-agent`, rename-field, 2026-09-24): chunk закрылся `ok`, а решение
+ * оказалось нечитаемым только на следующем предусловии.
  *
  * Проверка — ТОЛЬКО по результату, который можно предсказать дословным сопоставлением:
  * не найден `old_string` (в том числе фрагмент, требующий мягкого поиска `editMatch.ts`) —
@@ -35,14 +42,17 @@ import type { EditOp, NormalizedCall, PolicyContext } from '@sdlc-runner/shared'
 
 import {
   applyExactReplace,
+  decisionColumnValues,
   decisionLabelsIn,
   decisionLineIndexes,
   decisionStateAt,
+  hasDecisionColumns,
   lineStarts,
   readArtifact,
 } from '../artifacts/artifact.ts';
 import type { DecisionState } from '../artifacts/artifact.ts';
-import { findLooseRange } from '../exec/editMatch.ts';
+import { hasOverwriteSection, overwriteConfirmations } from '../artifacts/overwriteConfirmations.ts';
+import { adaptEol, findLooseRange } from '../exec/editMatch.ts';
 import { writeTargetPaths } from '../policy/index.ts';
 import { resolveUserPath } from '../policy/paths.ts';
 
@@ -56,7 +66,8 @@ import { resolveUserPath } from '../policy/paths.ts';
  */
 function applyEditsExact(text: string, edits: readonly EditOp[]): string | null {
   let out = text;
-  for (const e of edits) {
+  for (const raw of edits) {
+    const e = adaptEol(out, raw);
     if (out.includes(e.oldStr)) {
       out = applyExactReplace(out, e.oldStr, e.newStr, e.replaceAll);
       continue;
@@ -134,7 +145,7 @@ function bashDecisionWriteProblem(call: Extract<NormalizedCall, { kind: 'bash' }
     const abs = resolveUserPath(ctx.projectRoot, path);
     const state = readArtifact(abs);
     if (!state.exists) continue;
-    if (decisionLabelsIn(state.text).length > 0) {
+    if (decisionLabelsIn(state.text).length > 0 || (isArtifactPath(ctx, path) && (hasDecisionColumns(state.text) || hasOverwriteSection(state.text)))) {
       return (
         `запись в «${path}» через Bash отклонена: файл несёт поле решения человека, а ` +
         `дословно предсказать результат произвольной команды нельзя — используй Edit/Write, ` +
@@ -157,14 +168,87 @@ export function decisionFabricationProblem(call: NormalizedCall, ctx: PolicyCont
   if (!state.exists) return null;
   const before = state.text;
   const labels = decisionLabelsIn(before);
-  if (labels.length === 0) return null;
+  // Подписные колонки и строки подтверждения перезаписи — только в АРТЕФАКТАХ витка и наборе
+  // гейтов: в файлах продукта таблица `| Кто | Что |` — содержимое, а не решение (ревью).
+  const artifact = isArtifactPath(ctx, call.path);
+  const columns = artifact && hasDecisionColumns(before);
+  const overwrites = artifact && hasOverwriteSection(before);
+  if (labels.length === 0 && !columns && !overwrites) return null;
 
   const after = call.kind === 'write' ? call.content : applyEditsExact(before, call.edits);
   if (after === null || after === before) return null;
 
+  // Точечная правка может снять жирную метку поля решения, не потеряв файл целиком —
+  // `destructive.ts` эту потерю по замыслу не видит («не про Edit: точечная замена
+  // фрагмента не может потерять файл целиком»), а `fabricatedLabel` ниже сравнивает
+  // КОНКРЕТНЫЕ значения ПОД той же меткой и потому тоже слеп: без метки после правки ему
+  // не с чем сравнивать. Живой прогон (ollama:gpt-oss-20b-agent, rename-field,
+  // 2026-09-24): Edit заменил всю строку «- **Подтвердил:** ‹имя› · ‹дата› / …» на
+  // «-  Подтвердил: BENCHMARK · 2026-09-24» — метка потеряла разметку, значение стало
+  // решённым на вид, оба гейта промолчали, chunk закрылся `ok`, и только предусловие
+  // следующего шага заметило «поля нет». Ловим здесь же, пока есть и `before`, и `after`.
+  if (call.kind === 'edit') {
+    const beforeLines = before.split('\n');
+    const afterLines = after.split('\n');
+    const lostLabel = labels.find((label) => decisionLineIndexes(afterLines, label).length < decisionLineIndexes(beforeLines, label).length);
+    if (lostLabel !== undefined) {
+      return (
+        `поле решения человека «${lostLabel}» потеряло разметку метки при правке — значение стало ` +
+        `похоже на решённое, а решает его только оператор (через своё утверждение), не модель ` +
+        `инструментом записи`
+      );
+    }
+  }
+
+  // Подтверждение перезаписи (`## Перезапись файлов`, «подтвердил имя · дата») — решение
+  // человека списком, а не полем: строка с именем, которой не было, — та же фабрикация.
+  if (overwrites) {
+    const was = new Set(overwriteConfirmations(before).map((c) => `${c.path}|${c.signedBy}`));
+    const fresh = overwriteConfirmations(after).find((c) => !was.has(`${c.path}|${c.signedBy}`));
+    if (fresh !== undefined) {
+      return (
+        `подтверждение перезаписи «${fresh.path} — подтвердил ${fresh.signedBy}» в журнале chunk'а — решение ` +
+        `человека: строку с именем пишет только оператор, не модель инструментом записи`
+      );
+    }
+  }
+
   const fabricated = labels.find((label) => fabricatedLabel(before, after, label));
-  return fabricated === undefined
-    ? null
-    : `поле решения человека «${fabricated}» — заполняет только оператор (через своё утверждение), ` +
-        `не модель инструментом записи`;
+  if (fabricated !== undefined) {
+    return (
+      `поле решения человека «${fabricated}» — заполняет только оператор (через своё утверждение), ` +
+      `не модель инструментом записи`
+    );
+  }
+  // Подписные колонки таблиц («Утвердил (человек)», «Кто утвердил», «Подтвердил») — то же
+  // поле решения, только колонкой: имя, появившееся в ячейке после записи модели, снимало
+  // бы `⏭` гейта или закрывало долг набора её же рукой. Множественная разность — тем же
+  // приёмом, что у меток: переупорядочение уже подписанных строк не ловится.
+  if (columns) {
+    const cell = fabricatedCell(before, after);
+    if (cell !== null) {
+      return (
+        `подписная колонка таблицы «${cell}» — поле решения человека: ячейку заполняет только оператор, ` +
+        `не модель инструментом записи (пустая/‹…›/н/п ячейка остаётся пустой)`
+      );
+    }
+  }
+  return null;
+}
+
+/** Путь — артефакт витка (`.sdlc/<slug>/…`) либо набор гейтов проекта (`.sdlc/gates.md`). */
+function isArtifactPath(ctx: PolicyContext, path: string): boolean {
+  const rel = path.replace(/\\/g, '/').toLowerCase();
+  const dir = ctx.sdlcDir.replace(/\\/g, '/').toLowerCase();
+  return rel.includes(`${dir}/`) || rel.endsWith('.sdlc/gates.md') || rel.startsWith(`${dir}/`);
+}
+
+/** Значение подписной колонки, появившееся в `after`, которого не было в `before`; `null` — нет. */
+function fabricatedCell(before: string, after: string): string | null {
+  const remaining = decisionColumnValues(after);
+  for (const v of decisionColumnValues(before)) {
+    const at = remaining.indexOf(v);
+    if (at >= 0) remaining.splice(at, 1);
+  }
+  return remaining[0] ?? null;
 }

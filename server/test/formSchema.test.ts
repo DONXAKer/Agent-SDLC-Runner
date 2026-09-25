@@ -360,6 +360,13 @@ describe('deriveSchema: реальные шаблоны эталона', { skip:
     ok(decisionRows.length > 0);
   });
 
+  it('handoff: «Действие» записи о дефекте — поле решения человека, модели не отдаётся', () => {
+    const text = readFileSync(join(templatesDir, 'handoff.template.md'), 'utf8');
+    const action = deriveSchema(text, 'handoff.template.md').fields.filter((f) => /действие/i.test(f.id));
+    ok(action.length > 0, 'поле «Действие» не нашлось в схеме');
+    for (const f of action) strictEqual(f.kind, 'decision', `${f.id}: ${f.kind}`);
+  });
+
   it('handoff: yaml-блок вида "### Запись N" даёт группу и подполя', () => {
     const text = readFileSync(join(templatesDir, 'handoff.template.md'), 'utf8');
     const schema = deriveSchema(text, 'handoff.template.md');

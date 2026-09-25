@@ -18,6 +18,7 @@ import {
   openQuestions,
   renderAnswerRow,
   unaskedQuestions,
+  unreflectedAnswers,
 } from '../src/artifacts/humanFacts.ts';
 
 const REPORT = `# Вопросы и ответы: Надбавка
@@ -90,6 +91,50 @@ describe('extractHumanFacts', () => {
     );
     strictEqual(facts.length, 1);
     strictEqual(facts[0]?.literals[0]?.shown, '90%');
+  });
+});
+
+/**
+ * `unreflectedAnswers` (Р6, серия local6 2026-09-24): «Что изменилось в задаче» заполнено,
+ * но не тем — числа/условия из ОТВЕТА человека в него не попали, и claim-N не назван.
+ * Фикстура — дословно текст живого прогона (`vat-rounding`): ответ называет 10 % при
+ * условии, «Что изменилось» пересказывает 20 % без единой цифры ответа.
+ */
+describe('unreflectedAnswers', () => {
+  const table = (changed: string) =>
+    '## Вопросы и ответы\n' +
+    '| # | Вопрос | Блокирующий | Ответ человека | Что изменилось в задаче |\n' +
+    '|---|---|---|---|---|\n' +
+    `| 1 | Какую ставку льготы использовать? | да | Льготная ставка НДС — 10%. Применяется, только если ВСЕ позиции льготные. | ${changed} |\n`;
+
+  it('живой случай: «Что изменилось» пересказывает 20% без единой цифры ответа (10%) — находка', () => {
+    const stale = unreflectedAnswers(
+      table('Invoice обновлён с логикой расчёта VAT: при opts.vat=\'std\' добавляется 20 % от subtotal'),
+    );
+    strictEqual(stale.length, 1);
+    strictEqual(stale[0]?.question, 'Какую ставку льготы использовать?');
+  });
+
+  it('«Что изменилось» содержит литерал ответа (10%) — не находка', () => {
+    strictEqual(unreflectedAnswers(table('Добавлена льготная ставка 10% для счетов, где все позиции reduced')).length, 0);
+  });
+
+  it('«Что изменилось» называет claim-N — не находка (законный адрес, поправит человек)', () => {
+    strictEqual(unreflectedAnswers(table('см. claim-1')).length, 0);
+  });
+
+  it('«Что изменилось» пусто/плейсхолдер — не находка (общий страж завершения уже поймал бы это)', () => {
+    strictEqual(unreflectedAnswers(table('‹что изменилось в задаче›')).length, 0);
+    strictEqual(unreflectedAnswers(table('')).length, 0);
+  });
+
+  it('ответ без литералов — не проверяется вовсе: сверять нечем', () => {
+    const noLiterals =
+      '## Вопросы и ответы\n' +
+      '| # | Вопрос | Блокирующий | Ответ человека | Что изменилось в задаче |\n' +
+      '|---|---|---|---|---|\n' +
+      '| 1 | Кратко? | нет | Ответа у меня нет, прочитай код сам. | что-то не по теме |\n';
+    strictEqual(unreflectedAnswers(noLiterals).length, 0);
   });
 });
 

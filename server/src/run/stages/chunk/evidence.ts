@@ -3,12 +3,14 @@
  * из слов исполнителя; и сравнение патчей соседних попыток для детекта «нет прогресса».
  */
 
-import type { GateRunResult, StageId } from '@sdlc-runner/shared';
+import type { GateRunResult, RunEvent, StageId } from '@sdlc-runner/shared';
 
 import { readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
 import type { WitokPaths } from '../../../artifacts/paths.ts';
 import { snapshotBaseline } from '../../../gates/builtin/index.ts';
 import type { BuiltinGate, GateContext } from '../../../gates/builtin/index.ts';
+import type { GatesFile } from '../../../gates/gatesFile.ts';
+import { gateKey } from '../../../gates/gatesFile.ts';
 import { stageNewPlanFiles } from '../../../gates/git.ts';
 import { runGateByName } from '../../../gates/run.ts';
 import { ensureSandboxFor } from '../../../sandbox/registry.ts';
@@ -17,6 +19,38 @@ import { recordAttemptEvidence } from '../../evidence.ts';
 import type { TreeChange } from '../../evidence.ts';
 import { planConstantsMissingFromDiff } from '../../planConstants.ts';
 import type { StageHost } from '../types.ts';
+
+/**
+ * Успешный вызов Bash за попытку — правка кода могла пройти через shell (`sed`, `patch`,
+ * генератор), не только через Write/Edit, которые считает `acceptedWrites` (`Run.ts`).
+ * Тот же приём сверки, что у `verdict/honesty.ts::checkJournalClaimsVsBash`: `tool_request`
+ * с `call.kind === 'bash'`, чей `requestId` встретился среди успешных `tool_result`.
+ */
+export function attemptHadBash(events: readonly RunEvent[]): boolean {
+  const okRequestIds = new Set(
+    events.filter((e): e is Extract<RunEvent, { type: 'tool_result' }> => e.type === 'tool_result' && e.ok).map((e) => e.requestId),
+  );
+  return events.some((e) => e.type === 'tool_request' && e.call.kind === 'bash' && okRequestIds.has(e.requestId));
+}
+
+/**
+ * Факты попытки для гейтов, считающих от базы (`GateContext`: база, патч попытки, пункты
+ * задачи, журнал chunk'а, команда «Тесты» набора). Один источник на этап 5 (улики, гейты
+ * после шага) и этап 6 (прогон набора): контексты разошлись бы при первом добавленном поле.
+ */
+export async function attemptGateFacts(
+  host: StageHost,
+  gates: GatesFile | null,
+): Promise<Pick<GateContext, 'baseSha' | 'attemptPatchPath' | 'claimIds' | 'journalPath' | 'testsCommand'>> {
+  const tests = gates?.rows.find((r) => r.enabled && gateKey(r.name) === gateKey('Тесты'));
+  return {
+    baseSha: (await host.baseSha()).sha,
+    attemptPatchPath: host.paths.chunkDiff(host.chunk(), host.attempt()),
+    claimIds: [...host.intentClaimLines().keys()],
+    journalPath: host.paths.chunkJournal(host.chunk()),
+    testsCommand: tests?.command ?? null,
+  };
+}
 
 export function readBaseline(host: StageHost): ReadonlyMap<string, string> | null {
   const a = readArtifact(host.paths.chunkBaseline(host.chunk()));
@@ -37,7 +71,19 @@ export function readBaseline(host: StageHost): ReadonlyMap<string, string> | nul
  */
 export async function ensureBaseline(host: StageHost): Promise<void> {
   const path = host.paths.chunkBaseline(host.chunk());
-  if (readArtifact(path).exists) return;
+  const existing = readBaseline(host);
+  // База прежней версии (md5, 32 hex) не читается новым хэшем (sha256): каждый чужой
+  // грязный файл вменялся бы исполнителю. Пересъёмка с предупреждением — не молча.
+  const stale = existing !== null && [...existing.values()].some((h) => /^[0-9a-f]{32}$/i.test(h));
+  if (readArtifact(path).exists && !stale) return;
+  if (stale) {
+    host.emit({
+      type: 'warning',
+      runId: host.id,
+      stage: 'chunk',
+      message: `база chunk ${host.chunk()} снята прежней версией (md5) — пересъёмка sha256; чужие правки до этого момента база больше не отличает`,
+    });
+  }
   const snapshot = await snapshotBaseline(host.projectRoot);
   writeArtifact(path, JSON.stringify(snapshot, null, 2));
 
@@ -113,6 +159,7 @@ export async function runNamedGate(
       slug: host.slug,
       ...(modules === undefined ? {} : { modules }),
       ...(signal === undefined ? {} : { signal }),
+      ...(await attemptGateFacts(host, gates)),
     };
   return runGateByName(
     name,
@@ -140,9 +187,16 @@ export async function runNamedGate(
  * Возвращает, что стало с деревом. `unknown` — посчитать не удалось; вызывающий обязан
  * обойтись с этим как с провалом, а не как с «правки были».
  */
-export async function recordEvidence(host: StageHost, diffBefore: string): Promise<TreeChange> {
+export async function recordEvidence(
+  host: StageHost,
+  diffBefore: string,
+  executorModel: string | null = null,
+): Promise<TreeChange> {
   const modules = host.projectModules();
   const aborterSignal = host.aborterSignal();
+  // Гейт «Тесты» берётся из НАБОРА проекта, а не из реестра встроенных: приоритет
+  // команды в обратных кавычках — правило `runOne`, и улика обязана его соблюдать.
+  const gates = host.gatesFile();
   const gateCtx: GateContext = {
     projectRoot: host.projectRoot,
     planFiles: host.planFilesFor('chunk') ?? [],
@@ -151,11 +205,8 @@ export async function recordEvidence(host: StageHost, diffBefore: string): Promi
     slug: host.slug,
     ...(modules === undefined ? {} : { modules }),
     ...(aborterSignal === undefined ? {} : { signal: aborterSignal }),
+    ...(await attemptGateFacts(host, gates)),
   };
-
-  // Гейт «Тесты» берётся из НАБОРА проекта, а не из реестра встроенных: приоритет
-  // команды в обратных кавычках — правило `runOne`, и улика обязана его соблюдать.
-  const gates = host.gatesFile();
   // Один путь запуска гейта по имени на улику и на проверку после шага: второй набор
   // тех же полей контекста разошёлся бы с первым при следующем добавленном поле.
   const runTests: BuiltinGate | null =
@@ -177,10 +228,12 @@ export async function recordEvidence(host: StageHost, diffBefore: string): Promi
             exitCode: r.exitCode,
             lastLine: r.lastLine,
             envBlocked: r.envBlocked,
-            // Хвост вывода обязан доехать до улики: он тут ради того и посчитан.
-            // Пока литерал его не переносил, «## Вывод команды» в tests.txt не
-            // появлялся никогда, и попытка N+1 чинила падения вслепую.
+            missingTool: r.missingTool ?? null,
+            // Вывод обязан доехать до улики: он тут ради того и посчитан. Пока литерал
+            // его не переносил, «## Вывод команды» в tests.txt не появлялся никогда, и
+            // попытка N+1 чинила падения вслепую. Полный вывод — требование методологии.
             ...(r.outputTail === undefined ? {} : { outputTail: r.outputTail }),
+            ...(r.output === undefined ? {} : { output: r.output }),
           };
         };
 
@@ -227,15 +280,30 @@ export async function recordEvidence(host: StageHost, diffBefore: string): Promi
     const chunk = host.chunk();
     const attempt = host.attempt();
     const signal = host.aborterSignal();
-    const { tree, testsNote, testsStatus, diff } = await recordAttemptEvidence({
+    // База патча — та, что записана в плане (`host.baseSha`): от неё же считает сверку
+    // этап 6 и терминальный `attempt-evidence.py`. Без базы в плане — предупреждение:
+    // патч от HEAD совпадёт с патчем от базы только пока HEAD не двигали.
+    const base = await recordBase(host);
+    const { tree, testsNote, testsStatus, diff, evidence } = await recordAttemptEvidence({
       projectRoot: host.projectRoot,
       diffPath: host.paths.chunkDiff(chunk, attempt),
       testsPath: host.paths.chunkTests(chunk, attempt),
+      evidencePath: host.paths.chunkEvidence(chunk, attempt),
       diffBefore,
+      baseSha: base,
       gateCtx,
       runTests,
+      meta: { slug: host.slug, chunk, attempt, executorModel },
       ...(signal === undefined ? {} : { signal }),
     });
+    if (evidence.missing_tool !== null) {
+      host.emit({
+        type: 'warning',
+        runId: host.id,
+        stage: 'chunk',
+        message: `оболочка не нашла инструмент команды тестов — кандидат в blocked_env: ${evidence.missing_tool}`,
+      });
+    }
 
     // Улика для RunMetrics.chunkEvidence — дешёвый, безмодельный сигнал ДО дорогого
     // verify (Opus, десятки ходов): те же ДВА Scope-гейта, что этап 6 гоняет тем же
@@ -299,6 +367,22 @@ export async function recordEvidence(host: StageHost, diffBefore: string): Promi
     });
     return 'unknown';
   }
+}
+
+/** База патча попытки с предупреждением, когда она взята не из плана. */
+async function recordBase(host: StageHost): Promise<string | null> {
+  const base = await host.baseSha();
+  if (base.source === 'plan') return base.sha;
+  host.emit({
+    type: 'warning',
+    runId: host.id,
+    stage: 'chunk',
+    message:
+      base.sha === null
+        ? `база diff'а не определена (${base.why}) — патч попытки снят от индекса`
+        : `в плане нет поля «База» с sha — патч попытки снят от ${base.source === 'journal' ? 'базы журнала chunk’а' : 'HEAD'} (${base.sha})`,
+  });
+  return base.sha;
 }
 
 /**

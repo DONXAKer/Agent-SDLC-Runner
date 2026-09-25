@@ -12,8 +12,43 @@ import {
   readDecision,
 } from '../../artifacts/artifact.ts';
 import { CLAIMS_MINIMUM, countClaims } from '../../artifacts/claims.ts';
+import { checkIntentAgainstSnapshot } from '../../artifacts/intentSections.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import type { Precondition, StageContext } from './types.ts';
+
+/**
+ * Секции задачи, переписанные вне трёх законных правок (`artifacts/intentSections.ts`);
+ * `null` — снимка нет (виток начат до его появления или с середины) либо всё законно.
+ */
+export function intentTamperedSections(c: StageContext): string[] | null {
+  const intent = readArtifact(c.paths.intent);
+  if (!intent.exists) return null;
+  const check = checkIntentAgainstSnapshot(c.paths.intentSections, intent.text);
+  if (check === null) return null;
+  return check.illegal.length === 0 ? null : check.illegal;
+}
+
+/**
+ * Задача не переписана внутри витка: этапы 4 и 6 сверяют `intent.md` со снимком секций
+ * (`SDLC.md` → «Вердикт», восьмое условие). Законны только правки, которые снимок узнаёт;
+ * иное — переписанная задача, а не правка, и этап не начинается.
+ */
+export function intentSectionsIntact(describe: string): Precondition {
+  return {
+    describe,
+    artifact: (c) => c.paths.intent,
+    check: (c) => {
+      const illegal = intentTamperedSections(c);
+      return illegal === null
+        ? null
+        : `задача изменена внутри витка вне трёх законных правок этапа 1 — секции ${illegal
+            .map((s) => `«${s}»`)
+            .join(', ')} в ${c.paths.intent} не совпадают со снимком ${c.paths.intentSections}. ` +
+            'Законны: заполненная «Что придётся тронуть», закрытые «Открытые вопросы», дописанные строки ' +
+            'приёмочного листа при нетронутых старых, секция с новой записью «уточнено с одобрения ‹имя›».';
+    },
+  };
+}
 
 // ── помощники предусловий ──────────────────────────────────────────────────
 
@@ -79,6 +114,18 @@ export function intentPlaceholderCount(c: StageContext, text: string, afterExplo
 }
 
 /**
+ * Незаполненные места артефакта этапа для вопроса «этап пройден?» — страница витка и
+ * дашборд. `intent.md` судится той же функцией, что страж этапа 1 (`intentPlaceholderCount`
+ * без секции «Что придётся тронуть»): иначе пройденная задача с законно пустой секцией
+ * светилась бы проваленной — третья проверка одного файла, от которой уходил test28.
+ */
+export function artifactPlaceholders(path: string, c: StageContext): { exists: boolean; placeholders: number } {
+  const a = readArtifact(path);
+  if (!a.exists) return { exists: false, placeholders: 0 };
+  return { exists: true, placeholders: path === c.paths.intent ? intentPlaceholderCount(c, a.text, false) : a.placeholders };
+}
+
+/**
  * Предусловие «задача заполнена» той же функцией, что страж этапа 1. `afterExploration` —
  * ждём ли уже заполненную разведкой секцию «Что придётся тронуть» (вход в `plan`), или
  * она ещё законно пуста (вход в `explore`).
@@ -87,6 +134,13 @@ export function intentFilled(describe: string, afterExploration: boolean): Preco
   return {
     describe,
     artifact: (c) => c.paths.intent,
+    // Всё незаполненное — в секции «Что придётся тронуть»: её дописывает разведка, и вход
+    // отклонён по её недоработке, а не по задаче, которую intent сдал целиком.
+    blame: (c) => {
+      if (!afterExploration) return undefined;
+      const a = readArtifact(c.paths.intent);
+      return a.exists && intentPlaceholdersOutsideTouch(a.text) === 0 ? 'explore' : undefined;
+    },
     check: (c) => {
       const a = readArtifact(c.paths.intent);
       if (!a.exists) {
@@ -226,9 +280,15 @@ export function readinessVerdict(text: string, run: 1 | 2): 'ready' | 'not' | nu
     // Решает ПЕРВОЕ «готова» строки и отрицание перед ним — не начало строки: «❌ не
     // готова», «Задача не готова» прежде давали `null`, и предусловие пропускало
     // отвергнутую задачу (code-review-all 2026-09-23).
-    const m2 = /(^|[^а-я])(не\s+)?готова($|[^а-я])/.exec(v);
-    if (m2 === null) return null;
-    return m2[2] === undefined ? 'ready' : 'not';
+    if (!/(^|[^а-я])готова($|[^а-я])/.test(v)) return null;
+    // Любое ослабление «готова» — не готова: «не совсем готова», «не полностью готова»,
+    // «почти готова», «готова не полностью», «частично готова». Однозначно «готова» —
+    // только без них; иначе предусловие пропускало задачу, которую проверка отвергла.
+    const weakened =
+      /(^|[^а-я])не\s+([а-я]+\s+){0,2}готова($|[^а-я])/.test(v) ||
+      /(^|[^а-я])(почти|частично|условно)\s+готова($|[^а-я])/.test(v) ||
+      /(^|[^а-я])готова\s+(не($|[^а-я])|частично|условно|с\s+оговорк)/.test(v);
+    return weakened ? 'not' : 'ready';
   }
   return null;
 }

@@ -15,6 +15,7 @@ import Fastify from 'fastify';
 import type {
   AutoApproveRules,
   ConfigInfo,
+  DashboardResponse,
   Decision,
   PromptResponse,
   RunDetail,
@@ -35,14 +36,25 @@ import { appendEvent, readPersistedEvents } from './eventLog.ts';
 import { scanHistory } from './history.ts';
 import { scopeViolations } from './gates/builtin/logic.ts';
 import { normalizePlanPath } from './policy/paths.ts';
-import { readArtifact, readDecision } from './artifacts/artifact.ts';
-import { artifactPathOf } from './artifacts/paths.ts';
+import { readArtifact } from './artifacts/artifact.ts';
 import { Run } from './run/Run.ts';
 import { PROBE_CASE_TIMEOUT_MS, formatProbe, probeModel, resolveProbeTarget } from './probe.ts';
 import { stopSandboxForProject } from './sandbox/registry.ts';
 import { createProvider } from './provider/registry.ts';
 import { detectSandboxSpec } from './sandbox/detect.ts';
 import { STAGES, isStageId, stageById } from './run/stages.ts';
+import { pendingDecisionCount, stageInfos } from './run/stageInfo.ts';
+import {
+  BenchIndex,
+  badWitokSlug,
+  dashboardArtifact,
+  dashboardDetail,
+  dashboardBody,
+  dashboardList,
+  dashboardProjects,
+  defaultBenchDir,
+} from './dashboard/index.ts';
+import type { LiveEntry } from './dashboard/index.ts';
 import { badSlug } from './validation.ts';
 
 const config = loadConfig();
@@ -145,7 +157,10 @@ const askGate = new AskGate({
   },
 });
 
-const app = Fastify({ logger: { level: 'warn' } });
+// `maxParamLength`: по умолчанию 100 символов СЫРОГО сегмента адреса, а кириллический slug
+// терминального витка кодируется по 6 символов на букву — карточка из списка дашборда
+// открывалась 404 уже на слаге в семнадцать букв.
+const app = Fastify({ logger: { level: 'warn' }, maxParamLength: 2000 });
 await app.register(websocket);
 
 // ── валидация входа ────────────────────────────────────────────────────────
@@ -383,12 +398,7 @@ app.post('/api/runs', async (req, reply) => {
  * а решение не записано. Тем же разбором, что предусловие следующего этапа (`granted()`).
  */
 function pendingDecisions(run: Run): number {
-  return STAGES.filter((s) => {
-    if (s.humanGate === null) return false;
-    const path = artifactPathOf(run.paths, s.humanGate.artifact, run.chunk, run.attempt);
-    const a = readArtifact(path);
-    return a.exists && readDecision(a.text, s.humanGate.label).state !== 'granted';
-  }).length;
+  return pendingDecisionCount(run.ctx);
 }
 
 /**
@@ -409,8 +419,9 @@ function waitingCount(run: Run): number {
   );
 }
 
-app.get('/api/runs', (): RunSummary[] =>
-  [...runs.values()].map(({ run, currentStage, stageStartedAt }) => ({
+/** Карточка живого прогона — одна форма на список витков и на дашборд. */
+function summaryOf({ run, currentStage, stageStartedAt }: LiveRun): RunSummary {
+  return {
     runId: run.id,
     slug: run.slug,
     project: run.project.name,
@@ -426,8 +437,10 @@ app.get('/api/runs', (): RunSummary[] =>
     // с тем, что покажет открытый виток, и второго выражения для него быть не должно.
     waiting: waitingCount(run),
     stageStartedAt: currentStage === null ? null : stageStartedAt,
-  })),
-);
+  };
+}
+
+app.get('/api/runs', (): RunSummary[] => [...runs.values()].map(summaryOf));
 
 /**
  * Единая валюта маршрутов профиля — см. `RunSummary.currency`. Смешанный профиль отдаёт
@@ -478,6 +491,49 @@ app.get('/api/history/:slug/events', (req, reply) => {
   }
 });
 
+/**
+ * Дашборд: все витки всех проектов (раннер и терминальные скиллы) плюс прогоны стенда.
+ * Только чтение диска — `Run` для архивных витков не поднимается (`dashboard/witoks.ts`).
+ * Проекты пересобираются на каждый запрос: `POST /api/projects` дописывает конфиг на лету.
+ */
+const benchIndex = new BenchIndex(config.runner.benchDir ?? defaultBenchDir());
+
+function dashboardLive(): LiveEntry[] {
+  return [...runs.values()].map((lr) => ({ projectRoot: lr.run.project.projectRoot, summary: summaryOf(lr) }));
+}
+
+app.get('/api/dashboard', (req, reply) => {
+  const r: DashboardResponse = dashboardList(dashboardProjects(config.projects.values()), dashboardLive(), benchIndex);
+  const { etag, body } = dashboardBody(r);
+  // `no-cache` — «переспроси», а не «не храни»: браузер шлёт If-None-Match, и неизменный
+  // список не гоняется по проводу заново.
+  // Часы сервера — заголовком, и на 304 тоже: браузер отдаёт клиенту закэшированное тело со
+  // СТАРЫМ `serverNow`, а заголовки ответа 304 обновляют сохранённые. Поправка часов клиента
+  // по телу уезжала на время с прошлого ответа 200.
+  reply.header('etag', etag).header('cache-control', 'no-cache').header('x-server-now', String(r.serverNow));
+  if (req.headers['if-none-match'] === etag) return reply.code(304).send();
+  // Готовая строка, а не объект: Fastify сериализовал бы список второй раз.
+  return reply.type('application/json; charset=utf-8').send(body);
+});
+
+app.get('/api/dashboard/:source/:project/:slug', (req, reply) => {
+  const { source, project, slug } = req.params as { source: string; project: string; slug: string };
+  const bad = badWitokSlug(slug);
+  if (bad !== null) return reply.code(400).send({ error: bad });
+  const r = dashboardDetail(source, project, slug, dashboardProjects(config.projects.values()), dashboardLive(), benchIndex);
+  return 'ok' in r ? r.ok : reply.code(r.code).send({ error: r.error });
+});
+
+app.get('/api/dashboard/:source/:project/:slug/artifact', (req, reply) => {
+  const { source, project, slug } = req.params as { source: string; project: string; slug: string };
+  const { name } = req.query as { name?: unknown };
+  if (typeof name !== 'string') return reply.code(400).send({ error: 'нужен параметр name' });
+  const bad = badWitokSlug(slug);
+  if (bad !== null) return reply.code(400).send({ error: bad });
+  const r = dashboardArtifact(source, project, slug, name, dashboardProjects(config.projects.values()), benchIndex);
+  return 'ok' in r ? r.ok : reply.code(r.code).send({ error: r.error });
+});
+
 app.get('/api/runs/:id', async (req, reply) => {
   const { id } = req.params as { id: string };
   const live = liveRun(id);
@@ -504,48 +560,10 @@ app.get('/api/runs/:id', async (req, reply) => {
     // списка обязана показывать то же число, что очередь на странице витка.
     waiting: waitingCount(run),
     stageStartedAt: currentStage === null ? null : live.stageStartedAt,
-    stages: STAGES.map((s) => {
-      const out = s.produces(run.ctx);
-      return {
-        id: s.id,
-        title: s.title,
-        tools: s.tools,
-        blockers: run.blockers(s.id),
-        // У handoff'а вход двойной, и предусловия у входов разные — см. `abortBlockers`.
-        abortBlockers: s.id === 'handoff' ? run.blockers(s.id, { abortHandoff: true }) : null,
-        envNotes: run.envNotes(s.id),
-        produces: out,
-        // Факт с диска тем же чтением, что блокеры: клиентская эвристика «дальний этап без
-        // блокеров = всё до него пройдено» врала на этапах с общими предусловиями (ask и
-        // plan разблокированы сразу после intent, до всякой разведки) — см. StageInfo.produced.
-        //
-        // «Существует» здесь мало: рантайм САМ раскладывает формы при старте этапа
-        // (`seedArtifacts`), и по одному существованию этап, упавший на первом ходу,
-        // светился пройденным над нетронутым бланком. Пройденность — «существует И без
-        // плейсхолдеров», тем же счётчиком, что у стража завершения.
-        produced:
-          out.length > 0 &&
-          out.every((p) => {
-            const a = readArtifact(p);
-            return a.exists && a.placeholders === 0;
-          }),
-        // Этап, который методология пропускает СЕЙЧАС (мелкий контур, вопросов нет):
-        // артефакта у него не будет никогда, и без этого признака интерфейс вечно
-        // предлагал бы его как следующий шаг.
-        skipped: s.skipIf !== null && s.skipIf(run.ctx) !== null,
-        decision: s.humanGate,
-        // Тем же разбором, что и предусловие следующего этапа (`granted()` в stages.ts):
-        // «записано» — это `readDecision(...).state === 'granted'`, а не факт, что поле
-        // вообще существует в шаблоне.
-        decisionRecorded:
-          s.humanGate === null
-            ? false
-            : (() => {
-                const path = artifactPathOf(run.paths, s.humanGate.artifact, run.chunk, run.attempt);
-                const a = readArtifact(path);
-                return a.exists && readDecision(a.text, s.humanGate.label).state === 'granted';
-              })(),
-      };
+    // Один расчёт с дашбордом (`run/stageInfo.ts`); живые здесь только блокеры и проба среды.
+    stages: stageInfos(run.ctx, {
+      blockers: (id, o) => run.blockers(id, o),
+      envNotes: (id) => run.envNotes(id),
     }),
     pendingApprovals: gate.list().filter((p) => p.runId === id),
     pendingQuestions: askGate.list().filter((p) => p.runId === id),

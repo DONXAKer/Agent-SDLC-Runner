@@ -4,7 +4,7 @@
  */
 
 import { deepStrictEqual, strictEqual } from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -100,5 +100,66 @@ describe('finalizeRejection — общая проверка обоих флоу 
     writeFileSync(abs, '# Задача: пример\n\nВсё на месте.\n');
     strictEqual(finalizeRejection(abs, root, [abs]), null);
     strictEqual(finalizeRejection('intent.md', root, [abs]), null);
+  });
+
+  // Живой прогон gpt-oss-20b (rename-field, 2026-09-24): отказ «незаполненных мест: 2 —
+  // «место правки»: подтвердил. Замени именно их инструментом Edit» гнал модель на запись
+  // в поле решения человека, которую политика отклоняет (7 отказов подряд).
+  const JOURNAL_CONFIRMED_ONLY =
+    '# Журнал chunk\'а 1: demo\n\n' +
+    '## Место правки\n\n' +
+    '- Точки правки по итогам точечной разведки: src/a.ts:fn\n' +
+    '- Карта разведки: совпала\n\n' +
+    '- **Подтвердил:** ‹имя› · ‹дата›\n';
+
+  it('единственный плейсхолдер — поле решения человека «Подтвердил» — финализация принята', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-finalize-'));
+    const abs = join(root, 'chunk-1-journal.md');
+    writeFileSync(abs, JOURNAL_CONFIRMED_ONLY);
+    strictEqual(finalizeRejection('chunk-1-journal.md', root, [abs]), null);
+  });
+
+  it('плейсхолдер модели рядом с полем решения — отказ называет только поле модели', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-finalize-'));
+    const abs = join(root, 'chunk-1-journal.md');
+    writeFileSync(abs, JOURNAL_CONFIRMED_ONLY.replace('src/a.ts:fn', '‹файл:символ, …›'));
+    const rejection = finalizeRejection('chunk-1-journal.md', root, [abs]);
+    strictEqual(rejection?.placeholders, 1);
+    strictEqual(rejection?.located?.length, 1);
+    strictEqual(rejection?.message.includes('подтвердил'), false, rejection?.message);
+    strictEqual(rejection?.message.includes('место правки'), true, rejection?.message);
+  });
+
+  // Тот же прогон: ` .sdlc/…/chunk-1-journal.md` (ведущий пробел), голое имя, `\` вместо `/`
+  // и корень чужого репозитория из строки промпта — 7 отказов «не является артефактом».
+  describe('адрес артефакта — ошибка адресации, не границы', () => {
+    function journal(): { root: string; abs: string } {
+      const root = mkdtempSync(join(tmpdir(), 'sdlc-finalize-'));
+      const abs = join(root, '.sdlc', 'x', 'chunk-1-journal.md');
+      mkdirSync(join(root, '.sdlc', 'x'), { recursive: true });
+      writeFileSync(abs, '# Журнал\n\nВсё на месте.\n');
+      return { root, abs };
+    }
+
+    it('ведущий пробел, голое имя, обратные слэши — принимаются по каноническому пути', () => {
+      const { root, abs } = journal();
+      strictEqual(finalizeRejection(' .sdlc/x/chunk-1-journal.md', root, [abs]), null);
+      strictEqual(finalizeRejection('chunk-1-journal.md', root, [abs]), null);
+      strictEqual(finalizeRejection('.sdlc\\x\\chunk-1-journal.md', root, [abs]), null);
+      strictEqual(finalizeRejection('.sdlc/typo/chunk-1-journal.md', root, [abs]), null);
+    });
+
+    it('абсолютный путь вне проекта — не переадресуется, отказ', () => {
+      const { root, abs } = journal();
+      const foreign = join(mkdtempSync(join(tmpdir(), 'sdlc-other-')), '.sdlc', 'x', 'chunk-1-journal.md');
+      const rejection = finalizeRejection(foreign, root, [abs]);
+      strictEqual(rejection?.message.includes('не является артефактом этого этапа'), true);
+    });
+
+    it('другое имя файла — по-прежнему отказ', () => {
+      const { root, abs } = journal();
+      const rejection = finalizeRejection('.sdlc/x/plan.md', root, [abs]);
+      strictEqual(rejection?.message.includes('не является артефактом этого этапа'), true);
+    });
   });
 });

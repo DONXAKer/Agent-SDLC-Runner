@@ -12,17 +12,19 @@
 import { ok, strictEqual } from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
-import type { StageId } from '@sdlc-runner/shared';
+import type { StageId, Verdict, VerdictAction } from '@sdlc-runner/shared';
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 
 import { AskGate } from '../src/approval/askGate.ts';
 import { ApprovalGate } from '../src/approval/gate.ts';
 import type { LoadedConfig } from '../src/config/load.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../src/config/schema.ts';
+import { WitokPaths } from '../src/artifacts/paths.ts';
 import { Run } from '../src/run/Run.ts';
+import { writeRunVerdict } from '../src/run/verdictStore.ts';
 
 const roots: string[] = [];
 after(() => {
@@ -167,7 +169,7 @@ describe('восстановление chunk/attempt из артефактов �
   // после escalate, попытка без патча после blocked_env (code-review-all 2026-09-23).
   // Улики отвергнутой попытки (ta-13) бережёт предусловие chunk (`verdictOnDisk.test.ts`).
   const verdictFile = (dir: string, attempt: number, passed: boolean, action: string): void =>
-    writeFileSync(join(dir, `.chunk-1-attempt-${attempt}-verdict.json`), JSON.stringify({ passed, action, reasons: [] }));
+    writeRunVerdict(new WitokPaths(dirname(dirname(dir)), 'demo'), 1, attempt, { passed, action: action as VerdictAction, reasons: [] });
 
   it('красный вердикт по восстановленной попытке — номер не сдвигается, вердикт восстановлен', () => {
     const root = tempRoot();
@@ -206,16 +208,30 @@ describe('восстановление chunk/attempt из артефактов �
     strictEqual(run.advanceProblem('chunk'), null);
   });
 
-  it('средовые попытки восстанавливаются: blocked_env прошлых попыток не съедает бюджет', () => {
+  it('blocked_env не занимает номер: «Новая попытка» после него — та же K', () => {
+    // `SDLC.md` → «blocked_env в этот счёт не входит»: следующий прогон после закрытия
+    // долга среды — та же попытка K, не K+1; chunk по ней открыт, а не «уже отвергнута».
     const root = tempRoot();
     const dir = join(root, '.sdlc', 'demo');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(3));
-    verdictFile(dir, 1, false, 'blocked_env');
+    writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(2));
+    verdictFile(dir, 1, false, 'retry');
+    verdictFile(dir, 2, false, 'blocked_env');
+    const run = makeRun(root);
+    strictEqual(run.attempt, 2);
+    strictEqual(run.advanceProblem('attempt'), null);
+    strictEqual(run.nextAttempt(), 2);
+    strictEqual(run.blockers('chunk').filter((p) => p.includes('отвергнута')).length, 0);
+  });
+
+  it('обычный красный по-прежнему сдвигает номер', () => {
+    const root = tempRoot();
+    const dir = join(root, '.sdlc', 'demo');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'chunk-1-journal.md'), JOURNAL(2));
     verdictFile(dir, 2, false, 'retry');
     const run = makeRun(root);
-    strictEqual(run.attempt, 3);
-    strictEqual((run as unknown as { envBlockedAttempts: number }).envBlockedAttempts, 1);
+    strictEqual(run.nextAttempt(), 3);
   });
 
   it('каталога витка ещё нет вовсе — восстанавливать нечего, chunk 1', () => {
@@ -236,7 +252,7 @@ describe('advanceProblem: продвижение витка по вердикт�
     // Вердикт пишется ПОСЛЕ создания Run — как вердикт живого витка (служебный файл
     // попытки, `verdictStore.ts`; строке отчёта рантайм не доверяет).
     const run = makeRun(root);
-    if (verdict !== null) writeFileSync(join(dir, '.chunk-1-attempt-1-verdict.json'), verdict);
+    if (verdict !== null) writeRunVerdict(new WitokPaths(root, 'demo'), 1, 1, JSON.parse(verdict) as Verdict);
     return run;
   }
   const v = (passed: boolean, action: string): string => JSON.stringify({ passed, action, reasons: [] });

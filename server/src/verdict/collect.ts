@@ -182,7 +182,13 @@ function invariantHolds(head: string): boolean {
   // («…не может быть отрицательной») не отрицает само «держится» тремя словами раньше, а
   // ловилось им. Окно в 2 слова между «не» и корнем — компромисс: покрывает «не всегда/
   // не вполне/не совсем держится», не дотягивается до «не» в независимом придаточном.
-  if (/(?:^|\s)не(?:\s+\S+){0,2}\s+(?:держится|соблюдается|соблюден|верн)/u.test(h)) return false;
+  //
+  // Слово окна не может быть ТИРЕ: за тире начинается уже ответ, а не продолжение
+  // отрицания. Живая строка (gpt-oss-20b, rename-field, 2026-09-24, отчёт попытки 3):
+  // «Название, цена и их проверки не изменены — держится: …» — «не» относилось к
+  // «изменены», окно перешагивало тире до «держится», и СОБЛЮДЁННЫЙ инвариант уходил в
+  // вердикт нарушенным.
+  if (/(?:^|\s)не(?:\s+[^\s—–-]+){0,2}\s+(?:держится|соблюдается|соблюден|верн)/u.test(h)) return false;
   return /(?:^|\s)(?:держится|соблюдается|соблюден|верн)/u.test(h);
 }
 
@@ -210,9 +216,16 @@ const ANSWER_SUBJECTS = /(?:расхожден|регресс|откат|нах�
  * выбрасывалась и находка, приписанная после ответа («Регрессия не обнаружена. Однако
  * basePrice печатает данные заказа в stdout (src/tariffs.ts:12)») — ровно посев
  * `axis-secret-in-log`. Отличает их адрес или противопоставление, а не длина хвоста.
+ *
+ * Адрес — это файл С НОМЕРОМ СТРОКИ, а не любое имя файла: команда и глоб в обратных
+ * кавычках («прогон рантайма: `node scripts/build-check.mjs` код 0; `node --test
+ * "test/**\/*.test.ts"` код 0») — ДОКАЗАТЕЛЬСТВО чистого ответа, а не место дефекта. Живая
+ * строка (gpt-oss-20b, rename-field, 2026-09-24): «Регрессий нет: … (прогон рантайма …)» —
+ * ответ опознавался пустым, а хвост с командой возвращал всю строку в вердикт регрессией.
+ * Тем же различием живёт `FINDING_SIGNAL_UNAMBIGUOUS` ниже: голое имя файла неоднозначно.
  */
 const FINDING_SIGNAL =
-  /(?:❌|✗|claim-\d+|(?:^|[\s(`«])[\w./-]+\.[a-z]{1,5}(?::\d+)?(?:[\s)`»,;.]|$)|(?:^|\s)(?:однако|но|зато|при\s+этом|тем\s+не\s+менее)\s)/iu;
+  /(?:❌|✗|claim-\d+|(?:^|[\s(`«])[\w./-]+\.[a-z]{1,5}:\d+(?:[\s)`»,;.-]|$)|(?:^|\s)(?:однако|но|зато|при\s+этом|тем\s+не\s+менее)\s)/iu;
 
 /** Ответ «расхождений нет» в любой из естественных формулировок — включая утвердительную. */
 const CLEAN_ANSWER_CLAUSE =
@@ -513,6 +526,18 @@ export interface CollectInput {
    */
   diffMatchesTreeFact?: boolean | null;
   /**
+   * Факт рантайма о свидетельствах попытки: `null` — `evidence.json` на месте и хэши
+   * сошлись, строка — причина, по которой патч и вывод тестов свидетельством не считаются;
+   * `undefined` — сверки не было (условие не применяется).
+   */
+  evidenceFact?: string | null | undefined;
+  /**
+   * Факт рантайма о задаче: секции `intent.md`, переписанные вне трёх законных правок
+   * (сверка со снимком `.intent-sections.json`); `null` — законно или снимка нет;
+   * `undefined` — сверки не было.
+   */
+  intentTamperFact?: string[] | null | undefined;
+  /**
    * Пункты приёмки, помеченные в ЗАДАЧЕ тегом `[manual]` — id в канонической форме.
    *
    * Источник освобождения от автоматической проверки — приёмочный лист человека, а не
@@ -662,6 +687,7 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
           status: run.status,
           inapplicableSignedBy: facts.inapplicable.get(key) ?? null,
           envBlocked: run.envBlocked,
+          missingTool: run.missingTool ?? null,
         });
       }
       continue;
@@ -692,7 +718,23 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
     // того, что рецензент переписывает статусы. Пока он попадал сюда, классификатор
     // причин красного видел непустой `disagreements` и объявлял «отчёт рецензента разошёлся
     // с фактическим прогоном» на самом частом сценарии — сигнал недоверия на ровном месте.
-    if (run !== undefined && run.status !== reported && !authoritative) {
+    // Ревью СОСТОЯЛОСЬ (рантайм видел прогон), а отчёт вписал в его строку ❌ — модель этапа 6
+    // читает строку как «ревью нашло дефекты». В вердикт по-прежнему идёт ❌ («❌ отчёта
+    // побеждает»), но это не «рецензент разошёлся с фактами»: как `disagreements` строка
+    // уводила классификатор в `escalate-model`, и попытка с однострочным `ReferenceError`,
+    // для которой рецензент сам написал `retry_instruction`, эскалировалась на первом же
+    // заходе — оба прогона gpt-oss серии s3 (2026-09-25) сожгли так бюджет из трёх попыток.
+    const reviewFoundDefects =
+      run !== undefined &&
+      run.status === '✅' &&
+      reported === '❌' &&
+      (i.runtimeAuthoritativeWhenGreen ?? []).includes(key);
+    if (reviewFoundDefects) {
+      reportQuality.push(
+        `гейт «${row.name}»: ревью состоялось (✅ по прогону), отчёт вписал ❌ — в вердикт идёт ❌, ` +
+          `но это находки ревью, а не расхождение рецензента с фактами`,
+      );
+    } else if (run !== undefined && run.status !== reported && !authoritative) {
       disagreements.push(
         `гейт «${row.name}»: в отчёте ${reported}, фактический прогон дал ${run.status} — ` +
           `в вердикт идёт худший из двух (${status})`,
@@ -713,6 +755,7 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       // Признак берётся у ПРОГОНА, а не у отчёта: рецензент о причине отказа среды знать
       // не обязан, а рантайм её видел сам.
       envBlocked: run?.envBlocked ?? false,
+      missingTool: run?.missingTool ?? null,
     });
   }
 
@@ -760,6 +803,8 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       // Факт рантайма побеждает прозу отчёта в ОБЕ стороны: он получен той же командой,
       // которой снимался патч, и спорить с ним рецензенту нечем.
       diffMatchesTree: i.diffMatchesTreeFact ?? facts.diffMatchesTree,
+      ...(i.evidenceFact === undefined ? {} : { evidenceProblem: i.evidenceFact }),
+      ...(i.intentTamperFact === undefined || i.intentTamperFact === null ? {} : { intentTamper: i.intentTamperFact }),
       attempt: i.attempt,
       attemptBudget: i.attemptBudget,
       noProgress: i.noProgress,

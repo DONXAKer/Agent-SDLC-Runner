@@ -21,6 +21,7 @@
  * вопросы) приходят готовым `AxisContext` — собирает его `Run.axisProblems()`.
  */
 
+import { SDLC_CONSTANTS, assertSameList } from '../config/constants.ts';
 import { columnIndex, headerKey, h2SectionRanges, parseTables } from '../md/table.ts';
 import { placeholderRanges } from './artifact.ts';
 
@@ -38,6 +39,8 @@ export const AXES = [
   'Совместимость и данные',
   'Наблюдаемость',
 ] as const;
+// Кортеж — ради типа `AxisName`; источник — `sdlc-constants.json`, расхождение — ошибка старта.
+assertSameList('оси прод-готовности (axes)', AXES, SDLC_CONSTANTS.axes);
 
 export type AxisName = (typeof AXES)[number];
 

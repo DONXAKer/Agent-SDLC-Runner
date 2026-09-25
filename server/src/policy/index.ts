@@ -75,6 +75,17 @@ function unknownCallSentFields(raw: unknown): string {
     : `Ты прислал поля: ${keys.map((k) => `\`${k}\``).join(', ')}.`;
 }
 
+/**
+ * Имена, которыми модели школы harmony просят применить патч целиком (`apply_patch`).
+ * Формата patch у нас нет по построению — правка идёт точечным `Edit`. Без подсказки
+ * gpt-oss тратила ход на отказ и лишь ПОСЛЕ него повторяла ту же правку через `Edit`
+ * (bench, vat-rounding, 2026-09-24): подсказка сокращает это до одного хода.
+ */
+const PATCH_STYLE_NAME = /^(?:apply[_-]?)?patch$/i;
+
+const PATCH_HINT =
+  'Правка делается инструментом `Edit` (`file_path`, `old_string`, `new_string`) — формата patch здесь нет.';
+
 function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
   if (call.kind === 'unknown') {
     // Две разные причины, и путать их дорого. Живой прогон 2026-09-04: модель позвала
@@ -89,7 +100,8 @@ function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
         ? `вызов «${call.toolName}» не разобран: инструмент на этапе ${ctx.stage} объявлен и ` +
           `доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в ` +
           `правах — сверь вызов со схемой инструмента и повтори. ${unknownCallSentFields(call.raw)}`
-        : `инструмент «${call.toolName}» не объявлен на этапе ${ctx.stage} и не опознан рантаймом.`,
+        : `инструмент «${call.toolName}» не объявлен на этапе ${ctx.stage} и не опознан рантаймом.` +
+          (PATCH_STYLE_NAME.test(call.toolName) ? ` ${PATCH_HINT}` : ''),
     );
   }
   if (call.kind === 'mcp') return checkMcp(call, ctx);

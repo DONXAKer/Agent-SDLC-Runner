@@ -282,7 +282,13 @@ export const CALL_KINDS = Object.keys({
 // Политика доступа
 // ---------------------------------------------------------------------------
 
-export type PolicyName = 'pathScope' | 'denyList' | 'planScope' | 'stageTools' | 'repeatFailure' | 'humanDecision';
+/**
+ * `readScope` — чтение файла ВНУТРИ проекта, закрытого этапу по конструкции (отчёт другой
+ * попытки рецензенту, авторский лист задачи агенту claims). Это не выход за границы
+ * (`pathScope`): отказ — устройство шага, а не посягательство модели, и стенд не должен
+ * ставить за него метку «опасна».
+ */
+export type PolicyName = 'pathScope' | 'readScope' | 'denyList' | 'planScope' | 'stageTools' | 'repeatFailure' | 'humanDecision';
 
 export type PolicyVerdict =
   | { ok: true }
@@ -375,9 +381,9 @@ export interface PolicyContext {
    */
   readOnlyRoots: readonly string[];
   /**
-   * Каталог сессий Claude Code этого проекта (флоу `sdk`): длинный вывод инструмента харнесс
-   * сохраняет в `<этот каталог>/<сессия>/tool-results/…` и отдаёт модели путь. Открыт на
-   * чтение ТОЛЬКО подкаталог `tool-results` — сами транскрипты сессий нет. Во флоу `loop`
+   * Каталог ТЕКУЩЕЙ сессии Claude Code (флоу `sdk`, задаётся по вызову из метаданных
+   * исполнителя): длинный вывод инструмента харнесс сохраняет в `<этот каталог>/tool-results/…`
+   * и отдаёт модели путь. Открыт на чтение ТОЛЬКО подкаталог `tool-results`. Во флоу `loop`
    * не задаётся: таких путей там не бывает.
    */
   harnessResultsRoot?: string;
@@ -566,6 +572,12 @@ export interface VerdictInput {
     inapplicableSignedBy: string | null;
     /** Гейт не смог запуститься из-за среды — см. `GateRunResult.envBlocked`. */
     envBlocked?: boolean;
+    /**
+     * Улика отсутствующего инструмента (`GateRunResult.missingTool`). `blocked_env` держится
+     * на доказательстве, а не на слове: без названного инструмента незапуск — обычный
+     * красный (`SDLC.md` → «Красный из-за окружения»).
+     */
+    missingTool?: string | null;
   }[];
   claims: { id: string; status: ClaimStatus }[];
   /** Условия вне статусов — каждое роняет вердикт само по себе. */
@@ -576,6 +588,20 @@ export interface VerdictInput {
   regressions: string[];
   plannedPathsUntouched: string[];
   diffMatchesTree: boolean;
+  /**
+   * Свидетельства попытки не произведены инструментом либо не сошлись с файлами: текст
+   * причины. `null`/`undefined` — свидетельства на месте (или сверки не было — тогда
+   * условие не применяется, как у `diffMatchesTree` без факта). Условие вердикта по
+   * `SDLC.md`: «файлы без записи `evidence.json` — текст исполнителя, свидетельством не
+   * считаются».
+   */
+  evidenceProblem?: string | null;
+  /**
+   * Секции `intent.md`, переписанные внутри витка вне трёх законных правок этапа 1 —
+   * восьмое условие вердикта (`SDLC.md`): задача, изменённая мимо снимка секций, — это
+   * переписанная задача, а не правка. Пусто/отсутствует — законно или сверки не было.
+   */
+  intentTamper?: string[];
   attempt: number;
   attemptBudget: number;
   /** Два подряд одинаковых diff'а — прогресса нет. */
@@ -658,6 +684,25 @@ export interface GateRunResult {
    * `GateRunResult` без этого поля, и «Вывод команды» в `tests.txt` не появлялся никогда.
    */
   outputTail?: string;
+  /**
+   * Полный вывод команды (stdout + stderr) — для свидетельства попытки (`…-tests.txt`):
+   * методология требует ПОЛНЫЙ вывод, усечение только буфером захвата и с пометкой. В
+   * строку гейта и в шину не идёт — там `lastLine` и `outputTail`.
+   */
+  output?: string;
+  /**
+   * Улика отсутствующего инструмента — строка оболочки, назвавшая сам инструмент команды
+   * (`gates/missingTool.ts`); `null` — инструмент на месте. Пишется в `evidence.json`
+   * попытки и служит основанием `blocked_env`, а не догадкой по коду возврата.
+   */
+  missingTool?: string | null;
+  /**
+   * Откуда статус: `json` — гейт-скрипт отчитался по контракту (`gates/contract.ts`),
+   * `exit-code` — по коду возврата. У встроенных реализаций и внешних статусов — нет.
+   */
+  contract?: 'json' | 'exit-code';
+  /** Улики гейт-скрипта по контракту: пути, hunk'и, имена тестов — то, что цитирует отчёт. */
+  evidence?: string[];
 }
 
 /**

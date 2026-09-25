@@ -51,6 +51,7 @@ function result(stagesOk: boolean) {
       controlOverrides: {},
       stageTimeoutMs: 1,
       runTimeoutMs: 1,
+      probeTimeoutMs: null,
       maxIterationsPerStage: 1,
       maxBudgetUsd: 1,
       attempts: 1,

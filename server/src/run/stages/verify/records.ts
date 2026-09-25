@@ -17,7 +17,7 @@ import type { ClaimAsk } from '../../claimFill.ts';
 import { autofillVerificationReport } from '../../verifyAutofill.ts';
 import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } from '../../verifyReport.ts';
 import type { SeededArtifact, StageHost } from '../types.ts';
-import { MODEL_REPORTED_GATES, RECONCILE_GATE, REVIEW_GATE, earlyGateRows, earlyGatesForModel } from './gates.ts';
+import { REVIEW_GATE, earlyGateRows, earlyGatesForModel, reportedBy } from './gates.ts';
 
 /** Текст, в котором ищется ссылка записи (`VerifyState.anchorHaystack`). */
 export function evidenceHaystack(host: StageHost): string {
@@ -230,10 +230,10 @@ export function autofillVerification(host: StageHost, seeded: SeededArtifact[]):
     // Строки ревью и гейтов проверяющего остаются модели: рецензент на момент
     // автозаполнения ещё не запускался.
     gatesForModel: (host.gatesFile()?.rows ?? [])
-      .filter((r) => r.enabled && [REVIEW_GATE, ...MODEL_REPORTED_GATES].some((n) => gateKey(n) === gateKey(r.name)))
+      .filter((r) => r.enabled && reportedBy(r) === 'model')
       .map((r) => r.name),
     runtimeGateRows: (host.gatesFile()?.rows ?? [])
-      .filter((r) => r.enabled && gateKey(r.name) === gateKey(RECONCILE_GATE))
+      .filter((r) => r.enabled && reportedBy(r) === 'runtime')
       .map((r) => ({
         name: r.name,
         status: '✅',

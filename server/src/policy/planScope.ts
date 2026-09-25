@@ -29,6 +29,7 @@ import {
   relativizeWithin,
   resolveUserPath,
 } from './paths.ts';
+import { isRuntimeServicePath } from '../artifacts/paths.ts';
 import { redirectTargets } from './shellRedirects.ts';
 
 function denied(ctx: PolicyContext, userPath: string, why: string): PolicyVerdict {
@@ -81,8 +82,7 @@ function isRuntimeServiceFile(rel: string, ctx: PolicyContext): boolean {
   const dir = `${ctx.sdlcDir}/`;
   if (!pathsEqual(rel.slice(0, dir.length), dir, ci)) return false;
   const name = rel.slice(dir.length);
-  if (name.includes('/')) return false;
-  return name.startsWith('.') || /^metrics\.(json|md)$/i.test(name);
+  return isRuntimeServicePath(name);
 }
 
 function checkOnePath(ctx: PolicyContext, userPath: string): PolicyVerdict {

@@ -118,6 +118,10 @@ export interface HandoffFacts {
   published: 'нет';
   /** Итог гейта «Проверка предусловий публикации», посчитанного рантаймом на входе этапа. */
   publishGate: { status: string; branchOk: string; hasCommit: string; junk: string };
+  /** Номер витка по этой задаче — число секций «## Виток» в handoff (эта — последняя). */
+  loop: number;
+  /** Дата секции витка — сегодня. */
+  date: string;
 }
 
 /**
@@ -144,6 +148,11 @@ export interface HandoffFacts {
 export function autofillHandoff(text: string, f: HandoffFacts): { text: string; filled: number } {
   const filled = fillMechanicalPlaceholders(text, (inner, line) => {
     if (inner === 'название витка') return f.title;
+    // Заголовок секции витка «## Виток ‹K› — ‹дата›»: номер и дата — факты рантайма.
+    if (line.trimStart().startsWith('## Виток')) {
+      if (inner === 'K') return String(f.loop);
+      if (inner === 'дата') return f.date;
+    }
     if (inner.startsWith('✅/❌/⏭')) return f.publishGate.status;
     if (inner === 'та / не та') return f.publishGate.branchOk;
     if (inner === 'нет / что именно') return f.publishGate.junk;

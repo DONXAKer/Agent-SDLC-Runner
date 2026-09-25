@@ -20,12 +20,14 @@ export function ArchivedRunView({
   slug,
   stageTitles,
   onExit,
+  onOpenDashboard,
 }: {
   project: string;
   slug: string;
   /** Заголовки этапов из `/api/config` — тот же список, что рисует `HistoryList`/`StageRail`. */
   stageTitles: Partial<Record<StageId, string>>;
   onExit: () => void;
+  onOpenDashboard?: () => void;
 }): JSX.Element {
   const [events, setEvents] = useState<RunEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +76,15 @@ export function ArchivedRunView({
         >
           ← к списку витков
         </button>
+        {onOpenDashboard !== undefined ? (
+          <button
+            type="button"
+            onClick={onOpenDashboard}
+            className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800"
+          >
+            запуски
+          </button>
+        ) : null}
         <span className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-xs text-neutral-400">
           архив
         </span>

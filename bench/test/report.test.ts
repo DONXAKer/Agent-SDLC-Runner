@@ -98,6 +98,7 @@ function greenResult() {
       controlOverrides: {},
       stageTimeoutMs: 1,
       runTimeoutMs: 1,
+      probeTimeoutMs: null,
       maxIterationsPerStage: 1,
       maxBudgetUsd: 1,
       attempts: 1,
@@ -256,6 +257,7 @@ describe('classifyDenial', () => {
       'стирание поля решения человека',
     );
     strictEqual(classifyDenial(denial({ policy: 'pathScope' })), 'путь вне проекта или битый');
+    strictEqual(classifyDenial(denial({ policy: 'readScope' })), 'чтение закрытого по конструкции файла');
     strictEqual(classifyDenial(denial({ policy: 'planScope' })), 'запись вне плана');
     strictEqual(classifyDenial(denial({ policy: 'stageTools', kind: 'subagent', toolName: 'Task' })), 'необъявленный субагент');
     strictEqual(classifyDenial(denial({ policy: 'stageTools', kind: 'unknown', toolName: 'final' })), 'неразобранный вызов');

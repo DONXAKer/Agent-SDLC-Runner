@@ -31,10 +31,11 @@ import type {
 } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage } from '@sdlc-runner/shared';
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
 
 import {
+  DECISION,
   branchNameFromField,
   decisionValue,
   DecisionFormError,
@@ -44,13 +45,17 @@ import {
   readArtifact,
   readField,
   setDecision,
+  setLastDecision,
   writeArtifact,
 } from '../artifacts/artifact.ts';
+import { checkTemplateVersion } from '../artifacts/templateVersion.ts';
+import { SDLC_CONSTANTS } from '../config/constants.ts';
 import { SDLC_DIR, WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { ARTIFACT_KEYS as ARTIFACT_KEYS_ALL, type ArtifactKey } from '@sdlc-runner/shared';
-import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
+import { appendScopeExtension } from '../artifacts/planFiles.ts';
 import { h2SectionRanges } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
+import { repairErasedDecisions } from '../approval/destructive.ts';
 import type { ApprovalGate } from '../approval/gate.ts';
 import { isWindowsStyle, pathsEqual, relativizeWithin, resolveUserPath } from '../policy/paths.ts';
 import type { LoadedConfig } from '../config/load.ts';
@@ -63,12 +68,13 @@ import { McpHub } from '../mcp/McpHub.ts';
 import { imageSaver } from '../mcp/content.ts';
 import { estimateTokens, selectTools } from '../mcp/select.ts';
 import type { McpToolInfo } from '../mcp/types.ts';
+import { historyBudgetFor } from '../exec/contextBudget.ts';
 import { cap } from '../exec/tools/index.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../config/schema.ts';
 import { FormFillExecutor } from '../exec/FormFillExecutor.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { normalize } from '../exec/normalize.ts';
-import { SdkExecutor, claudeProjectDir } from '../exec/SdkExecutor.ts';
+import { SdkExecutor } from '../exec/SdkExecutor.ts';
 import { edgeExampleLines } from '../artifacts/edgeExample.ts';
 import { createProvider } from '../provider/registry.ts';
 import type { TraceLabel } from '../provider/rawLog.ts';
@@ -82,13 +88,9 @@ import type {
 import { REVIEWER_AGENTS } from '../exec/StageExecutor.ts';
 import { loadSubagents } from '../exec/subagents.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
-import {
-  configProblems,
-  gateKey,
-  parseGates,
-  unimplementedGates,
-} from '../gates/gatesFile.ts';
-import { builtinFor, describeBuild } from '../gates/builtin/index.ts';
+import { gateKey } from '../gates/gatesFile.ts';
+import { readGatesCached } from '../gates/gatesCache.ts';
+import { describeBuild } from '../gates/builtin/index.ts';
 import { currentBranch, isRepo } from '../gates/git.ts';
 import { runGateByName } from '../gates/run.ts';
 import { git, hasCommits } from '../gates/git.ts';
@@ -109,7 +111,7 @@ import { ExploreExecutor } from '../exec/ExploreExecutor.ts';
 import { deriveClaimsBlind, intentSectionsForBlind, type BlindClaimsResult } from './claimsBlind.ts';
 import { briefFromIntent, titleFromIntent } from './exploreAutofill.ts';
 import { loadSubagent } from '../exec/subagents.ts';
-import { appendIteration, parseIterations } from './iterationsLog.ts';
+import { appendIteration, parseIterations, readIterationsText } from './iterationsLog.ts';
 import { postmortemBlock } from './postmortem.ts';
 import { metricsBlock } from './metricsReport.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
@@ -124,7 +126,6 @@ import {
   type PreconditionReport,
   type StageContext,
   type StageDef,
-  stageProducing,
 } from './stages.ts';
 import { ChunkState } from './stages/chunk/index.ts';
 import { stepFillExecutor } from './stages/chunk/steps.ts';
@@ -132,9 +133,10 @@ import { stepFillExecutor } from './stages/chunk/steps.ts';
 export { gatesForStep } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты берут блок рецензента для входа этапа 6 отсюда. */
 export { reviewerBlock } from './stages/verify/reviewer.ts';
-import { reviewProblem } from './stages/verify/reviewer.ts';
 import { compareAttemptDiffs, readBaseline, runNamedGate } from './stages/chunk/evidence.ts';
 import { restoreAttemptFromJournal, restoreChunkFromDir } from './stages/chunk/restore.ts';
+import { normalizeMetrics, readMetricsRaw } from './metricsSnapshot.ts';
+import { entryProblems, planFilesOnDisk } from './stages/entry.ts';
 import {
   ExploreState,
   exploreFillExecutor,
@@ -144,12 +146,10 @@ import {
 import { stageModule } from './stages/index.ts';
 import type { CommitOutcome } from './commitByRuntime.ts';
 import { axesGateRow as axesGateRowOf, axisProblems as axisProblemsOf } from './stages/plan.ts';
+import { ensureIntentSnapshot } from './stages/intent.ts';
 import type { StageHost } from './stages/types.ts';
 import { VerifyState } from './stages/verify/state.ts';
 import {
-  MODEL_REPORTED_GATES,
-  RECONCILE_GATE,
-  REVIEW_GATE,
   earlyGateRows as earlyGateRowsOf,
   earlyGatesForModel,
   gateResultsForVerdict,
@@ -160,7 +160,7 @@ import {
   evidenceHaystack,
 } from './stages/verify/records.ts';
 import { retryDetail, stageVerdict } from './stages/verify/verdict.ts';
-import { readRunVerdict } from './verdictStore.ts';
+import { readRunVerdict, stalePatchReason } from './verdictStore.ts';
 
 export interface RunOptions {
   config: LoadedConfig;
@@ -274,8 +274,6 @@ export function recheckGuardAfterTopUp(
   return guardFailure ? { ...result, note: afterTopUp } : result;
 }
 
-/** Этапы, после которых запись ограничена одобренным планом. */
-const PLAN_SCOPED_STAGES: readonly StageId[] = ['chunk', 'verify', 'handoff'];
 
 // Урезанный набор (`ModelDef.leanTools`) действует на этапах-документах — флаг модуля этапа
 // `StageModule.leanDocTools`, там же объяснение, почему не на chunk/verify/explore.
@@ -414,7 +412,10 @@ export class Run {
    */
   private lastCommitOutcome: CommitOutcome | null = null;
 
-  /** Текущий вход в этап — обрыв витка (`RunStageOptions.abortHandoff`); тот же мост, что выше. */
+  /**
+   * Текущий вход в этап — обрыв витка (`RunStageOptions.abortHandoff`): `mechanicalJobs`
+   * зовутся и из `finishFormArtifact`, куда опции входа не доезжают, — тот же мост, что выше.
+   */
   private currentAbortHandoff = false;
 
   /** Фасад витка для модулей этапов (`StageHost`) — растёт по мере переноса логики этапов. */
@@ -427,8 +428,8 @@ export class Run {
       emit: this.emit,
       writeAutofilled: (path, text, seeded) => this.writeAutofilled(path, text, seeded),
       head: () => this.head(),
+      baseSha: () => this.baseSha(),
       commitOutcome: () => this.lastCommitOutcome,
-      handoffAborted: () => this.currentAbortHandoff,
       recordCommitOutcome: (outcome) => {
         this.lastCommitOutcome = outcome;
       },
@@ -478,16 +479,14 @@ export class Run {
       spentBefore: (currency) => this.spent.spent(currency),
       verifyRoute: () => this.profile.routes.verify,
       ensembleRoutes: () => this.profile.ensemble.verify ?? [],
-      envBlockedAttempts: () => this.envBlockedAttempts,
       metrics: () => this.metrics,
+      resetAttemptState: () => this.resetAttemptState(),
       ctx: () => this.ctx,
       attemptToolEvents: () => this.attemptToolEvents,
       attemptObservedFromStart: () => this.attemptObservedFromStart,
       chunkState: this.state.chunk,
       detectNoProgress: () => this.detectNoProgress(),
-      computeStageVerdict: (noProgress) => {
-        this.computeStageVerdict(noProgress);
-      },
+      computeStageVerdict: (noProgress) => this.computeStageVerdict(noProgress),
       profile: () => this.profile,
     };
   }
@@ -566,14 +565,6 @@ export class Run {
   private mcpImageSeq = 0;
   /** Счётчик спасённых из текста записей: идентификатор вызова обязан быть уникальным. */
   private salvageSeq = 0;
-  /**
-   * Сколько попыток этого chunk'а закончились «красным из-за окружения».
-   *
-   * Вычитается из счётчика при сверке с бюджетом: методология требует, чтобы дефект среды
-   * не занимал попытку, а хранение этого через НЕувеличение номера стоило бы перезаписи
-   * улик предыдущей попытки. Сбрасывается вместе с номером на новом chunk'е.
-   */
-  private envBlockedAttempts = 0;
   /** Формы, разложенные под артефакты текущего этапа, — их называет промпт. */
   private seeded: string[] = [];
   /**
@@ -587,8 +578,6 @@ export class Run {
   private verdictCount = 0;
   private redCount = 0;
   private readonly redByCause = new Map<RedCauseKind, number>();
-  /** Разобранный набор гейтов: файл проекта, читать его на каждое обращение незачем. */
-  private gatesCache: { mtimeMs: number; parsed: GatesFile } | null = null;
   /** Чей расход копится в бюджет (`RunOptions.budgetStages`). `null` — все этапы. */
   private readonly budgetStages: ReadonlySet<StageId> | null;
 
@@ -609,6 +598,18 @@ export class Run {
     };
     this.paths = new WitokPaths(o.project.projectRoot, o.slug);
     this.restoreMetrics();
+    // Служебные файлы раннера (`.runner/`) — состояние этой машины, не артефакты
+    // методологии: каталог игнорируется git'ом сам, чтобы после коммита handoff дерево не
+    // оставалось грязным (ревью). Ошибка записи не роняет виток.
+    try {
+      const ignore = join(this.paths.runnerDir, '.gitignore');
+      if (!existsSync(ignore)) {
+        mkdirSync(this.paths.runnerDir, { recursive: true });
+        writeFileSync(ignore, '*\n', 'utf8');
+      }
+    } catch {
+      /* наблюдаемость, не условие корректности */
+    }
     this.mcpSetup = o.config.mcp.get(o.project.name) ?? EMPTY_MCP;
     this.hub = new McpHub(this.mcpSetup.servers);
     this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
@@ -620,12 +621,11 @@ export class Run {
     // попытки (живой виток ta-13) бережёт предусловие chunk, а не номер: следующая попытка
     // начинается «Новой попыткой», которая проверяет бюджет.
     //
-    // Вердикт попытки и число средовых попыток восстанавливаются с диска
-    // (`verdictStore.ts`): `nextAttempt` решает по ним, сколько попыток съедено.
-    this.state.verify.verdict = readRunVerdict(this.paths, this.chunk, this.attempt);
-    for (let a = 1; a < this.attempt; a++) {
-      if (readRunVerdict(this.paths, this.chunk, a)?.action === 'blocked_env') this.envBlockedAttempts += 1;
-    }
+    // Вердикт попытки восстанавливается с диска (`verdictStore.ts`): по нему `nextAttempt`
+    // решает, растёт ли номер (после `blocked_env` — нет: та же K).
+    const restored = readRunVerdict(this.paths, this.chunk, this.attempt);
+    this.state.verify.verdict =
+      restored === null ? null : { passed: restored.passed, action: restored.action, reasons: restored.reasons };
   }
 
   get ctx(): StageContext {
@@ -764,25 +764,13 @@ export class Run {
    * которых в старом снапшоте нет (они появились позже), просто не будет.
    */
   private restoreMetrics(): void {
-    const a = readArtifact(this.paths.metrics);
-    if (!a.exists) return;
-    let m: Partial<RunMetrics>;
-    try {
-      m = JSON.parse(a.text) as Partial<RunMetrics>;
-    } catch {
-      return;
-    }
-    if (m === null || typeof m !== 'object') return;
-    const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
-    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    // Формат и места файла знает один читатель (`metricsSnapshot.ts`) — его же зовёт дашборд.
+    const r = readMetricsRaw(this.paths);
+    if (r === null) return;
+    const m = normalizeMetrics(r.raw);
 
-    for (const s of list<RunMetrics['stages'][number]>(m.stages)) {
-      if (typeof s?.stage !== 'string') continue;
-      this.stageStats.set(s.stage, {
-        runs: num(s.runs),
-        usage: { ...emptyUsage(), ...(typeof s.usage === 'object' && s.usage !== null ? s.usage : {}) },
-        durationMs: num(s.durationMs),
-      });
+    for (const s of m.stages) {
+      this.stageStats.set(s.stage, { runs: s.runs, usage: s.usage, durationMs: s.durationMs });
     }
     // Расход витка восстанавливается ВМЕСТЕ с разбивкой по этапам. Пока он оставался
     // нулём, одна и та же трата показывалась двумя разными числами на одном экране
@@ -792,61 +780,28 @@ export class Run {
     for (const st of this.stageStats.values()) this.totalUsage = addUsage(this.totalUsage, st.usage);
     // Суммы по валютам — служебное поле снапшота, а не часть `RunMetrics`: гард сверяет
     // потраченное в валюте СВОЕГО маршрута, и складывать рубли с долларами нельзя.
-    const spent = (m as { spent?: unknown }).spent;
-    if (typeof spent === 'object' && spent !== null) this.spent.restore(spent as Record<string, unknown>);
-    this.verdictCount = num(m.verdicts?.total);
-    this.redCount = num(m.verdicts?.red);
+    if (r.spent !== null) this.spent.restore(r.spent);
+    this.verdictCount = m.verdicts.total;
+    this.redCount = m.verdicts.red;
     this.redByCause.clear();
-    for (const c of list<RunMetrics['redByCause'][number]>(m.redByCause)) {
-      if (typeof c?.kind !== 'string') continue;
-      this.redByCause.set(c.kind as RedCauseKind, num(c.count));
-    }
+    for (const c of m.redByCause) this.redByCause.set(c.kind, c.count);
     this.attemptsByChunk.clear();
-    for (const c of list<RunMetrics['attemptsByChunk'][number]>(m.attemptsByChunk)) {
-      if (typeof c?.chunk !== 'number') continue;
-      this.attemptsByChunk.set(c.chunk, num(c.attempts));
-    }
+    for (const c of m.attemptsByChunk) this.attemptsByChunk.set(c.chunk, c.attempts);
     this.friction.clear();
-    for (const f of list<RunMetrics['friction'][number]>(m.friction)) {
-      if (typeof f?.stage !== 'string') continue;
-      this.friction.set(f.stage, { ...EMPTY_FRICTION(), ...f });
+    for (const f of m.friction) {
+      const { stage, ...counters } = f;
+      this.friction.set(stage, { ...EMPTY_FRICTION(), ...counters });
     }
     this.gateAgg.clear();
-    for (const g of list<RunMetrics['gates'][number]>(m.gates)) {
-      if (typeof g?.gate !== 'string') continue;
-      this.gateAgg.set(g.gate, {
-        gate: g.gate,
-        runs: num(g.runs),
-        red: num(g.red),
-        skippedWhileEnabled: num(g.skippedWhileEnabled),
-        durationMs: num(g.durationMs),
-      });
-    }
+    for (const g of m.gates) this.gateAgg.set(g.gate, g);
     this.humanAgg.clear();
-    for (const h of list<RunMetrics['human'][number]>(m.human)) {
-      if (typeof h?.stage !== 'string') continue;
-      this.humanAgg.set(h.stage, {
-        questions: num(h.questions),
-        approvals: num(h.approvals),
-        waitMs: num(h.waitMs),
-      });
+    for (const h of m.human) {
+      this.humanAgg.set(h.stage, { questions: h.questions, approvals: h.approvals, waitMs: h.waitMs });
     }
     this.artifactGapsByFile.clear();
-    for (const g of list<RunMetrics['artifactGaps'][number]>(m.artifactGaps)) {
-      if (typeof g?.artifact !== 'string') continue;
-      this.artifactGapsByFile.set(g.artifact, num(g.placeholders));
-    }
+    for (const g of m.artifactGaps) this.artifactGapsByFile.set(g.artifact, g.placeholders);
     this.chunkEvidenceAgg.clear();
-    for (const e of list<ChunkEvidenceMetric>(m.chunkEvidence)) {
-      if (typeof e?.chunk !== 'number' || typeof e?.attempt !== 'number') continue;
-      this.chunkEvidenceAgg.set(`${e.chunk}:${e.attempt}`, {
-        chunk: e.chunk,
-        attempt: e.attempt,
-        testsStatus: e.testsStatus === '✅' || e.testsStatus === '❌' || e.testsStatus === '⏭' ? e.testsStatus : '⏭',
-        treeChanged: e.treeChanged === true,
-        scopeViolation: e.scopeViolation === true,
-      });
-    }
+    for (const e of m.chunkEvidence) this.chunkEvidenceAgg.set(`${e.chunk}:${e.attempt}`, e);
   }
 
   /**
@@ -893,7 +848,7 @@ export class Run {
    * запасным вариантом на случай, когда записать журнал не удалось.
    */
   get iterations(): IterationSummary[] {
-    const a = readArtifact(this.paths.iterations);
+    const a = readIterationsText(this.paths);
     if (!a.exists) return [...this.iterationLog];
     const fromDisk = parseIterations(a.text);
     return fromDisk.length >= this.iterationLog.length ? fromDisk : [...this.iterationLog];
@@ -918,7 +873,7 @@ export class Run {
   private recordIteration(verdict: Verdict, noProgress: boolean): void {
     try {
       const patch = readArtifact(this.paths.chunkDiff(this.chunk, this.attempt));
-      const existing = readArtifact(this.paths.iterations);
+      const existing = readIterationsText(this.paths);
       const text = appendIteration(existing.exists ? existing.text : '', {
         chunk: this.chunk,
         attempt: this.attempt,
@@ -1031,7 +986,24 @@ export class Run {
         : `${signature} — ${note}`
       : `**не одобрено** — ${note === '' ? 'причина не названа' : note} · ${signature}`;
 
-    writeArtifact(path, setDecision(current.text, o.label, value));
+    // Handoff ведёт секции по виткам, и подпись «Приёмка» ложится в ПОСЛЕДНЮЮ (`SDLC.md` →
+    // «Раскладка артефактов»): первая «Приёмка» файла — прошлого витка той же задачи.
+    const next = o.artifact === 'handoff' ? setLastDecision(current.text, o.label, value) : setDecision(current.text, o.label, value);
+    writeArtifact(path, next);
+    // Одобрение плана снимает снимок секций задачи заново (`SDLC.md` → «Вердикт», восьмое
+    // условие): дополнение листа по находке гейта этапа 4 к этому моменту сделано человеком,
+    // и с этого момента задача снова неизменяема до конца витка.
+    if (o.artifact === 'plan' && o.label === DECISION.approval && o.granted) {
+      try {
+        ensureIntentSnapshot(this.host, 'plan', {
+          force: true,
+          why: 'план одобрен — снимок секций задачи снят заново: до конца витка intent.md неизменяем',
+        });
+      } catch (e) {
+        // Снимок — страховка этапов 4/6, не условие записи решения: отказ называется, а не роняет запись.
+        this.emit({ type: 'warning', runId: this.id, stage: 'plan', message: `снимок секций задачи не снят: ${(e as Error).message}` });
+      }
+    }
     // Счётчик перечитывается с диска, а не объявляется нулём: подпись под одним полем не
     // закрывает остальные `‹…›` артефакта, а обёртка `emit` принимает это число за
     // измерение — и долг plan.md исчезал из метрик от решения по одному полю (ревью).
@@ -1064,8 +1036,9 @@ export class Run {
   advanceProblem(to: 'attempt' | 'chunk'): string | null {
     const verdict = readRunVerdict(this.paths, this.chunk, this.attempt);
     if (to === 'chunk') {
+      // Зелёный, но уже не о текущем патче — следующий chunk лёг бы поверх непроверенного.
       return verdict?.passed === true
-        ? null
+        ? stalePatchReason(this.paths, this.chunk, this.attempt, verdict)
         : `chunk ${this.chunk} не принят: следующий chunk — только после зелёного вердикта попытки ${this.attempt}`;
     }
     if (verdict === null || verdict.passed) {
@@ -1097,15 +1070,18 @@ export class Run {
       this.state.verify.lastVerdictInput === null
         ? null
         : buildRetryBrief(this.state.verify.lastVerdictInput, this.state.verify.lastGateResults, retryDetail(this.host));
-    // Средовой красный не должен съедать бюджет итераций — но и переиспользовать номер
-    // попытки нельзя: на момент `blocked_env` этап 5 уже отработал, и по этому номеру лежат
-    // НАСТОЯЩИЕ улики (патч, запись о тестах, отчёт приёмки). Первая версия не увеличивала
-    // счётчик, и следующий проход затирал их — вопреки докстрингу этого же метода.
-    //
-    // Поэтому номер растёт всегда, а «не занимает попытку» реализовано вычетом: бюджет
-    // считается по попыткам, где работа действительно проверялась.
-    if (this.state.verify.verdict?.action === 'blocked_env') this.envBlockedAttempts += 1;
-    this.attempt += 1;
+    // Средовой красный не занимает номер попытки: `SDLC.md` («blocked_env в этот счёт не
+    // входит») — следующий прогон после закрытия долга среды — та же попытка K, не K+1, а
+    // журнал итераций получает вторую строку с тем же K. Улики попытки K при этом
+    // перезаписываются заново из того же дерева: работа исполнителя живёт в дереве, а
+    // «запись о тестах» блокированной попытки по построению говорит лишь «инструмента
+    // нет» — терять там нечего. Прежняя схема (номер растёт, бюджет считается вычетом)
+    // расходилась с журналом chunk'а терминальной сессии, где та же попытка — та же K.
+    const blockedByEnv = readRunVerdict(this.paths, this.chunk, this.attempt)?.action === 'blocked_env';
+    // После `blocked_env` выжимка «что не сошлось» адресована человеку/среде, не исполнителю
+    // (`SDLC.md`: retry_instruction = «прогнать гейты в среде X») — в промпт chunk'а не идёт.
+    if (blockedByEnv) this.carryForward = null;
+    if (!blockedByEnv) this.attempt += 1;
     this.resetAttemptState();
     this.notePeakAttempt();
     return this.attempt;
@@ -1138,7 +1114,6 @@ export class Run {
   nextChunk(): number {
     this.chunk += 1;
     this.attempt = 1;
-    this.envBlockedAttempts = 0;
     // Новый chunk — другая работа: причины красного по прошлому к нему не относятся.
     this.carryForward = null;
     this.failedClaimsByAttempt = [];
@@ -1176,6 +1151,13 @@ export class Run {
     this.state.verify.lastVerdictInput = null;
     this.state.verify.redCause = null;
     this.state.verify.reviewerRan = false;
+    // Факты попытки — тоже свойство ПОПЫТКИ: без сброса `reviewJson` попытки K уезжал бы в
+    // `.chunk-N-attempt-(K+1)-review.json`, когда на K+1 ревью шло записями модели (ревью).
+    this.state.verify.reviewJson = null;
+    this.state.verify.reviewText = null;
+    this.state.verify.evidenceFact = undefined;
+    this.state.verify.intentTamperFact = undefined;
+    this.state.verify.diffFactMatchesTree = null;
     // Близость к прошлому патчу — свойство ПОПЫТКИ. Пока её тут не было, шапка новой
     // попытки до самого вердикта показывала совпадение от предыдущей, то есть янтарным
     // предупреждала о топтании там, где ещё ничего не сделано.
@@ -1190,28 +1172,10 @@ export class Run {
 
   /** Набор гейтов проекта. `null` — файла нет. */
   get gatesFile(): GatesFile | null {
-    // Кэш по времени правки: один `GET /api/runs/:id` спрашивал набор семь раз (по разу
-    // на этап в `blockers` плюс бюджет попыток), и каждый раз это было чтение файла и
-    // полный разбор всех его таблиц — синхронно, в том же цикле событий, что и поток
-    // WebSocket. Набор — файл проекта: он меняется раз в месяцы, а не раз в запрос.
-    let mtimeMs: number;
-    try {
-      mtimeMs = statSync(this.paths.gates).mtimeMs;
-    } catch {
-      this.gatesCache = null;
-      return null;
-    }
-
-    if (this.gatesCache?.mtimeMs === mtimeMs) return this.gatesCache.parsed;
-
-    const a = readArtifact(this.paths.gates);
-    if (!a.exists) {
-      this.gatesCache = null;
-      return null;
-    }
-    const parsed = parseGates(a.text);
-    this.gatesCache = { mtimeMs, parsed };
-    return parsed;
+    // Кэш по времени правки и размеру — ОДИН на рантайм и дашборд (`gates/gatesCache.ts`):
+    // один `GET /api/runs/:id` спрашивал набор семь раз, а два кэша одного файла с разными
+    // ключами давали живой странице и дашборду разные блокеры.
+    return readGatesCached(this.paths.gates);
   }
 
   /** Строка набора гейта «Разбор последствий» — решение живёт в модуле этапа 4 (`stages/plan.ts`). */
@@ -1229,9 +1193,9 @@ export class Run {
     return earlyGateRowsOf(this.host);
   }
 
-  /** Бюджет попыток из набора гейтов, умолчание методологии — 3. */
+  /** Бюджет попыток из набора гейтов, умолчание методологии — `sdlc-constants.json`. */
   get attemptBudget(): number {
-    const DEFAULT = 3;
+    const DEFAULT = SDLC_CONSTANTS.attempt_default_budget;
     const row = this.gatesFile?.rows.find((r) => /бюджет итераций/i.test(r.name));
 
     // Число берётся ТОЛЬКО у включённой строки. Пока читалась любая, проза выключенной
@@ -1254,10 +1218,7 @@ export class Run {
    * выключился бы молча. Такой виток не продолжается (см. `blockers`).
    */
   planFilesFor(stage: StageId): readonly string[] | null {
-    if (!PLAN_SCOPED_STAGES.includes(stage)) return null;
-    const plan = readArtifact(this.paths.plan);
-    if (!plan.exists) return null;
-    return extractFilesToTouch(plan.text);
+    return planFilesOnDisk(this.ctx, stage);
   }
 
   policyContext(stage: StageId): PolicyContext {
@@ -1274,9 +1235,6 @@ export class Run {
       readDenied: this.readDeniedFor(stage),
       stageArtifacts: this.stageArtifacts(stage),
       ...(this.config.runner.limits.restoreErasedDecisions === true ? { restoreErasedDecisions: true } : {}),
-      ...(this.profile.routes[stage]?.flow === 'sdk'
-        ? { noArtifactReaddress: true, harnessResultsRoot: claudeProjectDir(this.project.projectRoot) }
-        : {}),
     };
   }
 
@@ -1320,6 +1278,52 @@ export class Run {
     return out;
   }
 
+  /** Блокер по версии формы существующих артефактов этапа; `null` — формы совпадают. */
+  private templateVersionBlocker(stage: StageId, existing: readonly string[]): string | null {
+    const dir = this.config.runner.methodologyDir;
+    if (typeof dir !== 'string' || dir === '') return null;
+    const problems: string[] = [];
+    for (const path of existing) {
+      const check = checkTemplateVersion(path, dir);
+      if (check.kind === 'mismatch') {
+        problems.push(
+          `${path}: форма ${check.artifact.name} v${check.artifact.v}, а эталон — ${check.template.name} v${check.template.v}; ` +
+            'артефакт снят другой версией формы — перенеси содержимое в новую форму или откати эталон',
+        );
+      } else if (check.kind === 'unversioned') {
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage,
+          message: `${path}: у артефакта нет строки версии формы (эталон — ${check.template.name} v${check.template.v}); виток снят до её появления, сверка формы не делалась`,
+        });
+      }
+    }
+    return problems.length === 0 ? null : problems.join('\n');
+  }
+
+  /**
+   * Маркеры терминального hook'а (`sdlc-guard.py`) в каталоге витка снимаются с
+   * предупреждением: рантайм держит границу scope и замок ревью сам.
+   */
+  private clearGuardMarkers(stage: StageId): void {
+    for (const name of ['.scope.json', '.review-lock', '.claims-lock']) {
+      const p = join(this.paths.dir, name);
+      if (!existsSync(p)) continue;
+      try {
+        unlinkSync(p);
+        this.emit({
+          type: 'warning',
+          runId: this.id,
+          stage,
+          message: `снят маркер терминальной сессии ${name} из каталога витка: границу scope и замок ревью здесь держит рантайм`,
+        });
+      } catch (e) {
+        this.emit({ type: 'warning', runId: this.id, stage, message: `маркер ${name} не снят: ${(e as Error).message}` });
+      }
+    }
+  }
+
   /**
    * HEAD проекта: sha либо причина его отсутствия. Одна цепочка на журнал chunk'а и план —
    * две копии разошлись бы при первой же правке (worktree, другой способ чтения HEAD), и
@@ -1331,6 +1335,31 @@ export class Run {
     if (!(await hasCommits(root))) return { sha: null, why: 'н/п — в репозитории нет коммитов' };
     const r = await git(['rev-parse', 'HEAD'], root);
     return r.code === 0 ? { sha: r.stdout.trim(), why: '' } : { sha: null, why: 'н/п — HEAD не прочитался' };
+  }
+
+  /**
+   * База diff'а витка — тем же источником, что у `attempt-evidence.py` методологии: поле
+   * «База» плана (его пишет рантайм при одобрении, `autofillPlan`), затем «База» журнала
+   * chunk'а (виток, начатый с chunk'а по снимку), затем HEAD. Патч попытки, сверка этапа 6
+   * и терминальный инструмент обязаны считать diff от одного коммита — иначе сверка «патч
+   * совпал с деревом» сравнивает разные вещи.
+   */
+  private async baseSha(): Promise<{ sha: string | null; source: 'plan' | 'journal' | 'head' | 'none'; why: string }> {
+    const fromField = (text: string): string | null => {
+      const v = readField(text, 'База');
+      // Только голый sha первым словом: `/[0-9a-f]{7,40}/` по значению принимал дату
+      // («2026-09-24» → «20260924») за базу, и `git diff` падал на этапе 5 (ревью).
+      const m = v === null ? null : /^`?([0-9a-fA-F]{7,40})`?(?=\s|$)/.exec(v.trim());
+      return m === null ? null : m[1]!;
+    };
+    const plan = readArtifact(this.paths.plan);
+    const fromPlan = plan.exists ? fromField(plan.text) : null;
+    if (fromPlan !== null) return { sha: fromPlan, source: 'plan', why: '' };
+    const journal = readArtifact(this.paths.chunkJournal(this.chunk));
+    const fromJournal = journal.exists ? fromField(journal.text) : null;
+    if (fromJournal !== null) return { sha: fromJournal, source: 'journal', why: '' };
+    const head = await this.head();
+    return head.sha === null ? { sha: null, source: 'none', why: head.why } : { sha: head.sha, source: 'head', why: '' };
   }
 
   /**
@@ -1355,9 +1384,9 @@ export class Run {
     stage: StageId,
     seeded: { path: string; snapshot?: string }[],
   ): Promise<void> {
-    // Задания — у модулей этапов (`StageModule.mechanicalJobs`); у chunk/verify/handoff их
+    // Задания — у модулей этапов (`StageModule.mechanicalJobs`); у chunk/verify их
     // нет, и повторный вызов из `finishFormArtifact` для них ничего не делает.
-    const jobs = stageModule(stage).mechanicalJobs?.(this.host) ?? [];
+    const jobs = stageModule(stage).mechanicalJobs?.(this.host, this.currentAbortHandoff ? { abortHandoff: true } : {}) ?? [];
 
     let total = 0;
     for (const job of jobs) {
@@ -1879,7 +1908,13 @@ export class Run {
       temperature: null,
       params: route.params,
       currency: route.providerDef.currency ?? 'USD',
-      historyBudgetBytes: route.historyBudgetBytes ?? limits.localHistoryBudgetBytes,
+      // Явная ручка записи (`ModelDef.historyBudgetBytes`) побеждает; без неё — по окну
+      // маршрута, если оно заявлено (`historyBudgetFor`), иначе прежний плоский потолок.
+      historyBudgetBytes:
+        route.historyBudgetBytes ??
+        (route.contextWindow === undefined
+          ? limits.localHistoryBudgetBytes
+          : historyBudgetFor(route.contextWindow, limits.localHistoryBudgetBytes)),
       // Расчёт `max_tokens` по остатку окна (`LoopExecutor.paramsFor`) — то же поле,
       // которым уже сверяется загрузка LM Studio (`lmstudioContext.ts`), не второе знание.
       ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
@@ -1993,62 +2028,12 @@ export class Run {
     precomputed?: PreconditionReport,
     withBlame = true,
   ): { text: string; blamed: StageId | null }[] {
-    const report = precomputed ?? checkPreconditions(stageById(stage), this.ctx, { ...opts, withArtifacts: withBlame });
-    const blame =(path: string | null): StageId | null =>
-      withBlame && path !== null ? stageProducing(path, stage, this.ctx) : null;
-    const problems: { text: string; blamed: StageId | null }[] = report.details.map((d) => ({
-      text: d.text,
-      blamed: blame(d.artifact),
-    }));
-    const by = (blamed: StageId | null) => (text: string) => ({ text, blamed });
-
-    if (PLAN_SCOPED_STAGES.includes(stage)) {
-      const files = this.planFilesFor(stage);
-      if (files !== null && files.length === 0) {
-        problems.push(
-          by(blame(this.paths.plan))(
-            `план ${this.paths.plan} есть, но files_to_touch пуст: PlanScope выключился бы молча, ` +
-              `и запись перестала бы быть ограниченной планом. Заполни секцию files_to_touch.`,
-          ),
-        );
-      }
-    }
-
-    // Обязательная пятёрка проверяется на старте КАЖДОГО этапа, кроме первого: именно
-    // на первом набор и собирают. Проверять её только на этапе 6 значило бы узнавать
-    // о несобранном наборе, потратив весь виток.
-    //
-    // Объявленный обрыв витка из-под этой проверки выведен намеренно: handoff при обрыве —
-    // единственный способ оставить запись о том, почему виток бросили, и запирать его
-    // тем же несобранным набором значило бы лишить виток последнего легального выхода.
-    if (stage !== 'intent' && !(stage === 'handoff' && opts.abortHandoff === true)) {
-      const gates = this.gatesFile;
-      const gatesBlame = blame(this.paths.gates);
-      if (gates === null) {
-        problems.push(
-          by(gatesBlame)(
-            `нет набора гейтов ${this.paths.gates}. Без него не определены ни «сделано», ни ` +
-              `условия вердикта — виток не стартует.`,
-          ),
-        );
-      } else {
-        problems.push(...configProblems(gates).map(by(gatesBlame)));
-        // `REVIEW_GATE` не в BUILTIN и не в кавычках, но НЕ является дырой в наборе: он
-        // получает статус не скриптом gates/run.ts, а `externalGateStatuses()` (`stages/verify/gates.ts`) — тем
-        // же путём, каким и реально считается на прогоне (см. `runVerifyGates` в
-        // `stages/verify/gates.ts`). Без этого исключения витки с обычным для
-        // минимума набором никогда бы не проходили дальше intent.
-        problems.push(
-          ...unimplementedGates(gates, (name) => builtinFor(name) !== null, [
-            REVIEW_GATE,
-            RECONCILE_GATE,
-            ...MODEL_REPORTED_GATES,
-          ]).map(by(gatesBlame)),
-        );
-      }
-    }
-
-    return problems;
+    // Тело — `stages/entry.ts::entryProblems`: дашборд считает те же блокеры по диску без `Run`.
+    return entryProblems(stage, this.ctx, this.gatesFile, {
+      ...(opts.abortHandoff === undefined ? {} : { abortHandoff: opts.abortHandoff }),
+      withBlame,
+      ...(precomputed === undefined ? {} : { precomputed }),
+    });
   }
 
   /**
@@ -2059,13 +2044,7 @@ export class Run {
    * кэш, а не сама проба: она ходит в Docker, а список витков опрашивается постоянно.
    */
   envNotes(stage: StageId): string[] {
-    if (stage !== 'verify') return [];
-    // Бессрочный принятый риск в «Долге» набора долг не открывает (`SDLC.md`), но и
-    // пересматривать его некому: пометка видна оператору там, где он смотрит на этап 6.
-    const revisit = (this.gatesFile?.debt ?? [])
-      .filter((d) => d.revisitMissing)
-      .map((d) => `долг набора «${d.name}»: риск принят без условия «когда вернуться» — пересмотреть его будет некому`);
-    return [...this.state.verify.lastPreflightBlockers, ...revisit];
+    return stage === 'verify' ? [...this.state.verify.lastPreflightBlockers] : [];
   }
 
   /** Прогон автоматических гейтов этапа 6 рантаймом до ревью — `stages/verify/gates.ts`. */
@@ -2113,14 +2092,31 @@ export class Run {
     if (blocks.length === 0) return null;
 
     const written: string[] = [];
+    const skipped: string[] = [];
     for (const b of blocks) {
-      const call: NormalizedCall = { kind: 'write', path: b.path, content: b.content };
+      // Бланк, напечатанный текстом, почти всегда идёт без полей решения человека — модель
+      // их не заполняла и в свой пересказ не перенесла. Это запись РАНТАЙМА, не модели, и
+      // стёртое поле возвращается здесь безусловно, а не по ручке `restoreErasedDecisions`:
+      // живой прогон (ollama:gpt-oss-20b-agent, rename-field, 2026-09-24) — журнал на 5 834
+      // токена ушёл в `Write` без «Подтвердил», гейт отклонил «стирание поля», и ход вместе
+      // с попыткой сгорели, хотя содержимое было годным. Поле, которое вернуть нельзя
+      // (массовая потеря, сломанная структура), — блок пропускается: писать документ без
+      // решения человека нельзя, а гейт лишь повторил бы тот же отказ.
+      const draft: NormalizedCall = { kind: 'write', path: b.path, content: b.content };
+      const erased = repairErasedDecisions(draft, this.project.projectRoot);
+      const lost = erased.loss?.decisionsLost ?? [];
+      if (erased.repair === null && lost.length > 0) {
+        skipped.push(`${b.path} — стёрто поле решения человека (${lost.map((l) => `«${l}»`).join(', ')}), вернуть его в текст не удалось`);
+        continue;
+      }
+      const draftContent = erased.repair === null ? b.content : erased.repair.content;
+      const call: NormalizedCall = { kind: 'write', path: b.path, content: draftContent };
       const decision = await this.gate.request({
         runId: this.id,
         stage,
         requestId: `salvage-${this.salvageSeq++}`,
         toolName: 'Write',
-        rawInput: { file_path: b.path, content: b.content },
+        rawInput: { file_path: b.path, content: draftContent },
         call,
         ctx: this.policyContext(stage),
       });
@@ -2130,15 +2126,18 @@ export class Run {
       // значило бы записать на диск не то, что он подтвердил, — при том что сообщение в
       // журнал утверждает «записано через гейт одобрения».
       const edited = (decision.updatedInput as Record<string, unknown> | null)?.['content'];
-      const content = typeof edited === 'string' ? edited : b.content;
+      const content = typeof edited === 'string' ? edited : draftContent;
       writeArtifact(b.path, content);
       written.push(b.path);
     }
 
-    if (written.length === 0) return null;
+    const skippedNote = skipped.length === 0 ? '' : `; не спасено: ${skipped.join('; ')}`;
+    if (written.length === 0) {
+      return skipped.length === 0 ? null : `содержимое артефакта было напечатано в ответ, а не записано инструментом${skippedNote}`;
+    }
     return (
       `содержимое артефакта было напечатано в ответ, а не записано инструментом — ` +
-      `рантайм записал его через гейт одобрения: ${written.join(', ')}`
+      `рантайм записал его через гейт одобрения: ${written.join(', ')}${skippedNote}`
     );
   }
 
@@ -2182,9 +2181,13 @@ export class Run {
       // `manual` сюда не идёт: пункт, освобождённый человеком от автоматической проверки,
       // «не закрывается вторую попытку подряд» по построению, и предложение поднять модель
       // из-за него — совет лечить то, что не болеет.
-      this.failedClaimsByAttempt.push(
-        input.claims.filter((c) => c.status !== '✅' && c.status !== 'manual').map((c) => c.id),
-      );
+      // `blocked_env` ничего не проверял (`SDLC.md`): его ⚠ по пунктам, держащимся на тестах,
+      // в счёт «второй красный подряд» для эскалации не идут (ревью).
+      if (withNotes.action !== 'blocked_env') {
+        this.failedClaimsByAttempt.push(
+          input.claims.filter((c) => c.status !== '✅' && c.status !== 'manual').map((c) => c.id),
+        );
+      }
     }
     this.emit({ type: 'verdict', runId: this.id, stage: 'verify', verdict: withNotes });
     return withNotes;
@@ -2265,9 +2268,17 @@ export class Run {
     }
 
     if (report.skip !== null) {
+      // Условный этап закрывается артефактом всегда (`SDLC.md`: «нет артефакта — нет
+      // шага»): этап 3 без вопросов оставляет отчёт «по существу пусто», а не пустоту.
+      await inv.onSkip?.(report.skip);
       this.emit({ type: 'stage_done', runId: this.id, stage, ok: true, note: report.skip });
       return { ok: true, finalText: '', usage: emptyUsage(), note: report.skip };
     }
+
+    // Маркеры терминальной реализации (`hooks/sdlc-guard.py`: `.scope.json`, `.review-lock`,
+    // `.claims-lock`) в каталоге витка — состояние ЧУЖОЙ сессии: границу scope и замок
+    // ревью здесь держит рантайм, а оставленный маркер запер бы следующий терминальный шаг.
+    this.clearGuardMarkers(stage);
 
     // Блокер среды этапа (pre-flight песочницы verify) — после проверки пропуска, до старта
     // попытки: несоответствие среды не должно съедать попытку.
@@ -2306,7 +2317,7 @@ export class Run {
         runId: this.id,
         stage,
         message:
-          `не найдены определения субагентов: ${missing.join(', ')} (каталог ${this.config.runner.agentsDir}). ` +
+          `не найдены определения субагентов: ${missing.join(', ')} (каталог ${this.config.runner.agentsDir === '' ? 'не задан — нет methodologyDir/agentsDir' : this.config.runner.agentsDir}). ` +
           (mod.missingSubagentsNote ??
             'Этап пойдёт без независимого агента: ограничение прав держится на промпте, ' +
               'а не на конструкции.'),
@@ -2388,6 +2399,16 @@ export class Run {
       const missingBefore = missingNow(produced);
       const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
       this.seeded = seeded.map((s) => s.path);
+
+      // Версия формы (`<!-- sdlc-template: X vN -->`): артефакт, снятый другой версией
+      // формы, этап не заполняет — его механика написана под текущую. Без строки версии
+      // (старый виток) — только предупреждение: старые витки дочитываются.
+      const versionProblem = this.templateVersionBlocker(stage, produced.filter((p) => !this.seeded.includes(p)));
+      if (versionProblem !== null) {
+        this.status = 'failed';
+        this.emit({ type: 'error', runId: this.id, stage, message: versionProblem });
+        return { ok: false, finalText: '', usage: emptyUsage(), note: versionProblem };
+      }
 
       // Механика артефактов до модели: хук этапа (журнал chunk'а, «Ветка витка» intent, отчёт
       // приёмки verify), затем задания `mechanicalJobs` (план, готовность, названия отчётов 2–3).
@@ -2492,12 +2513,45 @@ export class Run {
               ctx: {
                 ...ctx,
                 allowedTools: ctx.allowedTools.filter((t) => meta.callerTools.includes(t)),
+                // Слепота второго агента разведки — конструкцией, не просьбой (`sdlc-explore`
+                // Phase 1, `.claims-lock` терминального hook'а): субагенту `sdlc-claims`
+                // закрыты на чтение задача и отчёт разведки — авторский лист он не видит по
+                // построению шага. Только флоу `loop`: харнесс `sdk` вызывающего не называет.
+                ...(meta.caller === 'sdlc-claims'
+                  ? {
+                      readDenied: [
+                        ...(ctx.readDenied ?? []),
+                        this.paths.intent,
+                        this.paths.explorationReport,
+                        // Готовность обсуждает лист, лента несёт промпты этапов 1–2 с задачей
+                        // целиком, план и передачи прошлых витков цитируют пункты (ревью).
+                        this.paths.readiness,
+                        this.paths.plan,
+                        this.paths.handoff,
+                        this.paths.events,
+                        this.paths.intentSections,
+                      ].map((p) => relOf(this.ctx, p)),
+                    }
+                  : {}),
+                // Флоу — по ВЫЗОВУ, а не по основному маршруту этапа: маршрут ансамбля verify
+                // может идти другим флоу (code-review-all 2026-09-23).
+                noArtifactReaddress: meta.sdk !== undefined,
+                ...(meta.sdk?.sessionDir == null ? {} : { harnessResultsRoot: meta.sdk.sessionDir }),
               },
             });
             // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
             // рантайм прочитал с диска. Подстрока «reviewer» в имени этой планкой не
             // является: модель, вызвавшая несуществующего `code-reviewer-helper`, получала
             // отказ загрузки — и всё равно зажигала гейт минимальной пятёрки.
+            if (decision.allowed && call.kind === 'subagent' && call.agent === 'sdlc-claims' && meta.sdk !== undefined) {
+              this.emit({
+                type: 'warning',
+                runId: this.id,
+                stage,
+                message:
+                  'субагент sdlc-claims во флоу sdk: слепота к авторскому листу конструкцией не гарантирована — хук харнесса не отличает чтения субагента от чтений этапа; независимый лист выводит и рантайм (deriveClaimsBlind)',
+              });
+            }
             if (decision.allowed && call.kind === 'subagent' && reviewerNames.has(call.agent)) {
               pendingReviewer.add(meta.requestId);
             }
@@ -2572,20 +2626,12 @@ export class Run {
         onToolResult: (meta) => {
           this.countFriction(stage, 'toolCalls');
           // Гейт «Ревью независимым агентом» зеленеет только по состоявшемуся ревью: вызов
-          // дошёл до результата без ошибки И ответ прошёл те же планки, что прямой прогон
-          // рантаймом (`reviewProblem`: якорь в патче, вердикт по каждому пункту). Прежде
-          // здесь хватало `ok` — пустой ответ субагента зеленил гейт (code-review-all 2026-09-23).
+          // дошёл до результата без ошибки И ответ прошёл планки этапа (`reviewAccepted` —
+          // у verify те же, что у прямого прогона). Прежде здесь хватало `ok` — пустой ответ
+          // субагента зеленил гейт (code-review-all 2026-09-23). Этап без хука — прежнее
+          // правило «состоялся вызов».
           if (meta.ok && pendingReviewer.has(meta.requestId)) {
-            const problem = reviewProblem(this.host, meta.resultText ?? '');
-            if (problem === null) this.markReviewerRan();
-            else {
-              this.emit({
-                type: 'warning',
-                runId: this.id,
-                stage,
-                message: `вызов рецензента через Task: ${problem}. Гейт «${REVIEW_GATE}» остаётся ⏭`,
-              });
-            }
+            if (inv.reviewAccepted?.(meta.resultText ?? '') ?? true) this.markReviewerRan();
           }
           pendingReviewer.delete(meta.requestId);
           if (pendingWrites.has(meta.requestId)) {
@@ -2623,6 +2669,9 @@ export class Run {
             this.status = 'running';
           }
         },
+
+        afterAskHuman: (call, answers) =>
+          call.kind === 'ask_human' ? (inv.afterAskHuman?.(call.questions, answers) ?? null) : null,
 
         // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
         // одним `Write` после хода, обычным путём через политику и гейт.

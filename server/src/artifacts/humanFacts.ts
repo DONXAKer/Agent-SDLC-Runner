@@ -26,6 +26,12 @@ export interface HumanFact {
    * написаний: «90%» в коде законно живёт и как `90`, и как `0.9`.
    */
   literals: { shown: string; accepted: string[] }[];
+  /**
+   * Ячейка «Что изменилось в задаче» той же строки — суждение МОДЕЛИ о том, как ответ
+   * меняет намерение задачи (`renderAnswerRow`). `''` — колонки нет в таблице или её
+   * ячейка пуста/плейсхолдер.
+   */
+  changed: string;
 }
 
 /** Плейсхолдер шаблона — строка не заполнена, ответом не является. */
@@ -103,6 +109,9 @@ export function extractHumanFacts(text: string): HumanFact[] {
   for (const table of parseTables(section)) {
     let qi = columnIndex(table.header, 'Вопрос');
     let ai = columnIndex(table.header, 'Ответ');
+    // Позиционно тем же приёмом, что и qi/ai ниже — «Что изменилось в задаче» пятая
+    // колонка формы; не найдена по имени и не positional — `changed` остаётся ''.
+    const ciByName = columnIndex(table.header, 'Что изменилось');
     // Неканоничная шапка (модель сократила имена колонок) — позиционный запасной ход по
     // форме шаблона «| # | Вопрос | Блокирующий | Ответ | … |»: без него потеря шапки
     // делала гейт «Ответы человека в коде» зелёным «сверять нечего» — ложный зелёный на
@@ -116,6 +125,7 @@ export function extractHumanFacts(text: string): HumanFact[] {
       qi = 1;
       ai = 3;
     }
+    const ci = ciByName >= 0 ? ciByName : positional ? 4 : -1;
     // Смешанный режим (одна колонка нашлась по имени, вторая — нет) позиционным ходом
     // не спасается: форма заведомо не шаблонная, и индекс 3 указывал бы в чужую колонку
     // («Блокирующий» уходил ложным фактом answer='да' — ревью-5). Таблица пропускается
@@ -130,10 +140,33 @@ export function extractHumanFacts(text: string): HumanFact[] {
       if (question === '' || answer === '') continue;
       if (PLACEHOLDER.test(question) || PLACEHOLDER.test(answer)) continue;
       if (answer.startsWith('(пропущено)')) continue;
-      out.push({ question, answer, literals: literalsOf(answer) });
+      const changedRaw = ci < 0 ? '' : (row[ci] ?? '').trim();
+      const changed = changedRaw === '' || PLACEHOLDER.test(changedRaw) ? '' : changedRaw;
+      out.push({ question, answer, literals: literalsOf(answer), changed });
     }
   }
   return out;
+}
+
+/**
+ * Строки, где «Что изменилось в задаче» не отражает СОБСТВЕННЫЙ ответ человека — механически
+ * проверяемо только когда у ответа есть литералы (числа/цитаты), иначе сверять нечем и
+ * находка была бы суждением, а не фактом (Р6, серия local6 2026-09-24).
+ *
+ * Найдено живьём: ответ человека называл льготную ставку 10 % при условии (`reduced: true`
+ * у всех позиций), а «Что изменилось» модель заполнила текстом про 20 % без единой цифры из
+ * ответа — приёмочный лист (`intent.md`) после этого не обновляли, и рецензент трижды ронял
+ * вердикт тем же расхождением. Строка НЕ считается проблемой, если она называет `claim-N`:
+ * это законный адрес решения — пункт приёмки, который предстоит поправить человеку, а не
+ * содержательный пересказ самого ответа.
+ */
+export function unreflectedAnswers(text: string): HumanFact[] {
+  return extractHumanFacts(text).filter((f) => {
+    if (f.literals.length === 0) return false; // сверять нечем — не проверяем вовсе
+    if (f.changed === '') return false; // общий страж завершения уже поймает пустое/плейсхолдер
+    if (/claim-\d+/i.test(f.changed)) return false; // законный адрес — пункт исправит человек
+    return !f.literals.some((l) => l.accepted.some((form) => literalPattern(form).test(f.changed)));
+  });
 }
 
 const OPEN_QUESTIONS_HEADING_RE = /Открытые вопросы/i;
@@ -328,11 +361,17 @@ export function askedQuestionCount(reportText: string): number {
  * Строка таблицы «Вопросы и ответы» для вопроса, заданного рантаймом. `answer === null` —
  * человек пропустил (кнопка «Пропустить» в интерфейсе, пустой ответ). Колонка «Что
  * изменилось в задаче» остаётся полем МОДЕЛИ: решить, как ответ меняет намерение задачи —
- * суждение, а не факт, и рантайм его не изображает.
+ * суждение, а не факт, и рантайм его не изображает. `blocking === null` — вопрос модели
+ * без признака блокирующего: ячейка остаётся плейсхолдером для модели, а не догадкой.
  */
-export function renderAnswerRow(n: number, q: OpenQuestion, answer: string | null): string {
+export function renderAnswerRow(
+  n: number,
+  q: { question: string; blocking: boolean | null; source?: OpenQuestion['source'] },
+  answer: string | null,
+): string {
   const ans = answer === null ? '(пропущено)' : escapeCell(answer);
-  return `| ${n} | ${escapeCell(q.question)} | ${q.blocking ? 'да' : 'нет'} | ${ans} | ‹что изменилось в задаче› |`;
+  const blocking = q.blocking === null ? '‹да/нет›' : q.blocking ? 'да' : 'нет';
+  return `| ${n} | ${escapeCell(q.question)} | ${blocking} | ${ans} | ‹что изменилось в задаче› |`;
 }
 
 /**

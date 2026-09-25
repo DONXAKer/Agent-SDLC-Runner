@@ -4,9 +4,12 @@
  */
 
 import { localResultBytes } from '../../../config/limits.ts';
-import type { PreparedPrompt, ToolName } from '@sdlc-runner/shared';
+import type { ClaimStatus, FindingSection, PreparedPrompt, ToolName } from '@sdlc-runner/shared';
 
 import { readArtifact } from '../../../artifacts/artifact.ts';
+import { diffstat } from '../../../diff/diffstat.ts';
+import { parseReviewText } from './reviewValidate.ts';
+import type { ReviewFindingField, ReviewRef, ReviewStatus } from './reviewValidate.ts';
 import { AXES, parsePlanAxes } from '../../../artifacts/planAxes.ts';
 import type { AxisName, AxisRow } from '../../../artifacts/planAxes.ts';
 import type { ResolvedRoute } from '../../../config/schema.ts';
@@ -252,29 +255,36 @@ export async function runReviewerDirectly(
     let result = await runOnce(userWithAxes);
     let text = result.finalText.trim();
 
-    // Структура ответа (`sdlc-verify/SKILL.md`, проверка ответа рецензента): вердикт по
-    // КАЖДОМУ пункту приёмки задачи. Один повторный запрос с названными пропусками;
-    // второй неполный ответ — гейт остаётся `⏭`. Прежде хватало одного якоря из патча, и
-    // ответ по части пунктов ставил гейту ✅ (code-review-all 2026-09-23).
-    const claimIds = [...host.intentClaimLines().keys()];
-    const uncovered = (t: string): string[] => missingClaimIds(t, claimIds);
-    if (result.ok && text !== '' && uncovered(text).length > 0 && !signal.aborted) {
-      const missing = uncovered(text);
+    // Контракт ответа (`implementations/runner-contract` методологии, `verify-review-v1`):
+    // JSON-блок со статусом по КАЖДОМУ пункту задачи и адресными находками. Один
+    // repair-запрос с названными ошибками; второй невалидный ответ — гейт остаётся `⏭`.
+    // Прежде ответ судился регулярками по markdown: хватало якоря из патча и упоминания
+    // id, и «оформитель» проходил планку пересказом (code-review-all 2026-09-23).
+    let accepted = result.ok && text !== '' ? acceptReviewText(host, text, 'рантайм') : { ok: false as const, why: 'пусто' };
+    if (result.ok && text !== '' && !accepted.ok && !signal.aborted) {
       host.emit({
         type: 'warning',
         runId: host.id,
         stage: 'verify',
-        message: `ответ рецензента не называет пункты ${missing.join(', ')} — один повторный запрос`,
+        message: `ответ рецензента не по контракту verify-review-v1: ${accepted.why} — один повторный запрос`,
       });
       const retry = await runOnce(
-        `${userWithAxes}\n\n## Повтор: ответ неполон\n\nПрошлый ответ не дал вердикта по пунктам ` +
-          `${missing.join(', ')}. Дай ответ заново целиком: по КАЖДОМУ пункту приёмки — id, ` +
-          'статус и чем подтверждён (файл:символ, тест или хунк диффа).',
+        `${userWithAxes}\n\n## Повтор: ответ не по контракту\n\nПрошлый ответ не принят: ${accepted.why}. ` +
+          'Дай ответ заново целиком: fenced-блок ```json по схеме verify-review-v1 — `claims` по КАЖДОМУ ' +
+          'пункту приёмки задачи (id, status из passed|failed|uncertain|manual, evidence с path и anchor), ' +
+          'находки в `findings`/`scope`/`invariants`/`regressions` с evidence из патча, `retry_instruction` строкой.',
       );
       if (retry.ok && retry.finalText.trim() !== '') {
-        // Оба ответа, а не замена: находки, которые были только в первом (расхождение с
-        // якорем, регрессия), иначе терялись для входа этапа (code-review-all 2026-09-23).
-        text = `${text}\n\n## Повторный ответ рецензента (полный лист пунктов)\n\n${retry.finalText.trim()}`;
+        // Планки судят ПОВТОРНЫЙ ответ целиком — его просили быть полным; объединение
+        // двух неполных ответов прежде проходило как полное ревью. Первый ответ всё равно
+        // уходит во вход этапа (его находки иначе терялись), но подписан как справочный,
+        // чтобы два статуса одного пункта не читались как равноправные (code-review-all
+        // 2026-09-23).
+        const judged = retry.finalText.trim();
+        accepted = acceptReviewText(host, judged, 'рантайм, повтор');
+        text =
+          `${judged}\n\n## Первый ответ рецензента (не по контракту — только для справки; ` +
+          `итог — ответ выше)\n\n${text}`;
         result = { ...retry, finalText: text };
       }
     }
@@ -296,18 +306,17 @@ export async function runReviewerDirectly(
       return null;
     }
 
-    const problem = reviewProblem(host, text);
-    if (problem !== null) {
+    if (!accepted.ok) {
       host.emit({
         type: 'warning',
         runId: host.id,
         stage: 'verify',
-        message: `${problem}. Гейт «${REVIEW_GATE}» остаётся ⏭, текст всё равно уходит во вход этапа`,
+        message: `ответ рецензента не по контракту verify-review-v1: ${accepted.why}. Гейт «${REVIEW_GATE}» остаётся ⏭, текст всё равно уходит во вход этапа`,
       });
       return text;
     }
 
-    // Факт ревью ставится ТОЛЬКО по ответу, прошедшему планки, — тем же правилом, что и
+    // Факт ревью ставится ТОЛЬКО по ответу, прошедшему контракт, — тем же правилом, что и
     // при вызове субагента моделью (`Run`, `onToolResult`): «ход завершён» ревью не является.
     host.markReviewerRan();
     return text;
@@ -337,9 +346,53 @@ export async function runReviewerDirectly(
  * - Вердикт по КАЖДОМУ пункту приёмки задачи (`sdlc-verify/SKILL.md`, проверка ответа
  *   рецензента).
  */
-export function reviewProblem(host: StageHost, text: string): string | null {
+/**
+ * Ответ рецензента → контракт `verify-review-v1` → записи отчёта. Валидный ответ даёт
+ * записи пунктов (`RecordClaim`) и находок (`RecordFinding`) тем же путём, что записи
+ * модели (`acceptRecord`: сверка ссылки с патчем, рендер рантайма), и запоминается для
+ * `.chunk-N-attempt-K-review.json`. `ok: false` — ответ не принят, причина названа.
+ */
+export function acceptReviewText(host: StageHost, text: string, source: string): { ok: true } | { ok: false; why: string } {
+  const claimIds = new Set([...host.intentClaimLines().keys()].map((c) => c.toLowerCase()));
+  const patch = readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt()));
+  const paths = new Set(patch.exists ? diffstat(patch.text).paths : []);
+  const v = parseReviewText(text, claimIds, paths);
+  if (!v.valid || v.review === null) return { ok: false, why: v.errors.slice(0, 6).join('; ') };
+  const review = v.review;
+  const glyph: Record<ReviewStatus, ClaimStatus> = { passed: '✅', failed: '❌', uncertain: '⚠', manual: 'manual' };
+  const refs = (list: readonly ReviewRef[]): string => list.map((r) => `${r.path}:${r.anchor}`).join('; ');
+  for (const c of review.claims) {
+    acceptRecord(host, { kind: 'record_claim', id: c.id, status: glyph[c.status], evidence: refs(c.evidence), whatToFix: c.remediation === '' ? null : c.remediation });
+  }
+  const sections: [ReviewFindingField, FindingSection][] = [
+    ['findings', 'review'],
+    ['scope', 'scope'],
+    ['invariants', 'invariant'],
+    ['regressions', 'regression'],
+  ];
+  for (const [field, section] of sections) {
+    for (const f of review[field]) {
+      acceptRecord(host, { kind: 'record_finding', section, text: f.summary, evidence: refs(f.evidence) });
+    }
+  }
+  host.verifyState.reviewJson = review;
+  host.verifyState.reviewText = text;
+  host.emit({
+    type: 'warning',
+    runId: host.id,
+    stage: 'verify',
+    message:
+      `ответ рецензента (${source}) принят по контракту verify-review-v1: пунктов ${review.claims.length}, ` +
+      `находок ${review.findings.length + review.scope.length + review.invariants.length + review.regressions.length}`,
+  });
+  return { ok: true };
+}
+
+export function reviewProblem(host: StageHost, text: string, anchorText = text): string | null {
   if (text.trim() === '') return 'рецензент не вернул текста — ревью не состоялось';
-  if (!anchorFound(text, evidenceHaystack(host))) {
+  // Якорь — по всему, что рецензент сказал (после повтора — по обоим ответам): повтор
+  // просили о полноте листа, а ссылки на места патча могли остаться в первом ответе.
+  if (!anchorFound(anchorText, evidenceHaystack(host))) {
     return 'в ответе рецензента нет ни одной ссылки на место из патча попытки — прогон состоялся, ревью не состоялось';
   }
   const missing = missingClaimIds(text, [...host.intentClaimLines().keys()]);

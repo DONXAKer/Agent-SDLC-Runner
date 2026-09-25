@@ -24,7 +24,7 @@
 страж завершения `finishGuard`/`notDone()` с отказом `FinalizeArtifact`, называющим секцию
 (`artifacts/finalizeCheck.ts`); `salvageFromText`; анти-цикл (`REPEAT_LIMIT`,
 `finalizeStreak`, `readStreak`/`bashStreak`); `destructiveOverwrite`; политика `stageTools →
-denyList → pathScope → planScope`; `protectedArtifacts`; окно истории (`exec/history.ts`);
+denyList → pathScope/readScope → planScope`; `protectedArtifacts`; окно истории (`exec/history.ts`);
 `max_tokens` по остатку окна (`exec/contextBudget.ts`); схема формы + `FillField` под
 `compactForms`; метрики (`metrics.json`).
 

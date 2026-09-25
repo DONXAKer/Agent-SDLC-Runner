@@ -46,6 +46,7 @@ import {
   continuationOfDecision,
   isDecisionCell,
   isDecisionLine,
+  isHumanAnswerCell,
   lineAt,
   pathExistsAny,
   placeholderRanges,
@@ -62,7 +63,7 @@ import {
 import { foreignScript, isSheetError, looksLikeToolCallEcho, parseFieldValue } from '../artifacts/sheet.ts';
 import { listSourceFiles } from '../gates/builtin/index.ts';
 import { templateNameFor } from '../run/seed.ts';
-import { isSeparatorRow, splitRow } from '../md/table.ts';
+import { escapeCell, isSeparatorRow, splitRow } from '../md/table.ts';
 import { RUNTIME_AUTOFILLED_TEMPLATES } from '../run/formAutofill.ts';
 import {
   ENGINE_UNAVAILABLE_SUBSTRINGS,
@@ -390,6 +391,7 @@ export function groupFields(text: string): FormField[] {
   let lastRowStart = -1;
   let lastRowEnd = -1;
   let lastHeader = '';
+  let lastRowCollapsed = true;
   for (const r of placeholderRanges(text)) {
     const lineStart = text.lastIndexOf('\n', r.start - 1) + 1;
     const lineEndIdx = text.indexOf('\n', r.start);
@@ -404,22 +406,37 @@ export function groupFields(text: string): FormField[] {
     if (isDecisionLine(line)) continue;
     if (/^\s+\S/.test(line) && continuationOfDecision(text, lineStart)) continue;
     if (line.trimStart().startsWith('|')) {
-      if (lineStart === lastRowStart) continue; // колонка того же образца — уже учтён
+      const sameRow = lineStart === lastRowStart;
+      if (sameRow && lastRowCollapsed) continue; // колонка того же образца — уже учтён
       // Шапка блока не пересчитывается для соседних строк той же таблицы: обход вверх на
       // каждую строку давал квадрат на больших таблицах (ревью-2). Кэш корректен, потому
       // что смежные placeholder-строки всегда принадлежат одной таблице: между таблицами
       // стоят шапка и разделитель, а они placeholder-строками не бывают.
       const header =
-        lastRowEnd >= 0 && lineStart === lastRowEnd + 1 ? lastHeader : tableHeaderOf(text, lineStart);
+        sameRow || (lastRowEnd >= 0 && lineStart === lastRowEnd + 1) ? lastHeader : tableHeaderOf(text, lineStart);
       lastRowStart = lineStart;
       lastRowEnd = lineEnd;
       lastHeader = header;
+      lastRowCollapsed = true;
+      const columns = splitRow(header);
       // В таблицах подпись человека живёт в ШАПКЕ, не в строке: образец под колонкой
       // «Утвердил (человек)» / «Кто» — поле решения, модель его не заполняет (сфабрикованная
       // подпись снимала бы ⏭ в вердикте). Отбрасывается вся строка-образец: заполнять
       // нерешенческие ячейки, оставляя подписную, значило бы учить модель дописывать
       // таблицу решений — принятая цена безопасности.
-      if (splitRow(header).some(isDecisionCell)) continue;
+      if (columns.some(isDecisionCell)) continue;
+      // «Ответ человека» — владение ЯЧЕЙКОЙ (`artifact.ts::isHumanAnswerCell`): строку вопроса
+      // с ответом пишет рантайм, поэтому строка, где ответ ещё плейсхолдер, модели не
+      // отдаётся целиком, а у строки с настоящим ответом модели достаются её плейсхолдеры по
+      // одному («Что изменилось в задаче») — переписывать строку целиком значило бы
+      // переписывать и ответ человека.
+      const answerCol = columns.findIndex(isHumanAnswerCell);
+      if (answerCol >= 0) {
+        if ((splitRow(line)[answerCol] ?? '').includes('‹')) continue;
+        lastRowCollapsed = false;
+        out.push({ start: r.start, end: r.end, kind: 'cell', text: r.text });
+        continue;
+      }
       out.push({ start: lineStart, end: lineEnd, kind: 'row', text: line, header });
     } else {
       out.push({ start: r.start, end: r.end, kind: 'cell', text: r.text });
@@ -1519,6 +1536,11 @@ export class FormFillExecutor implements StageExecutor {
                     `(нужно ${CLAIMS_MINIMUM.edges}) — этап 3 отклонит`,
                 );
               }
+            }
+            // Ячейка таблицы, спрошенная по одной (владение ячейкой «Ответ человека»): ответ
+            // ложится внутрь строки, и перевод строки или голая `|` в нём разорвали бы таблицу.
+            if (range.kind === 'cell' && lineAt(text, range.start).trimStart().startsWith('|')) {
+              filled = escapeCell(filled.replace(/\s*\n\s*/g, ' '));
             }
             text = text.slice(0, range.start) + filled + text.slice(range.end);
             fieldsFilled++;

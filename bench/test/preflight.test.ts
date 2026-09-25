@@ -26,7 +26,7 @@ function opts(argv: readonly string[]): BenchOptions {
 
 const greenProbe: PreflightDeps['probe'] = async ({ cases }) => ({
   model: 'm',
-  cases: (cases ?? []).map((c) => ({ name: c.name, ok: true, detail: 'ok', env: false, durationMs: 1 })),
+  cases: (cases ?? []).map((c) => ({ name: c.name, ok: true, detail: 'ok', env: false, timedOut: false, durationMs: 1 })),
   passed: true,
   envBlocked: false,
 });
@@ -154,11 +154,69 @@ describe('runPreflight', () => {
   it('расхождение окна — envBlocked до пробы модели', async () => {
     const report = await runPreflight(
       opts(['--model', MODEL, '--stage', 'chunk']),
-      greenDeps({ contextProblem: async () => 'тег даёт окно 4096, конфиг ждёт 16384' }),
+      greenDeps({ contextProblem: async () => ({ message: 'тег даёт окно 4096, конфиг ждёт 16384', reloadable: false }) }),
     );
     strictEqual(report.envBlocked, true);
     ok(report.checks.some((c) => c.name === 'модель: окно контекста' && !c.ok));
     strictEqual(report.checks.some((c) => c.name.startsWith('модель: честность')), false, 'проба не должна была гоняться');
+  });
+
+  it('расхождение окна помечено reloadable, но БЕЗ --engine-reload — код 2, перезагрузка не вызывается', async () => {
+    let reloadCalled = false;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({
+        contextProblem: async () => ({ message: 'модель не загружена', reloadable: true }),
+        reloadEngine: async () => {
+          reloadCalled = true;
+          return { kind: 'reloaded' as const, detail: 'x' };
+        },
+      }),
+    );
+    strictEqual(reloadCalled, false, 'GPU общий — без явного флага перезагрузки нет');
+    strictEqual(preflightExitCode(report), 2);
+    ok(report.checks.some((c) => c.name === 'модель: окно контекста' && !c.ok));
+  });
+
+  it('--engine-reload чинит reloadable окно ДО прогрева: одна перезагрузка, повтор проверки зелёный (серия local6, 2026-09-24)', async () => {
+    let reloads = 0;
+    let contextCalls = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        contextProblem: async () => {
+          contextCalls += 1;
+          return contextCalls === 1 ? { message: 'модель не загружена (state: not-loaded)', reloadable: true } : null;
+        },
+        reloadEngine: async () => {
+          reloads += 1;
+          return { kind: 'reloaded' as const, detail: 'lms load m -c 32768 --parallel 1 зелёный' };
+        },
+      }),
+    );
+    strictEqual(reloads, 1);
+    strictEqual(contextCalls, 2, 'первая проверка красная, вторая — после перезагрузки');
+    strictEqual(report.passed, true, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    const c = report.checks.find((x) => x.name.startsWith('модель: окно контекста'));
+    ok(c?.name.includes('после перезагрузки'), JSON.stringify(c));
+  });
+
+  it('--engine-reload на reloadable окне, но перезагрузка не удалась — старые красные проверки НЕ теряются', async () => {
+    let contextCalls = 0;
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk', '--engine-reload']),
+      greenDeps({
+        contextProblem: async () => {
+          contextCalls += 1;
+          return { message: 'модель не загружена (state: not-loaded)', reloadable: true };
+        },
+        reloadEngine: async () => ({ kind: 'failed' as const, detail: 'lms load снят по таймауту' }),
+      }),
+    );
+    strictEqual(contextCalls, 1, 'перезагрузка не удалась — второй проверки окна нет');
+    strictEqual(preflightExitCode(report), 2);
+    ok(report.checks.some((c) => c.name === 'модель: окно контекста' && !c.ok), JSON.stringify(report.checks));
+    ok(report.checks.some((c) => !c.ok && c.detail.includes('lms load снят по таймауту')), JSON.stringify(report.checks));
   });
 
   it('красная модельная проба при зелёной среде — код 1, не 2', async () => {
@@ -167,7 +225,7 @@ describe('runPreflight', () => {
       greenDeps({
         probe: async ({ cases }) => ({
           model: 'm',
-          cases: (cases ?? []).map((c) => ({ name: c.name, ok: false, detail: 'вызова нет', env: false, durationMs: 1 })),
+          cases: (cases ?? []).map((c) => ({ name: c.name, ok: false, detail: 'вызова нет', env: false, timedOut: false, durationMs: 1 })),
           passed: false,
           envBlocked: false,
         }),
@@ -184,7 +242,7 @@ describe('runPreflight', () => {
       greenDeps({
         probe: async ({ cases }) => ({
           model: 'm',
-          cases: (cases ?? []).map((c) => ({ name: c.name, ok: false, detail: 'ECONNREFUSED', env: true, durationMs: 1 })),
+          cases: (cases ?? []).map((c) => ({ name: c.name, ok: false, detail: 'ECONNREFUSED', env: true, timedOut: false, durationMs: 1 })),
           passed: false,
           envBlocked: true,
         }),
@@ -215,6 +273,7 @@ describe('runPreflight: вторая попытка модельных кейс�
           name: c.name,
           ok: c.name !== FLAKY || (single && retryOk),
           env: c.name === FLAKY && env,
+          timedOut: false,
           detail: c.name === FLAKY ? (single ? 'повтор' : 'вызова нет') : 'ok',
           durationMs: 1,
         })),
@@ -277,6 +336,7 @@ describe('runPreflight: вторая попытка модельных кейс�
           name: c.name,
           ok: c.name !== FLAKY,
           env: c.name === FLAKY && single,
+          timedOut: false,
           detail: single ? 'ECONNREFUSED' : 'вызова нет',
           durationMs: 1,
         })),
@@ -290,6 +350,44 @@ describe('runPreflight: вторая попытка модельных кейс�
     const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
     strictEqual(c?.env, true, c?.detail);
     ok(c?.detail.includes('не измерен'), c?.detail);
+  });
+
+  it('кейс с timedOut — код 1 (не 2), НЕ перезапускается (серия local6, 2026-09-24: apriel-1.6-15b)', async () => {
+    let calls = 0;
+    const probe: PreflightDeps['probe'] = async ({ cases }) => {
+      calls += 1;
+      const list = cases ?? [];
+      return {
+        model: 'm',
+        cases: list.map((c) => ({
+          name: c.name,
+          ok: c.name !== FLAKY,
+          env: false,
+          timedOut: c.name === FLAKY,
+          detail: c.name === FLAKY ? 'кейс не уложился в потолок 120000 мс' : 'ok',
+          durationMs: 1,
+        })),
+        passed: false,
+        envBlocked: false,
+      };
+    };
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps({ probe }));
+    strictEqual(report.envBlocked, false, JSON.stringify(report.checks.filter((c) => !c.ok)));
+    strictEqual(preflightExitCode(report), 1);
+    strictEqual(calls, 1, 'таймаут кейса не перезапускается — повтор удвоил бы тот же потолок');
+    const c = report.checks.find((x) => x.name === `модель: ${FLAKY}`);
+    strictEqual(c?.ok, false);
+    strictEqual(c?.env, false);
+  });
+
+  it('--probe-timeout передаётся пробе как caseTimeoutMs', async () => {
+    let seenTimeout: number | undefined;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      seenTimeout = a.caseTimeoutMs;
+      return greenProbe(a);
+    };
+    await runPreflight(opts(['--model', MODEL, '--stage', 'chunk', '--probe-timeout', '6']), greenDeps({ probe }));
+    strictEqual(seenTimeout, 6 * 60_000);
   });
 });
 
@@ -453,7 +551,7 @@ describe('runPreflight: прогрев движка и автоперезагр�
         },
         contextProblem: async () => {
           contextCalls += 1;
-          return contextCalls === 1 ? null : 'загружено с окном 4096, конфиг ждёт 16384';
+          return contextCalls === 1 ? null : { message: 'загружено с окном 4096, конфиг ждёт 16384', reloadable: false };
         },
       }),
     );

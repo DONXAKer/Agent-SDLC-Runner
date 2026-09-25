@@ -110,6 +110,17 @@ describe('checkOllamaContext', () => {
     ok(r.message.includes('ollama create'), r.message);
   });
 
+  it('тег несёт зашитый num_ctx, запись НЕ заявляет contextWindow — красное с готовой строкой конфига (серия local6, 2026-09-24)', async () => {
+    const baseUrl = await startStub({
+      tags: ['gpt-oss-20b-ctx32k'],
+      show: { parameters: 'num_ctx 32768\n' },
+    });
+    const r = await checkOllamaContext(baseUrl, 'gpt-oss-20b-ctx32k', undefined, NO_ENV);
+    strictEqual(r.ok, false);
+    strictEqual(r.effectiveContextLength, 32768);
+    ok(r.message.includes('"contextWindow": 32768'), r.message);
+  });
+
   it('`/api/tags` отдаёт имя с суффиксом `:latest`, конфиг называет тег без него — совпадение находится (bench v5, 2026-09-14)', async () => {
     const baseUrl = await startStub({
       tags: ['ministral3-14b-ctx32k:latest'],

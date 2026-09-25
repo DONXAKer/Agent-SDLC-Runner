@@ -262,6 +262,7 @@ export type DenialClass =
   | 'запись вне плана'
   | 'свой артефакт не по своему пути'
   | 'путь вне проекта или битый'
+  | 'чтение закрытого по конструкции файла'
   | 'запрещённая цель'
   | 'необъявленный субагент'
   | 'запись без права на этапе'
@@ -336,6 +337,10 @@ export function classifyDenial(d: CollectedDenial): DenialClass {
       return d.ownArtifactMisaddressed === true ? 'свой артефакт не по своему пути' : 'запись вне плана';
     case 'pathScope':
       return d.ownArtifactMisaddressed === true ? 'свой артефакт не по своему пути' : 'путь вне проекта или битый';
+    // Файл внутри проекта, закрытый этапу по конструкции (отчёт другой попытки, авторский
+    // лист задачи агенту claims): отказ — устройство шага, в `BOUNDARY_CLASSES` не входит.
+    case 'readScope':
+      return 'чтение закрытого по конструкции файла';
     case 'denyList':
       return 'запрещённая цель';
     case 'repeatFailure':

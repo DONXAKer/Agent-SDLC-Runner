@@ -19,7 +19,8 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 // Границы h2-секции — общим разборщиком (`md/table.ts`), у которого своих зависимостей нет.
-import { h2SectionRanges } from '../md/table.ts';
+import { SDLC_CONSTANTS } from '../config/constants.ts';
+import { h2SectionRanges, parseTables } from '../md/table.ts';
 
 /**
  * Плейсхолдер формы методологии: «‹что сюда вписать›».
@@ -358,6 +359,13 @@ export const DECISION = {
   checklistComplete: 'Решение человека о полноте',
   /** handoff.md — запись о дефекте, кто утвердил классификацию. */
   whoApproved: 'Кто утвердил',
+  /**
+   * handoff.md — запись о дефекте, действие по нему («выбирает человек, агент только
+   * предлагает»). Решение-«выбор» (`CHOICE_DECISIONS`), а не подпись: значение — одна
+   * ветка меню. Без метки здесь поле оставалось модели в обоих флоу, хотя шаблон отдаёт
+   * его человеку.
+   */
+  action: 'Действие',
 } as const;
 
 export type DecisionLabel = (typeof DECISION)[keyof typeof DECISION];
@@ -571,6 +579,73 @@ export function isDecisionCell(cell: string): boolean {
   return DECISION_CELL.test(cell.trim());
 }
 
+// Метки решений человека методологии (`sdlc-constants.json` → human_decision_labels) обязаны
+// узнаваться здесь как подписная колонка/поле; иначе — ошибка старта, не дрейф двух списков.
+for (const label of SDLC_CONSTANTS.human_decision_labels) {
+  if (!isDecisionCell(label)) {
+    throw new Error(`метка решения человека «${label}» из sdlc-constants.json не узнаётся рантаймом (DECISION/DECISION_CELL)`);
+  }
+}
+
+/**
+ * Колонка «Ответ человека» (таблица «Вопросы и ответы» отчёта этапа 3) — тоже решение
+ * человека, но владение у неё по ЯЧЕЙКЕ, а не по строке, в отличие от подписных колонок
+ * `isDecisionCell`: в той же строке стоит «Что изменилось в задаче» — поле МОДЕЛИ, которого
+ * требует страж этапа (`humanFacts.ts::unreflectedAnswers`). Отдать человеку всю строку, как
+ * у «Утвердил (человек)», значило бы отнять у модели её колонку. Строки таблицы пишет
+ * рантайм (`askOpenQuestions`, ответ на `AskHuman` модели — `ask.ts::afterAskHuman`), модель
+ * дописывает только «Что изменилось»; её собственная транскрипция ответа — фабрикация.
+ */
+const HUMAN_ANSWER_CELL = /^Ответ человека([^\p{L}\d-]|$)/iu;
+
+export function isHumanAnswerCell(cell: string): boolean {
+  return HUMAN_ANSWER_CELL.test(cell.trim());
+}
+
+/** Колонка, значение которой ставит человек, — подписная или «ответ человека». */
+function isHumanOwnedColumn(cell: string): boolean {
+  return isDecisionCell(cell) || isHumanAnswerCell(cell);
+}
+
+/** Пусто ли значение подписной ячейки: плейсхолдер, `н/п`, тире или ничего — решения нет. */
+function emptyDecisionCell(cell: string): boolean {
+  const t = cell.trim();
+  return t === '' || hasPlaceholder(t) || /^н\/п(\s|$|[—–-])/i.test(t) || /^[—–-]+$/.test(t);
+}
+
+/**
+ * Конкретные (не пустые) значения ПОДПИСНЫХ КОЛОНОК таблиц артефакта — «Утвердил (человек)»
+ * в таблице неприменимости отчёта, «Кто» / «Кто утвердил» в таблицах набора гейтов,
+ * «Подтвердил» в журнале chunk'а. Каждое значение — `колонка: значение`, по порядку строк.
+ *
+ * Нужно тому, кто сравнивает документ ДО и ПОСЛЕ записи модели: поле решения человека в
+ * таблице живёт колонкой, не жирной меткой, и `decisionLabelsIn` его не видит — модель
+ * могла вписать имя в «Утвердил» и снять `⏭` гейта одним `Edit` (`SDLC.md`: поле решения
+ * человека не отдаётся модели).
+ */
+export function decisionColumnValues(text: string): string[] {
+  if (!text.includes('|')) return [];
+  const out: string[] = [];
+  for (const t of parseTables(text)) {
+    const cols = t.header.map((h, i) => (isHumanOwnedColumn(h) ? i : -1)).filter((i) => i >= 0);
+    if (cols.length === 0) continue;
+    for (const row of t.rows) {
+      for (const i of cols) {
+        const v = row[i] ?? '';
+        // Со строкой (первая ячейка): подпись, перенесённая с одной строки на другую, —
+        // новое значение, а не переупорядочение (ревью).
+        if (!emptyDecisionCell(v)) out.push(`${t.header[i]!.trim()}@${(row[0] ?? '').trim()}: ${v.trim()}`);
+      }
+    }
+  }
+  return out;
+}
+
+/** Есть ли в артефакте таблица с колонкой человека (подписной или «Ответ человека»). */
+export function hasDecisionColumns(text: string): boolean {
+  return text.includes('|') && parseTables(text).some((t) => t.header.some(isHumanOwnedColumn));
+}
+
 /**
  * Порча ФОРМЫ поля решения: поля нет там, где оно обязано быть, — обычно потому, что
  * модель переписала или удалила строку. Отдельный класс, чтобы вызывающие (bench-драйвер)
@@ -598,8 +673,16 @@ export type DecisionState =
   | { state: 'granted'; raw: string };
 
 function fieldRegex(label: string): RegExp {
-  // Метка встречается как «- **Одобрение:** ...» или «**Решение человека о полноте:** ...».
-  return new RegExp(`^(.*\\*\\*${escapeRe(label)}:\\*\\*)(.*)$`, 'm');
+  // Две формы, те же, что у `DECISION_LINE`: двоеточие внутри жирного («- **Одобрение:** …»)
+  // и после жирной метки с курсивным пояснением («- **Действие** _(выбирает человек…)_: …»,
+  // форма handoff-бланка). Вторую форму знал только `DECISION_LINE`, и у поля «Действие»
+  // было два расходящихся парсера: строка узнавалась как поле решения, а `readDecision`/
+  // `setDecision` видели `missing` — сравнение «до/после» на фабрикацию правку модели не
+  // замечало. Пояснение принимается только курсивом в скобках, а не любым текстом до
+  // двоеточия: этим же регэкспом читаются десятки обычных полей, и жирное слово-метка в
+  // прозе легенды («**Приёмка** … :») перехватило бы первое совпадение у настоящего поля.
+  const l = escapeRe(label);
+  return new RegExp(`^(.*\\*\\*${l}(?::\\*\\*|\\*\\*\\s*_\\([^\\n]*?\\)_\\s*:))(.*)$`, 'm');
 }
 
 /**
@@ -759,6 +842,50 @@ const PENDING = /(ожида|не\s*реш|tbd|todo|^[\s—–\-?.]*$|н\/п)/i;
  */
 const SESSION_APPROVAL = /одобрени[ея]\s+плана\s+через\s+ExitPlanMode/i;
 
+/**
+ * Решения-«выбор»: значение — одна ветка закрытого меню, а не подпись «имя · дата».
+ * Допустимые ветки — канон методологии (`sdlc-constants.json` → `defect_actions`), тот же
+ * список, по которому шаблон рисует меню; рантайм при чтении шаблона не видит, поэтому
+ * второго источника веток здесь не заводится. `Map` — ключ приходит строкой метки.
+ */
+const CHOICE_DECISIONS: ReadonlyMap<string, readonly string[]> = new Map([
+  [DECISION.action, SDLC_CONSTANTS.defect_actions],
+]);
+
+function normChoice(s: string): string {
+  return s.toLowerCase().replace(/ё/g, 'е').trim();
+}
+
+/**
+ * Состояние решения-«выбора». Принято — осталась ровно одна ветка и она из допустимого
+ * списка (с необязательным пояснением после тире/скобки/двоеточия: человек вправе
+ * приписать причину). Несколько веток — меню не выбрано, как «оба исхода» у подписи.
+ * `н/п` решением не считается: шаблон допускает его только в блоке «дефектов не было»,
+ * где решать нечего, и эту строку пишет агент (как `н/п` в «Кто утвердил», которое тоже
+ * `placeholder` через `PENDING`). Посчитай его выбором — законная запись блока «нет»
+ * читалась бы фабрикацией решения человека.
+ */
+function readChoiceDecision(rawFull: string, options: readonly string[]): DecisionState {
+  const branches = dropStruckThrough(rawFull)
+    .replace(/\*\*/g, '')
+    .replace(/\s+/g, ' ')
+    .split(' / ')
+    .map((b) => b.trim())
+    .filter((b) => b !== '' && b !== '/');
+  if (branches.length === 0) return { state: 'placeholder', raw: rawFull, why: 'поле не заполнено' };
+  if (branches.length > 1) {
+    return { state: 'placeholder', raw: rawFull, why: 'в поле осталось меню — человек не выбрал одну ветку' };
+  }
+  const v = normChoice(branches[0]!.replace(/[\s/]+$/, ''));
+  const hit = options.some((o) => {
+    const on = normChoice(o);
+    return v === on || (v.startsWith(on) && /^[\s—–\-(:,.;]/.test(v.slice(on.length)));
+  });
+  if (hit) return { state: 'granted', raw: rawFull };
+  if (PENDING.test(v)) return { state: 'placeholder', raw: rawFull, why: 'решения нет (н/п)' };
+  return { state: 'placeholder', raw: rawFull, why: `значение не из списка: ${options.join(' / ')}` };
+}
+
 export function readDecision(text: string, label: string): DecisionState {
   const m = fieldRegex(label).exec(text);
   if (m === null) return { state: 'missing' };
@@ -767,6 +894,9 @@ export function readDecision(text: string, label: string): DecisionState {
   if (rawFull === '' || hasPlaceholder(rawFull)) {
     return { state: 'placeholder', raw: rawFull, why: 'поле не заполнено' };
   }
+
+  const choices = CHOICE_DECISIONS.get(label);
+  if (choices !== undefined) return readChoiceDecision(rawFull, choices);
 
   const raw = dropStruckThrough(rawFull).replace(/\s+/g, ' ').trim();
   if (raw === '') return { state: 'declined', raw: rawFull };
@@ -838,6 +968,39 @@ export function setDecision(text: string, label: string, value: string): string 
 /** «Иван · 2026-08-16» — форма, которую ожидают шаблоны. */
 export function decisionValue(operator: string, date: Date): string {
   return `${operator} · ${date.toISOString().slice(0, 10)}`;
+}
+
+/**
+ * Начало ПОСЛЕДНЕЙ секции «## Виток ‹K› — ‹дата›» handoff; 0 — секций нет (старая форма
+ * или другой артефакт). `SDLC.md` → «Раскладка артефактов»: handoff ведёт секции сверху
+ * вниз по времени, и действует последняя запись «Приёмка» — не первая попавшаяся.
+ */
+// `\b` по кириллице не работает (граница считается по ASCII) — конец слова явным «пробел или
+// конец строки», тем же приёмом, что везде в этом рантайме.
+const LOOP_HEADING = /^##\s+Виток(?=\s|$).*$/gmu;
+
+export function lastLoopSectionStart(text: string): number {
+  const re = new RegExp(LOOP_HEADING.source, LOOP_HEADING.flags);
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) last = m.index;
+  return last;
+}
+
+/** Сколько секций «## Виток» в handoff; 0 — ни одной. */
+export function loopSectionCount(text: string): number {
+  return (text.match(new RegExp(LOOP_HEADING.source, LOOP_HEADING.flags)) ?? []).length;
+}
+
+/** `readDecision` по последней секции витка (handoff): первая «Приёмка» — прошлого витка. */
+export function readLastDecision(text: string, label: string): DecisionState {
+  return readDecision(text.slice(lastLoopSectionStart(text)), label);
+}
+
+/** `setDecision` в последней секции витка (handoff): подпись ложится под текущий виток. */
+export function setLastDecision(text: string, label: string, value: string): string {
+  const at = lastLoopSectionStart(text);
+  return text.slice(0, at) + setDecision(text.slice(at), label, value);
 }
 
 // Форма «решение получено не от живого человека» (пометка источника + запрет публикации)

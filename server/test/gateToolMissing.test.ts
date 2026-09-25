@@ -88,4 +88,18 @@ describe('статус гейта: среда против предмета пр
     ok(r !== undefined);
     strictEqual(r.status, '✅');
   });
+
+  it('«No such file or directory» в выводе теста без имени инструмента — ❌, а не среда', async () => {
+    // Улика среды обязана назвать сам инструмент команды: лог теста, честно проверяющего
+    // отсутствующий файл, средой не является и в blocked_env виток не уводит.
+    // `&&`, а не `;`: команду исполняет оболочка машины, и в cmd.exe `;` — часть аргумента echo.
+    const { root, gates } = gatesWith('echo FAIL: [Errno 2] No such file or directory: config.yml && exit 1');
+    const r = await runOne('', root, gates);
+
+    ok(r !== undefined);
+    strictEqual(r.status, '❌');
+    strictEqual(r.envBlocked, false);
+    strictEqual(r.missingTool, null);
+    ok((r.output ?? '').includes('config.yml'), 'полный вывод команды доезжает до результата');
+  });
 });

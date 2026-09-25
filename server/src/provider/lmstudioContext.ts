@@ -144,7 +144,8 @@ export async function checkLmStudioContext(
       parallel: null,
       message:
         `модель «${modelId}» не загружена (state: ${entry.state ?? 'unknown'}) — ` +
-        `сначала \`lms load ${modelId} -c ${expected} --gpu max\``,
+        `сначала \`lms load ${modelId} -c ${expected} --parallel 1 --gpu max\` ` +
+        `(или перезапусти преполёт с --engine-reload — он сделает это сам)`,
     };
   }
 
@@ -157,7 +158,8 @@ export async function checkLmStudioContext(
       parallel: null,
       message:
         `модель «${modelId}» загружена с окном ${loaded ?? '?'}, а конфиг (\`contextWindow\`) ожидает ${expected} — ` +
-        `перезагрузи: \`lms unload --all && lms load ${modelId} -c ${expected} --gpu max\``,
+        `перезагрузи: \`lms unload --all && lms load ${modelId} -c ${expected} --parallel 1 --gpu max\` ` +
+        `(или --engine-reload сделает это сам)`,
     };
   }
 
@@ -173,7 +175,8 @@ export async function checkLmStudioContext(
         `модель «${modelId}» загружена с parallel=${parallel} — окно делится между слотами, ` +
         `реальный бюджет запроса ≈ ${Math.floor(expected / parallel)} из ${expected} ` +
         `(класс серии test22: «Context size exceeded» на plan при входе ~14 тыс. из заявленных 32768) — ` +
-        `перезагрузи: \`lms unload --all && lms load ${modelId} -c ${expected} --parallel 1 --gpu max\``,
+        `перезагрузи: \`lms unload --all && lms load ${modelId} -c ${expected} --parallel 1 --gpu max\` ` +
+        `(или --engine-reload сделает это сам)`,
     };
   }
 

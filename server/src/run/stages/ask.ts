@@ -11,15 +11,34 @@ import {
   openQuestions,
   renderAnswerRow,
   unaskedQuestions,
+  unreflectedAnswers,
 } from '../../artifacts/humanFacts.ts';
 import type { OpenQuestion } from '../../artifacts/humanFacts.ts';
 import { autofillClarification } from '../formAutofill.ts';
+import { seedArtifacts } from '../seed.ts';
 import { explorationPathsExist } from './explore.ts';
 import { RUNTIME_PROTECTED, hasOpenQuestions, isSmallContour } from './preconditions.ts';
 import type { StageDef, StageHost, StageModule } from './types.ts';
 
 /** Открытых вопросов задаётся не больше стольки за один вход в этап — блокирующие первыми. */
 const MAX_QUESTIONS_PER_TURN = 4;
+
+/**
+ * Отчёт по вопросам «по существу пусто»: строка-образец таблицы и поля формы закрываются
+ * записью о том, что вопросов не было, — с подписью оператора, чтобы артефакт был отличим
+ * от незаполненного бланка и от пропущенного этапа. Чистая функция — проверяется тестом.
+ */
+export function emptyClarificationReport(text: string, note: string): string {
+  const lines = text.split('\n').map((line) => {
+    const t = line.trim();
+    if (t.startsWith('| 1 |') && t.includes('‹вопрос›')) return `| — | ${note} | н/п | н/п | ничего |`;
+    if (t === '‹уточнённое требование и подход›') return `${note}; требование и подход — как в intent.md`;
+    if (t.startsWith('- ‹вопрос›')) return null;
+    if (t.startsWith('- **Задача:**')) return line.replace(/‹одно предложение о цели›/, 'см. intent.md');
+    return line;
+  });
+  return lines.filter((l): l is string => l !== null).join('\n');
+}
 
 /**
  * Вопрос человеку задаёт рантайм, не модель (3.4 / S1): открытые вопросы уже полностью
@@ -80,6 +99,66 @@ async function askOpenQuestions(host: StageHost): Promise<void> {
   // (ревью code-review-all, 2026-09-19; этап `ask` однопроходный, второго входа обычно
   // не бывает).
   closeIntentQuestions(host, updated);
+}
+
+/**
+ * Блокирующий ли вопрос МОДЕЛИ — по заголовку карточки: у `AskHuman` отдельного флага нет.
+ * `null` — не сказано; ячейка остаётся плейсхолдером `‹да/нет›` для модели, а не
+ * догадкой рантайма.
+ */
+function blockingOfHeader(header: string): boolean | null {
+  if (/не\s*блокир/iu.test(header)) return false;
+  if (/блокир/iu.test(header)) return true;
+  return null;
+}
+
+/**
+ * Ответ человека на `AskHuman` МОДЕЛИ этапа 3 — в таблицу «Вопросы и ответы» его пишет
+ * рантайм, как и ответы на открытые вопросы (`askOpenQuestions`). Колонка «Ответ человека»
+ * — поле человека (`artifact.ts::isHumanAnswerCell`), и её транскрипция моделью — та же
+ * фабрикация, что вписанное ею имя в «Утвердил»: `humanDecision.ts` её отклоняет. Модели
+ * остаётся «Что изменилось в задаче» — суждение, а не факт.
+ *
+ * Неотвеченный вопрос строки не получает: пустой `{}` — это и отмена, и «человек не
+ * ответил», и записанное «(пропущено)» навсегда считалось бы заданным вопросом, которого
+ * человек, возможно, не видел (тот же довод, что в `askOpenQuestions`). Вопрос, уже
+ * несущий строку, не дублируется.
+ */
+function recordModelAnswers(
+  host: StageHost,
+  questions: readonly Question[],
+  answers: Readonly<Record<string, string[]>>,
+): string | null {
+  if (host.signal().aborted) return null;
+  const report = readArtifact(host.paths.clarificationReport);
+  if (!report.exists) return null;
+  const answered = questions
+    .map((q) => ({ q, raw: (answers[q.id] ?? []).join(', ').trim() }))
+    .filter((a) => a.raw !== '');
+  if (answered.length === 0) return null;
+  const asOpen = answered.map((a) => ({ question: a.q.question, blocking: false, source: 'intent' as const }));
+  const fresh = new Set(unaskedQuestions(asOpen, report.text).map((q) => q.question));
+  const toWrite = answered.filter((a) => fresh.has(a.q.question));
+  if (toWrite.length === 0) return null;
+
+  const startN = askedQuestionCount(report.text);
+  const rows = toWrite.map((a, i) =>
+    renderAnswerRow(startN + i + 1, { question: a.q.question, blocking: blockingOfHeader(a.q.header) }, a.raw),
+  );
+  const updated = appendAnswerRows(report.text, rows);
+  if (updated === report.text) return null;
+  host.writeAutofilled(host.paths.clarificationReport, updated, []);
+  closeIntentQuestions(host, updated);
+  const first = startN + 1;
+  const last = startN + rows.length;
+  const where = first === last ? `строкой ${first}` : `строками ${first}–${last}`;
+  return (
+    `Рантайм записал ответ в clarification-report.md ${where} таблицы «Вопросы и ответы». ` +
+    'Ячейку «Ответ человека» не переписывай — это поле человека; заполни в этой строке ' +
+    '«Что изменилось в задаче»' +
+    (toWrite.some((a) => blockingOfHeader(a.q.header) === null) ? ' и «Блокирующий» (да/нет)' : '') +
+    '.'
+  );
 }
 
 /** Закрывает чек-боксы «Открытых вопросов» intent.md по ФАКТУ переданного текста отчёта. */
@@ -156,7 +235,36 @@ export const askModule: StageModule = {
   // `Bash` на этапе нет — сменить ветку внутри хода нечем.
   checksBranchOnEntry: false,
   begin: (host) => ({
+    // «Этап закрывается артефактом всегда» (`SDLC.md` → этап 3): нет развилок — отчёт всё
+    // равно кладётся, с записью «по существу пусто» и подписью оператора. Иначе «отчёта
+    // нет, потому что вопросов не было» неотличимо от «этап не запускался». Мелкий контур
+    // разведку и вопросы не пишет по построению — там артефакта нет законно.
+    onSkip: async () => {
+      if (isSmallContour(host.ctx())) return;
+      const path = host.paths.clarificationReport;
+      if (artifactExists(path)) return;
+      const seeded = seedArtifacts([path], host.runner().methodologyDir);
+      if (seeded.length === 0) return;
+      const date = new Date().toISOString().slice(0, 10);
+      // Без имени оператора: рантайм не сочиняет подпись человека (решения здесь не было —
+      // вопросов не нашла разведка); источник записи назван честно.
+      const note = `по существу пусто — открытых вопросов нет; записано рантаймом · ${date}`;
+      const titled = autofillClarification(readArtifact(path).text, {
+        title: host.slug,
+        explorationDone: artifactExists(host.paths.explorationReport),
+      }).text;
+      const text = emptyClarificationReport(titled, note);
+      host.writeAutofilled(path, text, seeded.map((s) => ({ path: s.path })));
+      host.emit({
+        type: 'warning',
+        runId: host.id,
+        stage: 'ask',
+        message: `этап 3 пропущен, но артефакт оставлен: ${path} — «${note}»`,
+      });
+    },
+
     beforeExecutor: () => askOpenQuestions(host),
+    afterAskHuman: (questions, answers) => recordModelAnswers(host, questions, answers),
     // Дозаполнение отчёта по вопросам по полям — ПОСЛЕ хода, тем же приёмом, что у
     // `explore` (`formFinish`), и по той же находке: свободный ход сжигает лимит на
     // оформлении, а не на содержании, и этап падает с незакрытыми местами (test28,
@@ -190,10 +298,24 @@ export const askModule: StageModule = {
       const a = readArtifact(host.paths.clarificationReport);
       if (!a.exists) return null; // условный этап мог не создать артефакт — это законно
       const n = countPlaceholdersExceptDecisions(a.text);
-      if (n === 0) return null;
+      if (n > 0) {
+        return (
+          `в отчёте по вопросам осталось незаполненных мест: ${n} — этап 4 на входе считает их ` +
+          `и не стартует. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`
+        );
+      }
+      // «Что изменилось в задаче» заполнено, но не тем: колонка есть, а числа/цитаты из
+      // ОТВЕТА человека в ней не встречаются и claim-N не назван — суждение разошлось
+      // с фактом в той же строке (см. `unreflectedAnswers`).
+      const stale = unreflectedAnswers(a.text);
+      if (stale.length === 0) return null;
       return (
-        `в отчёте по вопросам осталось незаполненных мест: ${n} — этап 4 на входе считает их ` +
-        `и не стартует. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`
+        `«Что изменилось в задаче» разошлось с собственным ответом человека в той же строке: ` +
+        stale
+          .map((f) => `«${f.question.slice(0, 80)}» — ответ называет ${f.literals.map((l) => l.shown).join(', ')}, а «Что изменилось» — нет`)
+          .join('; ') +
+        `. Впиши в «Что изменилось» число/условие из ответа, либо назови claim-N, который ` +
+        `предстоит поправить на этапе 1, — не пересказывай ответ мимо его цифр.`
       );
     },
   }),

@@ -117,6 +117,10 @@ export function classifyRedVerdict(
   if (!input.diffMatchesTree) {
     add('integrity', 'diff в отчёте разошёлся с деревом');
   }
+  if (input.evidenceProblem !== undefined && input.evidenceProblem !== null) {
+    add('integrity', `свидетельства попытки: ${input.evidenceProblem}`);
+  }
+  for (const s of input.intentTamper ?? []) add('integrity', `задача переписана внутри витка: секция «${s}»`);
 
   const kind = ORDER.find((k) => found.has(k));
   if (kind === undefined) return null;

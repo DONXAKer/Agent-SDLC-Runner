@@ -56,6 +56,14 @@ export function stageInputs(id: StageId, c: StageContext): StageInput[] {
         req(p.gates),
         req(p.chunkDiff(c.chunk, c.attempt)),
         opt(p.chunkTests(c.chunk, c.attempt)),
+        // Запись о свидетельствах: рецензент видит, чем и от какой базы сняты улики.
+        opt(p.chunkEvidence(c.chunk, c.attempt)),
+        // Ответ человека на блокирующий вопрос задачи (этап 3) может уточнять требование,
+        // которое приёмочный лист intent.md после этого не обновляли (Р6, серия local6
+        // 2026-09-24): рецензент без этого входа судит код против буквы устаревшего claim-N,
+        // не зная, что код следует более позднему решению человека. Тот же вход, что уже
+        // читает `plan` (`stageInputs('plan')` выше) — второго места сборки не заводится.
+        opt(p.clarificationReport),
       ];
     case 'handoff':
       return [

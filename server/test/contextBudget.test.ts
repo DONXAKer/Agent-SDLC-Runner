@@ -11,6 +11,8 @@ import {
   MIN_MAX_TOKENS,
   budgetParams,
   estimateMessageTokens,
+  historyBudgetFor,
+  historyKeepLastFor,
   marginFor,
   maxTokensForRemaining,
 } from '../src/exec/contextBudget.ts';
@@ -42,11 +44,21 @@ describe('budgetParams', () => {
     strictEqual(budgetParams({ contextWindow: undefined, params: undefined, promptTokens: 0, marginTokens: 0, onClamped: () => {} }), null);
   });
 
-  it('остаток окна; явный max_tokens оператора перекрывает вычисленный', () => {
+  it('остаток окна; без явного max_tokens — вычисленный как есть', () => {
     deepStrictEqual(budgetParams({ contextWindow: 4096, params: null, promptTokens: 3000, marginTokens: 512, onClamped: () => {} }), { max_tokens: 584 });
+  });
+
+  it('явный max_tokens — ПОТОЛОК поверх вычисленного, а не замена (Р2, серия local6 2026-09-24)', () => {
+    // Вычисленный остаток — 584. Явное число БОЛЬШЕ остатка — раньше побеждало безусловно
+    // (`glm-4.7-flash`-класс: заведомо переполняющий max_tokens отключал расчёт де-факто).
     deepStrictEqual(
       budgetParams({ contextWindow: 4096, params: { max_tokens: 999, temperature: 0.1 }, promptTokens: 3000, marginTokens: 512, onClamped: () => {} }),
-      { max_tokens: 999, temperature: 0.1 },
+      { max_tokens: 584, temperature: 0.1 },
+    );
+    // Явное число МЕНЬШЕ остатка — по-прежнему действует как потолок оператора.
+    deepStrictEqual(
+      budgetParams({ contextWindow: 4096, params: { max_tokens: 300 }, promptTokens: 3000, marginTokens: 512, onClamped: () => {} }),
+      { max_tokens: 300 },
     );
   });
 
@@ -57,6 +69,36 @@ describe('budgetParams', () => {
       { max_tokens: MIN_MAX_TOKENS },
     );
     deepStrictEqual(seen, [MIN_MAX_TOKENS]);
+  });
+});
+
+describe('historyBudgetFor', () => {
+  it('узкое окно (16 384) сужает бюджет ниже умолчания 40 000 (Р1, серия local6 2026-09-24)', () => {
+    strictEqual(historyBudgetFor(16384, 40000), 26214);
+  });
+
+  it('окно от 32 768 не меняет прежний бюджет — большим окнам не хуже', () => {
+    strictEqual(historyBudgetFor(32768, 40000), 40000);
+    strictEqual(historyBudgetFor(65536, 40000), 40000);
+  });
+});
+
+describe('historyKeepLastFor', () => {
+  it('бюджет не задан — умолчание как есть', () => {
+    strictEqual(historyKeepLastFor(undefined, 12000, 3), 3);
+  });
+
+  it('фиксированные keepLast результатов сами не вмещаются в суженный бюджет — keepLast урезается', () => {
+    // Бюджет 26214 (окно 16384, historyBudgetFor) / maxResultBytes 12000 = 2 результата.
+    strictEqual(historyKeepLastFor(26214, 12000, 3), 2);
+  });
+
+  it('пол — один результат, даже если в бюджет не влезает и один', () => {
+    strictEqual(historyKeepLastFor(5000, 12000, 3), 1);
+  });
+
+  it('широкий бюджет не поднимает keepLast выше умолчания', () => {
+    strictEqual(historyKeepLastFor(200000, 12000, 3), 3);
   });
 });
 

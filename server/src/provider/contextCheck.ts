@@ -11,20 +11,31 @@
  * (см. `resolveProbeTarget` в probe.ts), повторять тот же приём не надо.
  *
  * Возвращает `null` — проверка не применима (провайдер без управляемого окна) либо
- * прошла; непустую строку — готовое сообщение оператору, почему прогон не стоит
- * начинать. Решение о коде возврата (средовой класс, обычно 2) — за вызывающим.
+ * прошла; иначе — `ContextProblem` с готовым сообщением оператору и признаком
+ * `reloadable`. Решение о коде возврата (средовой класс, обычно 2) — за вызывающим.
  */
 
 import { checkLmStudioContext } from './lmstudioContext.ts';
 import { checkOllamaContext } from './ollamaContext.ts';
 import { baseUrlFor } from './registry.ts';
 
+export interface ContextProblem {
+  message: string;
+  /**
+   * Дыру можно закрыть автоматической перезагрузкой движка (`--engine-reload`,
+   * `bench/src/engine.ts::reloadEngine`) — модель не загружена, загружена не с тем окном
+   * или не с тем числом parallel-слотов. `false` — реагировать нечем: неверный id
+   * (LM Studio не видит модель вовсе) или Ollama, где окно зашито в тег, а не в загрузку.
+   */
+  reloadable: boolean;
+}
+
 export async function contextProblemFor(
   provider: string,
   modelId: string,
   contextWindow: number | undefined,
   providerBaseUrl: string | undefined,
-): Promise<string | null> {
+): Promise<ContextProblem | null> {
   if (provider !== 'lmstudio' && provider !== 'ollama') return null;
   const baseUrl = baseUrlFor(provider) ?? providerBaseUrl;
   // Пустой/не заданный baseUrl — не наша забота: обычный путь запроса к провайдеру
@@ -35,7 +46,10 @@ export async function contextProblemFor(
     // Без заявленного окна сверять не с чем — LM Studio сообщит своей ошибкой по факту.
     if (contextWindow === undefined) return null;
     const r = await checkLmStudioContext(baseUrl, modelId, contextWindow);
-    return r.ok ? null : r.message;
+    // `state === null` — модель не найдена в LM Studio вовсе (опечатка id): перезагрузка
+    // не создаст то, чего нет в конфиге. Остальные красные состояния (не загружена,
+    // загружена не с тем окном, parallel>1) чинятся `lms load` из reloadEngine.
+    return r.ok ? null : { message: r.message, reloadable: r.state !== null };
   }
 
   // Ollama: проверяем и при незаявленном окне — ловушка голого тега (4096) красна сама
@@ -49,5 +63,7 @@ export async function contextProblemFor(
   // бы перед часами прогона. «Тег не найден» и «окно меньше заявленного» — тоже проблема:
   // там `/api` ответил, и ответ содержательный.
   const r = await checkOllamaContext(baseUrl, modelId, contextWindow);
-  return r.ok || r.skipped ? null : r.message;
+  // Окно Ollama зашито в тег (`num_ctx` в Modelfile) — перезагрузка процесса не меняет
+  // его никак; чинится только пересозданием тега, руками.
+  return r.ok || r.skipped ? null : { message: r.message, reloadable: false };
 }

@@ -1,5 +1,8 @@
 /** Этап 4 — план витка: определение этапа и проверка `files_to_touch`. */
 
+import { existsSync, renameSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { NormalizedCall } from '@sdlc-runner/shared';
 
 import { DECISION, artifactExists, hasNamedInvariants, readArtifact, readDecision, writeArtifact } from '../../artifacts/artifact.ts';
@@ -12,6 +15,7 @@ import {
   seedFilesToTouch,
   touchListEntries,
 } from '../../artifacts/planFiles.ts';
+import { extractExplicitSteps } from '../../artifacts/planSteps.ts';
 import { applyAxisAnswers } from '../../artifacts/renderAxes.ts';
 import type { ResolvedRoute } from '../../config/schema.ts';
 import { gateKey } from '../../gates/gatesFile.ts';
@@ -23,7 +27,8 @@ import { autofillPlan, autofillReadiness } from '../formAutofill.ts';
 import { fillPlanAxes } from '../planAxisFill.ts';
 import { fillPlanAxesStepwise } from '../planAxisStepwise.ts';
 import { explorationPathsExist } from './explore.ts';
-import { claimsMinimum, hasOpenQuestions, intentFilled, isSmallContour, relOf } from './preconditions.ts';
+import { claimsMinimum, hasOpenQuestions, intentFilled, intentSectionsIntact, isSmallContour, relOf } from './preconditions.ts';
+import { ensureIntentSnapshot } from './intent.ts';
 import type { StageContext, StageDef, StageHost, StageModule } from './types.ts';
 
 /**
@@ -89,6 +94,43 @@ export function planTouchDiscrepancyProblem(c: StageContext): string | null {
     );
   }
   return `files_to_touch разошёлся с «Что придётся тронуть» разведки без объяснения — ${parts.join('; ')}.`;
+}
+
+/**
+ * Явная форма шага (`### Шаг N`, `artifacts/planSteps.ts::extractExplicitSteps`) — со
+ * строкой-образцом из шаблона (`templates/plan.template.md`), не заполненная по существу.
+ *
+ * Найдено серией local6 (2026-09-24): модель дважды меняла заголовок шага и поле
+ * «действие», но оставляла `файл: src/tariffs.ts`, `символ: priceFor`, `закрывает:
+ * claim-2, claim-4`, `проверка: node --test test/oversize.test.ts` — дословно текстом
+ * образца. `src/tariffs.ts` не входил ни в `files_to_touch`, ни в проект, и явно не был
+ * помечен новым — а не будь этой проверки, chunk потом читал `test/oversize.test.ts`
+ * как реальный файл (`Read` на несуществующий путь, потерянные ходы).
+ *
+ * Проверяется только `файл`, не `проверка`: у `проверка` legит-форма почти всегда
+ * называет ЕЩЁ НЕ СУЩЕСТВУЮЩИЙ тестовый файл (создаётся тем же шагом на chunk'е) —
+ * проверка по этому полю дала бы находку на каждом нормальном плане. `файл` — путь,
+ * который шаг РЕДАКТИРУЕТ, и он обязан быть либо уже объявлен (`files_to_touch`), либо
+ * явно помечен новым, либо реально существовать; если ни то, ни другое, ни третье —
+ * это чужой путь, дошедший из необновлённого образца.
+ */
+export function planStepSampleTextProblem(c: StageContext): string | null {
+  const plan = readArtifact(c.paths.plan);
+  if (!plan.exists) return null;
+  const steps = extractExplicitSteps(plan.text);
+  if (steps.length === 0) return null;
+  const files = extractFilesToTouch(plan.text);
+  for (const step of steps) {
+    if (files.includes(step.file) || step.isNew) continue;
+    if (existsSync(join(c.paths.projectRoot, step.file))) continue;
+    return (
+      `явная форма шага ${step.n} называет файл «${step.file}» — его нет ни в files_to_touch, ` +
+      `ни на диске, и он не помечен новым. Похоже на нетронутую строку-образец шаблона плана ` +
+      `(файл/символ/проверка скопированы из примера явной формы) — впиши настоящий путь этого ` +
+      `шага или подтверди в files_to_touch.`
+    );
+  }
+  return null;
 }
 
 /**
@@ -272,6 +314,9 @@ export const planStage: StageDef = {
     // (`explore.skipIf`), и без этой строки его ветка `small ? 1 : 3` внутри проверки
     // была мертва — пустой лист доезжал до вердикта.
     claimsMinimum(),
+    // Восьмое условие вердикта проверяется и на входе этапа 4: переписанная задача не
+    // должна доехать до плана, а «уточнено с одобрения» — единственный законный путь.
+    intentSectionsIntact('задача не переписана внутри витка (снимок секций intent.md)'),
   ],
   // План здесь и создаётся, поэтому защищены только задача и набор гейтов.
   protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.intent)],
@@ -310,6 +355,35 @@ export const planModule: StageModule = {
   },
   checksBranchOnEntry: true,
   begin: (host, route) => ({
+    // Снимка секций задачи может не быть (виток начат до его появления или с середины по
+    // снимку артефактов) — тогда он снимается здесь, с предупреждением: с этого момента
+    // задача под сверкой, а что было до — не проверено.
+    afterStart: async () => {
+      ensureIntentSnapshot(host, 'plan');
+    },
+
+    // Новая редакция плана — новое одобрение (`SDLC.md` → «Раскладка артефактов»): прежняя
+    // одобренная редакция перед перезаписью переименовывается в `plan-v‹K›.md` КАК ЕСТЬ —
+    // с подписью человека под той редакцией, которую он одобрял, — а свежий `plan.md`
+    // раскладывается формой с пустым полем «Одобрение». До раскладки форм: иначе
+    // существующий одобренный план остался бы «планом» и правился бы поверх подписи.
+    beforeSeed: async () => {
+      const plan = readArtifact(host.paths.plan);
+      if (!plan.exists) return;
+      if (readDecision(plan.text, DECISION.approval).state !== 'granted') return;
+      let k = 1;
+      while (artifactExists(host.paths.planArchive(k))) k += 1;
+      renameSync(host.paths.plan, host.paths.planArchive(k));
+      host.emit({
+        type: 'warning',
+        runId: host.id,
+        stage: 'plan',
+        message:
+          `одобренная редакция плана переименована в ${host.paths.planArchive(k)} как есть; новый plan.md ` +
+          'раскладывается формой — одобрение прежней редакции на него не переносится',
+      });
+    },
+
     // Топ-ап осей плана (`ModelDef.planAxisFill`): оси, о которых секция «Последствия
     // шагов» ничего не сказала, добираются узкими вопросами рантайма. До стража завершения
     // этапа — он увидит меньше проблем, если топ-ап уже закрыл часть строк.
@@ -332,6 +406,8 @@ export const planModule: StageModule = {
       if (filesProblem !== null) return filesProblem;
       const touchProblem = planTouchDiscrepancyProblem(host.ctx());
       if (touchProblem !== null) return touchProblem;
+      const sampleProblem = planStepSampleTextProblem(host.ctx());
+      if (sampleProblem !== null) return sampleProblem;
       const problems = axisProblems(host);
       if (problems.length === 0) return null;
       return [

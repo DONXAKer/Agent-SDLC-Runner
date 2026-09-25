@@ -67,6 +67,12 @@ export interface RunnerConfig {
   skillsDir: string;
   agentsDir: string;
   methodologyDir: string;
+  /**
+   * Каталог стенда (`bench/`): оттуда дашборд читает `results/*.json` и `traces/`. Не задан —
+   * `bench/` рядом с сервером; каталога нет (образ без стенда) — дашборд просто без карточек
+   * стенда. Машинное значение: `runner.local.json` или `SDLC_BENCH_DIR`.
+   */
+  benchDir?: string;
   limits: RunnerLimits;
 }
 

@@ -7,6 +7,7 @@
 
 import type { GateRunResult, RedCause, Verdict, VerdictInput } from '@sdlc-runner/shared';
 import type { ClaimRecord, FindingRecord } from '../../verifyReport.ts';
+import type { ReviewV1 } from './reviewValidate.ts';
 
 export class VerifyState {
   /** Фактический прогон гейтов текущей попытки — источник статусов для вердикта. */
@@ -79,4 +80,23 @@ export class VerifyState {
    * посчитать было нечем; тогда действует прежнее правило «сказано в отчёте».
    */
   diffFactMatchesTree: boolean | null = null;
+
+  /**
+   * Факт сверки свидетельств попытки (`evidence.json` против патча и вывода тестов),
+   * посчитанный перед вердиктом: `null` — свидетельства на месте и сошлись, строка —
+   * причина, по которой они свидетельством не считаются; `undefined` — сверки не было.
+   */
+  evidenceFact: string | null | undefined = undefined;
+
+  /**
+   * Секции задачи, переписанные вне трёх законных правок (восьмое условие вердикта);
+   * `null` — законно или снимка нет; `undefined` — сверки не было.
+   */
+  intentTamperFact: string[] | null | undefined = undefined;
+
+  /** Ответ рецензента, принятый по контракту `verify-review-v1`; `null` — не было. */
+  reviewJson: ReviewV1 | null = null;
+
+  /** Сырой текст того же ответа — артефакт попытки `chunk-N-attempt-K-review.md`. */
+  reviewText: string | null = null;
 }

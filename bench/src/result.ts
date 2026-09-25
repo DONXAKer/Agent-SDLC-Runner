@@ -9,7 +9,7 @@
  * Инвариант файла: из одного `result.json` обязан пересобираться весь отчёт (`buildReport`).
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import type { RunMetrics, StageId, Verdict } from '@sdlc-runner/shared';
@@ -123,5 +123,10 @@ export function buildResult(args: {
 /** Пишет `result.json` — каталог создаётся, если его ещё нет (первый прогон бенчмарка). */
 export function writeResult(path: string, result: BenchResult): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(result, null, 2)}\n`);
+  // Через временный файл и переименование: читатель (дашборд) не видит половину записи, а
+  // переименование меняет время правки каталога `results/` — по нему дашборд замечает
+  // переписанный на месте результат, не перебирая сотни файлов на каждом опросе.
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(result, null, 2)}\n`);
+  renameSync(tmp, path);
 }

@@ -111,6 +111,16 @@ describe('выжимка причин для ретрая', () => {
     strictEqual(signed, null);
   });
 
+  it('retry_instruction рецензента идёт первой строкой после шапки, «н/п» — не идёт', () => {
+    const red = input({ claims: [{ id: 'claim-1', status: '❌' }] });
+    const brief = buildRetryBrief(red, [], { retryInstruction: 'убрать условие sku !== "" в src/store.ts:35' });
+    ok(brief !== null);
+    const at = brief.indexOf('Рецензент: в первую очередь — убрать условие');
+    ok(at >= 0 && at < brief.indexOf('claim-1 — опровергнут'), brief);
+    const none = buildRetryBrief(red, [], { retryInstruction: 'н/п' });
+    ok(none !== null && !none.includes('в первую очередь'));
+  });
+
   it('переносит расхождения ревью, инварианты и регрессии', () => {
     const brief = buildRetryBrief(
       input({

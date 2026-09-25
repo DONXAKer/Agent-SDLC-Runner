@@ -54,7 +54,25 @@ const PROSE_LOOKING_LIKE_PATH = new Set(['н/п', 'н/д', 'т.е.', 'т.д.', '
  *
  * Хвостовая пунктуация снимается: в перечислении «src/a.ts, src/b.ts» первым токеном
  * шла «src/a.ts,» — с запятой, которой на диске нет.
+ *
+ * Ячейка с обратными кавычками разбирается по фрагментам, а не целиком: живой прогон b6-2
+ * (gpt-oss-20b, 2026-09-24) написал в «Опорах осей» `` `longestSide`/`dimensionSum` `` —
+ * два настоящих символа проекта, — а со снятыми кавычками это читалось путём
+ * `longestSide/dimensionSum`, и честный отчёт закрыл виток на этапе 2. Фрагмент в кавычках
+ * — то, что модель сама назвала адресом; каждый судится отдельно, и `src/fake.ts` в паре
+ * с настоящим символом по-прежнему ловится.
  */
+function pathCandidates(rawCell: string): string[] {
+  const quoted = [...rawCell.matchAll(/`([^`]+)`/g)].map((m) => m[1] ?? '');
+  const parts = quoted.length > 0 ? quoted : [rawCell];
+  const out: string[] = [];
+  for (const part of parts) {
+    const rel = pathCandidate(part);
+    if (rel !== null) out.push(rel);
+  }
+  return out;
+}
+
 function pathCandidate(raw: string): string | null {
   const rel = (raw.split(/\s/)[0] ?? '')
     .replace(/[),;»"'`]+$/u, '')
@@ -138,7 +156,7 @@ export function explorationPathProblem(c: StageContext): string | null {
           // не нужно: её и так пропустит фильтр словесных описаний ниже.
           const namedHeader = /^(файл|путь)/i.test((table.header[0] ?? '').trim());
           for (const row of namedHeader ? table.rows : [table.header, ...table.rows]) {
-            const first = (row[0] ?? '').replace(/`/g, '').trim();
+            const first = (row[0] ?? '').trim();
             if (first === '') continue;
             // Путь, объявленный БУДУЩИМ, законно не существует.
             //
@@ -155,11 +173,11 @@ export function explorationPathProblem(c: StageContext): string | null {
             // начало слова: подстрока ловила «осНОВной» и «обНОВление».
             if (declaredAsNew(row)) continue;
             // Адреса кода в отчётах — в форме `путь:метод`; существование проверяем только у пути.
-            const rel = pathCandidate(first);
-            if (rel === null) continue;
             // Каталог — законный житель карты («server/src/exec/ — исполнители этапов»),
             // а `artifactExists` требует файла: честный отчёт объявлялся бы сочинённым.
-            if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+            for (const rel of pathCandidates(first)) {
+              if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) missing.push(rel);
+            }
           }
         }
       }
@@ -179,14 +197,14 @@ export function explorationPathProblem(c: StageContext): string | null {
         for (const table of parseTables(report.text.slice(range.start, range.end))) {
           const col = columnIndex(table.header, 'механизм');
           for (const row of [table.header, ...table.rows]) {
-            const cell = (row[col >= 0 ? col : 1] ?? '').replace(/`/g, '').trim();
+            const cell = (row[col >= 0 ? col : 1] ?? '').trim();
             if (cell === '' || cell.includes('‹')) continue;
             if (declaredAsNew(row)) continue;
             // «нет механизма» и прочая проза путём не являются — тем же фильтром, что в
             // карте, и ИМЕННО тем же: две копии этого правила уже успели разойтись.
-            const rel = pathCandidate(cell);
-            if (rel === null) continue;
-            if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) invented.push(rel);
+            for (const rel of pathCandidates(cell)) {
+              if (!pathExistsAny(`${c.paths.projectRoot}/${rel}`)) invented.push(rel);
+            }
           }
         }
       }
@@ -335,7 +353,11 @@ export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecos
   }
   const def = loadSubagent(host.runner().agentsDir, 'sdlc-claims');
   if (def === null) {
-    host.exploreState.claims.skipReason = `определение субагента sdlc-claims не найдено в ${host.runner().agentsDir}`;
+    const dir = host.runner().agentsDir;
+    host.exploreState.claims.skipReason =
+      dir === ''
+        ? 'каталог субагентов не задан (нет methodologyDir/agentsDir) — определения sdlc-claims нет'
+        : `определение субагента sdlc-claims не найдено в ${dir}`;
     warn(`слепой вывод листа не запущен: ${host.exploreState.claims.skipReason}`);
     return;
   }

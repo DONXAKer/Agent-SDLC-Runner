@@ -75,9 +75,11 @@ export function checkPreconditions(
     const problem = p.check(c);
     if (problem === null) continue;
     problems.push(problem);
+    const blamed = p.blame === undefined || opts.withArtifacts === false ? undefined : p.blame(c);
     details.push({
       text: problem,
       artifact: p.artifact === undefined || opts.withArtifacts === false ? null : p.artifact(c),
+      ...(blamed === undefined ? {} : { blamed }),
     });
   }
 

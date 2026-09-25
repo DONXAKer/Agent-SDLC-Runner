@@ -153,6 +153,46 @@ describe('поля решений человека', () => {
   });
 });
 
+// Поле «Действие» записи о дефекте (handoff): двоеточие ПОСЛЕ жирной метки с курсивным
+// пояснением, значение — выбор из меню, а не подпись. До этой правки `readDecision` не
+// видел поле вовсе (`missing`), а при виде — требовал бы имя и дату.
+const ACTION_MENU =
+  '- **Действие** _(выбирает человек, агент только предлагает)_: н/п / конструкция / проверка /\n' +
+  '  принятие риска\n';
+
+describe('поле-выбор «Действие» (вторая форма метки)', () => {
+  it('вторая форма метки находится: меню не выбрано — placeholder, а не missing', () => {
+    strictEqual(readDecision(ACTION_MENU, DECISION.action).state, 'placeholder');
+  });
+
+  it('одна ветка из канона — granted, с пояснением после тире тоже', () => {
+    for (const v of ['конструкция', 'проверка', 'принятие риска', 'Конструкция — гейт на пустой sku']) {
+      strictEqual(readDecision(`- **Действие** _(выбирает человек)_: ${v}`, DECISION.action).state, 'granted', v);
+    }
+  });
+
+  it('«н/п» — не решение (форма блока «дефектов не было»), текст не из канона — не решение', () => {
+    strictEqual(readDecision('- **Действие** _(выбирает человек)_: н/п', DECISION.action).state, 'placeholder');
+    strictEqual(readDecision('- **Действие** _(выбирает человек)_: переписать всё', DECISION.action).state, 'placeholder');
+  });
+
+  it('лишние ветки вычеркнуты — осталась одна, это выбор', () => {
+    const t = '- **Действие** _(выбирает человек)_: ~~н/п~~ / конструкция / ~~проверка~~ / ~~принятие риска~~';
+    strictEqual(readDecision(t, DECISION.action).state, 'granted');
+  });
+
+  it('setDecision сохраняет курсивное пояснение метки', () => {
+    const t = setDecision(ACTION_MENU, DECISION.action, 'проверка');
+    ok(t.startsWith('- **Действие** _(выбирает человек, агент только предлагает)_: проверка'), t);
+  });
+
+  it('первая форма и прочие поля не задеты; жирное слово в прозе полем не считается', () => {
+    strictEqual(readField('- **Ветка витка:** sdlc/auth-104', 'Ветка витка'), 'sdlc/auth-104');
+    strictEqual(readDecision('- **Одобрение:** Иван · 2026-08-16', DECISION.approval).state, 'granted');
+    strictEqual(readField('Смотри **Ветка витка** в задаче: там всё', 'Ветка витка'), null);
+  });
+});
+
 describe('readField: сырое значение простого поля', () => {
   it('заполненное поле возвращается как есть', () => {
     strictEqual(readField('- **Ветка витка:** sdlc/auth-104', 'Ветка витка'), 'sdlc/auth-104');
@@ -337,6 +377,28 @@ describe('предусловия этапов', () => {
     ].join('\n'));
     const r = checkPreconditions(stageById('ask'), ctx);
     ok(!r.problems.some((p) => /Опоры осей/.test(p)), r.problems.join('; '));
+  });
+
+  // Живой прогон b6-2 (gpt-oss-20b, 2026-09-24): два настоящих символа в кавычках через
+  // слэш читались одним путём `longestSide/dimensionSum` — честный отчёт закрыл виток.
+  it('символы в обратных кавычках через слэш путём не считаются; сочинённый путь в кавычках — считается', () => {
+    writeArtifact(join(root, 'src', 'a.ts'), 'export const a = 1;\n');
+    writeArtifact(paths.explorationReport, [
+      '# Отчёт разведки', '## Опоры осей',
+      '| Ось | Механизм проекта | Как он применяется здесь |', '|---|---|---|',
+      '| Отказы зависимостей | `longestSide`/`dimensionSum` | простые операции |',
+      '| Ресурсы | `WEIGHT_LIMITS_G` в `src/a.ts` | ограничения на веса |',
+    ].join('\n'));
+    let r = checkPreconditions(stageById('ask'), ctx);
+    ok(!r.problems.some((p) => /Опоры осей/.test(p)), r.problems.join('; '));
+
+    writeArtifact(paths.explorationReport, [
+      '# Отчёт разведки', '## Опоры осей',
+      '| Ось | Механизм проекта | Как он применяется здесь |', '|---|---|---|',
+      '| Отказы зависимостей | `longestSide`/`src/fake.ts` | нет такого файла |',
+    ].join('\n'));
+    r = checkPreconditions(stageById('ask'), ctx);
+    ok(r.problems.some((p) => /Опоры осей.*src\/fake\.ts/.test(p)), r.problems.join('; '));
   });
 
   it('«нет механизма» в опорах осей ложного срабатывания не даёт', () => {

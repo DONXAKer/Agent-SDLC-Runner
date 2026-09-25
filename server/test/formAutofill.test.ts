@@ -175,6 +175,8 @@ describe('autofillHandoff', () => {
     verdict: 'passed' as const,
     published: 'нет' as const,
     publishGate: { status: '✅', branchOk: 'та', hasCommit: 'да', junk: 'нет' },
+    loop: 1,
+    date: '2026-09-18',
   };
 
   it('закрывает название, «Состояние» целиком и строку «Статус»; решение человека не трогает', () => {
@@ -297,6 +299,8 @@ describe('скрепа: поля рантайма реальных шаблон�
         verdict: 'passed',
         published: 'нет',
         publishGate: { status: '✅', branchOk: 'та', hasCommit: 'да', junk: 'нет' },
+    loop: 1,
+    date: '2026-09-18',
       }).text,
   };
 

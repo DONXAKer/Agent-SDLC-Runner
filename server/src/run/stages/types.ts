@@ -16,7 +16,7 @@ import type { TraceLabel } from '../../provider/rawLog.ts';
 import type { ExploreState } from './explore.ts';
 import type { VerifyState } from './verify/state.ts';
 import type { CommitOutcome } from '../commitByRuntime.ts';
-import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, PreparedPrompt, Question, RunEvent, RunMetrics, StageId, ToolName, Usage } from '@sdlc-runner/shared';
+import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, PreparedPrompt, Question, RunEvent, RunMetrics, StageId, ToolName, Usage, Verdict } from '@sdlc-runner/shared';
 import type { ChunkState } from './chunk/index.ts';
 
 /** Бланк, разложенный под артефакт этапа; `snapshot` — содержимое после автозаполнения. */
@@ -41,6 +41,12 @@ export interface StageHost {
   /** HEAD проекта: sha либо причина его отсутствия (`Run.head`). */
   head(): Promise<{ sha: string | null; why: string }>;
   /**
+   * База diff'а витка (`Run.baseSha`): поле «База» одобренного плана, без него — журнал
+   * текущего chunk'а, без обоих — HEAD. От неё снимается патч попытки, к ней же обращена
+   * сверка этапа 6 и терминальный `attempt-evidence.py`.
+   */
+  baseSha(): Promise<{ sha: string | null; source: 'plan' | 'journal' | 'head' | 'none'; why: string }>;
+  /**
    * Итог последнего вызова `commitByRuntime` за ЭТОТ вход в этап `handoff`; `null` — вызов
    * этим входом не делался (обрыв витка либо ещё не дошли до `afterStart`). `handoffFacts`
    * читает строку `commit:` отсюда, а не через `head()` заново: до этой правки поле считалось
@@ -50,8 +56,6 @@ export interface StageHost {
   commitOutcome(): CommitOutcome | null;
   /** Пишет итог `afterStart` для последующего чтения `commitOutcome()` в том же входе. */
   recordCommitOutcome(outcome: CommitOutcome | null): void;
-  /** Текущий вход в `handoff` — оформленный оператором обрыв витка (`RunStageOptions.abortHandoff`). */
-  handoffAborted(): boolean;
   /** Разобранный набор гейтов проекта; `null` — файла нет (`Run.gatesFile`). */
   gatesFile(): GatesFile | null;
   /** Пункты приёмочного листа задачи по id (`Run.intentClaimLines`). */
@@ -129,10 +133,13 @@ export interface StageHost {
   verifyRoute(): ResolvedRoute;
   /** Маршруты ансамбля этапа 6, первый — основной (`profile.ensemble.verify`). */
   ensembleRoutes(): readonly ResolvedRoute[];
-  /** Попытки chunk'а, сгоревшие на среде: из счёта бюджета итераций вычитаются. */
-  envBlockedAttempts(): number;
   /** Числа витка (`Run.metrics`). */
   metrics(): RunMetrics;
+  /**
+   * Сброс состояния ПОПЫТКИ без смены номера (`Run.resetAttemptState`): повтор chunk'а на той
+   * же K после `blocked_env` — новая работа, и вердикт/итоги/лента прошлого прогона не её.
+   */
+  resetAttemptState(): void;
   /** Контекст предусловий: пути витка, текущие chunk и попытка (`Run.ctx`). */
   ctx(): StageContext;
   /** События инструментов текущей попытки — для сверки журнала с лентой. */
@@ -144,7 +151,8 @@ export interface StageHost {
   /** Детект «нет прогресса» с близостью патчей для интерфейса (`Run.detectNoProgress`). */
   detectNoProgress(): boolean;
   /** Вердикт этапа 6 с учётом попытки в метриках витка (`Run.computeStageVerdict`). */
-  computeStageVerdict(noProgress: boolean): void;
+  /** Считает вердикт попытки; `null` — посчитать не из чего (свежего вердикта нет). */
+  computeStageVerdict(noProgress: boolean): Verdict | null;
   /** Профиль витка: маршруты этапов и ансамбли. */
   profile(): ResolvedProfile;
 }
@@ -188,7 +196,7 @@ export interface StageModule {
    */
   leanDocTools: boolean;
   /** Механические поля артефактов этапа, закрываемые рантаймом до модели. */
-  mechanicalJobs?(host: StageHost): MechanicalJob[];
+  mechanicalJobs?(host: StageHost, opts?: { abortHandoff?: boolean }): MechanicalJob[];
   /**
    * Сверять ли ветку рабочего дерева с полем «Ветка витка» на входе (`Run.branchMismatchBlocker`).
    * Только этапы, где доступен `Bash` и поле уже может быть заполнено: `git checkout` внутри
@@ -209,10 +217,17 @@ export interface StageModule {
  * и есть поведение, которое нельзя сдвинуть.
  */
 export interface StageInvocation {
+  /**
+   * Ответ субагента-рецензента, вызванного моделью через `Task`, — ревью ли это (планки
+   * этапа). `false` — гейт ревью не зеленеет; причину этап называет сам.
+   */
+  reviewAccepted?(text: string): boolean;
   /** Сброс состояния этапа на входе — ДО блокеров. */
   resetOnEnter?(): void;
   /** Блокер среды после проверки пропуска этапа; `null` — можно стартовать. */
   entryBlocker?(): Promise<string | null>;
+  /** Этап пропущен по `skipIf` — что оставить после себя (артефакт «по существу пусто»). */
+  onSkip?(reason: string): Promise<void>;
   /** Сразу после `stage_started`, до фактов промпта. */
   afterStart?(): Promise<void>;
   /** Факты рантайма, подклеиваемые к промпту этапа, в том числе отредактированному оператором. */
@@ -223,6 +238,11 @@ export interface StageInvocation {
   extraNotDone?(): string[];
   /** Шаг рантайма до создания исполнителя этапа. */
   beforeExecutor?(): Promise<void>;
+  /**
+   * Ответ человека на `AskHuman` МОДЕЛИ этого этапа — что рантайм делает с ним сам (этап 3
+   * пишет строку в таблицу «Вопросы и ответы»). Строка — пометка к ответу инструмента.
+   */
+  afterAskHuman?(questions: readonly Question[], answers: Readonly<Record<string, string[]>>): string | null;
   /**
    * Шаг рантайма до хода модели: `block` подклеивается к промпту хода, `skip` — готовый исход
    * вместо хода. `null` в обоих — ход идёт как обычно.
@@ -286,6 +306,13 @@ export interface Precondition {
    * (например, недостаёт решения человека, а форма цела).
    */
   artifact?: (c: StageContext) => string | null;
+  /**
+   * Этап-виновник явно, когда артефакт принадлежит одному этапу, а недостающую часть должен
+   * был дописать другой: секцию «Что придётся тронуть» в `intent.md` заполняет разведка, и
+   * вход в план, отклонённый только из-за неё, винил зелёный intent вместо explore.
+   * `undefined` — виновник выводится из `artifact` обычным путём.
+   */
+  blame?: (c: StageContext) => StageId | undefined;
 }
 
 export interface StageDef {
@@ -313,6 +340,14 @@ export interface StageDef {
   humanGate: { artifact: ArtifactKey; label: string } | null;
   /** Причина пропустить этап, либо `null`. */
   skipIf: ((c: StageContext) => string | null) | null;
+  /**
+   * Улики попытки, которые пишет рантайм, а не этап (патч, вывод тестов, ответ рецензента):
+   * в `produces` их нет, потому что пройденность этапа они не определяют, но показывать их
+   * среди выходов этапа нужно. Знание этапа — здесь, а не ветвлением по имени у читателя.
+   */
+  evidence?: (c: StageContext) => string[];
+  /** Этап судит попытку или опирается на её вердикт — рядом с ним показывается вердикт рантайма. */
+  showsVerdict?: boolean;
 }
 
 export interface StageInput {
@@ -325,6 +360,8 @@ export interface PreconditionProblem {
   text: string;
   /** Путь артефакта, завалившего условие; `null` — условие не привязано к артефакту. */
   artifact: string | null;
+  /** Виновник, названный условием явно (`Precondition.blame`); нет — выводится из `artifact`. */
+  blamed?: StageId;
 }
 
 export interface PreconditionReport {

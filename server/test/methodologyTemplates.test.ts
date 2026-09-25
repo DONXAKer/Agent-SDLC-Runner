@@ -19,7 +19,7 @@ import { loadConfig } from '../src/config/load.ts';
 import { builtinFor } from '../src/gates/builtin/index.ts';
 import { openDebt, parseGates, unimplementedGates } from '../src/gates/gatesFile.ts';
 import { readinessVerdict } from '../src/run/stages/preconditions.ts';
-import { MODEL_REPORTED_GATES, RECONCILE_GATE, REVIEW_GATE } from '../src/run/stages/verify/gates.ts';
+import { RECONCILE_GATE, REVIEW_GATE, UNSCRIPTED_GATES } from '../src/run/stages/verify/gates.ts';
 import { missingClaimIds } from '../src/run/stages/verify/reviewer.ts';
 import { autofillVerificationReport, writeVerdictSection } from '../src/run/verifyAutofill.ts';
 import { computeVerdict } from '../src/verdict/verdict.ts';
@@ -90,11 +90,8 @@ describe('реальный набор гейтов эталона', () => {
   it('гейты шаблона без механики рантайма не блокируют старт витка', { skip: skip(GATES_TPL) }, () => {
     // Все строки шаблона «включены» — худший случай для проверки «исполнить нечем».
     const enabled = GATES_TPL!.replace(/\| ‹да\/нет› \|/g, '| да |');
-    const problems = unimplementedGates(parseGates(enabled), (n) => builtinFor(n) !== null, [
-      REVIEW_GATE,
-      RECONCILE_GATE,
-      ...MODEL_REPORTED_GATES,
-    ]);
+    // Тот же список, что передаёт рантайм (`Run.blockers`), а не своя копия.
+    const problems = unimplementedGates(parseGates(enabled), (n) => builtinFor(n) !== null, UNSCRIPTED_GATES);
     deepStrictEqual(problems, []);
   });
 });
@@ -130,7 +127,8 @@ describe('ответ рецензента и класс среды (без эт�
   });
 
   it('blocked_env — только гейты сборки и тестов; незапуск прочего гейта — обычный retry', () => {
-    const blocked = (name: string) => ({ name, status: '⏭' as const, inapplicableSignedBy: null, envBlocked: true });
+    // Улика инструмента обязательна: без неё незапуск — обычный красный (`SDLC.md`).
+    const blocked = (name: string) => ({ name, status: '⏭' as const, inapplicableSignedBy: null, envBlocked: true, missingTool: 'bash: java: command not found' });
     strictEqual(computeVerdict(input({ gates: [blocked('Тесты')] }), []).action, 'blocked_env');
     strictEqual(computeVerdict(input({ gates: [blocked('Линт экосистемы')] }), []).action, 'retry');
   });

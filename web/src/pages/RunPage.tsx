@@ -27,7 +27,7 @@ import { AUTO_APPROVE_OFF, describeCall } from '@sdlc-runner/shared';
 import { groupEvents } from '../lib/eventGroups.ts';
 import { computeNowFocus } from '../lib/nowFocus.ts';
 import { decisionQueueCount, mergePending } from '../lib/pending.ts';
-import { suggestedStage } from '../lib/stageProgress.ts';
+import { redVerdictRoute, suggestedStage } from '../lib/stageProgress.ts';
 import { PANEL_TONE } from '../lib/tones.ts';
 import { useOperatorAlerts } from '../lib/useOperatorAlerts.ts';
 import { useRunSocket } from '../lib/useRunSocket.ts';
@@ -39,6 +39,7 @@ export function RunPage({
   onViewChange,
   initialRequirement = '',
   onExit,
+  onOpenDashboard,
 }: {
   runId: string;
   /** Режим страницы: «Сейчас» — управление витком, «Наблюдение» — лента/дифф/метрики/контекст. */
@@ -54,6 +55,7 @@ export function RunPage({
    */
   initialRequirement?: string;
   onExit: () => void;
+  onOpenDashboard?: () => void;
 }): JSX.Element {
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [stage, setStage] = useState<StageId>('intent');
@@ -201,8 +203,8 @@ export function RunPage({
   // запрос от агента; без него ни счётчик в заголовке вкладки, ни уведомление о красном
   // вердикте не срабатывали вовсе.
   const verdictNeedsAction = detail !== null && detail.verdict !== null && !detail.verdict.passed;
-  /** Красный, который лечится доработкой, а не средой: `blocked_env` повторяет verify. */
-  const verdictBackToChunk = verdictNeedsAction && detail.verdict?.action !== 'blocked_env';
+  /** Куда подсказка ведёт после красного вердикта — одно правило на выбор этапа и фокус. */
+  const redRoute = redVerdictRoute(detail === null ? null : detail.verdict);
 
   /** Всё, что стоит и ждёт человека прямо сейчас, — вход для оповещений и счётчика. */
   const waiting = useMemo(
@@ -254,11 +256,7 @@ export function RunPage({
   const stageSeeded = useRef(false);
   useEffect(() => {
     if (stageSeeded.current || detail === null) return;
-    const seed = suggestedStage(
-      detail.stage,
-      detail.stages,
-      detail.verdict !== null && !detail.verdict.passed && detail.verdict.action !== 'blocked_env',
-    );
+    const seed = suggestedStage(detail.stage, detail.stages, redRoute);
     if (seed === null) return;
     stageSeeded.current = true;
     setStage(seed);
@@ -444,7 +442,7 @@ export function RunPage({
     queueCount: decisionQueueCount(asks, approvals, decision),
     runningStage: detail.stage,
     verdictRed: verdictNeedsAction,
-    nextRunnable: suggestedStage(null, detail.stages, verdictBackToChunk),
+    nextRunnable: suggestedStage(null, detail.stages, redRoute),
   });
   const stageTitle = (id: StageId): string =>
     detail.stages.find((s) => s.id === id)?.title ?? id;
@@ -469,6 +467,7 @@ export function RunPage({
         onConfirmCancel={setConfirmCancel}
         onCancel={() => void cancel()}
         onExit={onExit}
+        {...(onOpenDashboard === undefined ? {} : { onOpenDashboard })}
       />
       <RunSummaryStrip detail={detail} />
 

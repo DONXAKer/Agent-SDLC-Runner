@@ -8,15 +8,17 @@ import { emptyUsage } from '@sdlc-runner/shared';
 
 import { DECISION, readArtifact } from '../../../artifacts/artifact.ts';
 import { autofillJournalOutcome } from '../../journalAutofill.ts';
-import { clearRunVerdict, writeRunVerdict } from '../../verdictStore.ts';
-import { writeVerdictSection } from '../../verifyAutofill.ts';
+import { writeRunVerdict } from '../../verdictStore.ts';
+import { writeEvidenceLines, writeGateRowStatus, writeVerdictSection } from '../../verifyAutofill.ts';
+import { preflightGateBlockers } from '../../../gates/preflight.ts';
 import { preflightBlockers } from '../../../sandbox/preflight.ts';
-import { RUNTIME_PROTECTED, exists, granted } from '../preconditions.ts';
+import { RUNTIME_PROTECTED, exists, granted, intentSectionsIntact, intentTamperedSections } from '../preconditions.ts';
 import type { StageDef, StageModule } from '../types.ts';
 import { runEnsembleReviewers } from './ensemble.ts';
-import { diffStillMatchesTree, gateReportBlock, runVerifyGates } from './gates.ts';
+import { RECONCILE_GATE, REVIEW_GATE, attemptEvidenceFact, diffStillMatchesTree, gateReportBlock, runVerifyGates } from './gates.ts';
 import { applyRecords, autofillVerification, topUpClaims, verifyGaps } from './records.ts';
-import { reviewerBlock, runReviewFill, runReviewerDirectly } from './reviewer.ts';
+import { acceptReviewText, reviewerBlock, runReviewFill, runReviewerDirectly } from './reviewer.ts';
+import { writeReviewJson } from './reviewJson.ts';
 
 export const verifyStage: StageDef = {
   id: 'verify',
@@ -64,10 +66,14 @@ export const verifyStage: StageDef = {
       (c) => c.paths.chunkJournal(c.chunk),
       DECISION.confirmed,
     ),
+    // Восьмое условие вердикта — и на входе: переписанная задача не проверяется, а чинится.
+    intentSectionsIntact('задача не переписана внутри витка (снимок секций intent.md)'),
   ],
   protectedArtifacts: RUNTIME_PROTECTED,
   humanGate: null,
   skipIf: null,
+  evidence: (c) => [c.paths.chunkReviewText(c.chunk, c.attempt)],
+  showsVerdict: true,
 };
 
 export const verifyModule: StageModule = {
@@ -161,19 +167,42 @@ export const verifyModule: StageModule = {
       // Сверку патча с деревом делает рантайм и делает её ЗДЕСЬ — после ревью, но до
       // подсчёта вердикта: раньше это условие держалось на фразе рецензента (r31).
       host.verifyState.diffFactMatchesTree = await diffStillMatchesTree(host);
-      host.computeStageVerdict(host.detectNoProgress());
+      // Свидетельства попытки — тоже факт рантайма: без `evidence.json` или с разошедшимися
+      // хэшами патч и вывод тестов — текст исполнителя, и вердикт по ним не считается.
+      host.verifyState.evidenceFact = attemptEvidenceFact(host);
+      // Восьмое условие: задача против снимка секций — сверяет рантайм, не рецензент.
+      host.verifyState.intentTamperFact = intentTamperedSections(host.ctx());
+      // Ответ рецензента по контракту `verify-review-v1` — на диск, служебным файлом
+      // попытки: терминальный `state_contract.py validate-review` читает его как есть.
+      writeReviewJson(host);
+      // Пишется только СВЕЖИЙ вердикт этого прогона: `verifyState.verdict` мог остаться от
+      // прошлого прогона той же попытки, и при несостоявшемся расчёте (набор гейтов исчез)
+      // он переписывался бы на диск как новый (code-review-all 2026-09-23).
+      const fresh = host.computeStageVerdict(host.detectNoProgress());
 
-      // Вердикт — на диск: служебный файл попытки (`verdictStore.ts`) решает handoff,
-      // предусловие chunk, `/advance` и восстановление после рестарта; секция «Вердикт»
-      // отчёта — копия для человека и терминальных скиллов. Модель пишет в отчёт тоже,
-      // поэтому решений по отчёту рантайм не принимает (code-review-all 2026-09-23).
-      if (host.verifyState.verdict !== null) {
-        writeRunVerdict(host.paths, host.chunk(), host.attempt(), host.verifyState.verdict);
+      // Вердикт — на диск: подписанный служебный файл попытки (`verdictStore.ts`) решает
+      // handoff, предусловие chunk, `/advance` и восстановление после рестарта; секция
+      // «Вердикт» отчёта — копия для человека и терминальных скиллов. Модель пишет в отчёт
+      // тоже, поэтому решений по отчёту рантайм не принимает. Прежний вердикт попытки на
+      // входе НЕ снимается: отменённый повтор verify иначе оставлял попытку без вердикта, и
+      // chunk перезаписывал её улики; от устаревания его страхует привязка к патчу.
+      if (fresh !== null) {
+        writeRunVerdict(host.paths, host.chunk(), host.attempt(), fresh);
         const reportPath = host.paths.verificationReport(host.chunk(), host.attempt());
         const report = readArtifact(reportPath);
-        const written = report.exists ? writeVerdictSection(report.text, host.verifyState.verdict) : null;
-        if (written?.changed === true) host.writeAutofilled(reportPath, written.text, []);
-        else if (written === null || !written.found) {
+        // Строки шапки «Сверка с деревом» и «Свидетельства попытки» — факты рантайма, а
+        // не выбор модели из двух вариантов формы: вердикт по ним уже посчитан здесь же.
+        const withFacts =
+          report.exists
+            ? writeEvidenceLines(report.text, {
+                diffMatchesTree: host.verifyState.diffFactMatchesTree,
+                evidenceProblem: host.verifyState.evidenceFact,
+              })
+            : null;
+        const written = withFacts === null ? null : writeVerdictSection(withFacts.text, fresh);
+        if (written !== null && (written.changed || withFacts!.changed)) host.writeAutofilled(reportPath, written.text, []);
+        // Копия без строки `passed` — та же «не легла», даже если `action` поправлен.
+        if (written === null || !written.found) {
           // Копия не легла — молча это не проходит: человек читает отчёт, а не служебный файл.
           host.emit({
             type: 'warning',
@@ -191,14 +220,28 @@ export const verifyModule: StageModule = {
       // посчитано строкой выше, дописывать его агентным ходом было бы тем же классом
       // работы, что и выдуманный `base_sha` плана. По возможности: журнала может не быть
       // (виток начат прямо с verify по снимку) — тогда просто нечего заполнять.
-      const verdict = host.verifyState.verdict;
-      if (verdict !== null) {
+      if (fresh !== null) {
         const path = host.paths.chunkJournal(host.chunk());
         const journal = readArtifact(path);
         if (journal.exists) {
-          const outcome = verdict.passed ? 'passed' : verdict.action;
+          const verdictOutcome = fresh.passed ? 'passed' : fresh.action;
+          // Та же K после `blocked_env`: пометка среды в таблице попыток остаётся рядом с
+          // новым исходом (`SDLC.md`: журнал отмечает такую попытку отдельной пометкой).
+          const wasBlocked = new RegExp(`^\\|\\s*${host.attempt()}\\s*\\|.*blocked_env`, 'm').test(journal.text);
+          const outcome = wasBlocked && verdictOutcome !== 'blocked_env' ? `blocked_env → ${verdictOutcome}` : verdictOutcome;
           const { text, filled } = autofillJournalOutcome(journal.text, host.attempt(), outcome);
           if (filled > 0) host.writeAutofilled(path, text, []);
+        }
+        // Строка «Сверка отчёта с набором» ставится автозаполнением зелёной ДО расчёта;
+        // сама сверка — условие вердикта, и её провал обязан быть виден в той же строке.
+        const missing = host.verifyState.lastVerdictInput?.enabledGatesMissingFromReport ?? [];
+        if (missing.length > 0) {
+          const rp = host.paths.verificationReport(host.chunk(), host.attempt());
+          const cur = readArtifact(rp);
+          if (cur.exists) {
+            const fixed = writeGateRowStatus(cur.text, RECONCILE_GATE, '❌', `в отчёте нет строк включённых гейтов: ${missing.join(', ')}`);
+            if (fixed.changed) host.writeAutofilled(rp, fixed.text, []);
+          }
         }
       }
     },
@@ -223,11 +266,32 @@ export const verifyModule: StageModule = {
       host.verifyState.lastPreflightBlockers = [];
     },
 
-    // Повторная проверка попытки снимает её прошлый вердикт: прогон, оборванный до
-    // расчёта, не должен оставить в силе вердикт прежнего прогона. После блокеров, а не в
-    // `resetOnEnter`: заблокированный вход в этап не должен стирать принятую попытку.
+    // Рецензент, вызванный моделью через `Task`, проходит те же планки, что прямой прогон.
+    reviewAccepted: (text) => {
+      const accepted = acceptReviewText(host, text, 'Task');
+      if (accepted.ok) return true;
+      host.emit({
+        type: 'warning',
+        runId: host.id,
+        stage: 'verify',
+        message: `вызов рецензента через Task: ответ не по контракту verify-review-v1 — ${accepted.why}. Гейт «${REVIEW_GATE}» остаётся ⏭`,
+      });
+      return false;
+    },
+
+    // Бессрочный принятый риск в «Долге» набора долг не открывает (`SDLC.md`), но и
+    // пересматривать его некому — предупреждение в ленту на каждом входе в этап 6. Не
+    // заметкой пробы среды: это проблема набора, и при запуске она не «повторится».
     afterStart: async () => {
-      clearRunVerdict(host.paths, host.chunk(), host.attempt());
+      for (const d of host.gatesFile()?.debt ?? []) {
+        if (!d.revisitMissing) continue;
+        host.emit({
+          type: 'warning',
+          runId: host.id,
+          stage: 'verify',
+          message: `долг набора «${d.name}»: риск принят без условия «когда вернуться» — пересмотреть его будет некому`,
+        });
+      }
     },
 
     // Только «Тесты»/«Сборка» реально идут через `runShell`, и только на этапе 6 — pre-flight
@@ -239,8 +303,13 @@ export const verifyModule: StageModule = {
     // должен блокировать попытку, которая всё равно была бы пропущена без него.
     entryBlocker: async () => {
       const sandboxBlockers = await preflightBlockers(host.projectRoot, host.projectName);
-      host.verifyState.lastPreflightBlockers = sandboxBlockers;
-      return sandboxBlockers.length > 0 ? sandboxBlockers.join('\n') : null;
+      // Исполнимость команд набора — тем же preflight'ом, что на входе chunk'а: среда могла
+      // измениться между этапами, а неисполнимый гейт на этапе 6 — `blocked_env` ДО попытки.
+      const gates = host.gatesFile();
+      const gateBlockers = gates === null ? [] : await preflightGateBlockers(gates, host.projectRoot);
+      const all = [...sandboxBlockers, ...gateBlockers];
+      host.verifyState.lastPreflightBlockers = all;
+      return all.length > 0 ? all.join('\n') : null;
     },
 
     // Гейты этапа 6 прогоняются до рецензента и подклеиваются к его входу: иначе он

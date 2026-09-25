@@ -212,6 +212,20 @@ export async function checkOllamaContext(
       effective,
     );
   }
+  // Тег несёт СОБСТВЕННЫЙ зашитый num_ctx (не подставленный сервером умолчанием/env) —
+  // раннер обязан о нём знать, а не просто «не упасть на голом теге» (проверка выше).
+  // Найдено серией local6 (2026-09-24): `ollama:gpt-oss-20b-agent`, `granite4.2-8b-ctx32k-mt`
+  // без `contextWindow` в конфиге шли «окно не задано» — бюджет истории (`Р1`) и потолок
+  // `max_tokens` (`Р2`) не считались вовсе, явный `params.max_tokens` заменял расчёт
+  // вслепую. Раньше это было предупреждением (⚠ в преполёте плана), а не красным здесь.
+  if (numCtx !== null) {
+    return fail(
+      `тег «${modelId}» несёт зашитый num_ctx ${numCtx}, а запись в config/models.json не заявляет ` +
+        `\`contextWindow\` — раннер не считает по нему ни бюджет истории, ни \`max_tokens\`. ` +
+        `Добавь \`"contextWindow": ${numCtx}\` записи модели`,
+      effective,
+    );
+  }
   return {
     ok: true,
     skipped: false,
