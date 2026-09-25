@@ -57,6 +57,18 @@ export function groupBoard<T extends Pick<DashboardCard, 'stages' | 'status'>>(
   return out;
 }
 
+/**
+ * `place` — новый объект на каждую раскладку доски (`groupBoard` зовёт `boardPlace(card)`
+ * заново для каждой карточки, а массив карточек — новый на каждый опрос, даже когда сами
+ * карточки переиспользованы `reuseCards`), поэтому сравнение мини-карточки в `memo` по
+ * ссылке не бросало бы рендер ни разу: `place` отличается всегда, даже когда `column`/
+ * `state` те же. Сравниваются `place.column`/`place.state` по значению — тогда неизменная
+ * карточка не перерисовывается.
+ */
+export function miniCardPropsEqual<T extends { card: unknown; place: BoardPlace; nowMs: number; onOpen: unknown }>(a: T, b: T): boolean {
+  return a.card === b.card && a.nowMs === b.nowMs && a.onOpen === b.onOpen && a.place.column === b.place.column && a.place.state === b.place.state;
+}
+
 /** Вид экрана запусков — помнится между заходами. */
 export type DashboardView = 'grid' | 'board';
 

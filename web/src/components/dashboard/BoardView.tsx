@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from 'react';
 
 import type { DashboardCard, StageId } from '@sdlc-runner/shared';
 
-import { BOARD_COLUMNS, groupBoard } from '../../lib/dashboardBoard.ts';
+import { BOARD_COLUMNS, groupBoard, miniCardPropsEqual } from '../../lib/dashboardBoard.ts';
 import type { BoardColumn, BoardPlace } from '../../lib/dashboardBoard.ts';
 import { cardKey, isRunningNow } from '../../lib/dashboardSort.ts';
 import { fmtUpdatedAt } from '../../lib/dashboardTime.ts';
@@ -16,17 +16,14 @@ const COLUMN_PAGE = 25;
 /** Этап без движения дольше этого — подсвечивается как зависший (идущий или брошенный). */
 const STALE_MS = 30 * 60_000;
 
-const MiniCard = memo(function MiniCard({
-  card,
-  place,
-  nowMs,
-  onOpen,
-}: {
+interface MiniCardProps {
   card: DashboardCard;
   place: BoardPlace;
   nowMs: number;
   onOpen: (card: DashboardCard) => void;
-}): JSX.Element {
+}
+
+const MiniCard = memo(function MiniCard({ card, place, nowMs, onOpen }: MiniCardProps): JSX.Element {
   const stage = place.column === 'done' ? null : card.stages.find((s) => s.id === place.column);
   const age = nowMs - (Date.parse(card.updatedAt) || nowMs);
   // Идущий этап без правок полчаса — скорее всего завис: процесс жив, а лента стоит.
@@ -77,7 +74,7 @@ const MiniCard = memo(function MiniCard({
       {card.usage !== null ? <div className="mt-0.5 text-[10px] text-neutral-600">{fmtCost(card.usage, card.currency)}</div> : null}
     </button>
   );
-});
+}, miniCardPropsEqual);
 
 function Column({
   column,

@@ -8,7 +8,8 @@ import { describe, it } from 'node:test';
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { DashboardStage, DashboardStageState, HistoryStatus, StageId } from '@sdlc-runner/shared';
 
-import { BOARD_COLUMNS, boardPlace, groupBoard, parseView } from '../src/lib/dashboardBoard.ts';
+import { BOARD_COLUMNS, boardPlace, groupBoard, miniCardPropsEqual, parseView } from '../src/lib/dashboardBoard.ts';
+import type { BoardColumn } from '../src/lib/dashboardBoard.ts';
 
 function card(states: Partial<Record<StageId, DashboardStageState>>, status: HistoryStatus = 'unfinished'): {
   stages: DashboardStage[];
@@ -58,5 +59,38 @@ describe('boardPlace', () => {
     strictEqual(parseView(null), 'board');
     strictEqual(parseView('grid'), 'grid');
     strictEqual(parseView('мусор'), 'board');
+  });
+});
+
+// `place` — новый объект на каждую раскладку (`groupBoard` зовёт `boardPlace` заново для
+// каждой карточки): голое сравнение по ссылке в `memo` бросало бы рендер мини-карточки на
+// каждый опрос доски, даже когда карточка не изменилась (code-review-all, 2026-09-26).
+describe('miniCardPropsEqual: сравнение place по значению, не по ссылке', () => {
+  const onOpen = (): void => {};
+  const sameCard = {};
+  const props = (overrides: Partial<{ card: object; nowMs: number; place: { column: BoardColumn; state: DashboardStageState } }> = {}) => ({
+    card: overrides.card ?? sameCard,
+    nowMs: overrides.nowMs ?? 1,
+    place: overrides.place ?? { column: 'intent' as BoardColumn, state: 'done' as DashboardStageState },
+    onOpen,
+  });
+
+  it('новый объект place с теми же column/state — равны', () => {
+    const a = props();
+    const b = props({ place: { column: 'intent', state: 'done' } });
+    strictEqual(a.place === b.place, false);
+    strictEqual(miniCardPropsEqual(a, b), true);
+  });
+
+  it('разный column или state — не равны', () => {
+    const a = props();
+    strictEqual(miniCardPropsEqual(a, props({ place: { column: 'plan', state: 'done' } })), false);
+    strictEqual(miniCardPropsEqual(a, props({ place: { column: 'intent', state: 'running' } })), false);
+  });
+
+  it('разный card (не переиспользован reuseCards) или nowMs — не равны', () => {
+    const a = props();
+    strictEqual(miniCardPropsEqual(a, props({ card: {} })), false);
+    strictEqual(miniCardPropsEqual(a, props({ nowMs: 2 })), false);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ArchivedRunView } from './pages/ArchivedRunView.tsx';
 import { DashboardPage } from './pages/DashboardPage.tsx';
@@ -8,7 +8,7 @@ import { api } from './lib/api.ts';
 import { formatHash, parseHash } from './lib/hashRoute.ts';
 import type { Route } from './lib/hashRoute.ts';
 import { readLS, writeLS } from './lib/persist.ts';
-import type { ConfigInfo, HistoryEntry, ProjectInfo, RunSummary, StageId } from '@sdlc-runner/shared';
+import type { ConfigInfo, DashboardCardRef, HistoryEntry, ProjectInfo, RunSummary, StageId } from '@sdlc-runner/shared';
 
 /**
  * Черновик витка между перезагрузками страницы. Живёт в localStorage (`persist.ts`):
@@ -86,6 +86,21 @@ export default function App(): JSX.Element {
     setRoute(next);
     window.location.hash = formatHash(next);
   }, []);
+
+  // Общий словарь заголовков этапов (архив и дашборд) и колбэки навигации дашборда —
+  // мемоизированы: `App` перерисовывается по причинам, с дашбордом не связанным (опрос
+  // `runs`/`history` на стартовом экране, правки черновика), и заново собранный объект/
+  // стрелка на каждый такой рендер каскадом гасили бы `memo` глубже по дереву — до
+  // `MiniCard` доски, чьё сравнение пропсов по значению (`miniCardPropsEqual`) годится
+  // только если сам `onOpen` стабилен (code-review-all, 2026-09-26).
+  const stageTitles = useMemo(() => Object.fromEntries((config?.stages ?? []).map((s) => [s.id, s.title])), [config?.stages]);
+  const openDashboardCard = useCallback((card: DashboardCardRef) => navigate({ kind: 'dashboard', card }), [navigate]);
+  // И «закрыть открытую карточку» (назад к сетке), и «открыть дашборд» из другого экрана —
+  // один и тот же адрес: сетка дашборда без открытой карточки.
+  const goToDashboard = useCallback(() => navigate({ kind: 'dashboard', card: null }), [navigate]);
+  const openLiveRun = useCallback((runId: string) => navigate({ kind: 'run', runId, view: 'now' }), [navigate]);
+  const openArchivedRun = useCallback((project: string, slug: string) => navigate({ kind: 'archive', project, slug }), [navigate]);
+  const exitToStart = useCallback(() => navigate({ kind: 'start' }), [navigate]);
 
   useEffect(() => {
     api
@@ -217,8 +232,8 @@ export default function App(): JSX.Element {
           )
         }
         initialRequirement={requirement}
-        onExit={() => navigate({ kind: 'start' })}
-        onOpenDashboard={() => navigate({ kind: 'dashboard', card: null })}
+        onExit={exitToStart}
+        onOpenDashboard={goToDashboard}
       />
     );
   }
@@ -228,9 +243,9 @@ export default function App(): JSX.Element {
       <ArchivedRunView
         project={route.project}
         slug={route.slug}
-        stageTitles={Object.fromEntries((config?.stages ?? []).map((s) => [s.id, s.title]))}
-        onExit={() => navigate({ kind: 'start' })}
-        onOpenDashboard={() => navigate({ kind: 'dashboard', card: null })}
+        stageTitles={stageTitles}
+        onExit={exitToStart}
+        onOpenDashboard={goToDashboard}
       />
     );
   }
@@ -240,12 +255,12 @@ export default function App(): JSX.Element {
     return (
       <DashboardPage
         card={route.card}
-        stageTitles={Object.fromEntries((config?.stages ?? []).map((s) => [s.id, s.title]))}
-        onOpenCard={(card) => navigate({ kind: 'dashboard', card })}
-        onCloseCard={() => navigate({ kind: 'dashboard', card: null })}
-        onOpenLive={(runId) => navigate({ kind: 'run', runId, view: 'now' })}
-        onOpenArchive={(project, slug) => navigate({ kind: 'archive', project, slug })}
-        onExit={() => navigate({ kind: 'start' })}
+        stageTitles={stageTitles}
+        onOpenCard={openDashboardCard}
+        onCloseCard={goToDashboard}
+        onOpenLive={openLiveRun}
+        onOpenArchive={openArchivedRun}
+        onExit={exitToStart}
       />
     );
   }
@@ -299,7 +314,7 @@ export default function App(): JSX.Element {
       }}
       onAddProject={addProject}
       onStart={() => void start()}
-      onOpenDashboard={() => navigate({ kind: 'dashboard', card: null })}
+      onOpenDashboard={goToDashboard}
     />
   );
 }
