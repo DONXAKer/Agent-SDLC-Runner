@@ -8,6 +8,10 @@
  * сохраняется: в артефактах строка значима, а склейка в абзац прятала бы структуру.
  */
 
+import { splitRow } from '@sdlc-runner/shared';
+
+export { splitRow };
+
 export type Inline =
   | { t: 'text'; v: string }
   | { t: 'code'; v: string }
@@ -46,33 +50,6 @@ const CHECK = /^\[( |x|X)\]\s+/;
 const QUOTE = /^ {0,3}>\s?/;
 const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
 const MARKDOWN_LANGS = new Set(['markdown', 'md']);
-
-/** Ячейки строки таблицы: разделитель — неэкранированный `|` вне кода, `\|` — литерал. */
-export function splitRow(line: string): string[] {
-  let s = line.trim();
-  if (s.startsWith('|')) s = s.slice(1);
-  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
-  const cells: string[] = [];
-  let cur = '';
-  let inCode = false;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i]!;
-    if (ch === '\\' && s[i + 1] === '|') {
-      cur += '|';
-      i++;
-    } else if (ch === '`') {
-      inCode = !inCode;
-      cur += ch;
-    } else if (ch === '|' && !inCode) {
-      cells.push(cur.trim());
-      cur = '';
-    } else {
-      cur += ch;
-    }
-  }
-  cells.push(cur.trim());
-  return cells;
-}
 
 function alignOf(cell: string): Align {
   const c = cell.trim();
