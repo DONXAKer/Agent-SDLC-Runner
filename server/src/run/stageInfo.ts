@@ -23,11 +23,11 @@ import type { StageContext, StageDef } from './stages/types.ts';
  * пройденным над нетронутым бланком. Пройденность — «существует И без плейсхолдеров», тем
  * же счётчиком, что у стража завершения.
  */
-export function artifactProduced(paths: readonly string[], ctx: StageContext): boolean {
+export function artifactProduced(paths: readonly string[], ctx: StageContext, stageId: StageId): boolean {
   return (
     paths.length > 0 &&
     paths.every((p) => {
-      const a = artifactPlaceholders(p, ctx);
+      const a = artifactPlaceholders(p, ctx, stageId);
       return a.exists && a.placeholders === 0;
     })
   );
@@ -90,7 +90,7 @@ export function stageInfos(ctx: StageContext, deps: StageInfoDeps): StageInfo[] 
       // Факт с диска тем же чтением, что блокеры: клиентская эвристика «дальний этап без
       // блокеров = всё до него пройдено» врала на этапах с общими предусловиями (ask и
       // plan разблокированы сразу после intent, до всякой разведки) — см. StageInfo.produced.
-      produced: artifactProduced(out, ctx),
+      produced: artifactProduced(out, ctx, s.id),
       // Этап, который методология пропускает СЕЙЧАС (мелкий контур, вопросов нет):
       // артефакта у него не будет никогда, и без этого признака интерфейс вечно
       // предлагал бы его как следующий шаг.

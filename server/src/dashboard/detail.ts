@@ -57,7 +57,16 @@ export function witokDetail(
 
   const stages: DashboardStageDetail[] = card.stages.map((s, i) => {
     const def = facts.stages[i]!.def;
-    const inputs = stageInputs(s.id, ctx).map((inp) => witokArtifactStatus(ctx, inp.path, { optional: inp.optional }));
+    // На входе `readiness.md` читают explore и plan (`stageInputs`), и оба — до того, как
+    // «Прогон 2» вообще существует: как входное предусловие значим только «Прогон 1»
+    // (intent), чей же счёт использует `readinessReady`. Секция плана здесь не при чём —
+    // не как у `stageOutputs`, где `def.id` называет ЧЕЙ это выход.
+    const inputs = stageInputs(s.id, ctx).map((inp) =>
+      witokArtifactStatus(ctx, inp.path, {
+        optional: inp.optional,
+        ...(inp.path === paths.readiness ? { stageId: 'intent' as const } : {}),
+      }),
+    );
     const m = metrics?.stages.find((x) => x.stage === s.id);
     const shows = SHOWS_BLOCKERS.has(s.state);
     return {

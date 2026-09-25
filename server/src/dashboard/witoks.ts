@@ -78,17 +78,23 @@ function witokSource(files: readonly string[], runnerFiles: readonly string[], e
 }
 
 /**
- * Статус файла витка для дашборда. Полнота задачи (`intent.md`) — той же функцией, что
- * страж этапа 1 (`artifactPlaceholders`): секция «Что придётся тронуть» законно пуста до
- * разведки, и вход этапа, выход этапа и просмотрщик обязаны считать её одинаково.
+ * Статус файла витка для дашборда. Полнота задачи (`intent.md`) и готовности
+ * (`readiness.md`) — той же функцией, что страж соответствующего этапа
+ * (`artifactPlaceholders`): секция «Что придётся тронуть» законно пуста до разведки,
+ * «Прогон 2» готовности — до плана, и вход этапа, выход этапа и просмотрщик обязаны
+ * считать это одинаково. `stageId` — чей это артефакт (для `readiness.md` отличает
+ * «Прогон 1» intent'а от «Прогон 2» plan'а); без него — счёт по всему файлу, как у общего
+ * списка артефактов без привязки к этапу.
  */
 export function witokArtifactStatus(
   ctx: StageContext,
   abs: string,
-  opts: { optional?: boolean; decision?: DashboardArtifact['decision'] } = {},
+  opts: { optional?: boolean; decision?: DashboardArtifact['decision']; stageId?: StageId } = {},
 ): DashboardArtifact {
-  const override = abs === ctx.paths.intent ? { placeholders: artifactPlaceholders(abs, ctx).placeholders } : {};
-  return artifactStatus(ctx.paths, abs, { ...opts, ...override });
+  const { stageId, ...rest } = opts;
+  const override =
+    abs === ctx.paths.intent || abs === ctx.paths.readiness ? { placeholders: artifactPlaceholders(abs, ctx, stageId).placeholders } : {};
+  return artifactStatus(ctx.paths, abs, { ...rest, ...override });
 }
 
 /**
@@ -106,7 +112,7 @@ function stageOutputs(def: StageDef, ctx: StageContext, required: readonly strin
             return st === null ? null : { label: def.humanGate.label, state: st };
           })()
         : null;
-    return witokArtifactStatus(ctx, abs, { decision });
+    return witokArtifactStatus(ctx, abs, { decision, stageId: def.id });
   });
 }
 

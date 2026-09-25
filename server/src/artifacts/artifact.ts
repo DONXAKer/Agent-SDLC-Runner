@@ -267,6 +267,28 @@ export function countPlaceholdersInSection(text: string, heading: string): numbe
 }
 
 /**
+ * Плейсхолдеры внутри секции «Прогон N» файла `readiness.md` — свой прогон интента и
+ * плана считаются по отдельности, не по файлу целиком.
+ *
+ * `readiness.md` — общий артефакт двух этапов: intent пишет «Прогон 1», plan — «Прогон 2»
+ * (`autofillReadiness`, `run: 1 | 2`), и каждый заполняет ТОЛЬКО свою половину. Пока
+ * «пройден ли этап» (`artifactProduced`, дашборд и живая ручка) требовал ВСЕГО файла без
+ * плейсхолдеров, intent, честно закрывший «Прогон 1», висел `failed` всё время, пока plan
+ * не допишет «Прогон 2» — тот же класс дефекта, что `intentFilled`/`intentPlaceholderCount`
+ * уже чинят для `intent.md` (test28), не пофикшенный симметрично для соседнего файла
+ * (code-review-all, 2026-09-26). Заголовок ищется тем же гибким приёмом, что
+ * `readinessVerdict` («прогон N» где-то в строке, не точная строка шаблона целиком) — текст
+ * шаблона читается из внешнего репозитория методологии в рантайме и точным совпадением не
+ * гарантирован. Секция не нашлась (старый файл без разбивки, чужой формат) — считаем
+ * плейсхолдеры по всему файлу, как раньше: не занижаем строгость молча.
+ */
+export function countPlaceholdersInReadinessRun(text: string, run: 1 | 2): number {
+  const [range] = h2SectionRanges(text, new RegExp(`прогон\\S*\\s+${run}\\b`, 'iu'));
+  if (range === undefined) return countPlaceholders(text);
+  return placeholderRanges(text).filter((p) => p.start >= range.start && p.start < range.end).length;
+}
+
+/**
  * Плейсхолдеры, не считая строк решений человека (метка `DECISION.*` и их продолжения).
  *
  * Нужен стражам дозаполнения по полям: на отчёте разведки плейсхолдер «Решение человека о

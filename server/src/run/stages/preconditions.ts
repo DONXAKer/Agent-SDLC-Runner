@@ -3,10 +3,13 @@
  * артефакта, решение человека, контур витка и минимум приёмочного листа.
  */
 
+import type { StageId } from '@sdlc-runner/shared';
+
 import {
   artifactExists,
   countPlaceholders,
   countPlaceholdersExceptSections,
+  countPlaceholdersInReadinessRun,
   pathIsDirectory,
   readArtifact,
   readDecision,
@@ -118,11 +121,26 @@ export function intentPlaceholderCount(c: StageContext, text: string, afterExplo
  * дашборд. `intent.md` судится той же функцией, что страж этапа 1 (`intentPlaceholderCount`
  * без секции «Что придётся тронуть»): иначе пройденная задача с законно пустой секцией
  * светилась бы проваленной — третья проверка одного файла, от которой уходил test28.
+ *
+ * `readiness.md` — тем же приёмом, но по СВОЕЙ секции «Прогон N»: файл общий у intent
+ * (Прогон 1) и plan (Прогон 2), и без этого пройденный intent висел `failed`, пока plan не
+ * допишет свою половину (`countPlaceholdersInReadinessRun`, code-review-all, 2026-09-26).
+ * `stageId` называет, ЧЕЙ прогон судить — не задан (вызывающему нечем его назвать, как
+ * `dashboard/detail.ts` на общем списке артефактов) — файл считается целиком, как раньше.
  */
-export function artifactPlaceholders(path: string, c: StageContext): { exists: boolean; placeholders: number } {
+export function artifactPlaceholders(
+  path: string,
+  c: StageContext,
+  stageId?: StageId,
+): { exists: boolean; placeholders: number } {
   const a = readArtifact(path);
   if (!a.exists) return { exists: false, placeholders: 0 };
-  return { exists: true, placeholders: path === c.paths.intent ? intentPlaceholderCount(c, a.text, false) : a.placeholders };
+  if (path === c.paths.intent) return { exists: true, placeholders: intentPlaceholderCount(c, a.text, false) };
+  if (path === c.paths.readiness) {
+    const run = stageId === 'intent' ? 1 : stageId === 'plan' ? 2 : null;
+    if (run !== null) return { exists: true, placeholders: countPlaceholdersInReadinessRun(a.text, run) };
+  }
+  return { exists: true, placeholders: a.placeholders };
 }
 
 /**

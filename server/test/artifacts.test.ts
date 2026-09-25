@@ -11,6 +11,7 @@ import {
   branchNameFromField,
   countPlaceholders,
   countPlaceholdersExceptSections,
+  countPlaceholdersInReadinessRun,
   decisionValue,
   placeholderRanges,
   readDecision,
@@ -546,6 +547,32 @@ describe('плейсхолдеры без секции', () => {
   it('отсутствующая секция не роняет подсчёт', () => {
     const text = '## Коротко\n‹что делаем›\n';
     strictEqual(countPlaceholdersExceptSections(text, ['Что придётся тронуть']), 1);
+  });
+});
+
+// Аналог test28 (`intentFilled`) для `readiness.md`: файл общий у intent (прогон 1) и
+// plan (прогон 2), и до плана «Прогон 2» законно пуст — не ошибка intent'а (code-review-all,
+// 2026-09-26).
+describe('countPlaceholdersInReadinessRun: своя секция «Прогон N», не весь файл', () => {
+  const text =
+    '## Прогон 1\n' +
+    '- **Вердикт прогона 1:** готова\n' +
+    '- поле: заполнено\n\n' +
+    '## Прогон 2\n' +
+    '- **Вердикт прогона 2:** ‹готова / не готова›\n' +
+    '- поле: ‹заполнить›\n';
+
+  it('прогон 1 заполнен — 0 плейсхолдеров, хотя прогон 2 ещё пуст', () => {
+    strictEqual(countPlaceholdersInReadinessRun(text, 1), 0);
+  });
+
+  it('прогон 2 не заполнен — плейсхолдеры считаются по его секции', () => {
+    strictEqual(countPlaceholdersInReadinessRun(text, 2), 2);
+  });
+
+  it('секции нет (неизвестный шаблон) — падение на счёт по всему файлу, не на 0', () => {
+    const flat = '- поле: ‹заполнить›\n';
+    strictEqual(countPlaceholdersInReadinessRun(flat, 1), countPlaceholders(flat));
   });
 });
 

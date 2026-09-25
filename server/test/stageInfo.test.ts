@@ -28,15 +28,15 @@ describe('artifactProduced', () => {
   it('существует И без плейсхолдеров — иначе не пройден', () => {
     const c = ctxOf('produced');
     writeArtifact(c.paths.plan, '# План\n\n- поле: ‹заполнить›\n');
-    strictEqual(artifactProduced([c.paths.plan], c), false);
+    strictEqual(artifactProduced([c.paths.plan], c, 'plan'), false);
     writeArtifact(c.paths.plan, '# План\n\n- поле: готово\n');
-    strictEqual(artifactProduced([c.paths.plan], c), true);
+    strictEqual(artifactProduced([c.paths.plan], c, 'plan'), true);
   });
 
   it('пустой список и отсутствующий файл — не пройден', () => {
     const c = ctxOf('produced-missing');
-    strictEqual(artifactProduced([], c), false);
-    strictEqual(artifactProduced([c.paths.intent], c), false);
+    strictEqual(artifactProduced([], c, 'plan'), false);
+    strictEqual(artifactProduced([c.paths.intent], c, 'intent'), false);
   });
 });
 

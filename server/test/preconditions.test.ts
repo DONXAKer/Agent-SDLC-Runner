@@ -7,14 +7,14 @@
  * оставался «есть, но незакрываемым».
  */
 
-import { ok, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import { WitokPaths } from '../src/artifacts/paths.ts';
-import { hasOpenQuestions, intentFilled, intentPlaceholderCount } from '../src/run/stages/preconditions.ts';
+import { artifactPlaceholders, hasOpenQuestions, intentFilled, intentPlaceholderCount } from '../src/run/stages/preconditions.ts';
 import type { StageContext } from '../src/run/stages/types.ts';
 
 describe('hasOpenQuestions', () => {
@@ -98,5 +98,55 @@ describe('intentFilled: одна функция полноты intent.md на с
     writeFileSync(c.paths.intent, readFileSync(c.paths.intent, 'utf8').replace('бесплатная доставка', '‹итог›'));
     ok(intentFilled('x', false).check(c)?.includes('незаполненных мест: 1'));
     ok(intentFilled('x', true).check(c)?.includes('незаполненных мест: 1'));
+  });
+});
+
+// `readiness.md` — общий файл: intent пишет «Прогон 1», plan — «Прогон 2». Дашборд и живая
+// страница обязаны считать intent завершённым по заполненности ЕГО секции, не по секции
+// плана, которая до plan.md законно пуста (аналог intentFilled/test28, code-review-all
+// 2026-09-26).
+describe('artifactPlaceholders: readiness.md считается по секции своего этапа', () => {
+  const roots: string[] = [];
+  after(() => {
+    for (const r of roots) rmSync(r, { recursive: true, force: true });
+  });
+
+  function ctx(): StageContext {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-readiness-placeholders-')));
+    roots.push(root);
+    mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
+    const paths = new WitokPaths(root, 'demo');
+    writeFileSync(
+      paths.readiness,
+      [
+        '## Прогон 1',
+        '- **Вердикт прогона 1:** готова',
+        '',
+        '## Прогон 2',
+        '- **Вердикт прогона 2:** ‹готова / не готова›',
+        '',
+      ].join('\n'),
+    );
+    return { paths, chunk: 1, attempt: 1 };
+  }
+
+  it('intent: прогон 1 заполнен — без плейсхолдеров, хотя прогон 2 ещё пуст', () => {
+    const c = ctx();
+    deepStrictEqual(artifactPlaceholders(c.paths.readiness, c, 'intent'), { exists: true, placeholders: 0 });
+  });
+
+  it('plan: прогон 2 не заполнен — плейсхолдер считается', () => {
+    const c = ctx();
+    deepStrictEqual(artifactPlaceholders(c.paths.readiness, c, 'plan'), { exists: true, placeholders: 1 });
+  });
+
+  it('без stageId (общий список артефактов без привязки к этапу) — счёт по всему файлу', () => {
+    const c = ctx();
+    deepStrictEqual(artifactPlaceholders(c.paths.readiness, c), { exists: true, placeholders: 1 });
+  });
+
+  it('файла нет — exists: false независимо от stageId', () => {
+    const c = ctx();
+    strictEqual(artifactPlaceholders(join(c.paths.dir, 'нет-файла.md'), c, 'intent').exists, false);
   });
 });
