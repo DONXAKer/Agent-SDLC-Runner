@@ -52,12 +52,29 @@ describe('baseModel', () => {
       ['lmstudio:gemma-4-e4b-stepfill-axisfill', 'gemma4-e4b'],
       ['ollama:qwen3:8b-ctx16k', 'qwen3-8b'],
       ['polza:qwen3-30b-a3b-41k', 'qwen3-30b-a3b'],
-      ['lmstudio:ministral3-14b-reasoning-selfreview', 'ministral3-14b'],
+      ['lmstudio:ministral3-14b-reasoning-selfreview', 'ministral3-14b-reasoning'],
       ['lmstudio:qwen38-27b-stepfill', 'qwen3.8-27b'],
       ['ollama:qwen3-coder-30b-a3b', 'qwen3-coder-30b'],
       ['claude-sdk:sonnet', 'sonnet'],
     ];
     for (const [id, base] of cases) strictEqual(baseModel(id), base, id);
+  });
+
+  // `instruct`/`reasoning` — не ручки раннера, а обученные варианты с разной пригодностью
+  // по этапам (`docs/model-task-matrix.md`): снятые как ручка, они делили бы одну базовую
+  // модель и одну карточку архива между собой (code-review-all, 2026-09-26).
+  it('instruct и reasoning — разные базовые модели, не ручка одной', () => {
+    strictEqual(baseModel('ollama:ministral3-14b-instruct-ctx32k'), 'ministral3-14b-instruct');
+    strictEqual(baseModel('lmstudio:ministral3-14b-reasoning'), 'ministral3-14b-reasoning');
+  });
+
+  // `effort`/`high`/`low` — наоборот, тот же вес под другим значением reasoning effort
+  // (`docs/model-runs.md`: «тот же вес» — тег `effort-low` для qwen3.8-27b удалён как
+  // неотличимый в пределах шума); знак, что они собираются в одну базовую модель.
+  it('effort-low/effort-high — та же базовая модель, что и голая', () => {
+    strictEqual(baseModel('ollama:gpt-oss-20b-effort-low'), 'gpt-oss-20b');
+    strictEqual(baseModel('ollama:gpt-oss-20b-effort-high-rf'), 'gpt-oss-20b');
+    strictEqual(baseModel('ollama:gpt-oss-20b'), 'gpt-oss-20b');
   });
 });
 

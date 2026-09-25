@@ -35,9 +35,16 @@ export interface RunFacts {
  * Хвостовые части id, которые называют настройку, а не веса: ручки раннера, окно контекста,
  * квантование, вариант шаблона, организация-публикатор.
  */
+// `effort`/`high`/`low` остаются здесь намеренно: тот же вес модели под другим значением
+// reasoning effort (`docs/model-runs.md`: «тот же вес», «заведены две новые записи для
+// того же веса — gpt-oss-20b-effort-low-rf/-high-rf») — настройка, не другие веса.
+// `instruct`/`reasoning` сюда НЕ идут: `ministral3-14b-instruct` и `ministral3-14b-reasoning`
+// — разные обученные варианты с разной пригодностью по этапам (`docs/model-task-matrix.md`),
+// а не одна модель под разным параметром; слитые в одну базовую модель, они бы делили одну
+// карточку доски и одну строку архивного «оставить последний» между собой.
 const KNOB_PARTS = new Set([
   'stepfill', 'compactfill', 'axisfill', 'explorefill', 'exploreindex', 'selfreview', 'nofill', 'dyn', 'mt',
-  'rf', 'ff', 'agent', 'inputs', 'reviewer', 'effort', 'high', 'low', 'f16', 'iq4', 'instruct', 'reasoning',
+  'rf', 'ff', 'agent', 'inputs', 'reviewer', 'effort', 'high', 'low', 'f16', 'iq4',
   'zaiorg', '2512',
 ]);
 
@@ -197,8 +204,25 @@ function main(argv: string[]): void {
     }
   }
 
+  // Коллизия имени: архив уже держит файл с этим именем (тот же слаг архивировался раньше
+  // отдельным прогоном стенда). Переместить нечем — файл остаётся в `results/`, и здесь же
+  // его слаг/файлы вычёркиваются из movedFiles/movedSlugs ДО подсчёта ссылок в документах:
+  // иначе ссылка переписывалась бы на `bench/archive/results/<имя>`, хотя там лежит чужой
+  // прежний файл с тем же именем, а актуальный результат молча остался неархивированным
+  // (code-review-all, 2026-09-26).
+  const appliedMoves = moves.filter((m) => !existsSync(m.to));
+  for (const m of moves) {
+    if (!existsSync(m.to)) continue;
+    const base = m.from.split(/[\\/]/).pop()!;
+    const slug = base.replace(/\.(report\.md|json)$/, '');
+    movedSlugs.delete(slug);
+    movedFiles.delete(`${slug}.json`);
+    movedFiles.delete(`${slug}.report.md`);
+    skipped.push(`${base}: в архиве уже есть файл с этим именем — оставлен в results/, разберись вручную`);
+  }
+
   console.log(`прогонов с результатом: ${runs.length}; остаются: ${keep.size} (по одному на базовую модель)`);
-  console.log(`в архив: прогонов ${movedSlugs.size}, перемещений ${moves.length}`);
+  console.log(`в архив: прогонов ${movedSlugs.size}, перемещений ${appliedMoves.length}`);
   for (const s of skipped) console.log(`  пропущен ${s}`);
   const byModel = new Map(runs.filter((r) => keep.has(r.slug)).map((r) => [baseModel(r.model), r]));
   for (const [base, r] of [...byModel].sort()) console.log(`  остаётся ${base} — ${r.model} · ${r.slug} (${new Date(r.startedMs).toISOString().slice(0, 16)})`);
@@ -221,11 +245,10 @@ function main(argv: string[]): void {
   mkdirSync(join(archive, 'results'), { recursive: true });
   mkdirSync(join(archive, 'traces'), { recursive: true });
   let done = 0;
-  for (const m of moves) {
-    if (existsSync(m.to)) {
-      console.log(`  уже есть в архиве, оставлен на месте: ${relative(bench, m.from)}`);
-      continue;
-    }
+  for (const m of appliedMoves) {
+    // Защитная повторная проверка: коллизии уже отфильтрованы выше (до подсчёта ссылок),
+    // но дерево могло измениться между планом и применением.
+    if (existsSync(m.to)) continue;
     renameSync(m.from, m.to);
     done += 1;
   }
