@@ -1,4 +1,4 @@
-import { DASHBOARD_SOURCES } from '@sdlc-runner/shared';
+import { DASHBOARD_BENCH_ARCHIVE, DASHBOARD_SOURCES } from '@sdlc-runner/shared';
 import type { DashboardSource } from '@sdlc-runner/shared';
 
 import { SOURCE_LABEL } from '../../lib/dashboardStatus.ts';
@@ -34,10 +34,10 @@ export function DashboardFilters({
         onChange={(e) => onChange({ ...filter, project: e.target.value === '' ? null : e.target.value })}
         className={FIELD}
       >
-        <option value="">все проекты</option>
+        <option value="">все проекты (без архива)</option>
         {projects.map((p) => (
           <option key={p} value={p}>
-            {p}
+            {p === DASHBOARD_BENCH_ARCHIVE ? 'архив стенда' : p}
           </option>
         ))}
       </select>

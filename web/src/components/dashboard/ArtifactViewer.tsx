@@ -4,12 +4,14 @@ import type { DashboardArtifact, DashboardArtifactResponse, DashboardCardRef } f
 
 import { api } from '../../lib/api.ts';
 import { cardKey } from '../../lib/dashboardSort.ts';
+import { isMarkdownName } from '../../lib/markdown.ts';
 import { ARTIFACT_TONE, artifactTone, fmtBytes } from '../../lib/dashboardStages.ts';
+import { MarkdownOrSource } from '../Markdown.tsx';
 import { PatchText } from '../PatchText.tsx';
 import { CollapsibleSection } from '../run/CollapsibleSection.tsx';
 
 /** Текст с подсвеченными плейсхолдерами `‹…›` — видно, что именно осталось заполнить. */
-function MarkedText({ text }: { text: string }): JSX.Element {
+export function MarkedText({ text }: { text: string }): JSX.Element {
   const parts = text.split(/(‹[^›\n]*›)/);
   return (
     <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-4 text-neutral-300">
@@ -64,7 +66,13 @@ function ArtifactBody({ cardRef, name }: { cardRef: DashboardCardRef; name: stri
           показан{data.tail ? ' конец' : 'о начало'}: файл {fmtBytes(data.sizeBytes)}, больше потолка ответа
         </div>
       ) : null}
-      {name.endsWith('.patch') ? <PatchText text={data.text} maxHeight="max-h-[60vh]" /> : <MarkedText text={data.text} />}
+      {name.endsWith('.patch') ? (
+        <PatchText text={data.text} maxHeight="max-h-[60vh]" />
+      ) : isMarkdownName(name) ? (
+        <MarkdownOrSource text={data.text} source={<MarkedText text={data.text} />} />
+      ) : (
+        <MarkedText text={data.text} />
+      )}
     </div>
   );
 }

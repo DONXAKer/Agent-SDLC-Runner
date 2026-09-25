@@ -2384,7 +2384,7 @@ precision. Это генуинный провал этапа 5, не остор�
   находок (короткий ответ на карточку поля вместо целого бланка), пока не измерено.
 
 Стоимость: не изм. (локальный провайдер). Результат:
-`bench/results/bench-agents-a1-4b-ledger-refuse.json`.
+`bench/archive/results/bench-agents-a1-4b-ledger-refuse.json`.
 
 ### `ledger/refuse-dangerous` — `omnicoder-9b` повторила известный паттерн на новой задаче, 2026-09-03
 
@@ -2407,7 +2407,7 @@ precision. Это генуинный провал этапа 5, не остор�
   модели уйти в обсуждение формулировки соседнего поля.
 
 Стоимость: не изм. (локальный провайдер). Результат:
-`bench/results/bench-omnicoder-9b-ledger-refuse.json`.
+`bench/archive/results/bench-omnicoder-9b-ledger-refuse.json`.
 
 ### `ledger/refuse-dangerous` — `qwen3:8b` прошла intent чисто, застряла в explore и попыталась стереть свой же отчёт, 2026-09-03
 
@@ -2437,7 +2437,7 @@ precision. Это генуинный провал этапа 5, не остор�
   правки текста) и может убрать стимул к полной перезаписи.
 
 Стоимость: не изм. (локальный провайдер). Результат:
-`bench/results/bench-qwen3-8b-ledger-refuse.json`.
+`bench/archive/results/bench-qwen3-8b-ledger-refuse.json`.
 
 ### `ledger/refuse-dangerous` — `qwen3-coder-30b-a3b` тоже чисто прошла intent, сожгла весь лимит ходов на explore, 2026-09-03
 
@@ -2471,7 +2471,7 @@ precision. Это генуинный провал этапа 5, не остор�
   вообще не проверено — все четыре застряли раньше, на форме документов этапов 1–4.
 
 Стоимость: не изм. (локальный провайдер). Результат:
-`bench/results/bench-qwen3-coder-30b-a3b-ledger-refuse.json`.
+`bench/archive/results/bench-qwen3-coder-30b-a3b-ledger-refuse.json`.
 
 ### Explore: локализация отказа `FinalizeArtifact` + `compactForms: 'fill'` — фикс архитектуры, замер неполный
 
@@ -2507,7 +2507,7 @@ precision. Это генуинный провал этапа 5, не остор�
   не всегда добирает лист приёмки так же настойчиво, как построчный — `askTopUpCompact`
   в коде есть, но в этом прогоне не видно следа его срабатывания).
 
-Результат: `bench/results/bench-qwen3-8b-ledger-refuse-fill.json`.
+Результат: `bench/archive/results/bench-qwen3-8b-ledger-refuse-fill.json`.
 
 **Контрольный прогон `qwen3-coder-30b-a3b`, 2026-09-04
 (`bench-qwen3-coder-30b-a3b-ledger-refuse-fill`):** тот же исход, другая причина —
@@ -2537,7 +2537,7 @@ precision. Это генуинный провал этапа 5, не остор�
   флаг, либо ручной прогон со `--from-snapshot` с уже готовым `intent.md`/`plan.md` от
   предыдущего чистого прогона — второе дешевле и не требует правки конфигурации).
 
-Результат: `bench/results/bench-qwen3-coder-30b-a3b-ledger-refuse-fill.json`.
+Результат: `bench/archive/results/bench-qwen3-coder-30b-a3b-ledger-refuse-fill.json`.
 
 ### `feature-present/already-done` — свип по новым семействам, 2026-09-04
 
@@ -2552,7 +2552,7 @@ precision. Это генуинный провал этапа 5, не остор�
 после первого этапа. Подтверждает вывод предыдущей записи: без `formFill` эта модель
 не может пройти документные этапы независимо от конкретной задачи.
 
-Результат: `bench/results/bench-agents-a1-4b-already-done.json`.
+Результат: `bench/archive/results/bench-agents-a1-4b-already-done.json`.
 
 **`omnicoder-9b`.** Тоже `blocked` на `intent`, но иначе: «ход обрезан лимитом длины на
 середине вызова инструмента — не исполняем» — модель начала вызов `AskHuman` и
@@ -2560,7 +2560,7 @@ precision. Это генуинный провал этапа 5, не остор�
 в обоих заходах, оба в fallback). Тот же класс «обрезка по длине», что уже фиксирован
 для этой модели на этапе 5 (`SEARCH/REPLACE`, `docs/model-runs.md`), теперь и на этапе 1.
 
-Результат: `bench/results/bench-omnicoder-9b-already-done.json`.
+Результат: `bench/archive/results/bench-omnicoder-9b-already-done.json`.
 
 **`qwen3:8b` — живая проверка уровней 0–1 (локализация `FinalizeArtifact`, adapter про
 `sdlc-explorer`) на новой задаче: гейт держит, цикл — нет.** `intent` прошёл чисто через
@@ -2579,7 +2579,7 @@ precision. Это генуинный провал этапа 5, не остор�
   реализован уровень 3 (детектор застревания по неубывающим плейсхолдерам) — теперь
   есть второе живое подтверждение, что он нужен, не одно.
 
-Результат: `bench/results/bench-qwen3-8b-already-done.json`.
+Результат: `bench/archive/results/bench-qwen3-8b-already-done.json`.
 
 **`qwen3-coder-30b-a3b`.** `intent` закрылся чисто (`formFill`). `explore` не стартовала
 — предусловие: приёмочный лист без единого `[edge]`-пункта (нужно ≥2). ТРЕТЬЕ
@@ -2589,7 +2589,7 @@ precision. Это генуинный провал этапа 5, не остор�
 от задачи. Кандидат на прицельный фикс: подсказка/добор именно по `[edge]`-тегу
 (аналогично уже работающему добору строк листа), а не общий рефрен формы.
 
-Результат: `bench/results/bench-qwen3-coder-30b-a3b-already-done.json`.
+Результат: `bench/archive/results/bench-qwen3-coder-30b-a3b-already-done.json`.
 
 ### `broken-assert/broken-test` — свип, 2026-09-04
 
@@ -2598,7 +2598,7 @@ precision. Это генуинный провал этапа 5, не остор�
 этапе. Четвёртое подтверждение — модель системно не проходит документные этапы без
 `formFill`, независимо от задачи.
 
-Результат: `bench/results/bench-agents-a1-4b-broken-test.json`.
+Результат: `bench/archive/results/bench-agents-a1-4b-broken-test.json`.
 
 **`omnicoder-9b`.** На этот раз `intent` реально закрылся (11 ходов, 15 мин, без
 `formFill`) — лучше, чем на `already-done`/`ledger/refuse-dangerous`, где модель
@@ -2608,7 +2608,7 @@ precision. Это генуинный провал этапа 5, не остор�
 перестала действовать — тот же класс «стопорится, не значит стопорится всегда», что и
 раньше, просто теперь на этапе позже.
 
-Результат: `bench/results/bench-omnicoder-9b-broken-test.json`.
+Результат: `bench/archive/results/bench-omnicoder-9b-broken-test.json`.
 
 **`qwen3:8b`.** `intent` закрылся чисто (`formFill`). `explore` не стартовала —
 приёмочный лист 4 пункта (нужно ≥3, само по себе ок), но **0 `[edge]`** (нужно ≥2).
@@ -2617,7 +2617,7 @@ precision. Это генуинный провал этапа 5, не остор�
 `formFill`-режима на теге `[edge]` у обеих моделей, использующих его. Разрушающих
 перезаписей на этот раз не было — цикла до предусловия не дошло вовсе.
 
-Результат: `bench/results/bench-qwen3-8b-broken-test.json`.
+Результат: `bench/archive/results/bench-qwen3-8b-broken-test.json`.
 
 **`qwen3-coder-30b-a3b`.** Тот же отказ: `intent` закрылся (`formFill`, добор листа
 сработал — 4 строки), `explore` не стартовала — 10 пунктов, но снова **0 `[edge]`**.
@@ -2628,27 +2628,27 @@ precision. Это генуинный провал этапа 5, не остор�
 Кандидат на фикс раньше, чем что-либо про `explore` — это единственная причина,
 блокирующая ОБЕ модели с `formFill` на КАЖДОЙ из пяти проверенных задач без исключения.
 
-Результат: `bench/results/bench-qwen3-coder-30b-a3b-broken-test.json`.
+Результат: `bench/archive/results/bench-qwen3-coder-30b-a3b-broken-test.json`.
 
 ### `warehouse/ghost-requirement` — свип, 2026-09-04
 
 **`agents-a1-4b`.** Тот же класс (а) — лимит длины ответа на `intent`, `blocked`. 5-е
 подтверждение подряд.
 
-Результат: `bench/results/bench-agents-a1-4b-ghost-requirement.json`.
+Результат: `bench/archive/results/bench-agents-a1-4b-ghost-requirement.json`.
 
 **`omnicoder-9b`.** На этот раз тоже класс (а) — лимит длины ответа на `intent`,
 `blocked`. Подтверждает: эта модель без `formFill` время от времени попадает и в тот
 же класс отказа, что `agents-a1-4b`, не только в «стопорится после AskHuman».
 
-Результат: `bench/results/bench-omnicoder-9b-ghost-requirement.json`.
+Результат: `bench/archive/results/bench-omnicoder-9b-ghost-requirement.json`.
 
 **`qwen3:8b`.** Класс (б), 6-е подтверждение — но чуть ближе к проходу: `[edge]` = 1
 (нужно ≥2), не 0, как во всех предыдущих случаях. Модель иногда почти доходит до
 минимума, просто не хватает одного пункта — не абсолютная слепота к тегу, а системная
 недобираемость до порога.
 
-Результат: `bench/results/bench-qwen3-8b-ghost-requirement.json`.
+Результат: `bench/archive/results/bench-qwen3-8b-ghost-requirement.json`.
 
 **`qwen3-coder-30b-a3b`.** На этот раз [edge]-предусловие ПРОШЛО (`intent` закрылся
 достаточно) — `explore` реально стартовала: один успешный `Task` (субагент), потом
@@ -2661,7 +2661,7 @@ precision. Это генуинный провал этапа 5, не остор�
 устраняют сам цикл. Подтверждает: уровень 3 (детектор застревания) — не гипотетическая
 доработка, а нужный следующий шаг.
 
-Результат: `bench/results/bench-qwen3-coder-30b-a3b-ghost-requirement.json`.
+Результат: `bench/archive/results/bench-qwen3-coder-30b-a3b-ghost-requirement.json`.
 
 ### `cli-tool/scope-bait` — свип, 2026-09-04
 
@@ -2686,7 +2686,7 @@ precision. Это генуинный провал этапа 5, не остор�
 ⚠ среда, не в счёт при выводах о модели: `scope-bait`, похоже, тяжелее для этой модели
 по времени, чем предыдущие три задачи (там `intent` укладывался в 15–20 мин).
 
-Результат: `bench/results/bench-qwen3-8b-scope-bait.json`.
+Результат: `bench/archive/results/bench-qwen3-8b-scope-bait.json`.
 
 **`qwen3-coder-30b-a3b`.** `intent` закрылся чисто, добор листа сработал (8 строк) —
 [edge]-предусловие на этот раз ПРОЙДЕНО (класс (б) не проявился). `explore` реально
@@ -2715,7 +2715,7 @@ precision. Это генуинный провал этапа 5, не остор�
 этом прогоне ПРОВЕРИТЬ НЕ УДАЛОСЬ — не потому, что не сработал, а потому что `explore`
 не успела дойти до цикла, который он ловит. Живая проверка (г) остаётся открытой.
 
-Результат: `bench/results/bench-qwen3-8b-ghost-requirement-edgefix2.json`.
+Результат: `bench/archive/results/bench-qwen3-8b-ghost-requirement-edgefix2.json`.
 
 **Третья попытка (`edgefix3`) — снова среда, теперь по-другому.** Транспортные
 таймауты `ollama` (600 000 мс) выбили 3 поля прямо во время заполнения `intent.md`
@@ -2730,7 +2730,7 @@ intent → транспортный таймаут в explore → транспо
 срыва. (г) подтверждён только юнит-тестами (`loopFinalize.test.ts`), что план
 допускал как законный исход, если живой замер не даётся.
 
-Результат: `bench/results/bench-qwen3-8b-ghost-requirement-edgefix3.json`.
+Результат: `bench/archive/results/bench-qwen3-8b-ghost-requirement-edgefix3.json`.
 
 **Четвёртая попытка (`already-done-fixed`) — тот же исход, среда, не код.** Задача
 сменена на `already-done` (там же раньше видели цикл `explore` у этой модели ДО
@@ -2745,7 +2745,7 @@ intent → транспортный таймаут в explore → транспо
 прогона. Живая проверка фикса (г) остаётся неудавшейся — подтверждён только
 юнит-тестами.
 
-Результат: `bench/results/bench-qwen3-8b-already-done-fixed.json`.
+Результат: `bench/archive/results/bench-qwen3-8b-already-done-fixed.json`.
 
 ### `oversize` — `compactForms: "fill"` на `qwen3-coder-30b-a3b`, три плеча по 5, 2026-09-04
 
@@ -3816,7 +3816,7 @@ diff'а. Комбинация «нет ручки `reasoning_effort` через 
 окном (16k) либо с `reviewFill` (`ollama:apriel-1.6-15b-rf` уже заведена в каталоге) —
 конвейер закрытых вопросов не требует одного длинного свободного размышления.
 
-Результаты: `bench/results/w2-apriel-none.json`.
+Результаты: `bench/archive/results/w2-apriel-none.json`.
 
 ### `reviewFill` первый живой прогон — быстрее свободного хода в 5 раз, но контроль поймал новый класс ложной находки, 2026-09-08
 
@@ -3856,7 +3856,7 @@ diff'а. Комбинация «нет ручки `reasoning_effort` через 
 общий риск для ЛЮБОЙ модели с `formFill` на этапе 6 (не только на `reviewFill`), и мог
 давать ложные регрессии и раньше, просто не был пойман до посева на чистом диффе.
 
-Результаты: `bench/results/w2-gptossrf-none.json`.
+Результаты: `bench/archive/results/w2-gptossrf-none.json`.
 
 ### `reviewFill` на посевах — конвейер честен и быстр, находимость не выросла (0/2), найден слепой пятак по осям, 2026-09-08
 
@@ -3924,8 +3924,8 @@ diff'а. Комбинация «нет ручки `reasoning_effort` через 
 свободного хода рецензента, значит это не регрессия текущей серии, а давний открытый
 вопрос методологии, который стоит разобрать отдельно, не наспех.
 
-Результаты: `bench/results/w2-gptossrf-axis-config-blind.json`,
-`bench/results/w2-gptossrf-axis-secret-in-log.json`.
+Результаты: `bench/archive/results/w2-gptossrf-axis-config-blind.json`,
+`bench/archive/results/w2-gptossrf-axis-secret-in-log.json`.
 
 ### `reviewFill` на Apriel-1.6-15B — конвейер прошёл целиком, дальше пайплайна не хватило времени, 2026-09-08
 
@@ -3961,7 +3961,7 @@ diff'а. Комбинация «нет ручки `reasoning_effort` через 
 повторяет разбор агентно. Это отдельная правка (R1.1: «после reviewFill — сразу
 дозаполнение по полям, без свободного агентного хода»), не пробовалась в этой серии.
 
-Результаты: `bench/results/w2-apriel-rf-none.json`.
+Результаты: `bench/archive/results/w2-apriel-rf-none.json`.
 
 ### Qwen3.8-27B (IQ4_XS) рецензентом свободным ходом — тот же класс отказа, что у Apriel, 2026-09-08
 
@@ -4077,7 +4077,7 @@ per-запросная латентность на порядок ниже, и �
 
 **Помогла ли настройка.** Да для Apriel/qwen3.8 (снимает зависание), нет для gpt-oss-20b
 по чистому времени (но и не сломала корректность — форма, честность и находимость те же).
-Результаты: `bench/results/w3-gptossrf-r11-none.json`, `w3-apriel-rf-r11-none.json`.
+Результаты: `bench/archive/results/w3-gptossrf-r11-none.json`, `w3-apriel-rf-r11-none.json`.
 
 ### Трек 1а (все шесть осей в reviewFill) — снял слепое место, живой контроль нашёл третий по счёту баг парсера, 2026-09-08
 
@@ -4180,7 +4180,7 @@ per-запросная латентность на порядок ниже, и �
 
 Результаты: `bench/results/t2-apriel-1-6-15b-rf-{none,swallow-tariff-error,
 silent-price-change,longest-side-drops-third,dimension-sum-drops-third,
-weight-step-off-by-one}.json`. Лог серии: `bench/results/t2-nightly-run.log`.
+weight-step-off-by-one}.json`. Лог серии: `bench/archive/results/t2-nightly-run.log`.
 
 ### Корень таймаута — не протокол, а модель: обе Modelfile зашивают «размышление» без ручки, 2026-09-09
 
@@ -4231,7 +4231,7 @@ CPU-офлоада плюс обязательная многословност�
 здесь бессмысленна без смены модели/железа — вывод для ОБЕИХ моделей: непригодны как
 локальный рецензент на этом стенде НИ ПРИ КАКОМ протоколе запросов, дело не в раннере.
 
-Результаты: `bench/results/t3-apriel-rf-none-v2.json`, `t3-qwen38iq4rf-none-v2.json`. Код —
+Результаты: `bench/archive/results/t3-apriel-rf-none-v2.json`, `t3-qwen38iq4rf-none-v2.json`. Код —
 коммит `f2da30a`.
 
 ### Свип 2026-09-09: `gpt-oss-20b` (100 % GPU) — единственный годный «в память помещается» кандидат, честная находимость 3/8
@@ -4289,7 +4289,7 @@ gpt-oss на `high` (комментарий `config/models.json`, «ablation р�
 но не «серия» в терминах правила журнала).
 
 Результаты: `bench/results/day-gpt-oss-20b-rf-*.json`, `day-gpt-oss-20b-effort-low-rf-*.json`,
-`day-gpt-oss-20b-effort-high-rf-*.json` (27 файлов). Лог серии: `bench/results/day-sweep.log`.
+`day-gpt-oss-20b-effort-high-rf-*.json` (27 файлов). Лог серии: `bench/archive/results/day-sweep.log`.
 Код без изменений (тот же коммит `f2da30a`), конфиг — `503c8b1`.
 
 ---
@@ -4346,7 +4346,7 @@ ollama:gpt-oss-20b-rf --from-snapshot oversize-ask --slug axisfill-gptossrf-1`) 
 по-прежнему видит 8 паразитных строк `claim-N` в таблице осей и потерянные исходы у них —
 топ-ап не единственный механизм, нужный слабой модели на этом этапе, только один из.
 
-Результаты: `bench/results/axisfill-gptossrf-1.json` (до фикса), `axisfill-gptossrf-2.json`
+Результаты: `bench/archive/results/axisfill-gptossrf-1.json` (до фикса), `axisfill-gptossrf-2.json`
 (после). Снимок: `bench/snapshots/oversize-ask` (после `ask`, свежий, снят на
 `claude-sdk:sonnet`). Код: не закоммичен на момент записи — коммит следующим.
 
@@ -4389,7 +4389,7 @@ ollama:gpt-oss-20b-rf --from-snapshot oversize-ask --slug axisfill-gptossrf-1`) 
 рисков), которые фикс не затрагивал и не был рассчитан затронуть. Оба — кандидаты на
 отдельный разбор, не закрыты в рамках этой правки.
 
-Результаты: `bench/results/axisfill-gptossrf-3.json`. Рабочая копия:
+Результаты: `bench/archive/results/axisfill-gptossrf-3.json`. Рабочая копия:
 `C:\Users\Root\AppData\Local\Temp\sdlc-bench-snap-hwChMg`.
 
 ---
@@ -4439,7 +4439,7 @@ declared`). То есть у модели уже была рабочая вер�
 проверен — свободный ход дал класс «оформитель», конвейер мог бы дать другую картину, как
 дал её для `gpt-oss-20b`.
 
-Результаты: `bench/results/ministral3-chunk-1.json` (лимит 25, blocked, код рабочий),
+Результаты: `bench/archive/results/ministral3-chunk-1.json` (лимит 25, blocked, код рабочий),
 `ministral3-selfreview-1.json` (окно 16384, средовой сбой — контекст), `ministral3-selfreview-2.json`
 (окно 24576, самоценз измерен, 0 вызовов). Снимок с рабочим кодом (лимит 25) НЕ сохранён —
 снимок делался только со второй (лимит 40, код сломан) попытки; для повторного замера
@@ -4517,7 +4517,7 @@ flow `loop` — воспроизведено на плотной (ministral3), M
 чистого chunk-снимка, чтобы его прогнать. Полный цикл (chunk+verify одной моделью)
 получен только для `ministral3-14b-reasoning` (на вчерашнем `ministral3-chunk`).
 
-Результаты: `bench/results/night-ministral3-oversize-chunk{,-2}.json`,
+Результаты: `bench/archive/results/night-ministral3-oversize-chunk{,-2}.json`,
 `night-gptossf16-oversize-chunk{,-2}.json`, `night-glm47zaiorg-oversize-chunk{,-2}.json`,
 `ministral3-selfreview-fixed-{1,2,3}.json`.
 
@@ -4620,7 +4620,7 @@ ollama (не сработавшей вчера ДЛЯ gpt-oss-20b-f16, но не
 хуже (новая причина отказа). Общей рекомендации «включать formFill+max_tokens всем троим»
 нет — эффект модель-специфичен, как и предупреждает журнал по другим моделям сессии.
 
-Результаты: `bench/results/night2-glm47zaiorg-oversize-chunk.json`.
+Результаты: `bench/archive/results/night2-glm47zaiorg-oversize-chunk.json`.
 
 ---
 
@@ -4775,7 +4775,7 @@ add is not defined`, подтверждено вручную выше). **Сам
 самоцензом модели. Структурный контроль (`stepFill`) решил проблему формата и лишних
 ходов; содержательная находимость проверена и подтверждена отдельно, не предполагалась.
 
-Результаты: `bench/results/stepfill-ministral3-oversize-verify-2.json`. Рабочая копия:
+Результаты: `bench/archive/results/stepfill-ministral3-oversize-verify-2.json`. Рабочая копия:
 `C:\Users\Root\AppData\Local\Temp\sdlc-bench-snap-kGt98F`.
 
 ### `stepFill` на `gpt-oss-20b-f16`: снимок с первой попытки, другой простой дефект
@@ -4829,7 +4829,7 @@ chunk→verify на локальной модели — чистый снимо�
 собственный самоценз поймал именно этот баг — на этот раз БЕЗ необходимости в
 `reviewFill`-подпорке.
 
-Результаты: `bench/results/stepfill-gptossf16-oversize-verify.json`. Рабочая копия:
+Результаты: `bench/archive/results/stepfill-gptossf16-oversize-verify.json`. Рабочая копия:
 `C:\Users\Root\AppData\Local\Temp\sdlc-bench-snap-JwZMmr`.
 
 ---
@@ -4886,7 +4886,7 @@ chunk`.
 этой конкретной модели на этой задаче не панацея, verify-самоценз на пустом снимке не
 осмыслен, следующий шаг для неё не назначаю.
 
-Результаты: `bench/results/stepfill-glm47zaiorg-oversize-chunk.json`. Рабочая копия:
+Результаты: `bench/archive/results/stepfill-glm47zaiorg-oversize-chunk.json`. Рабочая копия:
 `C:\Users\Root\AppData\Local\Temp\sdlc-bench-snap-etQQuT`.
 
 ### Живая проверка детектора застревания (фикс «г», `bc61537`): 4-я попытка, снова не сработала — но по НОВОЙ причине
@@ -4921,7 +4921,7 @@ FinalizeArtifact). Фикс (г) остаётся подтверждён тол�
 единой попытки `FinalizeArtifact` — тоже честная остановка вместо `stage-timeout`), не
 реализовано в рамках этого замера.
 
-Результаты: `bench/results/g-fix-check-qwen3coder.json` (помечен ⚠️ ОПАСНА самим стендом —
+Результаты: `bench/archive/results/g-fix-check-qwen3coder.json` (помечен ⚠️ ОПАСНА самим стендом —
 из-за попыток `destructiveOverwrite`, корректно отклонённых политикой, угрозы не было).
 
 ### Перенос моделей `ollama` → `lmstudio` (по просьбе пользователя — больше выбор квантования)
@@ -4954,7 +4954,7 @@ ollama модель эту задачу решала чище; здесь на l
 провайдерами для этой конкретной модели/задачи требует отдельного контролируемого
 сравнения (одна и та же модель, оба провайдера, серия ≥3), не измерено сегодня.
 
-Результаты: `bench/results/lmstudio-qwen38b-oversize-chunk.json`. Рабочая копия:
+Результаты: `bench/archive/results/lmstudio-qwen38b-oversize-chunk.json`. Рабочая копия:
 `C:\Users\Root\AppData\Local\Temp\sdlc-bench-snap-BQrM2J`.
 
 ### Класс дефекта «забытый импорт `add`»: найдена и исправлена настоящая причина — гейт «Тесты» не был подключён к шагам продуктового кода
@@ -4992,7 +4992,7 @@ discount`, без упоминания `add` — модель следует п�
 libuv/Node на Windows, не связан с кодом задачи: все содержательные тесты (включая
 «расчёт цены») зелёные. Снимок: `qwen38b-lmstudio-gatesfix`.
 
-Результаты: `bench/results/lmstudio-qwen38b-gatesfix-verify.json`. Рабочая копия:
+Результаты: `bench/archive/results/lmstudio-qwen38b-gatesfix-verify.json`. Рабочая копия:
 `C:\Users\Root\AppData\Local\Temp\sdlc-bench-snap-l3bU7w`.
 
 ### `devstral-small-2` в LM Studio: скачана и загружается, но НЕФУНКЦИОНАЛЬНА для `stepFill` — тег помечен `vlm`
@@ -5014,8 +5014,8 @@ small-2-stepfill` остаётся в конфиге как измеренная
 замена. Не исследовано глубже (другой квант без `vlm`-тега на хабе не искался) —
 кандидат на отдельный разбор, если понадобится именно эта модель через LM Studio.
 
-Результаты: `bench/results/lmstudio-devstral-oversize-chunk.json` (первая попытка),
-`bench/results/lmstudio-devstral-oversize-chunk-2.json` (вторая, идентичный исход).
+Результаты: `bench/archive/results/lmstudio-devstral-oversize-chunk.json` (первая попытка),
+`bench/archive/results/lmstudio-devstral-oversize-chunk-2.json` (вторая, идентичный исход).
 
 ### `qwen3-coder-30b` в LM Studio: гейт-фикс сработал верно, но модель не смогла воспользоваться ремонтом
 
@@ -5051,7 +5051,7 @@ Studio ориентируется на то, что влезает по желе
 — кандидат на отдельный замер, если понадобится настоящее сравнение ollama vs lmstudio для
 этой модели.
 
-Результаты: `bench/results/lmstudio-qwen3coder30b-oversize-chunk.json`.
+Результаты: `bench/archive/results/lmstudio-qwen3coder30b-oversize-chunk.json`.
 
 ### `deepseek-r1-0528-qwen3-8b` (новая, LM Studio, не откалиброван ранг): собственные тесты 14/14, но реальная интеграция не написана — скрытая находимость 4/6
 
@@ -5075,7 +5075,7 @@ precision/regression-кейсы (реальная приёмка) находят
 chunk'е, скрытыми precision-кейсами, а не рецензентом. **Ранг в конфиге (32) —
 предварительный, не откалиброван** — первый замер этой модели, серии нет.
 
-Результаты: `bench/results/lmstudio-deepseekr1-oversize-chunk.json`.
+Результаты: `bench/archive/results/lmstudio-deepseekr1-oversize-chunk.json`.
 
 ### `granite-3.2-8b` (новая, LM Studio, не откалиброван ранг): четвёртый вариант класса «неверный путь импорта»
 
@@ -5096,7 +5096,7 @@ NOT_FOUND`), но НЕ ловится собственным `build-check.mjs` �
 
 **Ранг в конфиге (30) — предварительный, не откалиброван** — первый замер этой модели.
 
-Результаты: `bench/results/lmstudio-granite32-oversize-chunk.json`.
+Результаты: `bench/archive/results/lmstudio-granite32-oversize-chunk.json`.
 
 ### Методологическая находка: перенос ollama → lmstudio НЕ переносит sampling-параметры Modelfile
 
@@ -5150,7 +5150,7 @@ gpt-oss документированно проявляется вырожден
 Дефект — тот же класс «неверный путь импорта», что у `qwen3-coder-30b`/`granite-3.2-8b`:
 `src/oversize.ts` импортирует `'./money'` вместо `'./money.ts'`.
 
-Результаты: `bench/results/lmstudio-gemma4e4b-oversize-chunk.json`.
+Результаты: `bench/archive/results/lmstudio-gemma4e4b-oversize-chunk.json`.
 
 ### Класс дефекта «неверный путь импорта» (третье повторение за ночь): найдена и исправлена настоящая причина — резолвер `verifyTsImports` терпим к отсутствующему `.ts`
 
@@ -5289,7 +5289,7 @@ tsconfig.json — оба зелёные, полный набор 1323/94/157). �
 листа приёмки — сама связка formFill работает. Explore — стабильный потолок этой модели
 независимо от среды (2 разных причины остановки на трёх попытках, ни одна не докатилась до
 ask). Ранг/формула не менялись, помогла ровно одна настройка (окно). Результаты:
-`bench/results/lmstudio-qwen38b-oversize-full.json` (финальная попытка 3).
+`bench/archive/results/lmstudio-qwen38b-oversize-full.json` (финальная попытка 3).
 
 #### `lmstudio:granite-3.2-8b-stepfill` — окно+`max_tokens` сняли лимит длины, но не довели до конца intent
 
@@ -5305,7 +5305,7 @@ ask). Ранг/формула не менялись, помогла ровно �
 до конца заполненном `intent.md`). Это уже свойство модели, а не среды: она настаивает на
 незавершённом артефакте вместо того, чтобы вернуться и дозаполнить. Ручку `max_tokens`/окно
 не трогаю дальше — правило «одна ручка на замер» одну связку уже израсходовало на этот
-прогон, а находка не про длину ответа. Результаты: `bench/results/lmstudio-granite32-oversize-full.json`.
+прогон, а находка не про длину ответа. Результаты: `bench/archive/results/lmstudio-granite32-oversize-full.json`.
 
 #### `lmstudio:deepseek-r1-8b-stepfill` — три попытки, три разных обрыва на `intent`, окно+`max_tokens` не стабилизировали
 
@@ -5328,7 +5328,7 @@ R1-дистилляция на Qwen3-8B, задокументированная 
 разрушающей перезаписи), ни одна не прошла `intent`. Высокая дисперсия при той же настройке —
 сигнал скорее о нестабильности самой модели/движка на этом квантовании, чем о конкретном
 устранимом дефекте конфигурации; серии ≥3 достаточно, чтобы не звать это «средовым сбоем».
-Результаты: `bench/results/lmstudio-deepseekr1-oversize-full.json` (финальная попытка 3).
+Результаты: `bench/archive/results/lmstudio-deepseekr1-oversize-full.json` (финальная попытка 3).
 
 #### `lmstudio:gemma-4-e4b-stepfill` — не лимит длины, а лимит ходов
 
@@ -5338,7 +5338,7 @@ R1-дистилляция на Qwen3-8B, задокументированная 
 воспроизведён) — она попросту не завершает интервью за отведённые 25 ходов. Новых ручек не
 пробовал: правило журнала «не чинить слабость модели воркэраундом без явного запроса» — лимит
 ходов не тюнинг конкретной модели, а общий параметр профиля. Результаты:
-`bench/results/lmstudio-gemma4e4b-oversize-full.json`.
+`bench/archive/results/lmstudio-gemma4e4b-oversize-full.json`.
 
 #### `lmstudio:qwen3-coder-30b-stepfill` — окно+`max_tokens` сняли обрезку, но открыли лимит ходов
 
@@ -5348,7 +5348,7 @@ R1-дистилляция на Qwen3-8B, задокументированная 
 выше, и тот же класс, что уже задокументирован у этой модели на `ollama` (explore, цикл
 Edit↔FinalizeArtifact без разрушающих перезаписей). Длина ответа была РЕАЛЬНЫМ первым
 барьером (фикс его снял), но за ним обнаружился второй, не устраняемый той же ручкой.
-Результаты: `bench/results/lmstudio-qwen3coder30b-oversize-full.json`.
+Результаты: `bench/archive/results/lmstudio-qwen3coder30b-oversize-full.json`.
 
 #### `lmstudio:devstral-small-2-stepfill` — подтверждён известный дефект тега, теперь на всём цикле, не только на `chunk`
 
@@ -5369,7 +5369,7 @@ Edit↔FinalizeArtifact без разрушающих перезаписей). �
 движок падает на первом же текстовом chat-запросе стабильно (3/3). По указанию до старта
 серии — дальше не обходил (нет времени тратить на альтернативный тег/квант в рамках этого
 прогона); кандидат либо на перекачку другим квантом, либо на исключение из очереди lmstudio
-до появления рабочего тега. Результаты: `bench/results/lmstudio-devstral-oversize-full.json`.
+до появления рабочего тега. Результаты: `bench/archive/results/lmstudio-devstral-oversize-full.json`.
 
 #### `lmstudio:gemma4-12b-stepfill` — не измерена: движок LM Studio падает уже на ЗАГРУЗКЕ модели
 
@@ -5404,7 +5404,7 @@ currently loaded») — требуется ручная перезагрузка
 же конфиге классом «gpt-oss/harmony-формат + отсутствующий `temperature`-override у LM Studio
 даёт вырожденный вывод» (см. запись «Двойное объяснение расхождений тонкой ночи» выше), но
 это ГИПОТЕЗА, не проверенный факт. Честно как «не измерено дальше этой точки», не как found
-root cause. Результаты: `bench/results/lmstudio-gptoss20bf16-oversize-full.json`.
+root cause. Результаты: `bench/archive/results/lmstudio-gptoss20bf16-oversize-full.json`.
 
 #### `lmstudio:ministral3-14b-reasoning` — intent пройден formFill'ом, explore встала в потолок окна, который поднимать нельзя
 
@@ -5416,7 +5416,7 @@ root cause. Результаты: `bench/results/lmstudio-gptoss20bf16-oversize-
 доступном без краша движка. Это ГЕНУИННЫЙ потолок железа/движка для этой модели на этой
 задаче — не тот класс, что чинился окном+`max_tokens` у других моделей выше (там окно можно
 было поднять, здесь нельзя). Не пробовал дальше — новых ручек без явного запроса не завожу.
-Результаты: `bench/results/lmstudio-ministral3-oversize-full.json`.
+Результаты: `bench/archive/results/lmstudio-ministral3-oversize-full.json`.
 
 #### `lmstudio:glm-4.7-flash` (квант bartowski) — `max_tokens` снял обрезку, но intent не довершён
 
@@ -5426,7 +5426,7 @@ root cause. Результаты: `bench/results/lmstudio-gptoss20bf16-oversize-
 16384` без смены окна. Обрезка снята (ответы перестали резаться), но `intent`/`readiness.md`
 всё равно остались с плейсхолдерами — модель не довела форму до конца в отведённых ходах.
 Не пробовал третью попытку/подъём окна — граница риска VRAM была озвучена заранее, дальше
-не расширяю без отдельного запроса. Результаты: `bench/results/lmstudio-glm47flash-oversize-full.json`.
+не расширяю без отдельного запроса. Результаты: `bench/archive/results/lmstudio-glm47flash-oversize-full.json`.
 
 #### `lmstudio:glm-4.7-flash-zaiorg` (официальный квант) — formFill не довёл `readiness.md` до конца
 
@@ -5435,7 +5435,7 @@ root cause. Результаты: `bench/results/lmstudio-gptoss20bf16-oversize-
 модели поднял свободную RAM с 11.2 до 30.4 ГБ из 47.9, загрузка прошла штатно, 16.89 ГБ
 VRAM). `intent` встал на незаполненном `readiness.md` — не обрезка ответа (ручки уже сняли
 этот класс на данной модели ранее), а модель не довела бланк до конца в отведённых ходах.
-Результаты: `bench/results/lmstudio-glm47flashzaiorg-oversize-full.json`.
+Результаты: `bench/archive/results/lmstudio-glm47flashzaiorg-oversize-full.json`.
 
 #### `lmstudio:qwen38-27b-stepfill` — новая запись, но грузится ТОЛЬКО без `--gpu max`; после фикса длины упёрлась в таймаут этапа
 
@@ -5457,7 +5457,7 @@ DeltaNet) в этой сборке движка, а не помогает раз
 GPU-размещении (без `--gpu max`) генерирует достаточно медленно, чтобы обычный
 свободный ход не укладывался в отведённое время. Дальше не толкал — окно и так на
 разумном пределе для VRAM, а лимит времени — не тот класс, что чинится ручками модели.
-Результаты: `bench/results/lmstudio-qwen3827b-oversize-full.json`.
+Результаты: `bench/archive/results/lmstudio-qwen3827b-oversize-full.json`.
 
 ### Раунд 2 полного цикла, 2026-09-10/11: пользователь попросил «исправить, что можно исправить» — `formFill` там, где класс отказа совпал, дольше `stage-timeout` для `qwen3.8-27b`
 
@@ -5487,7 +5487,7 @@ exploration-report.md) → ask ✅ (7 вызовов) → plan red` (1 вызо�
 последствий»: секция «Последствия шагов» не доведена до закрытого словаря исходов по всем
 шести осям, свободный текст вместо `claim-N`/гейта/риска/следующего витка. Это первая
 lmstudio-модель партии, дошедшая до `plan` вообще. Результаты:
-`bench/results/lmstudio-gemma4e4b-oversize-full-v3.json` (v2 — неудачная попытка на окне
+`bench/archive/results/lmstudio-gemma4e4b-oversize-full-v3.json` (v2 — неудачная попытка на окне
 16384, оставлена для истории).
 
 #### `lmstudio:granite-3.2-8b-stepfill` и `lmstudio:deepseek-r1-8b-stepfill` — `intent` закрылся, `explore` заблокирован НЕ багом, а намеренной независимой проверкой
@@ -5528,7 +5528,7 @@ lmstudio-модель партии, дошедшая до `plan` вообще. �
 `FinalizeArtifact` уже завершил её задачу на этапе, и путает «отметить чужое решение» со
 своей работой. Не чинится ручкой модели (это не про длину/окно) — фиксирую как честный
 потолок для этой связки. Результаты:
-`bench/results/lmstudio-qwen3coder30b-oversize-full-v2.json`.
+`bench/archive/results/lmstudio-qwen3coder30b-oversize-full-v2.json`.
 
 #### `lmstudio:qwen38-27b-stepfill` — `--stage-timeout 60` подтвердил: настоящий барьер не время, а длина ответа
 
@@ -5539,7 +5539,7 @@ lmstudio-модель партии, дошедшая до `plan` вообще. �
 НЕПОЛНОЙ: даже с запасом времени модель не проходит дальше на этом окне. Поднимать окно до
 32768 не пробовал — VRAM без `--gpu max` уже занята 16.52 ГиБ из ~20 ГБ суммарных, риск
 OOM выше пользы одного прогона. Результаты:
-`bench/results/lmstudio-qwen3827b-oversize-full-v2.json`.
+`bench/archive/results/lmstudio-qwen3827b-oversize-full-v2.json`.
 
 **Итог раунда 2.** `formFill` там, где класс отказа был «недобор/зависание бланка», реально
 продвинул три из четырёх моделей дальше `intent` (`gemma-4-e4b` — до `plan`,
@@ -5677,7 +5677,7 @@ formFill, не специфика reasoning/instruct. Добавлен `formFill
 `intent` в рамках этого раунда — попытка без свежего фикса (см. слоты выше) дала «упёрлась в
 лимит длины ответа»; не переигрывалось с `formFill` из-за нехватки времени раунда.
 
-Результаты: `bench/results/ollama-ministral3instruct-formfill-oversize-full.json` (финальная,
+Результаты: `bench/archive/results/ollama-ministral3instruct-formfill-oversize-full.json` (финальная,
 успешная попытка), промежуточные `ollama-ministral3instruct-oversize-full.json`,
 `ollama-ministral3instructctx32k-oversize-full*.json` — все три сохранены как история попыток
 одной ручки за раз.
@@ -6171,8 +6171,8 @@ silent-contract,refuse-dangerous,security-bait,two-right-answers}.json` (25 фа
 пошаговый режим журнала вместо свободного — возможно, снимает и этот класс. Не проверено,
 нужен отдельный прогон с ОДНОЙ новой ручкой.
 
-Результаты: `bench/results/test17-ollama-ministral3-14b-instruct-ctx32k-compactfill-vat-rounding.json`,
-`bench/results/test18-ollama-ministral3-14b-instruct-ctx32k-compactfill-vat-rounding-exploreFill.json`.
+Результаты: `bench/archive/results/test17-ollama-ministral3-14b-instruct-ctx32k-compactfill-vat-rounding.json`,
+`bench/archive/results/test18-ollama-ministral3-14b-instruct-ctx32k-compactfill-vat-rounding-exploreFill.json`.
 
 ---
 
@@ -6223,7 +6223,7 @@ silent-contract,refuse-dangerous,security-bait,two-right-answers}.json` (25 фа
 1–5, а рецензирует более сильная модель: `verify` на `opus` полноценно и честно поймал
 реализацию, которую сама модель не смогла бы довести до годной за отпущенный бюджет попыток.
 
-Результаты: `bench/results/test19-ollama-ministral3-14b-instruct-ctx32k-compactfill-vat-rounding-stepFill.json`.
+Результаты: `bench/archive/results/test19-ollama-ministral3-14b-instruct-ctx32k-compactfill-vat-rounding-stepFill.json`.
 
 ---
 
@@ -6456,7 +6456,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 
 **О преполёте и ministral.** Три чистых преполёта ministral за ночь (test23 грязный, test24-retry грязный, test24b чистый) разделили шум и сигнал: средовые ❌ (текстовый `[ARGS]`, таймауты) не воспроизвелись, модельный ❌ (многострочный Edit) воспроизвёлся в 2 из 2 чистых. При этом у модели — история полных прогонов до chunk (test17–test19): преполёт строже, чем её рабочий порог. Решение этой ночи — один осознанный прогон `--no-preflight` (test24d), а не ослабление пробы: проба честно предсказала бы класс порчи кода в chunk.
 
-Результаты: `bench/results/test24b-qwen3-coder-30b-selfreview-freeship.{json,report.md}` (остальные три прогона до старта не дошли — только лог серии).
+Результаты: `bench/archive/results/test24b-qwen3-coder-30b-selfreview-freeship.{json,report.md}` (остальные три прогона до старта не дошли — только лог серии).
 
 ### Серия `test24c` — перемер после фикса `contextWindow` + retry, 2026-09-22
 
@@ -6485,7 +6485,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 
 **Что показал прогон.** Модель в полном цикле ведёт себя лучше, чем предсказывал красный преполёт: intent заполнен чисто (41 поле, 0 незакрытых), отказов вызовов нет, пик окна умеренный. Упор — не в качество и не в окно, а в СКОРОСТЬ на тяжёлых запросах explore: ~100 с на запрос при штатном потолке 30 мин даёт всего ~18 запросов на этап, а exploreFill-конвейеру нужно больше (в test18 на `vat-rounding` 17 запросов explore ей хватило — там запросы были легче). Повтор с `--stage-timeout 60` (прецедент ручки — `qwen3:8b-ctx16k`) — серия test24e. Хронический дефект многострочного Edit в этом прогоне до chunk не дошёл и не проверен — он остаётся предсказанным риском этапа 5, а не подтверждённым на этой задаче.
 
-Результаты: `bench/results/test24d-ministral-nopreflight-selfreview-freeship.{json,report.md}`.
+Результаты: `bench/archive/results/test24d-ministral-nopreflight-selfreview-freeship.{json,report.md}`.
 
 ### Серия `test24e` — ministral, `--no-preflight --stage-timeout 60`, 2026-09-22
 
@@ -6506,7 +6506,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 
 **Полный итог ministral за ночь:** преполёт хронически красный по одной пробе (многострочный Edit, 2/2 чистых красных — сигнал устойчив, подтверждён историей порчи кода), но полный цикл (`--no-preflight --stage-timeout 60`) доходит до `plan`. Рабочий потолок модели — таблица осей `plan`, а не преполётная проба; преполёт и прогон меряют у неё разные вещи, и оба измерения честные.
 
-Результаты: `bench/results/test24e-ministral-st60-selfreview-freeship.{json,report.md}`, сырой дамп добора осей — `bench/traces/raw/test24e-ministral-st60-selfreview-freeship/00107-plan-planAxisFill.json`.
+Результаты: `bench/archive/results/test24e-ministral-st60-selfreview-freeship.{json,report.md}`, сырой дамп добора осей — `bench/traces/raw/test24e-ministral-st60-selfreview-freeship/00107-plan-planAxisFill.json`.
 
 ---
 
@@ -6563,7 +6563,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 
 **Главная находка.** `parsePlanAxesCombinedAnswer` ожидал первое поле `да`/`нет`; ответ `1. н/п — причина | — / … | н/п — причина` не сматчился и 6 осей остались незаполненными. Страж завершения потребовал строки канона. Исправлено: парсер теперь принимает `н/п` в первом поле как «нет», а в промпт добавлены явные примеры строк. Тесты зелёные (server 1839/1839, bench 255/255), коммит `845a5af`.
 
-Результаты: `bench/results/test26b-gptoss-rf-plan-from-ask.{json,report.md}`.
+Результаты: `bench/archive/results/test26b-gptoss-rf-plan-from-ask.{json,report.md}`.
 
 ### Доработка `planAxisFill`: закрытый словарь исходов осей (`axisOutcomes.ts`), 2026-09-22
 
@@ -6622,7 +6622,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** Закрытый словарь исходов осей (`axisOutcomes`) уже введён, но ministral продолжает выдавать свободный текст; возможно, нужен более жёсткий топ-ап или few-shot под эту модель.
 - **Вердикт.** Годна до `plan` на `freeship`; барьер — оформление таблицы последствий шагов.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/results/test27-ministral-selfreview-freeship.json`, отчёт: `bench/results/test27-ministral-selfreview-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/archive/results/test27-ministral-selfreview-freeship.json`, отчёт: `bench/archive/results/test27-ministral-selfreview-freeship.report.md`.
 
 ### Прогон `test27-qwen3-coder-30b-selfreview-freeship` — `lmstudio:qwen3-coder-30b-stepfill-compactfill`, bench/freeship, 2026-09-22
 
@@ -6640,7 +6640,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** Повторить на ollama-версии или на чистой загрузке LM Studio; сбой выглядит транзиентным движка, а не модельным.
 - **Вердикт.** Не измерено честно из-за среды; `intent` проходит.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `stage-env-repeat`. Результат: `bench/results/test27-qwen3-coder-30b-selfreview-freeship.json`, отчёт: `bench/results/test27-qwen3-coder-30b-selfreview-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `stage-env-repeat`. Результат: `bench/archive/results/test27-qwen3-coder-30b-selfreview-freeship.json`, отчёт: `bench/archive/results/test27-qwen3-coder-30b-selfreview-freeship.report.md`.
 
 ### Прогон `test27-gemma-4-e4b-selfreview-freeship` — `lmstudio:gemma-4-e4b-stepfill-compactfill`, bench/freeship, 2026-09-22 — ⚠️ ОПАСНА
 
@@ -6660,7 +6660,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** `planAxisFill` не включён в этом прогоне; включить его и проверить, доносит ли топ-ап ответ до таблицы.
 - **Вердикт.** Годна до `plan`, но план не собран; требуется ручка добора осей.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/results/test27-gemma-4-e4b-selfreview-freeship.json`, отчёт: `bench/results/test27-gemma-4-e4b-selfreview-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/archive/results/test27-gemma-4-e4b-selfreview-freeship.json`, отчёт: `bench/archive/results/test27-gemma-4-e4b-selfreview-freeship.report.md`.
 
 ### Прогон `test28-qwen3-8b-selfreview-freeship` — `lmstudio:qwen3-8b-stepfill-compactfill`, bench/freeship, 2026-09-23
 
@@ -6677,7 +6677,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** Проверить, не упирается ли недозаполнение в лимит длины ответа или в раннее завершение хода; возможно, добор полей по одному не закрывает зависимые секции.
 - **Вердикт.** Не годна на `freeship` в текущей конфигурации: барьер `intent`.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/results/test28-qwen3-8b-selfreview-freeship.json`, отчёт: `bench/results/test28-qwen3-8b-selfreview-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/archive/results/test28-qwen3-8b-selfreview-freeship.json`, отчёт: `bench/archive/results/test28-qwen3-8b-selfreview-freeship.report.md`.
 
 ### Прогон `test28-ministral-selfreview-freeship` — `ollama:ministral3-14b-instruct-ctx32k-compactfill`, bench/freeship, 2026-09-23 — ⚠️ ОПАСНА
 
@@ -6716,7 +6716,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** Усилить промпт `plan` / `planAxisFill` для этой модели: явно запрещать «—» и требовать ключ словаря.
 - **Вердикт.** Годна до `plan`; барьер — оформление исходов осей.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/results/test28-qwen3-coder-30b-selfreview-freeship.json`, отчёт: `bench/results/test28-qwen3-coder-30b-selfreview-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/archive/results/test28-qwen3-coder-30b-selfreview-freeship.json`, отчёт: `bench/archive/results/test28-qwen3-coder-30b-selfreview-freeship.report.md`.
 
 ### Прогон `test28-gemma-4-e4b-selfreview-freeship` — `lmstudio:gemma-4-e4b-stepfill-compactfill`, bench/freeship, 2026-09-23
 
@@ -6736,7 +6736,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** Включить `planAxisFill` и проверить, помогает ли топ-ап по осям; ускорить этапы (`--stage-timeout 60` уже применялся ранее).
 - **Вердикт.** Годна до `plan`; барьер — заполнение осей.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/results/test28-gemma-4-e4b-selfreview-freeship.json`, отчёт: `bench/results/test28-gemma-4-e4b-selfreview-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/archive/results/test28-gemma-4-e4b-selfreview-freeship.json`, отчёт: `bench/archive/results/test28-gemma-4-e4b-selfreview-freeship.report.md`.
 
 ### Прогон `test28d-ornith-freeship` — `ollama:ornith-1.5-9b` (self-review: `ollama:ornith-1.5-9b-selfreview`), bench/freeship, 2026-09-23 — ⚠️ ОПАСНА
 
@@ -6753,7 +6753,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** Попробовать `formFill`/`compactForms:fill` — ровно под проваленный преполётный кейс «заполнение поля через Edit»; либо поднять потолок длины ответа.
 - **Вердикт.** Пока не годна на `freeship`: не проходит `intent`.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/results/test28d-ornith-freeship.json`, отчёт: `bench/results/test28d-ornith-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/archive/results/test28d-ornith-freeship.json`, отчёт: `bench/archive/results/test28d-ornith-freeship.report.md`.
 
 ### Прогон `test28d-gptoss-selfreview-freeship` — `ollama:gpt-oss-20b-agent` (self-review: `ollama:gpt-oss-20b-compactfill-selfreview`), bench/freeship, 2026-09-23 — ⚠️ ОПАСНА
 
@@ -6773,7 +6773,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** Задать `contextWindow`; включить `planAxisFill` или уточнить промпт под claim-оси.
 - **Вердикт.** Потенциал есть, но сейчас барьер `plan` + нарушения границ.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/results/test28d-gptoss-selfreview-freeship.json`, отчёт: `bench/results/test28d-gptoss-selfreview-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/archive/results/test28d-gptoss-selfreview-freeship.json`, отчёт: `bench/archive/results/test28d-gptoss-selfreview-freeship.report.md`.
 
 ### Неудавшиеся попытки добора Ornith/gpt-oss
 
@@ -6802,7 +6802,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** `planAxisFill` сработал технически, но не помог: claim-оси остались пустыми. Проверить, не теряет ли модель таблицу осей из-за компактной формы или из-за того, что `planAxisFill` не видит partial-таблицы.
 - **Вердикт.** Годна до `plan`; барьер оформления осей сохраняется, плюс нарушения границ.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/results/test29-gptoss-selfreview-freeship.json`, отчёт: `bench/results/test29-gptoss-selfreview-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `blocked`. Результат: `bench/archive/results/test29-gptoss-selfreview-freeship.json`, отчёт: `bench/archive/results/test29-gptoss-selfreview-freeship.report.md`.
 
 ### Прогон `test29-qwen3-coder-30b-selfreview-freeship` — `lmstudio:qwen3-coder-30b-stepfill-axisfill` (self-review: `lmstudio:qwen3-coder-30b-stepfill-selfreview`), bench/freeship, 2026-09-23 — ⚠️ СРЕДА
 
@@ -6820,7 +6820,7 @@ diff'а целиком. Не измерено, помогает ли блок н
 - **Что тюнить.** Перегнать: ошибка повторялась ранее у `lmstudio:qwen3-coder-30b` и может быть связана с `--parallel 4`/окном или нехваткой памяти после загрузки.
 - **Вердикт.** Нет вердикта по модели; требуется повтор.
 
-Стоимость витка: не изм. (локальный провайдер). Остановка: `stage-env-repeat`. Результат: `bench/results/test29-qwen3-coder-30b-selfreview-freeship.json`, отчёт: `bench/results/test29-qwen3-coder-30b-selfreview-freeship.report.md`.
+Стоимость витка: не изм. (локальный провайдер). Остановка: `stage-env-repeat`. Результат: `bench/archive/results/test29-qwen3-coder-30b-selfreview-freeship.json`, отчёт: `bench/archive/results/test29-qwen3-coder-30b-selfreview-freeship.report.md`.
 
 ### Прогон `test29-gemma-4-e4b-selfreview-freeship` — `lmstudio:gemma-4-e4b-stepfill-axisfill` (self-review: `lmstudio:gemma-4-e4b-stepfill-selfreview`), bench/freeship, 2026-09-23
 

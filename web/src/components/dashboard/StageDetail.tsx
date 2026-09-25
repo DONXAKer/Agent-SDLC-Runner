@@ -8,8 +8,9 @@ import { fmtCost, fmtDuration, fmtTokens } from '../../lib/format.ts';
 import { FLOW_BADGE, STATE_LABEL } from '../../lib/stageTone.ts';
 import { verdictTextTone, verdictTone } from '../../lib/tones.ts';
 import { GatePanel } from '../GatePanel.tsx';
+import { MarkdownOrSource } from '../Markdown.tsx';
 import { CollapsibleSection } from '../run/CollapsibleSection.tsx';
-import { ArtifactViewer } from './ArtifactViewer.tsx';
+import { ArtifactViewer, MarkedText } from './ArtifactViewer.tsx';
 
 type Tab = 'input' | 'output' | 'info';
 
@@ -29,9 +30,7 @@ const utf8Bytes = (text: string): number => new TextEncoder().encode(text).lengt
 function PromptBlock({ title, text }: { title: string; text: string }): JSX.Element {
   return (
     <CollapsibleSection title={title} summary={<span className="text-neutral-500">{fmtBytes(utf8Bytes(text))}</span>} compact defaultOpen={false}>
-      <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-4 text-neutral-300">
-        {text === '' ? '(пусто)' : text}
-      </pre>
+      {text === '' ? <div className="px-3 py-2 text-xs text-neutral-500">(пусто)</div> : <MarkdownOrSource text={text} source={<MarkedText text={text} />} />}
     </CollapsibleSection>
   );
 }
@@ -99,8 +98,8 @@ function OutputTab({ card, stage }: { card: DashboardCard; stage: DashboardStage
       {run === null || run.assistantText === '' ? (
         <Empty>{run === null ? 'в ленте нет прогона этого этапа' : 'модель не писала текста — только вызовы инструментов'}</Empty>
       ) : (
-        <div className="mt-2 max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded border border-neutral-800 px-3 py-2 text-sm text-neutral-200">
-          {run.assistantText}
+        <div className="mt-2 rounded border border-neutral-800">
+          <MarkdownOrSource text={run.assistantText} source={<MarkedText text={run.assistantText} />} />
         </div>
       )}
       {run?.outcome != null ? (

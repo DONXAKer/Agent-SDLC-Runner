@@ -12,6 +12,7 @@ import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
 
+import { DASHBOARD_BENCH_ARCHIVE } from '@sdlc-runner/shared';
 import type {
   AutoApproveRules,
   ConfigInfo,
@@ -496,14 +497,16 @@ app.get('/api/history/:slug/events', (req, reply) => {
  * Только чтение диска — `Run` для архивных витков не поднимается (`dashboard/witoks.ts`).
  * Проекты пересобираются на каждый запрос: `POST /api/projects` дописывает конфиг на лету.
  */
-const benchIndex = new BenchIndex(config.runner.benchDir ?? defaultBenchDir());
+const benchDir = config.runner.benchDir ?? defaultBenchDir();
+// Архив стенда — та же раскладка в `bench/archive/`: старые прогоны уходят туда, а не удаляются.
+const benchIndexes = [new BenchIndex(benchDir), new BenchIndex(join(benchDir, 'archive'), DASHBOARD_BENCH_ARCHIVE)];
 
 function dashboardLive(): LiveEntry[] {
   return [...runs.values()].map((lr) => ({ projectRoot: lr.run.project.projectRoot, summary: summaryOf(lr) }));
 }
 
 app.get('/api/dashboard', (req, reply) => {
-  const r: DashboardResponse = dashboardList(dashboardProjects(config.projects.values()), dashboardLive(), benchIndex);
+  const r: DashboardResponse = dashboardList(dashboardProjects(config.projects.values()), dashboardLive(), benchIndexes);
   const { etag, body } = dashboardBody(r);
   // `no-cache` — «переспроси», а не «не храни»: браузер шлёт If-None-Match, и неизменный
   // список не гоняется по проводу заново.
@@ -520,7 +523,7 @@ app.get('/api/dashboard/:source/:project/:slug', (req, reply) => {
   const { source, project, slug } = req.params as { source: string; project: string; slug: string };
   const bad = badWitokSlug(slug);
   if (bad !== null) return reply.code(400).send({ error: bad });
-  const r = dashboardDetail(source, project, slug, dashboardProjects(config.projects.values()), dashboardLive(), benchIndex);
+  const r = dashboardDetail(source, project, slug, dashboardProjects(config.projects.values()), dashboardLive(), benchIndexes);
   return 'ok' in r ? r.ok : reply.code(r.code).send({ error: r.error });
 });
 
@@ -530,7 +533,7 @@ app.get('/api/dashboard/:source/:project/:slug/artifact', (req, reply) => {
   if (typeof name !== 'string') return reply.code(400).send({ error: 'нужен параметр name' });
   const bad = badWitokSlug(slug);
   if (bad !== null) return reply.code(400).send({ error: bad });
-  const r = dashboardArtifact(source, project, slug, name, dashboardProjects(config.projects.values()), benchIndex);
+  const r = dashboardArtifact(source, project, slug, name, dashboardProjects(config.projects.values()), benchIndexes);
   return 'ok' in r ? r.ok : reply.code(r.code).send({ error: r.error });
 });
 

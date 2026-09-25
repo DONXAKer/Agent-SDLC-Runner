@@ -11,7 +11,7 @@ import { after, describe, it } from 'node:test';
 
 import { BenchIndex, benchCard, benchStatus, parseBenchResult } from '../src/dashboard/bench.ts';
 import { benchDetail } from '../src/dashboard/detail.ts';
-import { dashboardArtifact } from '../src/dashboard/index.ts';
+import { dashboardArtifact, dashboardDetail, dashboardList } from '../src/dashboard/index.ts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-dash-bench-test-')));
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -108,12 +108,31 @@ describe('BenchIndex', () => {
       d.artifacts.map((a) => a.name),
       ['result.json', 'report.md', 'events.ndjson'],
     );
-    const report = dashboardArtifact('bench', 'results', 'x', 'report.md', [], index);
+    const report = dashboardArtifact('bench', 'results', 'x', 'report.md', [], [index]);
     ok('ok' in report && report.ok.text.startsWith('# отчёт'));
-    const bad = dashboardArtifact('bench', 'results', 'x', '../x.json', [], index);
+    const bad = dashboardArtifact('bench', 'results', 'x', '../x.json', [], [index]);
     ok('error' in bad && bad.code === 404);
-    const unknown = dashboardArtifact('bench', 'results', 'y', 'report.md', [], index);
+    const unknown = dashboardArtifact('bench', 'results', 'y', 'report.md', [], [index]);
     ok('error' in unknown && unknown.code === 404, 'слаг без результата адресуется');
+  });
+
+  it('архив — второй индекс той же раскладки: свой проект в адресе, чужой проект прогон не находит', () => {
+    const archiveDir = join(root, 'archive');
+    mkdirSync(join(archiveDir, 'results'), { recursive: true });
+    writeFileSync(join(archiveDir, 'results', 'old.json'), JSON.stringify(result('old')));
+    writeFileSync(join(archiveDir, 'results', 'old.report.md'), '# старый отчёт\n');
+    const archive = new BenchIndex(archiveDir, 'archive');
+    const l = dashboardList([], [], [index, archive]);
+    deepStrictEqual(
+      l.cards.map((c) => `${c.ref.project}/${c.ref.slug}`).sort(),
+      ['archive/old', 'results/x'],
+    );
+    const inArchive = dashboardArtifact('bench', 'archive', 'old', 'report.md', [], [index, archive]);
+    ok('ok' in inArchive && inArchive.ok.text.startsWith('# старый'));
+    const wrong = dashboardArtifact('bench', 'results', 'old', 'report.md', [], [index, archive]);
+    ok('error' in wrong && wrong.code === 404);
+    ok('ok' in dashboardDetail('bench', 'archive', 'old', [], [], [index, archive]));
+    ok('error' in dashboardDetail('bench', 'нет', 'x', [], [], [index, archive]));
   });
 
   it('каталога нет — не ошибка, а пустой список', () => {

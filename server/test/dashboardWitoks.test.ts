@@ -135,7 +135,7 @@ describe('scanWitoks', () => {
       waiting: 2,
       stageStartedAt: null,
     };
-    const r = dashboardList([project], [{ projectRoot: root, summary: live }], null);
+    const r = dashboardList([project], [{ projectRoot: root, summary: live }], []);
     const term = r.cards.find((c) => c.ref.slug === 'term');
     strictEqual(term?.live?.runId, 'live-2');
     strictEqual(term.ref.source, 'ui');
@@ -170,7 +170,7 @@ describe('scanWitoks', () => {
 
 describe('детали витка', () => {
   it('последний прогон этапа — от последнего stage_started; предпросмотр оператора не в счёт', () => {
-    const d = dashboardDetail('ui', 'demo', 'ui-archive', [project], [], null);
+    const d = dashboardDetail('ui', 'demo', 'ui-archive', [project], [], []);
     ok('ok' in d);
     const intent = d.ok.stages.find((s) => s.id === 'intent')!;
     strictEqual(intent.lastRun?.runId, 'r2');
@@ -182,7 +182,7 @@ describe('детали витка', () => {
   });
 
   it('входы этапа — со статусом и обязательностью', () => {
-    const d = dashboardDetail('terminal', 'demo', 'term', [project], [], null);
+    const d = dashboardDetail('terminal', 'demo', 'term', [project], [], []);
     ok('ok' in d);
     const plan = d.ok.stages.find((s) => s.id === 'plan')!;
     deepStrictEqual(
@@ -201,18 +201,18 @@ describe('детали витка', () => {
 
   it('вердикт рантайма этой машины виден на verify и handoff', () => {
     writeRunVerdict(term, 2, 3, { passed: true, action: 'continue', reasons: [] });
-    const d = dashboardDetail('terminal', 'demo', 'term', [project], [], null);
+    const d = dashboardDetail('terminal', 'demo', 'term', [project], [], []);
     ok('ok' in d);
     strictEqual(d.ok.stages.find((s) => s.id === 'verify')?.storedVerdict?.passed, true);
     strictEqual(d.ok.stages.find((s) => s.id === 'plan')?.storedVerdict, null);
   });
 
   it('несуществующий виток и чужой проект — 404, источник вне словаря — 400', () => {
-    const a = dashboardDetail('ui', 'demo', 'нет-такого', [project], [], null);
+    const a = dashboardDetail('ui', 'demo', 'нет-такого', [project], [], []);
     ok('error' in a && a.code === 404);
-    const b = dashboardDetail('ui', 'other', 'term', [project], [], null);
+    const b = dashboardDetail('ui', 'other', 'term', [project], [], []);
     ok('error' in b && b.code === 404);
-    const c = dashboardDetail('cli', 'demo', 'term', [project], [], null);
+    const c = dashboardDetail('cli', 'demo', 'term', [project], [], []);
     ok('error' in c && c.code === 400);
   });
 });
@@ -228,11 +228,11 @@ describe('содержимое файлов — по имени из слова�
   });
 
   it('читает файл витка и считает плейсхолдеры', () => {
-    const r = dashboardArtifact('terminal', 'demo', 'term', 'plan.md', [project], null);
+    const r = dashboardArtifact('terminal', 'demo', 'term', 'plan.md', [project], []);
     ok('ok' in r);
     strictEqual(r.ok.placeholders, 1);
     strictEqual(r.ok.truncated, false);
-    const miss = dashboardArtifact('terminal', 'demo', 'term', 'handoff.md', [project], null);
+    const miss = dashboardArtifact('terminal', 'demo', 'term', 'handoff.md', [project], []);
     ok('error' in miss && miss.code === 404);
   });
 

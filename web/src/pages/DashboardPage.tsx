@@ -4,6 +4,7 @@ import type { DashboardCard, DashboardCardRef, DashboardDetail, DashboardRespons
 
 import { BoardView } from '../components/dashboard/BoardView.tsx';
 import { DashboardFilters } from '../components/dashboard/DashboardFilters.tsx';
+import { NowRunning } from '../components/dashboard/NowRunning.tsx';
 import { RunCard } from '../components/dashboard/RunCard.tsx';
 import { RunDetailPanel } from '../components/dashboard/RunDetailPanel.tsx';
 import { api } from '../lib/api.ts';
@@ -218,6 +219,8 @@ export function DashboardPage({
           обновить
         </button>
       </div>
+
+      {list !== null ? <NowRunning cards={cards} titles={stageTitles} nowMs={nowMs} onOpen={openCard} /> : null}
 
       {error !== null ? (
         <div className="mb-3 rounded border border-red-900 bg-red-950/30 px-3 py-2 text-sm text-red-300">{error}</div>

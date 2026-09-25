@@ -44,18 +44,18 @@ function workspaceProject(root: string): DashboardProjectRef {
 }
 
 /** Карточка прогона без результата: по живой рабочей копии, если она есть, иначе по отметкам. */
-function progressRunCard(run: ProgressRun): DashboardCard {
+function progressRunCard(run: ProgressRun, project: string): DashboardCard {
   const live = run.outcome.running && run.workspace !== null;
   const base = live ? witokCard(workspaceProject(run.workspace!), run.slug, null, runningStage(run.info)) : null;
   // Расход рабочей копии — по валютам МАРШРУТОВ этапов: `spent` стенда сужен до измеряемых
   // этапов (бюджет), и валюта из него подписала бы рублями сумму рублей и долларов.
   const metrics = live ? readMetricsSnapshot(new WitokPaths(run.workspace!, run.slug)) : null;
   const cost = metrics === null ? undefined : usageByCurrency(metrics.stages, (s) => run.info.currencies[s]);
-  return progressCard(run.info, run.outcome, { slug: run.slug, mtimeMs: run.mtimeMs, base, ...(cost === undefined ? {} : { cost }) });
+  return progressCard(run.info, run.outcome, { slug: run.slug, project, mtimeMs: run.mtimeMs, base, ...(cost === undefined ? {} : { cost }) });
 }
 
 function progressRunDetail(bench: BenchIndex, run: ProgressRun): DashboardDetail {
-  const card = progressRunCard(run);
+  const card = progressRunCard(run, bench.project);
   const traceFiles = [benchFile('progress.log', bench.progressPath(run.slug))].filter((a) => a.presence !== 'missing');
   const live =
     run.outcome.running && run.workspace !== null
@@ -95,18 +95,33 @@ function liveByRoot(live: readonly LiveEntry[]): Map<string, Map<string, RunSumm
   return out;
 }
 
+/**
+ * Индекс стенда по проекту адреса: рабочий каталог (`results`) или архив (`archive`).
+ * Проект у карточки стенда — не подпись, а выбор каталога, поэтому чужое имя — «нет прогона».
+ */
+function benchFor(benches: readonly BenchIndex[], projectKey: string): BenchIndex | null {
+  return benches.find((b) => b.project === projectKey) ?? null;
+}
+
 export function dashboardList(
   projects: readonly DashboardProjectRef[],
   live: readonly LiveEntry[],
-  bench: BenchIndex | null,
+  benches: readonly BenchIndex[],
 ): DashboardResponse {
   const byRoot = liveByRoot(live);
   const cards: DashboardCard[] = [];
   for (const p of projects) cards.push(...scanWitoks(p, byRoot.get(canonicalRoot(p.projectRoot)) ?? new Map()));
-  const b = bench?.list() ?? { cards: [], skipped: 0, available: false };
-  cards.push(...b.cards);
-  if (bench !== null && b.available) cards.push(...bench.progress().map(progressRunCard));
-  return { serverNow: Date.now(), cards, bench: { available: b.available, skipped: b.skipped } };
+  let available = false;
+  let skipped = 0;
+  for (const bench of benches) {
+    const b = bench.list();
+    if (!b.available) continue;
+    available = true;
+    skipped += b.skipped;
+    cards.push(...b.cards);
+    cards.push(...bench.progress().map((run) => progressRunCard(run, bench.project)));
+  }
+  return { serverNow: Date.now(), cards, bench: { available, skipped } };
 }
 
 /**
@@ -164,9 +179,10 @@ export function dashboardDetail(
   slug: string,
   projects: readonly DashboardProjectRef[],
   live: readonly LiveEntry[],
-  bench: BenchIndex | null,
+  benches: readonly BenchIndex[],
 ): Outcome<DashboardDetail> {
   if (source === 'bench') {
+    const bench = benchFor(benches, projectKey);
     if (bench === null || !bench.has(slug)) return { error: `прогона стенда ${slug} нет`, code: 404 };
     const run = bench.progressRun(slug);
     if (run !== null) return { ok: progressRunDetail(bench, run) };
@@ -198,10 +214,11 @@ export function dashboardArtifact(
   slug: string,
   name: string,
   projects: readonly DashboardProjectRef[],
-  bench: BenchIndex | null,
+  benches: readonly BenchIndex[],
 ): Outcome<DashboardArtifactResponse> {
   let abs: string;
   if (source === 'bench') {
+    const bench = benchFor(benches, projectKey);
     if (bench === null || !bench.has(slug)) return { error: `прогона стенда ${slug} нет`, code: 404 };
     const p = benchArtifactPath(bench, slug, name);
     const run = bench.progressRun(slug);

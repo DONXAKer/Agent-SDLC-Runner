@@ -6,13 +6,21 @@ export function cardKey(ref: DashboardCardRef): string {
 }
 
 /**
+ * Прогон идёт прямо сейчас: живой виток раннера или прогон стенда с живым процессом. ОДНО
+ * правило на полосу «Сейчас идёт», подсветку на доске, фильтр «идут сейчас» и порядок.
+ */
+export function isRunningNow(c: Pick<DashboardCard, 'live' | 'bench'>): boolean {
+  return c.live !== null || c.bench?.inProgress === true;
+}
+
+/**
  * Группа порядка: 0 — ждёт человека, 1 — идёт, 2 — всё остальное. Виток, стоящий на
  * решении, — единственный, где человек нужен прямо сейчас, и он не должен тонуть среди
  * сотен прогонов стенда.
  */
 export function cardPriority(c: DashboardCard): 0 | 1 | 2 {
   // Идущий прогон стенда — тоже «идёт», хотя сервер им не управляет.
-  if (c.live === null) return c.bench?.inProgress === true ? 1 : 2;
+  if (c.live === null) return isRunningNow(c) ? 1 : 2;
   return c.live.waiting > 0 || c.live.status === 'awaiting' ? 0 : 1;
 }
 

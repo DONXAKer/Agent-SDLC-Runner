@@ -474,6 +474,13 @@ export interface DashboardCardRef {
 export const DASHBOARD_BENCH_PROJECT = 'results';
 
 /**
+ * Проект архива стенда: `bench/archive/{results,traces}` той же раскладки — старые прогоны,
+ * вытесненные эталоном и новыми (`npm run bench:archive`). На доске скрыт, пока его не
+ * выбрали фильтром проекта: сотни старых карточек заслоняли текущую картину.
+ */
+export const DASHBOARD_BENCH_ARCHIVE = 'archive';
+
+/**
  * Состояние этапа на карточке — факт с диска (ленты, стенда), а не вывод клиента.
  * `blocked` — вход этапа не выполнен (есть блокеры), `notStarted` — ни следа этапа.
  */

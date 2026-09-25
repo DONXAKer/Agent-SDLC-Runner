@@ -1,5 +1,7 @@
-import { DASHBOARD_SOURCES } from '@sdlc-runner/shared';
+import { DASHBOARD_BENCH_ARCHIVE, DASHBOARD_SOURCES } from '@sdlc-runner/shared';
 import type { DashboardCard, DashboardSource, HistoryStatus } from '@sdlc-runner/shared';
+
+import { isRunningNow } from './dashboardSort.ts';
 
 /**
  * Фильтр по статусу: статусы витка целиком плюс два живых среза — «идёт» (прогон в памяти
@@ -39,14 +41,19 @@ export function matchesQuery(c: DashboardCard, q: string): boolean {
 
 function matchesStatus(c: DashboardCard, s: StatusFilter): boolean {
   if (s === 'waiting') return c.live !== null && c.live.waiting > 0;
-  if (s === 'live') return c.live !== null || c.bench?.inProgress === true;
+  if (s === 'live') return isRunningNow(c);
   return c.status === (s satisfies HistoryStatus);
+}
+
+/** Карточка из архива стенда — на доске только когда архив выбран проектом явно. */
+export function isArchived(c: DashboardCard): boolean {
+  return c.ref.source === 'bench' && c.ref.project === DASHBOARD_BENCH_ARCHIVE;
 }
 
 export function applyFilter(cards: readonly DashboardCard[], f: DashboardFilter): DashboardCard[] {
   return cards.filter(
     (c) =>
-      (f.project === null || c.ref.project === f.project) &&
+      (f.project === null ? !isArchived(c) : c.ref.project === f.project) &&
       (f.source === null || c.ref.source === f.source) &&
       (f.status === null || matchesStatus(c, f.status)) &&
       matchesQuery(c, f.query),

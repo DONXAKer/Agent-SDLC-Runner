@@ -4,7 +4,7 @@ import type { DashboardCard, StageId } from '@sdlc-runner/shared';
 
 import { BOARD_COLUMNS, groupBoard } from '../../lib/dashboardBoard.ts';
 import type { BoardColumn, BoardPlace } from '../../lib/dashboardBoard.ts';
-import { cardKey } from '../../lib/dashboardSort.ts';
+import { cardKey, isRunningNow } from '../../lib/dashboardSort.ts';
 import { fmtUpdatedAt } from '../../lib/dashboardTime.ts';
 import { fmtCost } from '../../lib/format.ts';
 import { CIRCLE, STATE_LABEL, stageGlyph } from '../../lib/stageTone.ts';
@@ -31,19 +31,23 @@ const MiniCard = memo(function MiniCard({
   const age = nowMs - (Date.parse(card.updatedAt) || nowMs);
   // Идущий этап без правок полчаса — скорее всего завис: процесс жив, а лента стоит.
   const stale = place.state === 'running' && age > STALE_MS;
-  const live = card.live !== null || card.bench?.inProgress === true;
+  const live = isRunningNow(card);
   return (
     <button
       type="button"
       onClick={() => onOpen(card)}
       title={stage?.note ?? undefined}
       className={`w-full rounded border p-2 text-left text-xs transition hover:border-neutral-500 ${
-        stale ? 'border-amber-700 bg-amber-950/20' : 'border-neutral-800 bg-neutral-900/40'
+        stale
+          ? 'border-amber-700 bg-amber-950/20'
+          : live
+            ? 'border-emerald-600 bg-emerald-950/30 ring-1 ring-emerald-700/60'
+            : 'border-neutral-800 bg-neutral-900/40'
       }`}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <SourceBadge source={card.ref.source} />
-        {live ? <span className="text-emerald-400" title="идёт сейчас">●</span> : null}
+        {live ? <span className="animate-pulse text-emerald-400" title="идёт сейчас">●</span> : null}
         <span className="min-w-0 truncate font-mono text-[11px]">{card.ref.slug}</span>
       </div>
       <div className="mt-1 truncate text-[11px] text-neutral-500">

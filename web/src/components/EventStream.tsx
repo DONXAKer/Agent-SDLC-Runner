@@ -11,6 +11,7 @@ import { GATE_TONE } from '../lib/gateTone.ts';
 import { groupEvents, type EventItem } from '../lib/eventGroups.ts';
 import { verdictTextTone, verdictTone } from '../lib/tones.ts';
 import { useToggleSet } from '../lib/useToggleSet.ts';
+import { Markdown } from './Markdown.tsx';
 
 /**
  * Вызов инструмента одной строкой: запрос, решение и результат вместе.
@@ -94,7 +95,9 @@ function PlainEvent({ e, currency }: { e: RunEvent; currency?: string }): JSX.El
   switch (e.type) {
     case 'assistant_text':
       return (
-        <div className="whitespace-pre-wrap font-sans text-sm text-neutral-200">{e.text}</div>
+        <div className="font-sans text-neutral-200">
+          <Markdown text={e.text} />
+        </div>
       );
 
     case 'thinking':

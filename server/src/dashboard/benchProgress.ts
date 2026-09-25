@@ -337,6 +337,8 @@ export function progressCard(
   outcome: ProgressOutcome,
   opts: {
     slug: string;
+    /** Проект индекса стенда (`results`/`archive`); не задан — рабочий каталог. */
+    project?: string;
     mtimeMs: number;
     base: DashboardCard | null;
     /** Расход по валютам маршрутов (у рабочей копии стенда `spent` сужен до измеряемых этапов). */
@@ -350,7 +352,7 @@ export function progressCard(
   const usage = opts.cost?.usage ?? opts.base?.usage ?? null;
   const currency = opts.cost !== undefined ? opts.cost.currency : opts.base?.currency;
   return {
-    ref: { source: 'bench', project: DASHBOARD_BENCH_PROJECT, slug: opts.slug },
+    ref: { source: 'bench', project: opts.project ?? DASHBOARD_BENCH_PROJECT, slug: opts.slug },
     status: outcome.status,
     updatedAt: new Date(updated).toISOString(),
     chunk: opts.base?.chunk ?? lastMark?.chunk ?? 1,

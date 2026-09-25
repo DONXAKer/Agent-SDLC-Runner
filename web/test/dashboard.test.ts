@@ -11,7 +11,7 @@ import { STAGE_ORDER, emptyUsage } from '@sdlc-runner/shared';
 import type { DashboardArtifact, DashboardCard, DashboardStage, DashboardStageState, RunSummary } from '@sdlc-runner/shared';
 
 import { EMPTY_FILTER, applyFilter, isFilterEmpty, matchesQuery, parseFilter, projectOptions, serializeFilter } from '../src/lib/dashboardFilter.ts';
-import { cardKey, cardPriority, sortCards } from '../src/lib/dashboardSort.ts';
+import { cardKey, cardPriority, isRunningNow, sortCards } from '../src/lib/dashboardSort.ts';
 import {
   artifactTone,
   defaultDetailStage,
@@ -97,6 +97,24 @@ describe('фильтры', () => {
     deepStrictEqual(applyFilter(cards, { ...EMPTY_FILTER, status: 'done' }).map((c) => c.ref.slug), ['term-1']);
     deepStrictEqual(applyFilter(cards, { ...EMPTY_FILTER, status: 'waiting' }).map((c) => c.ref.slug), ['live-1']);
     deepStrictEqual(applyFilter(cards, { ...EMPTY_FILTER, status: 'live' }).map((c) => c.ref.slug), ['live-1']);
+  });
+
+  it('«идёт сейчас» — живой виток или стенд с живым процессом, одно правило с фильтром', () => {
+    const bench = (inProgress: boolean): DashboardCard =>
+      card('b', { ref: { source: 'bench', project: 'results', slug: 'b' }, bench: { model: 'm', task: 't', mode: { kind: 'all' }, routes: {}, stopped: '', finalVerdict: null, startedAt: '', finishedAt: '', hasTrace: false, hasReport: false, inProgress } });
+    ok(isRunningNow(card('l', { live: live() })));
+    ok(isRunningNow(bench(true)));
+    ok(!isRunningNow(bench(false)));
+    ok(!isRunningNow(card('x')));
+    deepStrictEqual(applyFilter([bench(true), bench(false)], { ...EMPTY_FILTER, status: 'live' }).length, 1);
+  });
+
+  it('архив стенда скрыт, пока его не выбрали проектом', () => {
+    const old = card('old-1', { ref: { source: 'bench', project: 'archive', slug: 'old-1' } });
+    const all = [...cards, old];
+    ok(!applyFilter(all, EMPTY_FILTER).includes(old));
+    ok(!applyFilter(all, { ...EMPTY_FILTER, source: 'bench' }).includes(old));
+    deepStrictEqual(applyFilter(all, { ...EMPTY_FILTER, project: 'archive' }), [old]);
   });
 
   it('поиск: кириллица в задаче, модель и задача стенда, пробелы — не фильтр', () => {

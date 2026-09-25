@@ -142,12 +142,15 @@ function isoOr(v: string, fallbackMs: number): string {
   return Number.isNaN(t) ? new Date(fallbackMs).toISOString() : new Date(t).toISOString();
 }
 
-export function benchCard(r: BenchResultLite, facts: { mtimeMs: number; hasTrace: boolean; hasReport: boolean }): DashboardCard {
+export function benchCard(
+  r: BenchResultLite,
+  facts: { mtimeMs: number; hasTrace: boolean; hasReport: boolean; project?: string },
+): DashboardCard {
   // Валюта — у этапов, которые реально тратили (общее правило `usageByCurrency`).
   const { usage, currency } = usageByCurrency(r.metrics.stages, (s) => r.run.currencies[s]);
   const lastRec = r.driver.stages[r.driver.stages.length - 1];
   return {
-    ref: { source: 'bench', project: DASHBOARD_BENCH_PROJECT, slug: r.run.slug },
+    ref: { source: 'bench', project: facts.project ?? DASHBOARD_BENCH_PROJECT, slug: r.run.slug },
     status: benchStatus(r),
     updatedAt: isoOr(r.run.finishedAt, facts.mtimeMs),
     chunk: lastRec?.chunk ?? 1,
@@ -203,9 +206,12 @@ export class BenchIndex {
   private resultsDirMtime = -1;
   private fullScanAt = 0;
   readonly dir: string;
+  /** Проект карточек в адресе: `results` у рабочего каталога, `archive` у архива стенда. */
+  readonly project: string;
 
-  constructor(dir: string) {
+  constructor(dir: string, project: string = DASHBOARD_BENCH_PROJECT) {
     this.dir = dir;
+    this.project = project;
   }
 
   get resultsDir(): string {
@@ -258,7 +264,12 @@ export class BenchIndex {
             // Слаг адреса — имя файла, а не поле внутри: переименованный файл иначе
             // открывался бы по имени, которого в каталоге нет.
             { ...r, run: { ...r.run, slug } },
-            { mtimeMs: st.mtimeMs, hasTrace: existsSync(this.tracePath(slug)), hasReport: existsSync(this.reportPath(slug)) },
+            {
+              mtimeMs: st.mtimeMs,
+              hasTrace: existsSync(this.tracePath(slug)),
+              hasReport: existsSync(this.reportPath(slug)),
+              project: this.project,
+            },
           );
     this.entries.set(slug, { mtimeMs: st.mtimeMs, size: st.size, card });
   }
