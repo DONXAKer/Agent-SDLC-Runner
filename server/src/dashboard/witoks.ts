@@ -120,6 +120,15 @@ function stageOutputs(def: StageDef, ctx: StageContext, required: readonly strin
  * Сумма расхода по этапам снапшота и её валюта. Валюта витка — из сумм по валютам
  * (`spent`), и только тех, что реально тратились: рубли с долларами в одну сумму не
  * складываются, у смешанного расхода стоимость не называется.
+ *
+ * Не то же самое, что `metricsSnapshot.ts::usageByCurrency` (им считает `bench.ts`): та
+ * функция берёт валюту ПО ЭТАПУ (`currencyOf`) и от набора этапов, которые реально тратили
+ * по `usage.costUsd`; эта — из отдельного снимка `spent` (`SpentLedger`, копится, только
+ * пока `countsTowardBudget(budgetStages, stage)` — бюджет сужает бенчу). Здесь это цело:
+ * `budgetStages` для витков сервера (`ui`/`terminal`, не через `bench.ts`) всегда `null`
+ * (сужает только `bench/src/cli.ts`), и `spent` копится по тому же набору этапов, что и
+ * `stages[].usage` ниже. Если когда-нибудь `budgetStages` станет доступен обычному витку —
+ * это разойдётся, и здесь тоже нужен будет `usageByCurrency` с картой валют по этапам.
  */
 function usageFromMetrics(paths: WitokPaths): { usage: Usage | null; currency: string | undefined } {
   const r = readMetricsRaw(paths);

@@ -14,7 +14,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { BENCH_RUN_STATE_FILE, DASHBOARD_BENCH_PROJECT, STAGE_ORDER, addUsage, emptyUsage } from '@sdlc-runner/shared';
+import { BENCH_RUN_STATE_FILE, DASHBOARD_BENCH_PROJECT, STAGE_ORDER } from '@sdlc-runner/shared';
 import type { DashboardCard, HistoryStatus, RunMetrics, StageId, Verdict } from '@sdlc-runner/shared';
 
 import { normalizeMetrics, usageByCurrency } from '../run/metricsSnapshot.ts';

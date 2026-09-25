@@ -198,11 +198,6 @@ export function dashboardDetail(
   return d === null ? { error: `витка ${slug} нет в проекте ${project.key}`, code: 404 } : { ok: d };
 }
 
-/** Корень проекта карточки витка — для правил, которым нужен контекст (полнота задачи). */
-function projectRootFor(source: string, key: string, projects: readonly DashboardProjectRef[]): string | null {
-  return source === 'bench' ? null : (projectByKey(projects, key)?.projectRoot ?? null);
-}
-
 /** Растущие логи полезны хвостом: там текущий этап и строка конца. */
 function readsTail(name: string): boolean {
   return name === 'progress.log' || name.endsWith('.ndjson');
@@ -217,6 +212,10 @@ export function dashboardArtifact(
   benches: readonly BenchIndex[],
 ): Outcome<DashboardArtifactResponse> {
   let abs: string;
+  // Корень проекта карточки витка — для правил, которым нужен контекст (полнота задачи).
+  // Считается один раз и переиспользуется ниже (intent.md): второй `projectByKey` по тому
+  // же ключу был бы лишним поиском по конфигу на каждый запрос содержимого файла.
+  const project = source === 'bench' ? null : projectByKey(projects, projectKey);
   if (source === 'bench') {
     const bench = benchFor(benches, projectKey);
     if (bench === null || !bench.has(slug)) return { error: `прогона стенда ${slug} нет`, code: 404 };
@@ -230,7 +229,6 @@ export function dashboardArtifact(
       abs = r.abs;
     } else return { error: `файла ${name} у прогона ${slug} нет`, code: 404 };
   } else if (source === 'ui' || source === 'terminal') {
-    const project = projectByKey(projects, projectKey);
     if (project === null) return { error: `проекта ${projectKey} нет в конфиге`, code: 404 };
     const r = resolveWitokArtifact(new WitokPaths(project.projectRoot, slug), name);
     if ('error' in r) return r;
@@ -254,7 +252,7 @@ export function dashboardArtifact(
       placeholders: !countsPlaceholders(name)
         ? 0
         : name === 'intent.md' && source !== 'bench'
-          ? intentPlaceholderCount({ paths: new WitokPaths(projectRootFor(source, projectKey, projects) ?? '', slug), chunk: 1, attempt: 1 }, read.text, false)
+          ? intentPlaceholderCount({ paths: new WitokPaths(project?.projectRoot ?? '', slug), chunk: 1, attempt: 1 }, read.text, false)
           : countPlaceholders(read.text),
       sizeBytes: read.sizeBytes,
       truncated: read.truncated,

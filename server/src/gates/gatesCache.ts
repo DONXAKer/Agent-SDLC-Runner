@@ -25,7 +25,13 @@ export function readGatesCached(path: string): GatesFile | null {
     return null;
   }
   const hit = cache.get(path);
-  if (hit !== undefined && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.parsed;
+  if (hit !== undefined && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+    // Перенос в конец Map на попадании — иначе предел ниже вытесняет по FIFO, а не LRU,
+    // и горячий набор проекта может уйти раньше холодного.
+    cache.delete(path);
+    cache.set(path, hit);
+    return hit.parsed;
+  }
   const a = readArtifact(path);
   if (!a.exists) {
     cache.delete(path);

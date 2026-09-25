@@ -10,7 +10,7 @@
  * проходит, а путь — нет (тот же приём, что у гейта одобрений, `approval/gate.ts`).
  */
 
-import { closeSync, openSync, readSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
 import { RUNNER_DIR, WitokPaths, isWitokArtifactName } from '../artifacts/paths.ts';
@@ -118,19 +118,25 @@ export function readCapped(
   const buf = Buffer.alloc(len);
   const fd = openSync(abs, 'r');
   let read = 0;
+  let sizeBytes = size;
   try {
     while (read < len) {
       const n = readSync(fd, buf, read, len - read, start + read);
       if (n === 0) break;
       read += n;
     }
+    // Актуальный размер — из уже открытого дескриптора, а не из `stat` перед чтением:
+    // растущий лог (`progress.log`) может быть усечён или переписан между ними (повтор
+    // слага), и вернуть устаревшие `sizeBytes`/`truncated` для файла, который на самом
+    // деле уже меньше потолка целиком.
+    sizeBytes = fstatSync(fd).size;
   } finally {
     closeSync(fd);
   }
   // Только прочитанное: файл, усечённый между `stat` и чтением (повтор слага обнуляет лог),
   // иначе отдавал бы хвост из нулевых байтов.
   let text = buf.subarray(0, read).toString('utf8');
-  const truncated = size > cap;
+  const truncated = sizeBytes > cap;
   if (truncated && from === 'tail') {
     // Хвост начинается с границы строки: первая строка куска — обрубок (у ленты — битый
     // JSON), её показывать незачем.
@@ -140,7 +146,7 @@ export function readCapped(
     // Обрезка посреди многобайтного символа даёт «�» на краю — это артефакт потолка, не файла.
     text = text.replace(/�+$/, '');
   }
-  return { text, sizeBytes: size, truncated, tail: truncated && from === 'tail' };
+  return { text, sizeBytes, truncated, tail: truncated && from === 'tail' };
 }
 
 /** Файлы прогона стенда — закрытый словарь имён (пути к ним собирает `detail.ts::BENCH_FILES`). */

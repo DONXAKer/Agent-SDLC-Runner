@@ -58,6 +58,10 @@ export function fileFacts(absPath: string, name: string): FileFacts {
   if (!countsPlaceholders(name)) return { exists: true, sizeBytes: st.size, mtimeMs: st.mtimeMs, placeholders: 0 };
   const hit = cache.get(absPath);
   if (hit !== undefined && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+    // Порядок вставки Map — порядок давности для trimOldest: без переноса записи в конец
+    // на каждом попадании кэш вытеснял бы горячий путь наравне с холодным (FIFO, не LRU).
+    cache.delete(absPath);
+    cache.set(absPath, hit);
     return { exists: true, sizeBytes: st.size, mtimeMs: st.mtimeMs, placeholders: hit.placeholders };
   }
   const placeholders = readArtifact(absPath).placeholders;
