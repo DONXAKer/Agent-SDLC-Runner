@@ -91,11 +91,26 @@ export function NewRunWizard({
     ),
   ];
 
+  /**
+   * Модель → этап, где она встретилась на верификации, если такой есть — иначе `undefined`
+   * (`api.probe` тогда меряет исполнителя, штатное умолчание). Роль решает набор кейсов на
+   * сервере (критерий 3 квалификации рецензента, `docs/proposals/reviewer-qualification.md`):
+   * `reviewFill` не вызывает инструментов, и проба Write/Edit мерила бы не тот порог для
+   * кандидата-рецензента. Модель, встретившаяся сразу на нескольких этапах (ансамбль
+   * рецензентов), — verify побеждает: именно она решает, ловит ли роль испытание.
+   */
+  const stageOfModel = new Map<string, StageId>();
+  for (const s of Object.keys(base) as StageId[]) {
+    for (const m of stageOverrides[s] !== undefined ? [stageOverrides[s]!] : (base[s] ?? [])) {
+      if (m !== '' && (s === 'verify' || !stageOfModel.has(m))) stageOfModel.set(m, s);
+    }
+  }
+
   const runProbe = async (): Promise<void> => {
     setProbe({ running: true, lines: effectiveModels.map((m) => ({ model: m, cases: null, error: null })) });
     for (const m of effectiveModels) {
       try {
-        const r = await api.probe(m);
+        const r = await api.probe(m, stageOfModel.get(m));
         setProbe((prev) => ({
           ...prev,
           lines: prev.lines.map((l) =>

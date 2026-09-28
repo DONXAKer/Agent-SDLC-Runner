@@ -688,7 +688,11 @@ export function buildReport(input: ReportInput): Report {
   // код 1» стёрло бы единственный измеряемый здесь исход. Контрольный прогон без посева
   // (`none`) судится наоборот — по отсутствию ложных срабатываний.
   else if (seed !== null) exitCode = (seed.seedId === SEED_NONE ? !seed.caught : seed.caught) ? 0 : 1;
-  else if (result.finalVerdict?.passed === true && result.driver.stopped === 'handoff') exitCode = 0;
+  // `verify-measured` — `--stage verify` остановился сразу после вердикта ЭТОЙ попытки
+  // (не уходит на chunk следующей, `driver.ts::stopAfterVerify`): зелёный вердикт здесь —
+  // тот же успешный исход измерения, что и зелёный `handoff` на полном витке.
+  else if (result.finalVerdict?.passed === true && (result.driver.stopped === 'handoff' || result.driver.stopped === 'verify-measured'))
+    exitCode = 0;
   else exitCode = 1;
 
   const md = [
@@ -733,7 +737,10 @@ export function buildReport(input: ReportInput): Report {
       : [
           '## Посев',
           '',
-          `\`${seed.seedId}\` · ${seed.klass}`,
+          `\`${seed.seedId}\` · ${seed.klass}` +
+            (seed.seedId === SEED_NONE
+              ? ''
+              : ` · ${seed.expected === 'gate' ? 'gate-класс — контроль автоматики набора, не находимость рецензента' : 'review-класс — ловит только чтение diff’а'}`),
           '',
           seed.caught ? `Пойман: ${seed.where.join(', ')}.` : 'НЕ пойман ни автоматикой, ни отчётом.',
           '',

@@ -53,6 +53,7 @@ function route(stage: StageId): ResolvedRoute {
     skipTurnAfterReviewFill: false,
     planAxisFill: false,
     stepFill: false,
+    stepContext: false,
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,

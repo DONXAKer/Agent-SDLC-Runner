@@ -84,7 +84,7 @@ function greenResult() {
 
   const m = metrics({
     stages: [
-      { stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01, durationMs: 1000 }, durationMs: 1000 },
+      { stage: 'intent', runs: 1, usage: { inputTokens: 100, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01, durationMs: 1000 }, durationMs: 1000, requestDurationsMs: [] },
     ],
     friction: [{ stage: 'intent', repeat: 0, badJson: 0, denied: 0, truncated: 0, toolCalls: 5, reminders: 0 }],
   });
@@ -647,6 +647,25 @@ describe('buildReport: коды возврата', () => {
       seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: false, where: [], note: 'не назван' },
     });
     strictEqual(missed.exitCode, 1);
+  });
+
+  it('«## Посев» называет класс (review/gate) — критерий 5 квалификации рецензента: «3/8» не должно смешивать находимость с контролем автоматики', () => {
+    const r = greenResult();
+    const review = reportOf({
+      result: r,
+      hidden: null,
+      honesty: [],
+      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: true, where: ['report'], note: 'назван' },
+    });
+    ok(review.markdown.includes('review-класс — ловит только чтение diff’а'), review.markdown);
+
+    const gate = reportOf({
+      result: r,
+      hidden: null,
+      honesty: [],
+      seed: { seedId: 'weight-step-off-by-one', klass: 'off-by-one на границе', expected: 'gate', caught: true, where: ['gate'], note: 'гейт «Тесты» красный' },
+    });
+    ok(gate.markdown.includes('gate-класс — контроль автоматики набора, не находимость рецензента'), gate.markdown);
   });
 
   it('контрольный прогон без посева судится наоборот — по отсутствию срабатываний', () => {

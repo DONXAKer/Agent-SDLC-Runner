@@ -22,6 +22,7 @@ import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
 
 import { normalize } from '../exec/normalize.ts';
 import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
 import { packForClaim, splitHunks } from './claimEvidence.ts';
 
 export interface ClaimAsk {
@@ -206,6 +207,18 @@ export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
     i.onUsage?.(response.usage);
     const { answeredIdx, calls } = parseClaimsCombinedAnswer(group, response.text);
     out.push(...calls);
+    // Мишень корпуса `claimFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
+    // `bench/src/corpus.ts`) — до этой правки трасса писалась (`host.trace('verify',
+    // 'claimFill')`), а метку не ставил никто: три из пяти заявленных обучаемых режимов
+    // были структурно недостижимы (code-review-all, 2026-09-27). Оракул — тот же контракт
+    // формы, что у `reviewFill` по осям: «ровно N строк, в том же порядке», и `answeredIdx`
+    // считает попадание в форму независимо от статуса самого пункта.
+    annotateExchange(response.rawLogPath ?? null, {
+      accepted: answeredIdx.size === group.length,
+      oracle: 'record-claim-parse',
+      target: 'claim-fill',
+      reason: answeredIdx.size === group.length ? 'accepted' : `answered-${answeredIdx.size}-of-${group.length}`,
+    });
     if (answeredIdx.size < group.length) {
       i.onProgress?.(`ответ по группе пунктов неполон: разобрано ${answeredIdx.size} из ${group.length}`);
     }

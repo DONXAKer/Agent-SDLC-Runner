@@ -17,6 +17,7 @@ import type { WitokPaths } from '../artifacts/paths.ts';
 
 const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const numList = (v: unknown): number[] => (Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number' && Number.isFinite(x)) : []);
 const obj = (v: unknown): Record<string, unknown> | null =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 
@@ -54,6 +55,7 @@ export function normalizeMetrics(input: unknown): RunMetrics {
       runs: num(s['runs']),
       usage: { ...emptyUsage(), ...(u === null ? {} : (u as object)) },
       durationMs: num(s['durationMs']),
+      requestDurationsMs: numList(s['requestDurationsMs']),
     });
   }
   const verdicts = obj(m['verdicts']);

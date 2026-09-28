@@ -42,6 +42,7 @@ import {
   type PlanAxisFillInput,
   type PlanAxisFillResult,
 } from './planAxisFill.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
 import { axisRowOf, axisRowProblems, type AxisName } from '../artifacts/planAxes.ts';
 import type { AxisFillAnswer } from '../artifacts/renderAxes.ts';
 
@@ -298,6 +299,19 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
   // Отмена этапа: провайдер бросает обычную ошибку, и без этой проверки добор спрашивал
   // бы дальше, а вызывающий — просил бы одобрить запись уже после отмены.
   const cancelled = (): PlanAxisFillResult | null => (i.signal.aborted ? { answers: [], envFailure: null } : null);
+  // Мишень корпуса `planAxisFill` (`docs/model-tuning.md`) — та же, что у комбинированного
+  // добора (`planAxisFill.ts::fillPlanAxes`), но здесь на КАЖДЫЙ из пяти шагов свой обмен:
+  // до этой правки ни один из них не размечался (code-review-all, 2026-09-27). Оракул тот
+  // же контракт «ровно N строк», отдельное имя — чтобы не путать со сплошным разбором
+  // комбинированной формы при анализе корпуса.
+  const labelStep = (rawLogPath: string | null, accepted: boolean, reason: string): void => {
+    annotateExchange(rawLogPath, {
+      accepted,
+      oracle: 'plan-axis-parse-step',
+      target: 'plan-axis-fill',
+      reason: accepted ? 'accepted' : reason,
+    });
+  };
 
   // Шаг 1: затронута?
   const r1 = await askOnce(i, affectedQuestion(i));
@@ -309,6 +323,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
     return { answers, envFailure: null };
   }
   const affected = parseAffected(i.axes.length, r1.text);
+  labelStep(r1.rawLogPath, affected.size === i.axes.length, `affected-answered-${affected.size}-of-${i.axes.length}`);
   if (affected.size < i.axes.length) note(`шаг «затронута?»: разобрано ${affected.size} из ${i.axes.length}`);
   const yes = i.axes.filter((_, idx) => affected.get(idx) === true);
   const no = i.axes.filter((_, idx) => affected.get(idx) === false);
@@ -322,6 +337,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
     if ('failed' in r2) note(`шаг «почему не затронута»: ${r2.failed}`);
     else {
       const reasons = parseNumberedLines(no.length, r2.text);
+      labelStep(r2.rawLogPath, reasons.size === no.length, `reasons-answered-${reasons.size}-of-${no.length}`);
       for (const [idx, reason] of reasons) {
         const axis = no[idx]!;
         accept({ axis, affectedText: 'нет', what: `— / ${reason}`, outcome: `н/п — ${reason}` });
@@ -342,6 +358,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
     return { answers, envFailure: null };
   }
   const whats = parseNumberedLines(yes.length, r3.text);
+  labelStep(r3.rawLogPath, whats.size === yes.length, `what-answered-${whats.size}-of-${yes.length}`);
   if (whats.size < yes.length) note(`шаг «что именно в шагах»: разобрано ${whats.size} из ${yes.length}`);
 
   // Шаг 4: исход — по одной оси, одним ключом из конкретных адресатов.
@@ -358,6 +375,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
       continue;
     }
     const choice = parseOutcomeChoice(r4.text, options);
+    labelStep(r4.rawLogPath, choice !== null, 'outcome-not-in-list');
     if (choice === null) {
       note(`исход оси «${axis}» не из списка адресатов: «${r4.text.trim().split('\n')[0] ?? ''}»`);
       continue;
@@ -376,6 +394,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
       continue;
     }
     const risk = parseRiskFields(r5.text);
+    labelStep(r5.rawLogPath, risk !== null, 'risk-fields-incomplete');
     if (risk === null) {
       note(`риск по оси «${axis}»: три поля не разобраны`);
       continue;

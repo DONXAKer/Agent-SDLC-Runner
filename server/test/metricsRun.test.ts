@@ -62,6 +62,7 @@ function route(stage: StageId, over: Partial<ResolvedRoute> = {}): ResolvedRoute
     skipTurnAfterReviewFill: false,
     planAxisFill: false,
     stepFill: false,
+    stepContext: false,
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,
@@ -267,7 +268,7 @@ describe('восстановление метрик из metrics.json', () => {
     // записанный до появления поля — сам тест и проверяет, что рестор не ломается на его
     // отсутствии (тот же принцип, что уже проверен для gates/human/artifactGaps).
     const snapshot: Omit<RunMetrics, 'chunkEvidence'> = {
-      stages: [{ stage: 'chunk', runs: 2, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 }, durationMs: 3000 }],
+      stages: [{ stage: 'chunk', runs: 2, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 0 }, durationMs: 3000, requestDurationsMs: [] }],
       verdicts: { total: 2, red: 1 },
       redByCause: [{ kind: 'gate', count: 1 }],
       attemptsByChunk: [{ chunk: 1, attempts: 2 }],

@@ -75,6 +75,7 @@ function resolveRoute(
     skipTurnAfterReviewFill: def.skipTurnAfterReviewFill ?? false,
     planAxisFill: planAxisFillMode(def.planAxisFill, stage, modelId, problems),
     stepFill: def.stepFill ?? false,
+    stepContext: def.stepContext ?? false,
     compactForms: def.compactForms ?? 'off',
     ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),
     ...(def.historyBudgetBytes === undefined ? {} : { historyBudgetBytes: def.historyBudgetBytes }),

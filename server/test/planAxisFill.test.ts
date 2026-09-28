@@ -5,7 +5,10 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
 
 import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
 import { fillPlanAxes, parsePlanAxesCombinedAnswer } from '../src/run/planAxisFill.ts';
@@ -571,6 +574,60 @@ describe('fillPlanAxes: вопрос только по проблемным ос
     });
     await fillPlanAxes(baseInput({ provider, axisSupportText: '' }));
     ok(!asked.includes('из разведки'));
+  });
+});
+
+const roots: string[] = [];
+after(() => {
+  for (const r of roots) rmSync(r, { recursive: true, force: true });
+});
+
+describe('fillPlanAxes: метка корпуса (code-review-all, 2026-09-27)', () => {
+  it('полный разбор всех осей — accepted: true', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-planaxisfill-'));
+    roots.push(root);
+    const rawPath = join(root, 'exchange.json');
+    const provider: ChatProvider = {
+      name: 'stub-traced',
+      async chat() {
+        return {
+          text: '1. да | шаг 1 | claim-1\n2. нет | н/п | н/п — п',
+          toolCalls: [],
+          usage: USAGE,
+          finishReason: 'end_turn' as const,
+          rawLogPath: rawPath,
+        };
+      },
+    } as unknown as ChatProvider;
+    await fillPlanAxes(baseInput({ provider }));
+    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(label, { accepted: true, oracle: 'plan-axis-parse', target: 'plan-axis-fill', reason: 'accepted' });
+  });
+
+  it('разобрана только одна ось из двух — accepted: false', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-planaxisfill-'));
+    roots.push(root);
+    const rawPath = join(root, 'exchange.json');
+    const provider: ChatProvider = {
+      name: 'stub-traced',
+      async chat() {
+        return {
+          text: '1. да | шаг 1 | claim-1',
+          toolCalls: [],
+          usage: USAGE,
+          finishReason: 'end_turn' as const,
+          rawLogPath: rawPath,
+        };
+      },
+    } as unknown as ChatProvider;
+    await fillPlanAxes(baseInput({ provider }));
+    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(label, {
+      accepted: false,
+      oracle: 'plan-axis-parse',
+      target: 'plan-axis-fill',
+      reason: 'answered-1-of-2',
+    });
   });
 });
 

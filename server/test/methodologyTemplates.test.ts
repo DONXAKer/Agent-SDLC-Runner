@@ -20,7 +20,6 @@ import { builtinFor } from '../src/gates/builtin/index.ts';
 import { openDebt, parseGates, unimplementedGates } from '../src/gates/gatesFile.ts';
 import { readinessVerdict } from '../src/run/stages/preconditions.ts';
 import { RECONCILE_GATE, REVIEW_GATE, UNSCRIPTED_GATES } from '../src/run/stages/verify/gates.ts';
-import { missingClaimIds } from '../src/run/stages/verify/reviewer.ts';
 import { autofillVerificationReport, writeVerdictSection } from '../src/run/verifyAutofill.ts';
 import { computeVerdict } from '../src/verdict/verdict.ts';
 
@@ -106,10 +105,6 @@ describe('реальный шаблон готовности', () => {
 });
 
 describe('ответ рецензента и класс среды (без эталона)', () => {
-  it('missingClaimIds: граница по цифре и регистр', () => {
-    deepStrictEqual(missingClaimIds('CLAIM-1 ✅, claim-12 ❌', ['claim-1', 'claim-2', 'claim-12']), ['claim-2']);
-  });
-
   const input = (over: Partial<VerdictInput>): VerdictInput => ({
     gates: [],
     claims: [],

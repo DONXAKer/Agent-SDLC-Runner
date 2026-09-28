@@ -11,7 +11,11 @@
  * Модельные проверки — расширенная проба (`PREFLIGHT_CASES`): поверх трёх базовых
  * микро-кейсов tool-calling — точность многострочного Edit («некорректная запись»),
  * честность путей («выдумывание»), длинная запись без усечения («нехватка токенов
- * на ответ», `finish_reason: length`).
+ * на ответ», `finish_reason: length`). На `--stage verify` набор ДРУГОЙ —
+ * `REVIEWER_PROBE_CASES` (`server/src/probe.ts`): `reviewFill` не вызывает ни одного
+ * инструмента, и Write/Edit измеряют способности исполнителя chunk, не рецензента
+ * (критерий 3 квалификации рецензента, `docs/proposals/reviewer-qualification.md`) —
+ * `qwen3.6-27b-iq4` (2026-09-27) прошла старый набор и провалила настоящий `reviewFill`.
  *
  * Коды исхода — как у всего бенчмарка: 0 — пройдено, 1 — модель не прошла,
  * 2 — измерение не состоялось (среда/конфиг). Логика кодов живёт здесь одна
@@ -27,10 +31,13 @@ import type { LoadedConfig } from '../../server/src/config/load.ts';
 import { estimateMessageTokens } from '../../server/src/exec/contextBudget.ts';
 import { readSkillBody } from '../../server/src/prompt/build.ts';
 import { stageById } from '../../server/src/run/stages.ts';
-import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
+import { PREFLIGHT_CASES, PROBE_CASE_TIMEOUT_MS, REVIEWER_PROBE_CASES, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
+import type { ProbeCase } from '../../server/src/probe.ts';
 import type { ProbeReport } from '../../server/src/probe.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
 import type { ContextProblem } from '../../server/src/provider/contextCheck.ts';
+import { layoutProblemFor } from '../../server/src/provider/layoutCheck.ts';
+import type { LayoutProblem } from '../../server/src/provider/layoutCheck.ts';
 import { isLoopbackUrl } from '../../server/src/provider/http.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
 import { isEngineEnvFailure, reloadEngine, warmupEngine } from './engine.ts';
@@ -93,6 +100,8 @@ export interface PreflightDeps {
   /** Перезагрузка модели при средовом сбое движка — только за `--engine-reload`. */
   reloadEngine: typeof reloadEngine;
   contextProblem: typeof contextProblemFor;
+  /** Раскладка по видеопамяти ПОСЛЕ прогрева — критерий 1 квалификации рецензента, см. `layoutCheck.ts`. */
+  layoutProblem: typeof layoutProblemFor;
   spawnTest: typeof spawnNodeTest;
   spawnScript: (args: { script: string; cwd: string; timeoutMs: number }) => Promise<NodeTestOutput>;
   loadConfig: () => LoadedConfig;
@@ -107,6 +116,7 @@ function defaultDeps(): PreflightDeps {
     warmup: warmupEngine,
     reloadEngine,
     contextProblem: contextProblemFor,
+    layoutProblem: layoutProblemFor,
     spawnTest: spawnNodeTest,
     // Общий спавн `nodeTest.ts`: своя копия здесь не сбрасывала NODE_TEST_CONTEXT, и
     // `build-check.mjs` фикстуры из-под тестового прогона вёл себя иначе, чем в бою.
@@ -563,6 +573,37 @@ async function checkWarmup(
 }
 
 /**
+ * Раскладка модели по видеопамяти — ТОЛЬКО после успешного прогрева: без него веса ещё не
+ * загружены, и раскладку смотреть не на чем. Критерий 1 квалификации рецензента
+ * (`docs/proposals/reviewer-qualification.md`): частичный CPU-офлоад проходит короткие
+ * изолированные кейсы `--probe` (40–110 с) и вскрывается только настоящей нагрузкой —
+ * `qwen3.6-27b-iq4` (2026-09-27) прошла пробу 3/3 и зависла на реальном `reviewFill`
+ * именно по этой причине (`ollama ps`: 26%/74% CPU/GPU). Реализовано только для Ollama —
+ * см. `layoutCheck.ts`; на прочих провайдерах молча пропускается (`check: null`), не красит.
+ */
+async function checkLayout(deps: PreflightDeps, config: LoadedConfig, opts: BenchOptions): Promise<PreflightCheck | null> {
+  const name = 'модель: раскладка после прогрева';
+  const target = resolveProbeTarget(config.models, opts.model);
+  if ('error' in target) return null;
+  const { def, providerDef } = target;
+  // Реализовано только для Ollama — на прочих провайдерах строка не показывается вовсе,
+  // а не «зелёная по умолчанию»: непроверенное не должно выглядеть проверенным.
+  if (def.provider !== 'ollama') return null;
+
+  const started = Date.now();
+  const problem: LayoutProblem | null = await deps.layoutProblem(
+    def.provider,
+    def.model,
+    providerDef.baseUrl,
+    config.runner.limits.chatTimeoutMs,
+  );
+  const ms = Date.now() - started;
+  return problem === null
+    ? ok(name, false, 'ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима', ms)
+    : bad(name, false, problem.message, ms);
+}
+
+/**
  * Локальный движок с холодными весами — прогрев и перезагрузка имеют смысл только у него.
  * Известные локальные провайдеры по имени — и любой openai-совместимый провайдер на адресе
  * этой машины: провайдер, заведённый под другим именем (`lmstudio2`), иначе молча терял
@@ -598,13 +639,24 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
   }
   const { def, providerDef } = target;
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+  // Роль решает набор кейсов — см. докстринг `REVIEWER_PROBE_CASES` (`probe.ts`) и
+  // критерий 3 квалификации рецензента (`docs/proposals/reviewer-qualification.md`).
+  // `--all` verify не меряет (см. `BenchMode`), поэтому проверяется только `stage`.
+  const forReviewer = opts.mode.kind === 'stage' && opts.mode.stage === 'verify';
+  const cases: readonly ProbeCase[] = forReviewer ? REVIEWER_PROBE_CASES : PREFLIGHT_CASES;
+  // `role` — часть общего `probeArgs`, а не отдельный параметр только первого вызова:
+  // retry одного кейса ниже (`deps.probe({ ...probeArgs, cases: [retryCase] })`) передаёт
+  // НОВЫЙ массив из одного элемента, и вывод роли по ссылочному равенству с
+  // `REVIEWER_PROBE_CASES` на этом retry молча откатывался к `'chunk'` (code-review-all,
+  // 2026-09-28) — `role` в `probeArgs` избавляет от второго места, где это можно забыть.
   const probeArgs = {
     provider,
     model: def.model,
     params: def.params ?? null,
     caseTimeoutMs: opts.probeTimeoutMs ?? PROBE_CASE_TIMEOUT_MS,
+    role: (forReviewer ? 'verify' : 'chunk') as 'chunk' | 'verify',
   };
-  const report: ProbeReport = await deps.probe({ ...probeArgs, cases: PREFLIGHT_CASES });
+  const report: ProbeReport = await deps.probe({ ...probeArgs, cases });
   const toCheck = (c: ProbeReport['cases'][number], detail = c.detail, durationMs = c.durationMs): PreflightCheck => ({
     name: `модель: ${c.name}`,
     ok: c.ok,
@@ -622,7 +674,7 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
       checks.push(toCheck(c, c.timedOut ? `${c.detail} — попробуй больший --probe-timeout, если это разовая нагрузка` : c.detail));
       continue;
     }
-    const retryCase = PREFLIGHT_CASES.find((p) => p.name === c.name);
+    const retryCase = cases.find((p) => p.name === c.name);
     if (retryCase === undefined) {
       checks.push(toCheck(c));
       continue;
@@ -680,6 +732,10 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
         const again = await checkContextWindows(d, ctx);
         checks.push(...again.checks.map((c) => ({ ...c, name: `${c.name} (после перезагрузки)` })));
       }
+    }
+    if (checks.every((c) => c.ok)) {
+      const layout = await checkLayout(d, ctx.config, opts);
+      if (layout !== null) checks.push(layout);
     }
     if (checks.every((c) => c.ok)) {
       checks.push(...(await checkModel(d, ctx.config, opts)));

@@ -7,7 +7,7 @@
  * считается по шагам, а не по числу запросов; лимит ходов этапа действует.
  */
 
-import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, match, ok, strictEqual } from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,6 +23,7 @@ import {
   noChangeReason,
   parseFileContent,
   parseSearchReplace,
+  repairGuidance,
 } from '../src/exec/StepExecutor.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
@@ -116,12 +117,19 @@ function setup(content = A_TS): string {
 }
 
 type Check = ((s: PlanStep) => Promise<StepCheck>) | null;
-const exec = (provider: ChatProvider, steps: PlanStep[], check: Check = null, retryBrief: string | null = null): StepExecutor =>
+const exec = (
+  provider: ChatProvider,
+  steps: PlanStep[],
+  check: Check = null,
+  retryBrief: string | null = null,
+  stepContext = false,
+): StepExecutor =>
   new StepExecutor({
     provider,
     maxResultBytes: 12_000,
     readRangeRequiredAboveBytes: 120_000,
     bashTimeoutMs: 1000,
+    stepContext,
     steps,
     planText: '# План\n\n## Шаги\n1. …',
     humanFacts: '## Факты от человека\n- ставка 90 %',
@@ -180,6 +188,28 @@ describe('разбор ответов шага', () => {
   it('но выдуманный формат без настоящих маркеров парсер не спасает', () => {
     const text = 'SEARCH: `  return a + b;`\nREPLACE: `  return a + b + 1;`\n\nПояснение вокруг.';
     deepStrictEqual(parseSearchReplace(text), []);
+  });
+
+  it('вложенные и незакрытые маркеры никогда не попадают в содержимое замены', () => {
+    const nested = [
+      '<<<<<<< SEARCH',
+      'outer old',
+      '=======',
+      'outer new',
+      '<<<<<<< SEARCH',
+      'inner old',
+      '=======',
+      'inner new',
+      '>>>>>>> REPLACE',
+    ].join('\n');
+    deepStrictEqual(parseSearchReplace(nested), [{ oldStr: 'inner old', newStr: 'inner new' }]);
+    deepStrictEqual(parseSearchReplace('<<<<<<< SEARCH\nold\n=======\nnew'), []);
+  });
+
+  it('принимает только полный многострочный fenced-вариант SEARCH/REPLACE', () => {
+    const answer = ['SEARCH:', '```ts', 'const old = 1;', '```', '', 'REPLACE:', '```ts', 'const next = 2;', '```'].join('\n');
+    deepStrictEqual(parseSearchReplace(answer), [{ oldStr: 'const old = 1;', newStr: 'const next = 2;' }]);
+    deepStrictEqual(parseSearchReplace('SEARCH: `const old = 1;`\nREPLACE: `const next = 2;`'), []);
   });
 });
 
@@ -288,6 +318,37 @@ describe('исполнение по шагам', () => {
     strictEqual(r.turns, undefined);
     ok(provider.asked[1]!.includes('фрагмент не найден'), provider.asked[1]);
     ok(readFileSync(join(root, 'src/a.ts'), 'utf8').includes('return 0;'));
+  });
+
+  it('пишет положительную метку корпуса только после механической проверки шага', async () => {
+    const root = setup();
+    const rawPath = join(root, 'exchange.json');
+    const provider: ChatProvider = {
+      name: 'stub-with-raw-log',
+      async chat() {
+        return {
+          text: SR('  return a + b;', '  return a + b + 1;'),
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn',
+          rawLogPath: rawPath,
+        };
+      },
+    };
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const result = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({ status: 'ok' })).run(
+      request(root),
+      hooks(seen),
+    );
+
+    ok(result.ok, result.note);
+    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(label, {
+      accepted: true,
+      oracle: 'gate:Сборка',
+      target: 'plan-step',
+      reason: 'check-passed',
+    });
   });
 
   it('новый файл с красной проверкой чинится блоками замены, а не файлом целиком', async () => {
@@ -512,6 +573,27 @@ describe('исполнение по шагам', () => {
   });
 });
 
+describe('stepContext (ModelDef.stepContext)', () => {
+  it('выключен по умолчанию: `buildStepContext` не подмешивается в промпт шага', async () => {
+    const root = setup();
+    writeFileSync(join(root, 'src/b.ts'), 'export function helper(): void {}\n');
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted(['БЕЗ ПРАВОК: уже реализовано']);
+    await exec(provider, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
+    ok(!provider.asked[0]!.includes('## Контекст проекта для этого шага'), provider.asked[0]);
+  });
+
+  it('включён явно: карта экспортов проекта попадает в промпт шага', async () => {
+    const root = setup();
+    writeFileSync(join(root, 'src/b.ts'), 'export function helper(): void {}\n');
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted(['БЕЗ ПРАВОК: уже реализовано']);
+    await exec(provider, [step({ file: 'src/a.ts' })], null, null, true).run(request(root), hooks(seen));
+    ok(provider.asked[0]!.includes('## Контекст проекта для этого шага'), provider.asked[0]);
+    ok(provider.asked[0]!.includes('src/b.ts'), provider.asked[0]);
+  });
+});
+
 describe('mentionsFile', () => {
   it('явное место падения побеждает — своя строка возвращает true сразу, без substring-фолбэка', () => {
     // Живой текст (сокращённый) d2-devstral-vat-rounding, попытка 3: ошибка называет и
@@ -549,5 +631,35 @@ describe('mentionsFile', () => {
     strictEqual(mentionsFile('server/src/tools/index.ts(5,1): ошибка', 'server/src/exec/index.ts'), false);
     // basename без всякого пути перед ним — второго кандидата в тексте нет, считается своим.
     ok(mentionsFile('index.ts(5,1): ошибка', 'server/src/exec/index.ts'));
+  });
+});
+
+describe('repairGuidance', () => {
+  it('показывает все текущие объявления повторённого идентификатора', () => {
+    const hints = repairGuidance(
+      "SyntaxError: Identifier 'sub' has already been declared",
+      'const sub = subtotal(lines);\nconst invoice = {};\nconst sub = subtotal(lines);\n',
+    );
+    strictEqual(hints.length, 1);
+    match(hints[0]!, /не добавляй ещё одно/);
+    match(hints[0]!, /1: const sub/);
+    match(hints[0]!, /3: const sub/);
+  });
+
+  it('даёт отдельные ограничения для ESM и отсутствующего экспорта', () => {
+    const hints = repairGuidance(
+      "require is not defined; module does not provide an export named 'Money'",
+      null,
+    );
+    ok(hints.some((hint) => hint.includes('ESM')));
+    ok(hints.some((hint) => hint.includes('Money')));
+  });
+
+  it('показывает строки вокруг позиции синтаксической ошибки', () => {
+    const hints = repairGuidance(
+      'file:///C:/work/src/a.ts:3\nSyntaxError: Expression expected',
+      'export function a() {\n  return 1;\n}\n}\n',
+    );
+    ok(hints.some((hint) => hint.includes('строки 3') && hint.includes('4: }')));
   });
 });

@@ -140,6 +140,7 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
     // `contextWindow` (`config/models.json`) не получали от него никакой защиты,
     // потому что этот код его не читал (code-review-all, 2026-09-11).
     ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
+    stepContext: route.stepContext,
     steps,
     planText,
     humanFacts: humanFactsBlock(host.paths.clarificationReport) ?? '',

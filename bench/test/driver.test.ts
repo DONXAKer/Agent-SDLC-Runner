@@ -325,6 +325,101 @@ describe('runBench: stage-timeout не теряет прогресс, если �
   });
 });
 
+/**
+ * `--stage verify` без `--make-snapshot` (`stopAfterVerify`) — серия 2026-09-27/28 показала
+ * driver уходящим на chunk попытки 2 по вердикту `retry`, хотя измерение уже состоялось:
+ * дорого (платный контрольный chunk), нестабильно на восстановленном снимке, и топит
+ * измеренный вердикт шумом падения следующей попытки.
+ */
+describe('runBench: stopAfterVerify — verify-measured вместо ухода на chunk попытки 2', () => {
+  it('вердикт «retry» с stopAfterVerify останавливает виток сразу, chunk попытки 2 не зовётся', async () => {
+    let verifyCalls = 0;
+    let chunkCalls = 0;
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      attemptBudget: 3,
+      lastVerdict: null as Verdict | null,
+      blockers: () => [],
+      blockerDetails: () => [],
+      cancel: () => {},
+      nextAttempt: () => {
+        throw new Error('nextAttempt не должен был вызваться — driver обязан остановиться на verify-measured');
+      },
+      runStage: async (stage: string): Promise<StageResult> => {
+        if (stage === 'chunk') {
+          chunkCalls++;
+          return { ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово' };
+        }
+        if (stage === 'verify') {
+          verifyCalls++;
+          fakeRun.lastVerdict = verdict('retry');
+          return { ok: true, finalText: 'ревью прогнано', usage: emptyUsage(), note: 'готово' };
+        }
+        return { ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово' };
+      },
+    };
+
+    const result = await runBench({
+      run: fakeRun as unknown as Run,
+      stageTimeoutMs: 10_000,
+      runTimeoutMs: 60_000,
+      attempts: 3,
+      startStage: 'verify',
+      stopAfterVerify: true,
+    });
+
+    strictEqual(verifyCalls, 1);
+    strictEqual(chunkCalls, 0, 'chunk попытки 2 не должен был запуститься');
+    strictEqual(result.stopped, 'verify-measured');
+    strictEqual(result.finalVerdict?.action, 'retry');
+  });
+
+  it('без stopAfterVerify вердикт «retry» по-прежнему уходит на chunk (поведение не сломано)', async () => {
+    let chunkCalls = 0;
+    const fakeRun = {
+      chunk: 1,
+      attempt: 1,
+      attemptBudget: 3,
+      lastVerdict: null as Verdict | null,
+      blockers: () => [],
+      blockerDetails: () => [],
+      cancel: () => {},
+      nextAttempt: () => {
+        fakeRun.attempt = 2;
+        // Как настоящий Run.resetAttemptState — retry-переход обнуляет вердикт попытки.
+        fakeRun.lastVerdict = null;
+      },
+      runStage: async (stage: string): Promise<StageResult> => {
+        if (stage === 'chunk') {
+          chunkCalls++;
+          return { ok: false, finalText: '', usage: emptyUsage(), note: 'chunk попытки 2 упал' };
+        }
+        if (stage === 'verify') {
+          fakeRun.lastVerdict = verdict('retry');
+          return { ok: true, finalText: 'ревью прогнано', usage: emptyUsage(), note: 'готово' };
+        }
+        return { ok: true, finalText: 'готово', usage: emptyUsage(), note: 'готово' };
+      },
+    };
+
+    const result = await runBench({
+      run: fakeRun as unknown as Run,
+      stageTimeoutMs: 10_000,
+      runTimeoutMs: 60_000,
+      attempts: 3,
+      startStage: 'verify',
+    });
+
+    strictEqual(chunkCalls, 1, 'chunk попытки 2 обязан был запуститься (поведение без stopAfterVerify не меняется)');
+    strictEqual(result.stopped, 'blocked', 'chunk попытки 2 упал без envFailure — блокировка, как и раньше');
+    // Вердикт измеренной попытки verify не должен пропадать за упавшим chunk'ом попытки 2 —
+    // `run.lastVerdict` к этому моменту уже null (nextAttempt его обнулил), а `finalVerdict`
+    // обязан вернуть вердикт, посчитанный ДО этого обнуления.
+    strictEqual(result.finalVerdict?.action, 'retry', JSON.stringify(result));
+  });
+});
+
 describe('runBench: stage-env-repeat не теряет прогресс, если следующий этап уже разблокирован', () => {
   it('движок падал дважды подряд, но артефакт уже закрывает вход в explore — виток продолжает, не stage-env-repeat', async () => {
     let calls = 0;

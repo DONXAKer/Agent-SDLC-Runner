@@ -1,0 +1,385 @@
+{
+  "run": {
+    "slug": "rag3-ministral-vat",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-09-27T06:22:27.130Z",
+    "finishedAt": "2026-09-27T06:26:59.478Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "шагов 5: применено 0, без правок 0, красных 5 — ни один шаг не дал правки",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 18
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 119435,
+          "outputTokens": 5564,
+          "cacheReadTokens": 72150,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 330294
+        },
+        "durationMs": 272140
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 12,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "chunk",
+        "questions": 0,
+        "approvals": 12,
+        "waitMs": 46
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "chunk-1-journal.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": [
+      {
+        "chunk": 1,
+        "attempt": 1,
+        "testsStatus": "❌",
+        "treeChanged": true,
+        "scopeViolation": false
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "step:9f23cc5f-52f2-464d-b0fb-552893752bff",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "src/vat.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:55ccfb6d-6f4a-456c-a78c-3684ceb25907",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/lines.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:d8395e41-e2a3-43b9-92a3-20d8df9e4371",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/lines.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:0df3ac82-bbe2-4b51-b83b-ce56d6aa70d0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/lines.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:3f9e67d7-aa5e-436a-a7d2-672529413329",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/invoice.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:1b01ac40-38ad-4593-bcbc-1653ddf164da",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/invoice.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:377ec833-b6a8-43f4-b58b-15d65691de42",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/invoice.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:248ef943-4e8c-4c6c-aa53-ce4b247e6e59",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/index.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:b2021d20-9bf4-42f5-8f2f-f3eca5bf0682",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/index.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:06e4723c-2088-47eb-9e65-96d86172f283",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/index.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:b8efaf19-51ef-42c1-95e2-97e267623108",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "test/vat.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "form:03576680-47c6-4c94-b62f-81feca96aa2d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\rag3-ministral-vat\\chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 13239,
+        "userChars": 17121,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 0,
+    "pass": 0,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [],
+    "errorText": "скрытые тесты не дали ни одной разобранной строки TAP — # node:internal/modules/run_main:107\n#     triggerUncaughtException(\n#     ^\n# file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-snap-p3xBJV/src/invoice.ts:52\n# }\n# }\n# ^\n# SyntaxError [ERR_INVALID_TYPESCRIPT_SYNTAX]: Expression expected\n#     at parseTypeScript (node:internal/modules/typescript:72:36)\n#     at processTypeScriptCode (node:internal/modules/typescript:146:42)\n#     at stripTypeScriptModuleTypes (node:internal/modules/typescript:209:22)\n#     at ModuleLoader.<anonymous> (node:internal/modules/esm/translators:680:29)\n#     at \\#translate (node:internal/modules/esm/loader:434:20)\n#     at afterLoad (node:internal/modules/esm/loader:502:29)\n#     at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:507:12)\n#     at \\#getOrCreateModuleJobAfterResolve (node:internal/modules/esm/loader:560:36)\n#     at afterResolve (node:internal/modules/esm/loader:607:52)\n#     at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:613:12) {\n#   code: 'ERR_INVALID_TYPESCRIPT_SYNTAX'\n# }\n# Node.js v24.18.0\n# Subtest: D:\\\\Проекты\\\\Agent-SDLC-Runner\\\\bench\\\\checks\\\\hidden\\\\vat-rounding.hidden.mjs"
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": false,
+      "detail": "скрытые тесты упали до единого теста: скрытые тесты не дали ни одной разобранной строки TAP — # node:internal/modules/run_main:107\n#     triggerUncaughtException(\n#     ^\n# file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-snap-p3xBJV/src/invoice.ts:52\n# }\n# }\n# ^\n# SyntaxError [ERR_INVALID_TYPESCRIPT_SYNTAX]: Expression expected\n#   "
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ]
+}

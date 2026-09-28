@@ -9,7 +9,10 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
 
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import {
@@ -56,6 +59,29 @@ function scripted(answers: string[]): ChatProvider & { asked: string[] } {
       };
     },
   } as unknown as ChatProvider & { asked: string[] };
+}
+
+const roots: string[] = [];
+after(() => {
+  for (const r of roots) rmSync(r, { recursive: true, force: true });
+});
+
+/** Тот же `scripted`, но каждый ответ несёт СВОЙ путь дампа — по порядку, тем же индексом. */
+function scriptedTraced(answers: { text: string; rawLogPath: string }[]): ChatProvider {
+  const queue = [...answers];
+  return {
+    name: 'stub-traced',
+    async chat() {
+      const next = queue.shift() ?? { text: 'нет', rawLogPath: null };
+      return {
+        text: next.text,
+        toolCalls: [],
+        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+        finishReason: 'end_turn' as const,
+        rawLogPath: next.rawLogPath,
+      };
+    },
+  } as unknown as ChatProvider;
 }
 
 describe('разбор ответа по фрагменту', () => {
@@ -232,6 +258,45 @@ describe('конвейер', () => {
     // Сводка называет проверенные файлы — этим она и якорится к патчу.
     ok(r.text.includes('src/tariffs.ts') && r.text.includes('test/oversize.test.ts'));
     ok(r.text.includes('фрагментов проверено 2 из 2'));
+  });
+
+  it('метка корпуса `reviewFill`: хунк с находкой и хунк без — оба принятые обмены; неполный ответ по осям отклонён (code-review-all, 2026-09-27)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-reviewfill-'));
+    roots.push(root);
+    const hunkFoundPath = join(root, 'hunk-found.json');
+    const hunkCleanPath = join(root, 'hunk-clean.json');
+    const axesPath = join(root, 'axes.json');
+    const provider = scriptedTraced([
+      { text: 'review | чтение TARIFF_ZONE_EXTRA без умолчания | src/tariffs.ts:11', rawLogPath: hunkFoundPath },
+      { text: 'нет', rawLogPath: hunkCleanPath },
+      // Отвечена только ось 1 из двух запрошенных — форма «ровно N строк» не выдержана.
+      { text: '1. нет', rawLogPath: axesPath },
+    ]);
+    await reviewByHunks({
+      provider,
+      model: 'stub',
+      params: null,
+      taskContext: '',
+      diff: DIFF,
+      axes: [
+        { name: 'Настройки', affected: false, outcomeRaw: '' },
+        { name: 'Наблюдаемость', affected: false, outcomeRaw: '' },
+      ],
+      hunkBudgetBytes: 12_000,
+      signal: new AbortController().signal,
+    });
+
+    const foundLabel = JSON.parse(readFileSync(`${hunkFoundPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(foundLabel, { accepted: true, oracle: 'record-finding-parse', target: 'review-fill-hunk', reason: 'accepted' });
+    const cleanLabel = JSON.parse(readFileSync(`${hunkCleanPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(cleanLabel, { accepted: true, oracle: 'record-finding-parse', target: 'review-fill-hunk', reason: 'accepted' });
+    const axesLabel = JSON.parse(readFileSync(`${axesPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(axesLabel, {
+      accepted: false,
+      oracle: 'record-finding-parse',
+      target: 'review-fill-axes',
+      reason: 'answered-1-of-2',
+    });
   });
 
   it('оси задаются ОДНИМ запросом независимо от их числа — цена размышления платится один раз, не N раз', async () => {

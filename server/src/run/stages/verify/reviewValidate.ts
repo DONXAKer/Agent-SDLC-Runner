@@ -78,6 +78,28 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Нормализует путь ссылки к тому же виду, в каком пути лежат в `patchPaths`.
+ *
+ * Модели пишут путь так, как его видят в diff'е: `git diff` печатает заголовки вида
+ * `diff --git a/src/x.ts b/src/x.ts`, и модель, честно цитирующая эту строку, называет
+ * `a/src/x.ts` или `diff/src/x.ts` — то же место, что и голый `src/x.ts`. Живой случай
+ * (`qwen3.6:35b-a3b`, серия 2026-09-27/28): ответ отклонялся целиком как «ссылается на
+ * путь, которого нет в патче», хотя путь был ровно тем, что напечатал git — ошибка ФОРМЫ,
+ * а не выдумка. Контракт не ослабляется: путь вне патча/артефактов по-прежнему отказ.
+ *
+ * Снимается не более ОДНОГО `./`, а следом не более ОДНОГО `a/`/`b/`/`diff/` — не цикл
+ * («+» повторял снятие, пока что-то совпадало). Настоящий заголовок git несёт эти префиксы
+ * ровно по одному разу; повторное снятие резало бы легитимный путь с каталогом `a`, `b`
+ * или `diff` в дереве — `normRefPath("a/b/x.ts")` циклом отдавал бы `x.ts`, хотя в
+ * `patchPaths` (из `diffstat`, снимающего ровно один префикс заголовка) лежит `b/x.ts`, и
+ * находка на реально изменённый файл бракуется как путь вне патча (code-review-all,
+ * 2026-09-28).
+ */
+function normRefPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^(?:\.\/)?(?:a\/|b\/|diff\/)?/, '');
+}
+
 function refsOf(item: Record<string, unknown>, where: string, paths: ReadonlySet<string>, errors: string[]): { refs: ReviewRef[]; hitPatch: boolean } {
   const refs: ReviewRef[] = [];
   let hitPatch = false;
@@ -92,8 +114,9 @@ function refsOf(item: Record<string, unknown>, where: string, paths: ReadonlySet
       errors.push(`${where}: ссылка без path/anchor`);
       continue;
     }
-    refs.push({ path: ref['path'], anchor: ref['anchor'] });
-    if (paths.has(ref['path'].replace(/\\/g, '/'))) hitPatch = true;
+    const path = normRefPath(ref['path']);
+    refs.push({ path, anchor: ref['anchor'] });
+    if (paths.has(path)) hitPatch = true;
   }
   return { refs, hitPatch };
 }
@@ -165,8 +188,8 @@ export function validateReview(raw: unknown, intentClaims: ReadonlySet<string>, 
       const { refs, hitPatch } = refsOf(f, where, patchPaths, errors);
       if (refs.length === 0) errors.push(`${where} «${summary.slice(0, 40)}»: без evidence`);
       for (const r of refs) {
-        const p = r.path.replace(/\\/g, '/');
-        if (!patchPaths.has(p) && !ARTIFACT_PATHS.has(basename(p))) {
+        // `r.path` уже нормализован в `refsOf` (`normRefPath`) — второй разбор не нужен.
+        if (!patchPaths.has(r.path) && !ARTIFACT_PATHS.has(basename(r.path))) {
           errors.push(`${where}: ссылается на «${r.path}», которого нет ни в патче, ни среди артефактов`);
         }
       }

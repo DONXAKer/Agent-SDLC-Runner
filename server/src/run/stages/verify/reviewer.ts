@@ -18,10 +18,9 @@ import type { ExecHooks, SubagentDef } from '../../../exec/StageExecutor.ts';
 import { isToolName } from '../../../exec/toolSpecs.ts';
 import { createProvider } from '../../../provider/registry.ts';
 import { AXIS_HINTS, reviewByHunks } from '../../reviewFill.ts';
-import { anchorFound } from '../../verifyReport.ts';
 import type { StageHost } from '../types.ts';
 import { REVIEW_GATE } from './gates.ts';
-import { acceptRecord, evidenceHaystack } from './records.ts';
+import { acceptRecord } from './records.ts';
 
 /**
  * Все шесть осей канона — свободному ходу рецензента, тем же приёмом и по той же причине,
@@ -268,11 +267,36 @@ export async function runReviewerDirectly(
         stage: 'verify',
         message: `ответ рецензента не по контракту verify-review-v1: ${accepted.why} — один повторный запрос`,
       });
+      // Repair — ОДИН запрос (норма методологии, `runner-contract/README.md`), поэтому он
+      // обязан назвать всё, что от ответа требуется, а не только то, что в нём сломано:
+      // список допустимых id и путей патча — то же самое, чем ответ будет судиться повторно
+      // (`reviewInputs`, единый источник с планкой), плюс минимальный скелет JSON. Прежде
+      // повтор называл только ошибку и пересказывал схему словами — качественно способные
+      // модели (`qwen3.6:35b-a3b`, серия 2026-09-27/28) путали форму путей, не имея перед
+      // глазами ни списка допустимых значений, ни примера структуры.
+      const { claimIds, patchPaths } = reviewInputs(host);
+      const skeleton = JSON.stringify(
+        {
+          schema_version: 'agent-sdlc/verify-review/v1',
+          claims: [...claimIds].map((id) => ({ id, status: 'passed|failed|uncertain|manual', evidence: [{ path: '…', anchor: '…' }], remediation: '' })),
+          findings: [],
+          scope: [],
+          invariants: [],
+          regressions: [],
+          retry_instruction: '',
+        },
+        null,
+        2,
+      );
       const retry = await runOnce(
-        `${userWithAxes}\n\n## Повтор: ответ не по контракту\n\nПрошлый ответ не принят: ${accepted.why}. ` +
+        `${userWithAxes}\n\n## Повтор: ответ не по контракту\n\nПрошлый ответ не принят целиком, ошибки: ${accepted.why}.\n\n` +
+          `Допустимые id пунктов приёмки (ровно эти, не больше и не меньше): ${[...claimIds].join(', ')}.\n` +
+          `Пути патча этой попытки (ссылки evidence обязаны называть один из них — либо ` +
+          `intent.md/plan.md/gates.md для находок про артефакты): ${[...patchPaths].join(', ') || '(патч пуст)'}.\n\n` +
           'Дай ответ заново целиком: fenced-блок ```json по схеме verify-review-v1 — `claims` по КАЖДОМУ ' +
           'пункту приёмки задачи (id, status из passed|failed|uncertain|manual, evidence с path и anchor), ' +
-          'находки в `findings`/`scope`/`invariants`/`regressions` с evidence из патча, `retry_instruction` строкой.',
+          'находки в `findings`/`scope`/`invariants`/`regressions` с evidence из патча, `retry_instruction` строкой. ' +
+          `Скелет структуры (заполни реальными значениями, не копируй плейсхолдеры):\n\`\`\`json\n${skeleton}\n\`\`\``,
       );
       if (retry.ok && retry.finalText.trim() !== '') {
         // Планки судят ПОВТОРНЫЙ ответ целиком — его просили быть полным; объединение
@@ -334,18 +358,18 @@ export async function runReviewerDirectly(
 }
 
 /**
- * Почему ответ рецензента ревью НЕ является — `null`, если является. Одни планки на оба
- * пути: прямой прогон рантаймом и `Task` модели этапа (`Run`, `onToolResult`). Прежде
- * путь `Task` ставил гейту ✅ на любой успешный результат, включая пустой ответ
- * субагента во флоу `loop` (code-review-all 2026-09-23).
- *
- * - Ответ ссылается на МЕСТО из патча попытки. Замер r9 дал класс «оформитель» —
- *   `gpt-oss-20b` закрыла бланк за ₽0.48, пометив все гейты «⏭ не запускался» и не найдя
- *   ничего: прогон состоялся, ревью — нет. Планка низкая намеренно — одного совпадения
- *   достаточно.
- * - Вердикт по КАЖДОМУ пункту приёмки задачи (`sdlc-verify/SKILL.md`, проверка ответа
- *   рецензента).
+ * Данные, по которым `parseReviewText` судит ответ: id пунктов задачи и пути патча
+ * попытки. Один читатель на планку (`acceptReviewText`) и на repair-промпт
+ * (`runReviewerDirectly`) — иначе список, который отдаём модели как «допустимо», и список,
+ * по которому её реально судят, могли бы разойтись при первой же правке одного из мест.
  */
+export function reviewInputs(host: StageHost): { claimIds: Set<string>; patchPaths: Set<string> } {
+  const claimIds = new Set([...host.intentClaimLines().keys()].map((c) => c.toLowerCase()));
+  const patch = readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt()));
+  const patchPaths = new Set(patch.exists ? diffstat(patch.text).paths : []);
+  return { claimIds, patchPaths };
+}
+
 /**
  * Ответ рецензента → контракт `verify-review-v1` → записи отчёта. Валидный ответ даёт
  * записи пунктов (`RecordClaim`) и находок (`RecordFinding`) тем же путём, что записи
@@ -353,11 +377,13 @@ export async function runReviewerDirectly(
  * `.chunk-N-attempt-K-review.json`. `ok: false` — ответ не принят, причина названа.
  */
 export function acceptReviewText(host: StageHost, text: string, source: string): { ok: true } | { ok: false; why: string } {
-  const claimIds = new Set([...host.intentClaimLines().keys()].map((c) => c.toLowerCase()));
-  const patch = readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt()));
-  const paths = new Set(patch.exists ? diffstat(patch.text).paths : []);
-  const v = parseReviewText(text, claimIds, paths);
-  if (!v.valid || v.review === null) return { ok: false, why: v.errors.slice(0, 6).join('; ') };
+  const { claimIds, patchPaths } = reviewInputs(host);
+  const v = parseReviewText(text, claimIds, patchPaths);
+  // Прежде — только первые 6 ошибок: repair-запрос строится ИЗ `why`, и обрезанный список
+  // прятал от модели часть контракта, который она нарушила (серия 2026-09-27/28). Полный
+  // список — все реальные ответы дают счёт ошибок в единицах (по одной на находку/claim),
+  // а не сотни; жёсткий потолок на этот случай не нужен.
+  if (!v.valid || v.review === null) return { ok: false, why: v.errors.join('; ') };
   const review = v.review;
   const glyph: Record<ReviewStatus, ClaimStatus> = { passed: '✅', failed: '❌', uncertain: '⚠', manual: 'manual' };
   const refs = (list: readonly ReviewRef[]): string => list.map((r) => `${r.path}:${r.anchor}`).join('; ');
@@ -386,25 +412,4 @@ export function acceptReviewText(host: StageHost, text: string, source: string):
       `находок ${review.findings.length + review.scope.length + review.invariants.length + review.regressions.length}`,
   });
   return { ok: true };
-}
-
-export function reviewProblem(host: StageHost, text: string, anchorText = text): string | null {
-  if (text.trim() === '') return 'рецензент не вернул текста — ревью не состоялось';
-  // Якорь — по всему, что рецензент сказал (после повтора — по обоим ответам): повтор
-  // просили о полноте листа, а ссылки на места патча могли остаться в первом ответе.
-  if (!anchorFound(anchorText, evidenceHaystack(host))) {
-    return 'в ответе рецензента нет ни одной ссылки на место из патча попытки — прогон состоялся, ревью не состоялось';
-  }
-  const missing = missingClaimIds(text, [...host.intentClaimLines().keys()]);
-  if (missing.length > 0) return `ответ рецензента не называет пункты ${missing.join(', ')} — ревью неполно`;
-  return null;
-}
-
-/**
- * Пункты приёмки задачи, которых ответ рецензента не называет ни разу (`claim-N` в любом
- * регистре, с границей по цифре: `claim-1` не засчитывается упоминанием `claim-12`).
- */
-export function missingClaimIds(text: string, claimIds: readonly string[]): string[] {
-  const lower = text.toLowerCase();
-  return claimIds.filter((id) => !new RegExp(`${id.toLowerCase().replace(/[-]/g, '\\-')}(?!\\d)`).test(lower));
 }

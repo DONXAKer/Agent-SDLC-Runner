@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { STAGE_ORDER } from '@sdlc-runner/shared';
-import type { RunEvent, StageId } from '@sdlc-runner/shared';
+import type { RunEvent, RunMetrics, StageId } from '@sdlc-runner/shared';
 import { WitokPaths } from '../../server/src/artifacts/paths.ts';
 import { readPersistedEvents } from '../../server/src/eventLog.ts';
 
@@ -37,8 +37,9 @@ import type { TaskPaths } from './tasks.ts';
 import { rawLogDisabledReason, resetRawLog } from '../../server/src/provider/rawLog.ts';
 import { SEED_NONE, applySeed, probeNoSeed, probeSeed, seedById } from './seeds.ts';
 import type { SeedProbe } from './seeds.ts';
+import { refreshAttemptEvidence } from './seedEvidence.ts';
 import { createProvider } from '../../server/src/provider/registry.ts';
-import { formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
+import { REVIEWER_PROBE_CASES, formatProbe, probeModel, resolveProbeTarget } from '../../server/src/probe.ts';
 import { contextProblemFor } from '../../server/src/provider/contextCheck.ts';
 import { formatPreflight, preflightExitCode, runPreflight } from './preflight.ts';
 import { runHiddenTests } from './hiddenTests.ts';
@@ -194,6 +195,22 @@ interface LiveOutcome {
   durationMs: number;
   /** Сырой дамп выключился отказами записи посреди прогона — причина; `null` — не выключался. */
   rawLogDisabled: string | null;
+  /**
+   * Длительность ОДНОГО запроса к измеряемой модели — максимум и 95-й перцентиль, по всем
+   * запросам всех измеряемых этапов (`built.measured`). `null` — ни одного запроса
+   * измеряемого этапа не было (снимок, обрыв до старта). Отдельно от `durationMs` (время
+   * всего прогона): критерий 2 квалификации рецензента (`docs/proposals/reviewer-qualification.md`)
+   * судит по одному запросу — зависший на 20 минут запрос топит получасовой бюджет этапа, а
+   * общее время прогона это не показывает.
+   */
+  requestLatencyMs: { maxMs: number; p95Ms: number } | null;
+  /**
+   * Щуп посева этого сэмпла — `null`, если `--seed` не задан или прогон не дошёл до
+   * измерения. Несёт `expected` (`'review'`/`'gate'`, `SeedDef.expected`) — критерий 5
+   * квалификации рецензента (`docs/proposals/reviewer-qualification.md`): «3/8» без этой
+   * метки смешивает находимость чтением diff'а с контролем автоматики набора.
+   */
+  seed: SeedProbe | null;
 }
 
 interface LiveRunFlags {
@@ -250,6 +267,10 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       const seed = seedById(opts.seed);
       try {
         applySeed(wsRoot, seed);
+        // Патч снимка снят ДО посева — без перегенерации рецензент (и встроенные гейты)
+        // читают дерево БЕЗ посеянного дефекта: находимость на снимке была бы слепой по
+        // построению стенда, а не по способностям модели (`bench/src/seedEvidence.ts`).
+        await refreshAttemptEvidence(wsRoot, opts.slug);
       } catch (e) {
         wsDispose();
         throw e;
@@ -286,7 +307,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       // целиком печатала «[object Object]» вместо причины.
       console.error(`\nокно контекста (этап «${stage}»): ${problem.message}`);
       wsDispose();
-      return { code: 2, hidden: null, durationMs: 0, rawLogDisabled: null };
+      return { code: 2, hidden: null, durationMs: 0, rawLogDisabled: null, requestLatencyMs: null, seed: null };
     }
   }
 
@@ -489,6 +510,12 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       // умолчание plan) — снимок пишется НИЖЕ, из уже остановленного дерева, а не из
       // драйвера: он про виток, не про файлы снимка.
       ...(opts.makeSnapshot === null ? {} : { stopAfterStage: opts.snapshotAfter }),
+      // `--stage verify` без `--make-snapshot` — usage документирует «измерять один этап»:
+      // не уходить на chunk следующей попытки по вердикту `retry` (серия 2026-09-27/28 —
+      // такой уход платный, неизмеряемый и топит вердикт измеренной попытки шумом chunk'а).
+      ...(opts.makeSnapshot === null && opts.mode.kind === 'stage' && opts.mode.stage === 'verify'
+        ? { stopAfterVerify: true }
+        : {}),
       onDecision: logLine,
     });
     const finishedAt = new Date();
@@ -516,6 +543,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
         hidden: null,
         durationMs: finishedAt.getTime() - startedAt.getTime(),
         rawLogDisabled: rawLogDisabledReason(),
+        requestLatencyMs: requestLatencyOf(run.metrics, built.measured),
+        seed: null,
       };
     }
 
@@ -629,6 +658,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       hidden: hidden === null ? null : { pass: hidden.pass, total: hidden.total },
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       rawLogDisabled,
+      requestLatencyMs: requestLatencyOf(run.metrics, built.measured),
+      seed: seedProbe,
     };
   } catch (e) {
     // Прогон, упавший исключением, — строкой в логе: без неё по файлу он неотличим от ещё
@@ -673,6 +704,11 @@ async function probeRun(opts: BenchOptions): Promise<number> {
     return 2;
   }
   const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+  // Роль решает набор кейсов (критерий 3 квалификации рецензента,
+  // `docs/proposals/reviewer-qualification.md`): `reviewFill` не вызывает ни одного
+  // инструмента, и кейсы Write/Edit измеряют способности исполнителя chunk — не её.
+  // `--all` verify никогда не меряет (см. `BenchMode`), поэтому проверяется только `stage`.
+  const forReviewer = opts.mode.kind === 'stage' && opts.mode.stage === 'verify';
   const report = await probeModel({
     provider,
     model: def.model,
@@ -682,6 +718,8 @@ async function probeRun(opts: BenchOptions): Promise<number> {
     // Свой потолок на КАЖДЫЙ кейс, а не общий на пробу: медленная модель исчерпывала
     // общий сигнал первым кейсом, и остальные красились тем же приговором.
     caseTimeoutMs: opts.stageTimeoutMs,
+    role: forReviewer ? 'verify' : 'chunk',
+    ...(forReviewer ? { cases: REVIEWER_PROBE_CASES } : {}),
   });
   console.log(formatProbe(report));
   // Средовой сбой — «не измерено» (2), как у всего бенчмарка, а не приговор модели.
@@ -706,6 +744,25 @@ function median(values: readonly number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor((sorted.length - 1) / 2)]!;
+}
+
+/** N-й перцентиль (0–100) уже отсортированного не обязан быть — сортируем сами. Пусто — null. */
+function percentile(values: readonly number[], p: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+  return sorted[index]!;
+}
+
+/**
+ * Максимум и p95 длительности ОДНОГО запроса, по всем запросам ИЗМЕРЯЕМЫХ этапов витка —
+ * см. `LiveOutcome.requestLatencyMs`. Пул этапов, а не один: `--all` меряет несколько
+ * этапов разом, и зависший запрос на любом из них одинаково топит бюджет.
+ */
+function requestLatencyOf(metrics: RunMetrics, measured: readonly StageId[]): LiveOutcome['requestLatencyMs'] {
+  const pooled = metrics.stages.filter((s) => measured.includes(s.stage)).flatMap((s) => s.requestDurationsMs);
+  if (pooled.length === 0) return null;
+  return { maxMs: Math.max(...pooled), p95Ms: percentile(pooled, 95)! };
 }
 
 /**
@@ -785,6 +842,47 @@ async function seriesRun(opts: BenchOptions, flags: LiveRunFlags): Promise<numbe
       `  время: медиана ${((median(times) ?? 0) / 60_000).toFixed(1)} мин, ` +
         `разброс ${(Math.min(...times) / 60_000).toFixed(1)}–${(Math.max(...times) / 60_000).toFixed(1)} мин`,
     );
+  }
+  // Латентность ОДНОГО запроса — отдельно от времени всего прогона (критерий 2 квалификации
+  // рецензента, `docs/proposals/reviewer-qualification.md`): худший максимум по серии (не
+  // отличается «повезло один раз» от «стабильно виснет») и медиана p95 (типичный хвост).
+  const withLatency = measuredSamples.filter((o) => o.requestLatencyMs !== null);
+  if (withLatency.length > 0) {
+    const maxes = withLatency.map((o) => o.requestLatencyMs!.maxMs);
+    const p95s = withLatency.map((o) => o.requestLatencyMs!.p95Ms);
+    console.log(
+      `  запрос: p95 медиана ${((median(p95s) ?? 0) / 1000).toFixed(1)} с, ` +
+        `худший максимум по серии ${(Math.max(...maxes) / 1000).toFixed(1)} с` +
+        (withLatency.length < measuredSamples.length
+          ? ` (по ${withLatency.length} из ${measuredSamples.length} сэмплов)`
+          : ''),
+    );
+  }
+  // Находимость посева — ОТДЕЛЬНО по review-классам (ловит только чтение diff'а) и
+  // gate-классам (контроль самой автоматики набора, не рецензента). Критерий 5 квалификации
+  // рецензента (`docs/proposals/reviewer-qualification.md`): смешанное «X из N» уже давало
+  // читателю неверное впечатление о находимости рецензента (`gpt-oss-20b-rf`, «3/8» вместо
+  // честных «1 из 6» review-классов — два из трёх пойманных были gate-контролем).
+  const withSeed = measuredSamples.filter((o): o is LiveOutcome & { slug: string; seed: SeedProbe } => o.seed !== null);
+  if (withSeed.length > 0) {
+    const { seedId, expected } = withSeed[0]!.seed;
+    const caught = withSeed.filter((o) => o.seed.caught).length;
+    const sampleNote = withSeed.length < measuredSamples.length ? ` (по ${withSeed.length} из ${measuredSamples.length} сэмплов)` : '';
+    if (seedId === SEED_NONE) {
+      // `caught` здесь значит «сработало ложно» (`probeNoSeed`), НЕ «дефект пойман» — печатать
+      // той же формулой «поймано N из M», что у настоящего посева, значило бы читаться как
+      // «N дефектов найдено» ровно наоборот смыслу контрольного прогона (code-review-all,
+      // 2026-09-27, критерий 5 квалификации рецензента).
+      console.log(`  посев «none» (контроль — ложные срабатывания): сработало ложно ${caught} из ${withSeed.length}${sampleNote}`);
+    } else {
+      const kindLabel =
+        expected === 'gate'
+          ? 'gate-класс — контроль автоматики набора, НЕ находимость рецензента'
+          : expected === 'review'
+            ? 'review-класс — ловит только чтение diff\'а'
+            : 'класс не размечен';
+      console.log(`  посев «${seedId}» (${kindLabel}): поймано ${caught} из ${withSeed.length}${sampleNote}`);
+    }
   }
 
   // Код серии: «не измерено» (2) — только если не измерился НИ ОДИН сэмпл; по измеренным —

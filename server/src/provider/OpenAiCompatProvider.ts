@@ -38,6 +38,7 @@ import {
   applyParams,
 } from './ChatProvider.ts';
 import { dumpExchange, type TraceLabel } from './rawLog.ts';
+import { leadingThinkEnd, stripLeadingThink } from './think.ts';
 
 interface OpenAiChoice {
   message?: {
@@ -214,12 +215,9 @@ function textCallId(): string {
  * буквально, и такой пример исполнялся бы (code-review-all, 2026-09-15).
  */
 function sequenceStart(text: string): number {
-  let pos = 0;
-  for (;;) {
-    const m = /^\s*<think>[\s\S]*?<\/think>/.exec(text.slice(pos));
-    if (m === null) break;
-    pos += m[0].length;
-  }
+  // Общий примитив с `stripLeadingThink` (`think.ts`) — прежде тот же цикл с той же
+  // регуляркой был продублирован здесь отдельной копией (code-review-all, 2026-09-28).
+  const pos = leadingThinkEnd(text);
   let token = text.indexOf(TOOL_CALLS_TOKEN, pos);
   while (token >= 0 && insideCode(text, token)) token = text.indexOf(TOOL_CALLS_TOKEN, token + TOOL_CALLS_TOKEN.length);
   if (token < 0) return pos;
@@ -536,16 +534,20 @@ export class OpenAiCompatProvider implements ChatProvider {
 
     // Дамп до проверки статуса: неудачный ответ для корпуса ценнее молчания — по нему
     // видно, чем именно кончился ход (обрыв по длине, отказ сервера на схемах инструментов).
-    if (this.o.trace !== undefined) {
-      dumpExchange(this.o.trace, {
-        provider: this.name,
-        model: req.model,
-        request: body,
-        response: text,
-        status,
-        durationMs: Date.now() - started,
-      });
-    }
+    // Путь несём дальше в `ChatTurn.rawLogPath`: потребители, узнающие исход хода ПОСЛЕ
+    // `chat()` (трение цикла, гейт после шага, разбор поля бланка), размечают именно этот
+    // файл — второго способа найти его нет намеренно (`rawLog.ts`, без сводного указателя).
+    const rawLogPath =
+      this.o.trace === undefined
+        ? null
+        : dumpExchange(this.o.trace, {
+            provider: this.name,
+            model: req.model,
+            request: body,
+            response: text,
+            status,
+            durationMs: Date.now() - started,
+          });
 
     if (status < 200 || status >= 300) {
       const message = `${this.name}: HTTP ${status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`;
@@ -642,10 +644,15 @@ export class OpenAiCompatProvider implements ChatProvider {
     };
 
     return {
-      text: content,
+      // Ведущий think вырезается ЗДЕСЬ — единственная точка, откуда `ChatTurn.text` уходит
+      // во весь машиночитаемый канал (reviewFill/FormFill/extractReviewJson и т.д.), см.
+      // докстринг `stripLeadingThink`. `content` (с think) остаётся выше нетронутым — от
+      // него зависит поиск текстовых tool-вызовов и сырой лог.
+      text: stripLeadingThink(content),
       toolCalls,
       finishReason: mapFinish(choice?.finish_reason, toolCalls.length > 0, callsFromText),
       usage,
+      rawLogPath,
     };
   }
 }

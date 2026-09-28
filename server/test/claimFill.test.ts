@@ -8,11 +8,19 @@
  */
 
 import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
 
 import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
 import { packForClaim, splitHunks, topFileForClaim } from '../src/run/claimEvidence.ts';
 import { fillClaims, parseClaimAnswer, parseClaimsCombinedAnswer } from '../src/run/claimFill.ts';
+
+const roots: string[] = [];
+after(() => {
+  for (const r of roots) rmSync(r, { recursive: true, force: true });
+});
 
 const DIFF = [
   'diff --git a/src/tariffs.ts b/src/tariffs.ts',
@@ -224,6 +232,74 @@ describe('добор группами (трек «сумма латентнос�
     });
     strictEqual(out.length, 0);
     strictEqual(envFailure, 'ollama: ECONNREFUSED');
+  });
+
+  it('метка корпуса `claimFill`: полностью разобранная группа — accepted: true (code-review-all, 2026-09-27)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-claimfill-'));
+    roots.push(root);
+    const rawPath = join(root, 'exchange.json');
+    const provider = {
+      name: 'stub',
+      async chat() {
+        return {
+          text: combinedAnswer([1, 2]),
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+          rawLogPath: rawPath,
+        };
+      },
+    } as unknown as ChatProvider;
+    await fillClaims({
+      provider,
+      model: 'stub',
+      params: null,
+      system: 'ты рецензент',
+      claims: claims.slice(0, 2),
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: new AbortController().signal,
+    });
+    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(label, { accepted: true, oracle: 'record-claim-parse', target: 'claim-fill', reason: 'accepted' });
+  });
+
+  it('метка корпуса `claimFill`: неполный разбор группы — accepted: false с числом разобранных строк', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-claimfill-'));
+    roots.push(root);
+    const rawPath = join(root, 'exchange.json');
+    const provider = {
+      name: 'stub',
+      async chat() {
+        // Отвечен только пункт 1 из двух запрошенных — вторая строка отсутствует вовсе.
+        return {
+          text: '1. ✅ | src/tariffs.ts:priceFor | н/п',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+          rawLogPath: rawPath,
+        };
+      },
+    } as unknown as ChatProvider;
+    await fillClaims({
+      provider,
+      model: 'stub',
+      params: null,
+      system: 'ты рецензент',
+      claims: claims.slice(0, 2),
+      diff: DIFF,
+      tests: '',
+      evidenceBudgetBytes: 10_000,
+      signal: new AbortController().signal,
+    });
+    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(label, {
+      accepted: false,
+      oracle: 'record-claim-parse',
+      target: 'claim-fill',
+      reason: 'answered-1-of-2',
+    });
   });
 
   it('отмена останавливает добор перед следующей группой, не откатывая пришедший ответ текущей', async () => {

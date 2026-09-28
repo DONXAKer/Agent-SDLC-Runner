@@ -128,11 +128,18 @@ export function parseBenchResult(v: unknown): BenchResultLite | null {
 
 /**
  * Статус прогона словарём статусов витка: дошёл до передачи с зелёным вердиктом — передан;
- * остановился в точке снимка намеренно — без записи о передаче; всё прочее (блокер,
+ * `--stage verify` без `--make-snapshot` штатно останавливается сразу после вердикта ЭТОЙ
+ * попытки (`driver.ts::stopAfterVerify`, причина `verify-measured`) — измерение состоялось,
+ * читается тем же правилом, что и `handoff` (зелёный вердикт → передан, иной → оборван);
+ * без этой строки такой прогон падал в общий `'aborted'` веткой ниже даже при зелёном
+ * вердикте (code-review-all, 2026-09-28: дашборд не знал о новой причине остановки).
+ * Остановился в точке снимка намеренно — без записи о передаче; всё прочее (блокер,
  * таймаут, escalate, исчерпанные попытки) — оборван.
  */
 export function benchStatus(r: BenchResultLite): HistoryStatus {
-  if (r.driver.stopped === 'handoff') return r.driver.finalVerdict?.passed === true ? 'done' : 'aborted';
+  if (r.driver.stopped === 'handoff' || r.driver.stopped === 'verify-measured') {
+    return r.driver.finalVerdict?.passed === true ? 'done' : 'aborted';
+  }
   if (r.driver.stopped === 'snapshot-point') return 'unfinished';
   return 'aborted';
 }

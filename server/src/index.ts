@@ -39,7 +39,7 @@ import { scopeViolations } from './gates/builtin/logic.ts';
 import { normalizePlanPath } from './policy/paths.ts';
 import { readArtifact } from './artifacts/artifact.ts';
 import { Run } from './run/Run.ts';
-import { PROBE_CASE_TIMEOUT_MS, formatProbe, probeModel, resolveProbeTarget } from './probe.ts';
+import { PROBE_CASE_TIMEOUT_MS, REVIEWER_PROBE_CASES, formatProbe, probeModel, resolveProbeTarget } from './probe.ts';
 import { stopSandboxForProject } from './sandbox/registry.ts';
 import { createProvider } from './provider/registry.ts';
 import { detectSandboxSpec } from './sandbox/detect.ts';
@@ -204,7 +204,7 @@ app.get('/api/config', (): ConfigInfo => ({
  * потом запустят, не переопределённую.
  */
 app.post('/api/probe', async (req, reply) => {
-  const body = req.body as { model?: string };
+  const body = req.body as { model?: string; stage?: string };
   if (typeof body.model !== 'string' || body.model === '') {
     return reply.code(400).send({ error: 'нужно поле model' });
   }
@@ -217,6 +217,15 @@ app.post('/api/probe', async (req, reply) => {
   const { def, providerDef } = target;
   try {
     const provider = createProvider(def.provider, providerDef, config.runner.limits.chatTimeoutMs);
+    // Роль решает набор кейсов (критерий 3 квалификации рецензента,
+    // `docs/proposals/reviewer-qualification.md`): `reviewFill` не вызывает ни одного
+    // инструмента, и кейсы Write/Edit меряют способности исполнителя chunk — не её.
+    // До этой правки ручка всегда мерила «дошла до вызова инструмента», и оператор в
+    // мастере запуска получал зелёную пробу для кандидата-рецензента, который потом
+    // зависал на настоящем `reviewFill` (`qwen3.6-27b-iq4`, 2026-09-27) — тот же класс
+    // ложноположительной квалификации, что чинили в `bench/src/cli.ts`/`preflight.ts`
+    // этой же сессией, но здесь не починенный до code-review-all.
+    const forReviewer = body.stage === 'verify';
     const report = await probeModel({
       provider,
       model: def.model,
@@ -224,6 +233,8 @@ app.post('/api/probe', async (req, reply) => {
       // Потолок кейса СВОЙ, а не транспортный `chatTimeoutMs`: проба обещает секунды, и
       // три кейса по десять минут держали бы HTTP-запрос дольше самого замера.
       caseTimeoutMs: Math.min(config.runner.limits.chatTimeoutMs, PROBE_CASE_TIMEOUT_MS),
+      role: forReviewer ? 'verify' : 'chunk',
+      ...(forReviewer ? { cases: REVIEWER_PROBE_CASES } : {}),
     });
     return { report, text: formatProbe(report) };
   } catch (e) {

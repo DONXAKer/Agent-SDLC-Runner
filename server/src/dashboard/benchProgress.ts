@@ -257,7 +257,11 @@ export interface ProgressOutcome {
 
 function finishedStatus(info: ProgressInfo): HistoryStatus {
   if (info.snapshot !== null || info.stopped === 'snapshot-point') return 'unfinished';
-  if (info.stopped === 'handoff' && info.verdict === 'continue') return 'done';
+  // `verify-measured` — тот же смысл, что `handoff`: измерение состоялось, зелёный вердикт
+  // (`continue`) читается как «передан» (см. `dashboard/bench.ts::benchStatus`, синхронная
+  // правка тем же коммитом — до неё живая панель показывала «оборван» на успешном
+  // `--stage verify` без `--make-snapshot`, code-review-all 2026-09-28).
+  if ((info.stopped === 'handoff' || info.stopped === 'verify-measured') && info.verdict === 'continue') return 'done';
   return 'aborted';
 }
 

@@ -505,7 +505,13 @@ export class SdkExecutor implements StageExecutor {
       }
     }
 
-    hooks.onUsage(latestUsage);
+    // `duration_ms` уже приходит в самом результате SDK (`usageFromResult`) — второй
+    // аргумент даёт его `requestDurationsMs` (критерий 2 квалификации рецензента,
+    // `docs/proposals/reviewer-qualification.md`): без него флоу `sdk` (Claude Max —
+    // `claude-sdk:opus`/`sonnet`, обычный маршрут рецензента) не измерялся вовсе, найдено
+    // code-review-all в этой же сессии. `0` (поле не пришло) не передаём — иначе
+    // «мгновенный» фиктивный запрос портил бы p95.
+    hooks.onUsage(latestUsage, latestUsage.durationMs > 0 ? latestUsage.durationMs : undefined);
 
     // Вызовы, исполненные мимо гейта. Остановить их задним числом нельзя, но молчать
     // о них нельзя тем более: «прошло через одобрение» должно означать ровно это.

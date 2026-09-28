@@ -26,10 +26,12 @@ import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
 import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
 
 import type { ChatMessage, ChatProvider, ChatToolCall } from '../provider/ChatProvider.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
 import { normalize } from './normalize.ts';
 import type {
   ExecHooks,
   ExecRequest,
+  FrictionKind,
   StageExecutor,
   StageResult,
   SubagentDef,
@@ -220,6 +222,24 @@ export class LoopExecutor implements StageExecutor {
     return { ...result, turns: meter.turns };
   }
 
+  /**
+   * Трение цикла — рантайм-хук для метрик (`hooks.onFriction`) плюс метка на сыром дампе
+   * для корпуса (`docs/model-tuning.md`), одним вызовом: два места, знающие о трении хода,
+   * расходились бы при первой же новой причине.
+   *
+   * `frictions` — МАССИВ, не скаляр: `rawLogPath` — путь ПОСЛЕДНЕГО запроса к модели, а не
+   * этого конкретного вызова инструмента, и несколько вызовов одного хода (пакет
+   * `Promise.all` параллельных субагентов, серия вызовов одного хода) делят один и тот же
+   * обмен. `annotateExchange` мержит массивы между вызовами — без этого вторая разметка
+   * того же пути стирала бы первую причину трения молча (code-review-all, 2026-09-27).
+   * `loop` не входит в `TRAINABLE_MODES` корпуса — метка здесь чисто диагностическая, не
+   * влияет на выборку обучающих пар.
+   */
+  private friction(hooks: ExecHooks, kind: FrictionKind, rawLogPath: string | null): void {
+    hooks.onFriction(kind);
+    annotateExchange(rawLogPath, { frictions: [kind] });
+  }
+
   private async runTurns(req: ExecRequest, hooks: ExecHooks, meter: { turns: number }): Promise<StageResult> {
     const toolCtx: ToolContext = {
       projectRoot: req.cwd,
@@ -251,6 +271,13 @@ export class LoopExecutor implements StageExecutor {
 
     let usage: Usage = emptyUsage();
     let finalText = '';
+    /**
+     * Путь сырого дампа (`provider/rawLog.ts`) ПОСЛЕДНЕГО запроса к модели — не только
+     * этого хода: `friction()` ниже размечает по нему трение, случившееся уже ПОСЛЕ
+     * ответа (серия чтений, повтор вызова внутри `handleCall`), а точного второго
+     * запроса к этому моменту ещё не было. `null` — дампа не было вовсе либо он выключен.
+     */
+    let lastRawLogPath: string | null = null;
     /**
      * Сколько ходов рантайм САМ сжал `max_tokens` до пола и не смог уместить историю в
      * бюджет. Нужно исходу этапа: обрыв по длине после такого сжатия — предел окна, а не
@@ -383,7 +410,7 @@ export class LoopExecutor implements StageExecutor {
         req.progressSignal() === 0
       ) {
         noProgressNudged = true;
-        hooks.onFriction('reminder');
+        this.friction(hooks, 'reminder', lastRawLogPath);
         pushUserNote(
           messages,
           `Пройдено ${turnsDone} ходов из ${req.maxTurns}, а прогресса этапа всё ещё нет. ` +
@@ -423,6 +450,7 @@ export class LoopExecutor implements StageExecutor {
         }),
       });
 
+      lastRawLogPath = answer.rawLogPath ?? null;
       usage = addUsage(usage, answer.usage);
       // `0` входных токенов от сервера — признак того, что сервер вовсе не прислал usage
       // (`OpenAiCompatProvider.ts` подставляет 0 по умолчанию), а не что окно опустело:
@@ -503,7 +531,7 @@ export class LoopExecutor implements StageExecutor {
 
           if (complaint !== null && reminders < FINISH_REMINDERS) {
             reminders++;
-            hooks.onFriction('reminder');
+            this.friction(hooks, 'reminder', lastRawLogPath);
             hooks.onWarn(`${complaint} (напоминание ${reminders} из ${FINISH_REMINDERS})`);
             messages.push({ role: 'assistant', content: answer.text, toolCalls: [] });
             messages.push({ role: 'user', content: complaint });
@@ -618,7 +646,7 @@ export class LoopExecutor implements StageExecutor {
         repeats = isNewTurnFingerprint ? 0 : repeats + 1;
         lastFingerprint = turnFingerprint;
         if (isNewTurnFingerprint) noProgressWarnedForTurn = null;
-        if (repeats > 0) hooks.onFriction('repeat');
+        if (repeats > 0) this.friction(hooks, 'repeat', lastRawLogPath);
 
         if (repeats + 1 >= REPEAT_LIMIT) {
           const doneAnyway = finishedByDisk();
@@ -648,7 +676,16 @@ export class LoopExecutor implements StageExecutor {
         const spentNow = (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0);
         const results = await Promise.all(
           answer.toolCalls.map((call) =>
-            this.handleCall(call, normalize(call.name, call.arguments ?? {}), 0, req, hooks, toolCtx, spentNow),
+            this.handleCall(
+              call,
+              normalize(call.name, call.arguments ?? {}),
+              0,
+              req,
+              hooks,
+              toolCtx,
+              spentNow,
+              lastRawLogPath,
+            ),
           ),
         );
         answer.toolCalls.forEach((call, idx) => {
@@ -677,7 +714,7 @@ export class LoopExecutor implements StageExecutor {
         const firstOfStreak = repeats === 0;
         if (firstOfStreak) noProgressWarnedFor = null;
 
-        if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
+        if (repeats > 0 && !isPolling(call.name, req)) this.friction(hooks, 'repeat', lastRawLogPath);
 
         if (repeats + 1 >= REPEAT_LIMIT && !isPolling(call.name, req)) {
           const doneAnyway = finishedByDisk();
@@ -752,6 +789,7 @@ export class LoopExecutor implements StageExecutor {
           hooks,
           toolCtx,
           (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0),
+          lastRawLogPath,
         );
         messages.push({
           role: 'tool',
@@ -837,7 +875,7 @@ export class LoopExecutor implements StageExecutor {
         const streak = readStreak;
         readNudges++;
         readStreak = 0;
-        hooks.onFriction('reminder');
+        this.friction(hooks, 'reminder', lastRawLogPath);
         pushUserNote(
           messages,
           `Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
@@ -856,7 +894,7 @@ export class LoopExecutor implements StageExecutor {
         const streak = bashStreak;
         bashNudges++;
         bashStreak = 0;
-        hooks.onFriction('reminder');
+        this.friction(hooks, 'reminder', lastRawLogPath);
         pushUserNote(
           messages,
           `Последние ${streak} вызовов — только Bash. Этап делается правками файлов ` +
@@ -880,7 +918,7 @@ export class LoopExecutor implements StageExecutor {
           if (!readyNudged && readyNudges < READY_NUDGES_PER_STAGE) {
             readyNudged = true;
             readyNudges++;
-            hooks.onFriction('reminder');
+            this.friction(hooks, 'reminder', lastRawLogPath);
             pushUserNote(
               messages,
               'Артефакт этапа уже готов к финализации — дальнейшие правки не нужны. Вызови ' +
@@ -986,6 +1024,8 @@ export class LoopExecutor implements StageExecutor {
     toolCtx: ToolContext,
     /** Уже потрачено на витке к моменту вызова — передаётся вложенному прогону субагента. */
     spentUsd: number,
+    /** Путь дампа хода, которому принадлежит этот вызов — см. `lastRawLogPath` в `runTurns`. */
+    rawLogPath: string | null,
   ): Promise<string> {
     const started = Date.now();
     const requestId = `loop:${randomUUID()}`;
@@ -994,7 +1034,7 @@ export class LoopExecutor implements StageExecutor {
       // Не падаем: говорим, что именно не разобралось. Модель, которой сказали «ошибка»
       // без подробностей, повторяет ту же строку.
       const text = `аргументы не разобрались как JSON: ${call.rawArguments.slice(0, 300)}`;
-      hooks.onFriction('badJson');
+      this.friction(hooks, 'badJson', rawLogPath);
       hooks.onToolResult({ requestId, ok: false, summary: text, durationMs: 0 });
       return text;
     }
@@ -1020,7 +1060,7 @@ export class LoopExecutor implements StageExecutor {
       ...(req.callerAgent === undefined ? {} : { caller: req.callerAgent }),
     });
     if (!decision.allowed) {
-      hooks.onFriction('denied');
+      this.friction(hooks, 'denied', rawLogPath);
       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
       return `вызов отклонён: ${decision.reason}`;
     }
@@ -1055,7 +1095,7 @@ export class LoopExecutor implements StageExecutor {
 
     // Метка обрезки ставится в `cap` — единственном месте, которое знает лимит. Ловим её
     // по ней же: считать длину второй раз значило бы завести второе знание о потолке.
-    if (text.includes('[рантайм обрезал:')) hooks.onFriction('truncated');
+    if (text.includes('[рантайм обрезал:')) this.friction(hooks, 'truncated', rawLogPath);
 
     // Исход — фактический, а не «инструмент вернул строку»: упавший `Edit`, `Bash` с
     // ненулевым кодом и отказ `FinalizeArtifact` прежде уходили `ok: true`, и рантайм
@@ -1172,9 +1212,9 @@ export class LoopExecutor implements StageExecutor {
     // потолка мог превысить `maxResultBytes` (разбор серии v11, 2026-09-15: результат
     // `Task` на 16 096 байт против потолка 12 000 — единственный из пяти путей результата,
     // где `cap()` не стоял).
-    // Полный текст уходит рантайму отдельно (`resultText`): планки ревью (`reviewProblem`)
-    // судят весь ответ, а не обрезок для истории хода — иначе хвост с последними claim-N
-    // отрезался, и состоявшееся ревью оставляло гейт ⏭ (code-review-all 2026-09-23).
+    // Полный текст уходит рантайму отдельно (`resultText`): контракт `verify-review-v1`
+    // (`reviewValidate.ts`) судит весь ответ, а не обрезок для истории хода — иначе хвост с
+    // последними claim-N отрезался, и состоявшееся ревью оставляло гейт ⏭ (code-review-all 2026-09-23).
     return result.finalText === ''
       ? { text: `субагент «${def.name}» вернул пустой ответ`, full: '' }
       : { text: cap(result.finalText, this.o.maxResultBytes), full: result.finalText };

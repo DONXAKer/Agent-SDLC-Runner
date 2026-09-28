@@ -44,6 +44,29 @@ function fieldProvider(answers: Record<string, string>): ChatProvider {
   } as unknown as ChatProvider;
 }
 
+/**
+ * Провайдер: тот же поиск по подстроке, что у `fieldProvider`, но каждый ответ несёт СВОЙ
+ * `rawLogPath` — только так тест может отличить метку исходного обмена от метки топ-апа
+ * (до этого стаб всегда возвращал один путь на все ответы пачки, и тест не мог поймать
+ * находку «метка приклеена к обмену до топ-апа, а не после», code-review-all, 2026-09-27).
+ */
+function fieldProviderTraced(answers: Record<string, { text: string; rawLogPath: string | null }>): ChatProvider {
+  return {
+    name: 'stub-traced',
+    async chat(req: ChatRequest) {
+      const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+      const found = Object.entries(answers).find(([needle]) => user.includes(needle));
+      return {
+        text: found?.[1].text ?? '',
+        toolCalls: [],
+        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+        finishReason: 'end_turn' as const,
+        rawLogPath: found?.[1].rawLogPath ?? null,
+      };
+    },
+  } as unknown as ChatProvider;
+}
+
 function hooks(seen: { writes: NormalizedCall[] }, allow: boolean): ExecHooks {
   return {
     onText: () => {},
@@ -780,6 +803,152 @@ describe('заполнение бланка по полям', () => {
   });
 });
 
+describe('метка корпуса T2 (`docs/model-tuning.md`): исход ответа на поле разметчик пишет рядом с сырым дампом', () => {
+  it('принятый ответ поля помечается accepted: true', async () => {
+    const { root, artifact } = setup();
+    const rawPath = join(root, 'exchange.json');
+    const provider: ChatProvider = {
+      name: 'stub-with-raw-log',
+      async chat() {
+        return {
+          text: 'Демо работает',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+          rawLogPath: rawPath,
+        };
+      },
+    };
+    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+    ok(result.ok, result.note);
+    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(label, { accepted: true, oracle: 'form-field-checks', target: 'form-field', reason: 'accepted' });
+  });
+
+  it('пустой ответ помечается accepted: false, полем не считается', async () => {
+    const { root, artifact } = setup();
+    const rawPath = join(root, 'exchange-empty.json');
+    const provider: ChatProvider = {
+      name: 'stub-empty',
+      async chat() {
+        return {
+          text: '',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+          rawLogPath: rawPath,
+        };
+      },
+    };
+    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+    strictEqual(result.ok, false);
+    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(label, { accepted: false, oracle: 'form-field-checks', target: 'form-field', reason: 'empty-or-placeholder' });
+  });
+
+  it('без rawLogPath (дамп выключен) исполнение поля не падает и метки не появляется', async () => {
+    const { root, artifact } = setup();
+    const result = await exec(
+      fieldProvider({ 'что должно стать правдой': 'Демо работает', 'почему сейчас': 'Нужно к релизу' }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+    strictEqual(result.ok, true, result.note);
+  });
+
+  it('files_to_touch: топ-ап переезжает на СВОЙ обмен — исходный дефицитный отмечен отказом, топ-ап принят', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    const originalPath = join(root, 'original.json');
+    const topupPath = join(root, 'topup.json');
+    const result = await exec(
+      fieldProviderTraced({
+        'Добор files_to_touch': { text: '| `src/real.ts` | добавить проверку |', rawLogPath: topupPath },
+        'ОБРАЗЕЦ': { text: '| `src/does-not-exist.ts` | поправить валидацию |', rawLogPath: originalPath },
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(originalLabel, {
+      accepted: false,
+      oracle: 'files-to-touch-paths',
+      target: 'form-field',
+      reason: 'invented-path',
+    });
+    const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(topupLabel, { accepted: true, oracle: 'files-to-touch-paths', target: 'form-field', reason: 'accepted' });
+  });
+
+  it('files_to_touch: топ-ап реально провалился (пуст) — метка остаётся отказом, а не «принят» (code-review-all, 2026-09-27)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    const originalPath = join(root, 'original.json');
+    const result = await exec(
+      fieldProviderTraced({
+        'Добор files_to_touch': { text: '', rawLogPath: join(root, 'topup.json') },
+        'ОБРАЗЕЦ': { text: '| `src/does-not-exist.ts` | поправить валидацию |', rawLogPath: originalPath },
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    // Провалившийся добор не мешает записи артефакта: невалидный путь всё равно уходит в
+    // текст как есть (`pathScope` политики на chunk — вот кто на самом деле его отклонит),
+    // и это НЕ регрессия фикса. Регрессией было бы то, что до фикса `accepted: true` шло на
+    // этот же обмен, потому что итоговая метка вообще не знала о `files_to_touch`.
+    strictEqual(result.ok, true, result.note);
+    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(originalLabel, {
+      accepted: false,
+      oracle: 'files-to-touch-paths',
+      target: 'form-field',
+      reason: 'invented-path',
+    });
+  });
+
+  it('приёмочный лист: добор закрыл минимум — исходный обмен и незакрывшая попытка отмечены отказом, последний топ-ап принят', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(
+      artifact,
+      ['## Приёмочный лист', '', '| id | что проверяем |', '|---|---|', '| ‹claim-N› | ‹проверка› |', ''].join('\n'),
+    );
+    const originalPath = join(root, 'original.json');
+    const topupPath = join(root, 'topup.json');
+    const result = await exec(
+      fieldProviderTraced({
+        'Добор приёмочного листа': {
+          text: '| `claim-3 [edge]` | ещё случай |\n| `claim-4 [edge]` | четвёртый |',
+          rawLogPath: topupPath,
+        },
+        'ОБРАЗЕЦ': {
+          text: '| `claim-1 [edge]` | базовый случай |\n| `claim-2` | ещё один |',
+          rawLogPath: originalPath,
+        },
+      }),
+    ).run(request(root, artifact), hooks({ writes: [] }, true));
+
+    strictEqual(result.ok, true, result.note);
+    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(originalLabel, {
+      accepted: false,
+      oracle: 'claims-minimum',
+      target: 'form-field',
+      reason: 'claims-below-minimum',
+    });
+    const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(topupLabel, { accepted: true, oracle: 'claims-minimum', target: 'form-field', reason: 'accepted' });
+  });
+});
+
 describe('cleanFieldAnswer', () => {
   it('снимает fenced-блок и внешние кавычки, содержимое не редактирует', () => {
     strictEqual(cleanFieldAnswer('```markdown\n- **Итог:** готово\n```'), '- **Итог:** готово');
@@ -1081,5 +1250,81 @@ describe('режим compact: поля из схемы, ответ рисует 
     const text = readFileSync(artifact, 'utf8');
     ok(text.includes('src/real.ts'), text);
     ok(!text.includes('does-not-exist'), 'выдуманный путь не должен остаться в артефакте');
+  });
+
+  it('compact: метка корпуса T2 появляется у обычного поля (accepted: true, оракул apply-fill) — до фикса этот путь не размечал ничего (code-review-all, 2026-09-27)', async () => {
+    const { root, artifact } = setupCompact();
+    const rawPath = join(root, 'exchange.json');
+    const provider: ChatProvider = {
+      name: 'stub-compact-traced',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        return {
+          text: user.includes('`ветка витка`') ? 'sdlc/oversize' : '',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+          rawLogPath: user.includes('`ветка витка`') ? rawPath : null,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execCompact(provider).run(request(root, artifact), hooks({ writes: [] }, true));
+    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(label, { accepted: true, oracle: 'apply-fill', target: 'form-field', reason: 'accepted' });
+  });
+
+  it('compact: files_to_touch — метка переезжает на обмен топ-апа, исходный дефицитный отмечен отказом', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-compact-'));
+    roots.push(root);
+    const artifact = join(root, 'plan.md');
+    writeFileSync(
+      artifact,
+      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
+    );
+    const originalPath = join(root, 'original.json');
+    const topupPath = join(root, 'topup.json');
+    const provider: ChatProvider = {
+      name: 'invented-then-fix-traced',
+      async chat(req: ChatRequest) {
+        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        if (user.includes('Добор поля')) {
+          return {
+            text: '| `src/real.ts` | добавить проверку |',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+            rawLogPath: topupPath,
+          };
+        }
+        if (user.includes('`filestotouch`')) {
+          return {
+            text: '| `src/does-not-exist.ts` | поправить валидацию |',
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+            rawLogPath: originalPath,
+          };
+        }
+        return {
+          text: '',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+
+    await execCompact(provider, 'plan').run(request(root, artifact, { maxTurns: 20 }), hooks({ writes: [] }, true));
+
+    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(originalLabel, {
+      accepted: false,
+      oracle: 'files-to-touch-paths',
+      target: 'form-field',
+      reason: 'invented-path',
+    });
+    const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
+    deepStrictEqual(topupLabel, { accepted: true, oracle: 'apply-fill', target: 'form-field', reason: 'accepted' });
   });
 });

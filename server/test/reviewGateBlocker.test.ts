@@ -45,6 +45,7 @@ function route(stage: StageId, modelId: string): ResolvedRoute {
     skipTurnAfterReviewFill: false,
     planAxisFill: false,
     stepFill: false,
+    stepContext: false,
     compactForms: 'off',
     exploreIndex: false,
     exploreFill: false,

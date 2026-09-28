@@ -61,12 +61,14 @@ export const api = {
   config: (): Promise<ConfigInfo> => fetch('/api/config').then(json<ConfigInfo>),
 
   /**
-   * Преполётная проба tool-calling модели — скрининг перед стартом витка. Три микро-кейса
-   * за секунды вместо десятков минут этапа: доходит ли модель до вызова инструмента вообще.
-   * Красная проба — предупреждение, не блок.
+   * Преполётная проба модели — скрининг перед стартом витка, красная проба — предупреждение,
+   * не блок. `stage` решает набор кейсов на сервере: для `verify` — закрытый текстовый
+   * вопрос рецензента (`reviewFill` не вызывает ни одного инструмента), для остальных —
+   * три микро-кейса tool-calling исполнителя. Без `stage` сервер меряет исполнителя —
+   * не роняй параметр для модели на этапе verify, иначе проба скажет не о том пороге.
    */
-  probe: (model: string): Promise<ProbeResponse> =>
-    post('/api/probe', { model }).then(json<ProbeResponse>),
+  probe: (model: string, stage?: string): Promise<ProbeResponse> =>
+    post('/api/probe', { model, ...(stage === undefined ? {} : { stage }) }).then(json<ProbeResponse>),
 
   browse: (path?: string): Promise<BrowseResult> =>
     fetch(`/api/browse${path !== undefined ? `?path=${encodeURIComponent(path)}` : ''}`).then(

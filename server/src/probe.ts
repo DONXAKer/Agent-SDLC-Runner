@@ -21,6 +21,10 @@ import { specsFor } from './exec/toolSpecs.ts';
 import { lexicalNormalize } from './policy/paths.ts';
 import type { ChatMessage, ChatProvider, ChatToolCall } from './provider/ChatProvider.ts';
 import type { ModelDef, ProviderDef } from './config/schema.ts';
+import { hunkQuestion, isNoAnswer, parseFindingAnswer, systemPrompt as reviewSystemPrompt } from './run/reviewFill.ts';
+import { anchorFound } from './run/verifyReport.ts';
+import type { Hunk } from './run/claimEvidence.ts';
+import type { NormalizedCall } from '@sdlc-runner/shared';
 
 export interface ProbeCaseResult {
   name: string;
@@ -54,6 +58,13 @@ export interface ProbeReport {
    * годную. Вызывающий отдаёт за это код 2, не 1.
    */
   envBlocked: boolean;
+  /**
+   * Какой набор кейсов гонялся — `formatProbe` строит по нему итоговую фразу отказа:
+   * `REVIEWER_PROBE_CASES` не вызывают ни одного инструмента вовсе, и «не дошла до вызова
+   * инструментов» была бы неверной причиной для роли рецензента. Необязательное — старый
+   * вызывающий код (до этой правки) читает как `'chunk'` (умолчание `formatProbe`).
+   */
+  role?: 'chunk' | 'verify';
 }
 
 const SYSTEM =
@@ -401,6 +412,92 @@ async function caseEditOneFieldKeepDecision(c: CaseCtx): Promise<CaseOutcome> {
   ]);
 }
 
+/**
+ * Кейсы рецензента (критерий 3 квалификации рецензента,
+ * `docs/proposals/reviewer-qualification.md`): реальный `reviewFill` (`run/reviewFill.ts`)
+ * не вызывает ни одного инструмента — задаёт закрытый текстовый вопрос по ОДНОМУ фрагменту
+ * diff'а (`tools: []`) и ждёт ответ строками `СЕКЦИЯ | ЧТО НЕ ТАК | место` либо «нет».
+ * Кейсы ниже задают РОВНО тот же вопрос (`hunkQuestion`/`systemPrompt`, импортированы из
+ * `reviewFill.ts`, не переписаны заново) — иначе проба предсказывала бы не тот протокол,
+ * который потом измеряется дорогим прогоном. До этих кейсов `--preflight` проверял на
+ * роли рецензента только способности исполнителя chunk (Write/Edit) — нерелевантные:
+ * `qwen3.6-27b-iq4` (2026-09-27) прошла их и всё равно провалила настоящий `reviewFill`.
+ */
+function evidenceOf(call: NormalizedCall): string {
+  return call.kind === 'record_finding' ? call.evidence : '';
+}
+
+const REVIEW_DEFECT_HUNK: Hunk = {
+  file: 'src/tariffs.ts',
+  text: [
+    '@@ -12,7 +12,7 @@ function weightStep(weightG: number, steps: readonly number[]): number {',
+    '   for (let i = 0; i < steps.length; i++) {',
+    '     const limit = steps[i]!;',
+    '-    if (weightG <= limit) return i;',
+    '+    if (weightG < limit) return i;',
+    '   }',
+    '   return steps.length;',
+    ' }',
+  ].join('\n'),
+};
+
+/** Кейс: посеянный off-by-one на границе (класс 4 из `DEFECT_CHECKLIST`) — обязана назвать. */
+async function caseReviewFinding(c: CaseCtx): Promise<CaseOutcome> {
+  const turn = await chat(c, [{ role: 'system', content: reviewSystemPrompt('') }, { role: 'user', content: hunkQuestion(REVIEW_DEFECT_HUNK, 1, 1) }], []);
+  if (isNoAnswer(turn.text)) {
+    return { ok: false, detail: `ответила «нет» на посеянный off-by-one, текст: «${turn.text.slice(0, 120)}»` };
+  }
+  const findings = parseFindingAnswer(turn.text, REVIEW_DEFECT_HUNK.file);
+  if (findings.length === 0) {
+    return { ok: false, detail: `ответ не разобрался форматом «СЕКЦИЯ | ЧТО НЕ ТАК | место», текст: «${turn.text.slice(0, 120)}»` };
+  }
+  // Haystack — файл ПЛЮС тело фрагмента, а не только тело: `hunkQuestion` показывает
+  // модели имя файла в заголовке («## Фрагмент N из M — файл `…`») и явно предлагает
+  // цитировать «файл:строка» как один из двух валидных видов места — модель, честно
+  // выполнившая эту инструкцию (`src/tariffs.ts:15`), не должна проваливать планку якоря
+  // только потому, что синтетический hunk в этом файле не повторяет своё имя в теле diff'а
+  // (найдено живьём, 2026-09-27: `qwen3.6-35b-a3b-ctx32k` дала верную находку с верным
+  // файлом и правдоподобной строкой и была ошибочно забракована этим кейсом).
+  const haystack = `${REVIEW_DEFECT_HUNK.file}\n${REVIEW_DEFECT_HUNK.text}`;
+  const anchored = findings.some((f) => anchorFound(evidenceOf(f), haystack));
+  const first = findings[0]!;
+  const label = first.kind === 'record_finding' ? first.text : '';
+  return verdict(`находка разобралась и привязана к месту: «${label.slice(0, 80)}»`, [
+    [anchored, `находка есть, но без ссылки на место из фрагмента (планка «оформителя»), текст: «${turn.text.slice(0, 120)}»`],
+  ]);
+}
+
+const REVIEW_CLEAN_HUNK: Hunk = {
+  file: 'src/format.ts',
+  text: [
+    '@@ -3,6 +3,9 @@ export function formatPrice(kopeck: number): string {',
+    '   return `${(kopeck / 100).toFixed(2)} ₽`;',
+    ' }',
+    '+',
+    '+export function formatPercent(value: number): string {',
+    '+  return `${(value * 100).toFixed(1)}%`;',
+    '+}',
+  ].join('\n'),
+};
+
+/** Кейс: чистый фрагмент без дефектов из списка — обязана ответить «нет», не выдумывать. */
+async function caseReviewClean(c: CaseCtx): Promise<CaseOutcome> {
+  const turn = await chat(c, [{ role: 'system', content: reviewSystemPrompt('') }, { role: 'user', content: hunkQuestion(REVIEW_CLEAN_HUNK, 1, 1) }], []);
+  return verdict('ответила «нет» — чистый фрагмент без ложной находки', [
+    [isNoAnswer(turn.text), `ложное срабатывание на чистом фрагменте, текст: «${turn.text.slice(0, 200)}»`],
+  ]);
+}
+
+/**
+ * Набор для `--stage verify` (роль рецензента) — заменяет `PREFLIGHT_CASES` целиком, а не
+ * дополняет: кейсы Write/Edit там измеряют способности исполнителя chunk, которых
+ * `reviewFill` от модели не требует вовсе (см. докстринг выше).
+ */
+export const REVIEWER_PROBE_CASES: readonly ProbeCase[] = [
+  { name: 'находка по посеянному дефекту', run: caseReviewFinding },
+  { name: 'чистый фрагмент — без ложной находки', run: caseReviewClean },
+];
+
 export interface ProbeCase {
   name: string;
   run: (c: CaseCtx) => Promise<CaseOutcome>;
@@ -481,6 +578,16 @@ export async function probeModel(args: {
   caseTimeoutMs: number;
   /** Набор кейсов; умолчание — базовые три (`--probe`), преполёт передаёт PREFLIGHT_CASES. */
   cases?: readonly ProbeCase[];
+  /**
+   * Роль пробы — явным параметром, а не выводом по ссылочному равенству с
+   * `REVIEWER_PROBE_CASES`. Прежняя реализация (`args.cases === REVIEWER_PROBE_CASES`)
+   * ломалась именно там, где и должна была работать: retry одного кейса в
+   * `bench/src/preflight.ts::checkModel` передаёт `cases: [retryCase]` — новый массив, не
+   * ту же ссылку — и роль рецензента на повторе тихо откатывалась к `'chunk'`
+   * (code-review-all, 2026-09-28, найдено в РЕАЛЬНОМ, не гипотетическом пути). Если не
+   * передан — вычисляется тем же сравнением для обратной совместимости старых вызовов.
+   */
+  role?: 'chunk' | 'verify';
 }): Promise<ProbeReport> {
   const cases: ProbeCaseResult[] = [];
   for (const { name, run } of args.cases ?? CASES) {
@@ -529,6 +636,7 @@ export async function probeModel(args: {
     cases,
     passed: cases.every((c) => c.ok),
     envBlocked: cases.some((c) => c.env),
+    role: args.role ?? (args.cases === REVIEWER_PROBE_CASES ? 'verify' : 'chunk'),
   };
 }
 
@@ -540,10 +648,14 @@ export function formatProbe(report: ProbeReport): string {
       (c) => `  ${c.ok ? '✅' : c.env ? '⏭' : '❌'} ${c.name} — ${c.detail} (${(c.durationMs / 1000).toFixed(1)} с)`,
     ),
     report.passed
-      ? 'Проба пройдена: модель доходит до корректных вызовов инструментов. Это скрининг, не замер этапа.'
+      ? report.role === 'verify'
+        ? 'Проба пройдена: модель разбирает фрагмент и отвечает по формату закрытого вопроса. Это скрининг, не замер этапа.'
+        : 'Проба пройдена: модель доходит до корректных вызовов инструментов. Это скрининг, не замер этапа.'
       : report.envBlocked
         ? 'Проба НЕ ИЗМЕРЕНА: часть кейсов упала средой (транспорт/сервер), а не моделью — почини среду и повтори.'
-        : 'Проба НЕ пройдена: модель не дошла до вызова инструментов в микро-кейсах — дорогой замер этапа 5 не оправдан.',
+        : report.role === 'verify'
+          ? 'Проба НЕ пройдена: модель не разбирает фрагмент по формату закрытого вопроса рецензента — дорогой замер этапа 6 не оправдан.'
+          : 'Проба НЕ пройдена: модель не дошла до вызова инструментов в микро-кейсах — дорогой замер этапа 5 не оправдан.',
   ];
   return lines.join('\n');
 }

@@ -39,6 +39,7 @@ function greenDeps(over: Partial<PreflightDeps> = {}): Partial<PreflightDeps> {
     warmup: async () => {},
     reloadEngine: async () => ({ kind: 'reloaded', detail: 'заглушка' }),
     contextProblem: async () => null,
+    layoutProblem: async () => null,
     spawnScript: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }),
     spawnTest: async () => ({ exitCode: 0, stdout: 'ok 1 - t', stderr: '', timedOut: false }),
     ...over,
@@ -158,6 +159,71 @@ describe('runPreflight', () => {
     );
     strictEqual(report.envBlocked, true);
     ok(report.checks.some((c) => c.name === 'модель: окно контекста' && !c.ok));
+    strictEqual(report.checks.some((c) => c.name.startsWith('модель: честность')), false, 'проба не должна была гоняться');
+  });
+
+  it('--stage verify — набор кейсов рецензентский, не Write/Edit исполнителя (критерий 3 квалификации рецензента)', async () => {
+    // Правило рецензента: MODEL встаёт на verify (ранг 32) и обязан быть СИЛЬНЕЕ chunk —
+    // контрольный chunk по умолчанию (sonnet, 70) сильнее, профиль не собрался бы; подмена
+    // на модель ниже рангом (`ollama:cline_roocode:8b-ctx16k`, 30) — тот же приём, что в
+    // живых замерах локальных рецензентов.
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'verify', '--control-chunk', 'ollama:cline_roocode:8b-ctx16k']),
+      greenDeps(),
+    );
+    ok(report.checks.some((c) => c.name === 'модель: находка по посеянному дефекту'), JSON.stringify(report.checks));
+    ok(report.checks.some((c) => c.name === 'модель: чистый фрагмент — без ложной находки'), JSON.stringify(report.checks));
+    strictEqual(report.checks.some((c) => c.name.startsWith('модель: заполнение поля через Edit')), false, 'кейс исполнителя chunk на роль рецензента не должен идти');
+  });
+
+  it('--stage verify — роль «verify» доезжает и до retry ОДНОГО кейса, не только до первого прогона (code-review-all, 2026-09-28)', async () => {
+    // До фикса роль вычислялась по ссылочному равенству `args.cases === REVIEWER_PROBE_CASES`
+    // прямо в probeModel — а retry-вызов здесь передаёт НОВЫЙ массив `[retryCase]`, и роль
+    // молча откатывалась к 'chunk' ровно там, где сравнение по ссылке и должно было
+    // сломаться. Явный параметр `role` в `probeArgs` (preflight.ts) обязан долетать до
+    // ОБОИХ вызовов `deps.probe`.
+    const roles: (string | undefined)[] = [];
+    let call = 0;
+    const probe: PreflightDeps['probe'] = async (a) => {
+      roles.push(a.role);
+      call++;
+      const cases = (a.cases ?? []).map((c) => ({
+        name: c.name,
+        // Первый прогон: один кейс красный (не среда, не таймаут) — вызывает retry этого
+        // кейса. Второй вызов (retry) — зелёный. Имя здесь — СЫРОЕ (как в `ProbeCase.name`,
+        // `находка по посеянному дефекту`), префикс «модель: » добавляет только `toCheck`.
+        ok: call > 1 || c.name !== 'находка по посеянному дефекту',
+        detail: 'ok',
+        env: false,
+        timedOut: false,
+        durationMs: 1,
+      }));
+      return { model: 'm', cases, passed: cases.every((c) => c.ok), envBlocked: false };
+    };
+    await runPreflight(
+      opts(['--model', MODEL, '--stage', 'verify', '--control-chunk', 'ollama:cline_roocode:8b-ctx16k']),
+      greenDeps({ probe }),
+    );
+    strictEqual(call, 2, 'ожидался основной прогон + один retry упавшего кейса');
+    deepStrictEqual(roles, ['verify', 'verify'], 'роль обязана быть verify на ОБОИХ вызовах, включая retry с новым массивом cases');
+  });
+
+  it('раскладка в порядке — строка «раскладка после прогрева» зелёная, проба гоняется', async () => {
+    const report = await runPreflight(opts(['--model', MODEL, '--stage', 'chunk']), greenDeps());
+    ok(report.checks.some((c) => c.name === 'модель: раскладка после прогрева' && c.ok), JSON.stringify(report.checks));
+    ok(report.checks.some((c) => c.name.startsWith('модель: честность')), 'проба должна была гоняться следом');
+  });
+
+  it('частичный офлоад — красная строка «модели» (не среды) до пробы, критерий 1 квалификации рецензента', async () => {
+    const report = await runPreflight(
+      opts(['--model', MODEL, '--stage', 'chunk']),
+      greenDeps({
+        layoutProblem: async () => ({ message: 'раскладка «m»: 26.0% GPU / 74.0% CPU — частичный офлоад' }),
+      }),
+    );
+    strictEqual(report.passed, false);
+    strictEqual(preflightExitCode(report), 1, 'находка про конкретную модель на этом железе, не про среду — код 1, не 2');
+    ok(report.checks.some((c) => c.name === 'модель: раскладка после прогрева' && !c.ok && c.detail.includes('офлоад')));
     strictEqual(report.checks.some((c) => c.name.startsWith('модель: честность')), false, 'проба не должна была гоняться');
   });
 

@@ -69,7 +69,16 @@ export type DriverStopReason =
   /** `retry`, но бюджет попыток исчерпан. */
   | 'attempts-exhausted'
   /** `stopAfterStage` дошёл — снимок делает вызывающая сторона, не драйвер. */
-  | 'snapshot-point';
+  | 'snapshot-point'
+  /**
+   * `--stage verify` без `--make-snapshot`: вердикт этой ОДНОЙ попытки verify посчитан —
+   * дальше останавливаемся, не уходя на chunk попытки 2 по вердикту `retry`. `--stage verify`
+   * документирован как «измерять один этап» (`options.ts` usage), а chunk попытки 2 —
+   * отдельный, неизмеряемый прогон: он платный (`--control-chunk`) и его нестабильность на
+   * восстановленном снимке (серия 2026-09-27/28) шумела в измерении verify, которое к этому
+   * моменту уже состоялось.
+   */
+  | 'verify-measured';
 
 export interface DriverResult {
   stages: DriverStageRecord[];
@@ -103,6 +112,14 @@ export interface DriverArgs {
    * он про виток, а не про файловую систему снимков.
    */
   stopAfterStage?: StageId;
+  /**
+   * `--stage verify` (не `--all`, не `--make-snapshot`): остановиться сразу после того, как
+   * посчитан вердикт ЭТОЙ попытки verify, не уходя на chunk следующей попытки по `retry`
+   * (см. `DriverStopReason.verify-measured`). `stopAfterStage: 'verify'` для этого не
+   * годится — та точка проверяется ПОСЛЕ хода этапа, до подсчёта вердикта, и означает
+   * «здесь снимок», другой исход.
+   */
+  stopAfterVerify?: boolean;
   /**
    * Строка о ветке решения драйвера — для живого вывода в консоль. Решение не принимает и
    * ни на что не влияет: блокировка, повтор из-за среды, итог verify видны сразу, а не
@@ -232,6 +249,16 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
    * навсегда терял бы право на повтор в следующих попытках того же витка.
    */
   let envRetriedStage: StageId | null = null;
+  /**
+   * Вердикт последней ИЗМЕРЕННОЙ попытки verify — независимо от `run.lastVerdict`.
+   *
+   * `run.nextAttempt()` (retry → chunk следующей попытки) обнуляет `run.state.verify.verdict`
+   * (`Run.ts::resetAttemptState`), и если попытка после этого падает, `run.lastVerdict` во всех
+   * возвратах ниже читается как `null` — вердикт единственной измеренной попытки verify
+   * пропадал бы из `result.json`, хотя на диске (verdictStore) он остаётся (серия
+   * 2026-09-27/28: три прогона `-skipturn` дали `finalVerdict: null`).
+   */
+  let lastVerdict: Verdict | null = null;
 
   let i = args.startStage === undefined ? 0 : STAGE_ORDER.indexOf(args.startStage);
   while (i < STAGE_ORDER.length) {
@@ -239,7 +266,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
 
     if (Date.now() > deadline) {
       say(`⏱ виток превысил лимит стенных часов (${runTimeoutMs} мс) — остановка`);
-      return { stages, finalVerdict: run.lastVerdict, stopped: 'run-timeout' };
+      return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'run-timeout' };
     }
 
     const details = run.blockerDetails(stage);
@@ -261,7 +288,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
         `⛔ ${stage} не стартовал${blamed === null ? '' : ` — вход завалил артефакт этапа ${blamed}`}: ` +
           blockers.join(' / '),
       );
-      return { stages, finalVerdict: run.lastVerdict, stopped: 'blocked' };
+      return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'blocked' };
     }
 
     const { result, timedOut } = await runStageWithTimeout(
@@ -311,7 +338,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
         continue;
       }
       say(`⏱ ${stage}: превышен лимит стенных часов этапа (${stageTimeoutMs} мс) — остановка`);
-      return { stages, finalVerdict: run.lastVerdict, stopped: 'stage-timeout' };
+      return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'stage-timeout' };
     }
     if (!result.ok) {
       const decision = decideAfterStageFailure({
@@ -352,7 +379,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
         }
       }
       say(`■ ${stage} провалился — остановка «${decision.reason}»`);
-      return { stages, finalVerdict: run.lastVerdict, stopped: decision.reason };
+      return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: decision.reason };
     }
     envRetriedStage = null;
 
@@ -387,13 +414,13 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
           last.note = `${last.note}; решение человека не записалось: ${msg}`;
         }
         say(`■ ${stage}: решение человека не записалось (форма испорчена моделью) — ${msg}`);
-        return { stages, finalVerdict: run.lastVerdict, stopped: 'blocked' };
+        return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'blocked' };
       }
     }
 
     if (stage === args.stopAfterStage) {
       say(`📸 точка снимка после ${stage} — остановка`);
-      return { stages, finalVerdict: run.lastVerdict, stopped: 'snapshot-point' };
+      return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'snapshot-point' };
     }
 
     if (stage !== 'verify') {
@@ -411,6 +438,11 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       continue;
     }
 
+    // Запомнить ДО `nextAttempt()`: retry обнуляет `run.state.verify.verdict` (`Run.ts`), и
+    // без этой копии вердикт единственной измеренной попытки терялся бы, если следующая
+    // попытка chunk упадёт (см. докстринг `lastVerdict` выше).
+    lastVerdict = verdict;
+
     const decision = decideAfterVerify({
       verdict,
       attempt: run.attempt,
@@ -423,12 +455,30 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       return { stages, finalVerdict: verdict, stopped: decision.reason };
     }
     if (decision.kind === 'retry-verify-env') {
+      // `blocked_env` — сбой инфраструктуры, не суждение о модели: повтор ЭТОГО ЖЕ verify
+      // (без нового номера попытки, без chunk) остаётся законным даже под `stopAfterVerify`
+      // — это по-прежнему измерение ОДНОГО этапа, просто с одной бесплатной пересдачей.
+      // `stopAfterVerify`, проверенный ДО этой ветки (прежняя редакция), обрывал повтор на
+      // первом же блипе среды и топил его в `verdict.passed === false` — код возврата
+      // читался как «модель не прошла», хотя не отвечал апстрим (найдено code-review-all,
+      // 2026-09-28).
       say('↻ verify: вердикт «blocked_env» — повтор verify без новой попытки');
       blockedEnvStreak += 1;
       // Повтор verify без нового номера попытки — тот же индекс цикла.
       continue;
     }
     blockedEnvStreak = 0;
+
+    // `--stage verify` без `--make-snapshot`: измерение ОДНОГО этапа окончено, дальше
+    // некуда — ни на chunk по `retry`, ни на handoff по `continue` (usage: «измерять один
+    // этап»). Проверяется ПОСЛЕ `decideAfterVerify`, а не до: `stop`/`retry-verify-env`
+    // выше уже дали свой, более точный исход (причину остановки или бесплатный повтор
+    // среды) — здесь остаются только те два исхода, что иначе продолжили бы виток дальше.
+    if (args.stopAfterVerify === true) {
+      say(`⚖ verify: вердикт «${verdict.action}» — измерение этапа окончено, остановка`);
+      return { stages, finalVerdict: verdict, stopped: 'verify-measured' };
+    }
+
     if (decision.kind === 'retry') {
       run.nextAttempt();
       say(`↻ verify: вердикт «retry» — назад на chunk, попытка ${run.attempt}`);
@@ -441,5 +491,5 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     i += 1;
   }
 
-  return { stages, finalVerdict: run.lastVerdict, stopped: 'handoff' };
+  return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'handoff' };
 }

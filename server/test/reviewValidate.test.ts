@@ -75,6 +75,41 @@ describe('verify-review-v1', () => {
     ok(v.errors.some((e) => e.includes('kind «mismatch»')), v.errors.join('; '));
   });
 
+  it('префиксы git-заголовка (diff/, a/, b/, ./) в пути ссылки — форма, не ошибка (D1, 2026-09-27/28)', () => {
+    const withPrefixes = {
+      ...GOOD,
+      claims: [
+        { id: 'claim-1', status: 'passed', evidence: [{ path: 'diff/src/a.ts', anchor: 'round' }], remediation: '' },
+        { id: 'claim-2', status: 'passed', evidence: [{ path: 'a/src/a.ts', anchor: 'round' }], remediation: '' },
+      ],
+      findings: [{ kind: 'mismatch', summary: 'граница сдвинута', evidence: [{ path: './src/a.ts', anchor: '>=' }] }],
+    };
+    const v = validateReview(withPrefixes, CLAIMS, PATHS);
+    deepStrictEqual(v.errors, [], v.errors.join('; '));
+    strictEqual(v.review?.claims[0]?.evidence[0]?.path, 'src/a.ts', 'путь в результате нормализован, не оставлен с префиксом');
+  });
+
+  it('мусорный путь (не патч и не префикс патча) по-прежнему отказ — контракт не ослаблен', () => {
+    const bad = { ...GOOD, findings: [{ kind: 'mismatch', summary: 'x', evidence: [{ path: 'diff/src/zzz.ts', anchor: 'y' }] }] };
+    const v = validateReview(bad, CLAIMS, PATHS);
+    ok(v.errors.some((e) => e.includes('src/zzz.ts')), v.errors.join('; '));
+  });
+
+  it('снимается не более ОДНОГО префикса — путь с реальным каталогом b/ в патче не режется дважды (code-review-all, 2026-09-28)', () => {
+    const pathsWithB = new Set(['b/x.ts']);
+    const withNestedB = {
+      ...GOOD,
+      claims: [
+        { id: 'claim-1', status: 'passed', evidence: [{ path: 'a/b/x.ts', anchor: 'round' }], remediation: '' },
+        { id: 'claim-2', status: 'passed', evidence: [{ path: 'a/b/x.ts', anchor: 'round' }], remediation: '' },
+      ],
+      findings: [],
+    };
+    const v = validateReview(withNestedB, CLAIMS, pathsWithB);
+    deepStrictEqual(v.errors, [], v.errors.join('; '));
+    strictEqual(v.review?.claims[0]?.evidence[0]?.path, 'b/x.ts', 'снят только ведущий a/, каталог b/ дальше по пути остался');
+  });
+
   it('ни одна ссылка не называет путь из патча — пересказ, не разбор', () => {
     const v = validateReview({ ...GOOD, findings: [], claims: GOOD.claims.map((c) => ({ ...c, evidence: [{ path: 'intent.md', anchor: 'x' }] })) }, CLAIMS, PATHS);
     ok(v.errors.some((e) => e.includes('путь из патча')), v.errors.join('; '));

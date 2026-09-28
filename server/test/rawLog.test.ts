@@ -8,7 +8,7 @@
  */
 
 import { deepStrictEqual, strictEqual } from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,7 +16,7 @@ import { describe, it } from 'node:test';
 
 import type { ProviderDef } from '../src/config/schema.ts';
 import { createProvider } from '../src/provider/registry.ts';
-import { resetRawLogForTests } from '../src/provider/rawLog.ts';
+import { annotateExchange, labelDisabledReason, rawLogDisabledReason, resetRawLogForTests } from '../src/provider/rawLog.ts';
 import { withEnvAsync } from './testUtils.ts';
 
 const ANSWER = { choices: [{ message: { content: 'ответ' }, finish_reason: 'stop' }] };
@@ -195,6 +195,81 @@ describe('сырой дамп запросов к модели', () => {
       );
     } finally {
       process.off('warning', onWarning);
+      resetRawLogForTests();
+    }
+  });
+});
+
+describe('annotateExchange: слияние меток и изолированный счётчик отказов (code-review-all, 2026-09-27)', () => {
+  // Ниже вызываем `annotateExchange` напрямую, не через сетевую заглушку: в отличие от
+  // `dumpExchange` (проверяется описанием модуля выше — тот тест доказывает, что в файле
+  // легли байты, реально ушедшие в модель), `annotateExchange` — чисто файловый сайдкар без
+  // сети, и мерить его собственную логику (слияние, изоляция отказов) напрямую — не тот же
+  // самый обход, от которого предостерегает докстринг файла.
+
+  it('вторая разметка того же пути СЛИВАЕТСЯ с первой: массивы накапливаются, скаляры перекрываются', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sdlc-annotate-merge-'));
+    try {
+      const path = join(dir, 'exchange.json');
+      annotateExchange(path, { frictions: ['denied'] });
+      annotateExchange(path, { frictions: ['truncated'], accepted: false });
+      annotateExchange(path, { accepted: true, oracle: 'step-check', target: 'plan-step', reason: 'accepted' });
+      const label = JSON.parse(readFileSync(`${path}.label.json`, 'utf8')) as Record<string, unknown>;
+      // `frictions` — массив, накопивший ОБА трения; `accepted` — последнее известное
+      // значение (третий вызов), не перезаписанное молча вторым.
+      deepStrictEqual(label, {
+        frictions: ['denied', 'truncated'],
+        accepted: true,
+        oracle: 'step-check',
+        target: 'plan-step',
+        reason: 'accepted',
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('путь без разметки вовсе — annotateExchange(null, …) не создаёт файлов', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sdlc-annotate-null-'));
+    try {
+      annotateExchange(null, { accepted: true });
+      deepStrictEqual(readdirSync(dir), []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('три подряд отказа записи МЕТКИ выключают только разметку — дамп пар (dumpExchange) продолжает работать', async () => {
+    resetRawLogForTests();
+    const dir = mkdtempSync(join(tmpdir(), 'sdlc-annotate-failisolation-'));
+    try {
+      // Путь метки занят каталогом — `writeFileSync` даёт EISDIR на каждую попытку;
+      // сам дамп пар пишется совершенно в другое место и этой помехи не видит.
+      const busyExchange = join(dir, 'busy-exchange.json');
+      mkdirSync(`${busyExchange}.label.json`, { recursive: true });
+
+      for (let i = 0; i < 3; i++) annotateExchange(busyExchange, { accepted: true });
+
+      strictEqual(labelDisabledReason() !== null, true, 'разметка обязана быть выключена после 3 отказов');
+      strictEqual(rawLogDisabledReason(), null, 'дамп пар не должен гаситься отказами МЕТКИ');
+
+      await withStub(async (baseUrl, bodies) => {
+        await withEnvAsync('SDLC_RAW_LOG_DIR', dir, async () => {
+          const turn = (await ask(baseUrl, { slug: 'витокД', stage: 'chunk', mode: 'step' })) as { text: string };
+          strictEqual(turn.text, 'ответ', 'ход прошёл штатно — отказы разметки на него не влияют');
+        });
+        strictEqual(bodies.length, 1);
+        // Дамп пары РЕАЛЬНО записан — отказы записи МЕТКИ не погасили `dumpExchange`.
+        deepStrictEqual(readdirSync(join(dir, 'витокД')), ['00001-chunk-step.json']);
+      });
+
+      // Разметка ДРУГОГО (не занятого) пути после отключения всё равно не пишется —
+      // выключение затрагивает всю разметку процесса, не только занятый путь.
+      const freePath = join(dir, 'free-exchange.json');
+      annotateExchange(freePath, { accepted: true });
+      strictEqual(existsSync(`${freePath}.label.json`), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
       resetRawLogForTests();
     }
   });

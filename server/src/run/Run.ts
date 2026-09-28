@@ -503,7 +503,10 @@ export class Run {
    * а метрики принадлежат витку — иначе «сколько итераций съел виток» опять станет
    * невосстановимым.
    */
-  private readonly stageStats = new Map<StageId, { runs: number; usage: Usage; durationMs: number }>();
+  private readonly stageStats = new Map<
+    StageId,
+    { runs: number; usage: Usage; durationMs: number; requestDurationsMs: number[] }
+  >();
   private readonly attemptsByChunk = new Map<number, number>();
 
   /**
@@ -657,6 +660,7 @@ export class Run {
         runs: v.runs,
         usage: v.usage,
         durationMs: v.durationMs,
+        requestDurationsMs: v.requestDurationsMs,
       })),
       verdicts: { total: this.verdictCount, red: this.redCount },
       redByCause: [...this.redByCause.entries()].map(([kind, count]) => ({ kind, count })),
@@ -770,7 +774,12 @@ export class Run {
     const m = normalizeMetrics(r.raw);
 
     for (const s of m.stages) {
-      this.stageStats.set(s.stage, { runs: s.runs, usage: s.usage, durationMs: s.durationMs });
+      this.stageStats.set(s.stage, {
+        runs: s.runs,
+        usage: s.usage,
+        durationMs: s.durationMs,
+        requestDurationsMs: s.requestDurationsMs,
+      });
     }
     // Расход витка восстанавливается ВМЕСТЕ с разбивкой по этапам. Пока он оставался
     // нулём, одна и та же трата показывалась двумя разными числами на одном экране
@@ -1421,14 +1430,26 @@ export class Run {
   }
 
   /**
-   * Учёт расхода для запросов ВНЕ `executor.run()` — `reviewFill`/`claimFill` зовут
-   * провайдера напрямую, минуя `hooks.onUsage` (`Run.runStage`), и без этого метода их
-   * токены/стоимость были бы «бесплатными» для `SpentLedger`/`maxBudgetUsd` и не попадали
-   * бы ни в `metrics.json`, ни в событие `usage` — тот же учёт, тем же приёмом.
+   * Учёт расхода для запросов ВНЕ `executor.run()` — `reviewFill`/`claimFill`/
+   * `planAxisFill`/`exploreFill` зовут провайдера напрямую, минуя `hooks.onUsage`
+   * (`Run.runStage`), и без этого метода их токены/стоимость были бы «бесплатными» для
+   * `SpentLedger`/`maxBudgetUsd` и не попадали бы ни в `metrics.json`, ни в событие `usage`
+   * — тот же учёт, тем же приёмом.
+   *
+   * `usage.durationMs` (провайдер ставит его на КАЖДЫЙ запрос, `emptyUsage()` — 0) идёт в
+   * `requestDurationsMs` тем же приёмом, что и в основном хуке `onUsage` ниже — иначе
+   * критерий 2 квалификации рецензента (`docs/proposals/reviewer-qualification.md`,
+   * зависший запрос топит бюджет этапа) был бы слеп именно к `reviewFill` — пайплайну,
+   * чьё зависание на `qwen3.6-27b-iq4` (2026-09-27) и стало поводом завести это поле
+   * (найдено code-review-all в этой же сессии: без этой правки метрика не видела ни одного
+   * запроса `reviewFill`/`claimFill`/`planAxisFill`/`exploreFill` вовсе).
    */
   private accountOffPathUsage(stage: StageId, usage: Usage, currency: string | undefined): void {
     const st = this.stageStats.get(stage);
-    if (st !== undefined) st.usage = addUsage(st.usage, usage);
+    if (st !== undefined) {
+      st.usage = addUsage(st.usage, usage);
+      if (usage.durationMs > 0) st.requestDurationsMs.push(usage.durationMs);
+    }
     this.totalUsage = addUsage(this.totalUsage, usage);
     if (countsTowardBudget(this.budgetStages, stage)) {
       this.spent.add(currency ?? 'USD', usage.costUsd);
@@ -2342,7 +2363,7 @@ export class Run {
     // сколько занял. Время меряется здесь, а не по событиям шины: буфер шины вытесняет
     // старое, и считать по нему длительность значило бы терять её на длинных витках.
     const stageStartedAt = Date.now();
-    const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0 };
+    const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0, requestDurationsMs: [] };
     stat.runs += 1;
     this.stageStats.set(stage, stat);
 
@@ -2679,7 +2700,18 @@ export class Run {
 
         onUsage: (usage, durationMs) => {
           const st = this.stageStats.get(stage);
-          if (st !== undefined) st.usage = addUsage(st.usage, usage);
+          if (st !== undefined) {
+            st.usage = addUsage(st.usage, usage);
+            // Отдельно от суммы: критерий квалификации рецензента (пункт 2,
+            // `docs/proposals/reviewer-qualification.md`) судит по ОДНОМУ запросу, не по
+            // сумме — зависший на 20 минут запрос топит получасовой бюджет этапа, а сумма
+            // это не покажет.
+            // `> 0`, не только `!== undefined` — тот же порог, что `accountOffPathUsage`
+            // выше по файлу (её докстринг уже утверждает «тем же приёмом»; до этой правки
+            // приёмы расходились — `0` сюда прошёл бы, туда нет — code-review-all,
+            // 2026-09-28).
+            if (durationMs !== undefined && durationMs > 0) st.requestDurationsMs.push(durationMs);
+          }
           this.totalUsage = addUsage(this.totalUsage, usage);
           // Валюта — маршрута ЭТОГО этапа: стоимость копится по валютам раздельно,
           // и гард маршрута сверяет потолок только со своей (см. `spentLedger.ts`).

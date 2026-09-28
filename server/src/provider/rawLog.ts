@@ -17,8 +17,10 @@
  * просили. Прогон при этом ведёт себя ровно как раньше — дамп ничего не меняет во входе.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import type { ExchangeLabel } from '@sdlc-runner/shared';
 
 /**
  * Кто спрашивает. Метка ставится на ПРОВАЙДЕР, а не на запрос: экземпляр провайдера
@@ -64,11 +66,27 @@ function targetDir(): string | null {
   return dir;
 }
 
-/** Подряд идущие отказы записи. Успех обнуляет счётчик. */
-let failures = 0;
 const MAX_FAILURES = 3;
+
+/** Подряд идущие отказы записи ПАРЫ (`dumpExchange`). Успех обнуляет счётчик. */
+let failures = 0;
 /** Почему дамп выключен отказами записи; `null` — не выключался. */
 let disabledReason: string | null = null;
+
+/**
+ * Подряд идущие отказы записи МЕТКИ (`annotateExchange`) — СВОЙ счётчик, не общий с парой.
+ *
+ * До этой правки обе функции делили один `failures`/`dir`: три подряд неудачные записи
+ * ИМЕННО `.label.json` (например, путь `<путь пары>.label.json` на несколько символов
+ * длиннее самой пары и на Windows упирается в `MAX_PATH` там, где путь пары ещё укладывался)
+ * гасили `dumpExchange` вместе с разметкой — отказ третьесортной по цене операции убивал
+ * первосортный по цене дамп (code-review-all, 2026-09-27). Разметка выключается СВОЕЙ
+ * переменной (`labelDisabled`), путь дампа (`dir`) остаётся как был.
+ */
+let labelFailures = 0;
+let labelDisabled = false;
+/** Почему разметка выключена отказами записи; `null` — не выключалась. */
+let labelBlockedReason: string | null = null;
 
 /**
  * Отказ дампа не роняет оплаченный прогон — но и не молчит, и не выключает корпус с
@@ -90,6 +108,19 @@ function noteFailure(e: unknown): void {
     return;
   }
   process.emitWarning(`SDLC_RAW_LOG_DIR: пара не записана (${failures} из ${MAX_FAILURES}) — ${reason}`);
+}
+
+/** Тот же приём, что `noteFailure`, но выключает только разметку (`labelDisabled`), не дамп. */
+function noteLabelFailure(e: unknown): void {
+  labelFailures += 1;
+  const reason = e instanceof Error ? e.message : String(e);
+  if (labelFailures >= MAX_FAILURES) {
+    process.emitWarning(`SDLC_RAW_LOG_DIR: разметка обменов выключена после ${MAX_FAILURES} отказов подряд — ${reason}`);
+    labelDisabled = true;
+    labelBlockedReason = `выключена после ${MAX_FAILURES} отказов записи подряд — ${reason}`;
+    return;
+  }
+  process.emitWarning(`SDLC_RAW_LOG_DIR: метка не записана (${labelFailures} из ${MAX_FAILURES}) — ${reason}`);
 }
 
 /**
@@ -154,6 +185,9 @@ export function resetRawLog(): void {
   dir = undefined;
   failures = 0;
   disabledReason = null;
+  labelFailures = 0;
+  labelDisabled = false;
+  labelBlockedReason = null;
 }
 
 /** Почему дамп выключен отказами записи с последнего `resetRawLog`; `null` — не выключался. */
@@ -161,8 +195,83 @@ export function rawLogDisabledReason(): string | null {
   return disabledReason;
 }
 
+/** Почему разметка выключена отказами записи с последнего `resetRawLog`; `null` — не выключалась. */
+export function labelDisabledReason(): string | null {
+  return labelBlockedReason;
+}
+
 /** Только для тестов: забыть решение о каталоге и обнулить счётчик. */
 export function resetRawLogForTests(): void {
   resetRawLog();
   seq = 0;
+}
+
+/**
+ * Слить новую метку со старой (если файл уже существовал) для ОДНОГО обмена.
+ *
+ * Скалярные поля (`accepted`/`oracle`/`target`/`reason`) новая метка перекрывает — она
+ * описывает более позднее, точнее известное состояние того же обмена (например, «пуст»
+ * при первом взгляде → «принят» после успешного топ-апа). Массивы (`frictions`)
+ * НАКАПЛИВАЮТСЯ: несколько вызовов инструментов одного хода `LoopExecutor` делят ОДИН
+ * обмен модели, и вторая разметка не должна стирать трение, найденное первой
+ * (code-review-all, 2026-09-27) — без этого правила `writeFileSync` тем же путём просто
+ * заменял бы файл целиком, как было до этой правки.
+ */
+function mergeLabel(prior: ExchangeLabel, next: ExchangeLabel): ExchangeLabel {
+  const merged: ExchangeLabel = { ...prior };
+  for (const [key, value] of Object.entries(next) as [keyof ExchangeLabel, unknown][]) {
+    const before = (merged as Record<string, unknown>)[key];
+    (merged as Record<string, unknown>)[key] = Array.isArray(before) && Array.isArray(value) ? [...before, ...value] : value;
+  }
+  return merged;
+}
+
+/**
+ * Разметить уже записанную пару исходом хода — известным ТОЛЬКО потребителю (трение
+ * цикла, гейт после шага плана, разбор значения поля бланка), не самому дампу.
+ *
+ * Пишет файл `<путь пары>.label.json` РЯДОМ с парой, а не в неё: второй файл, а не
+ * дописывание существующего — на сетевой шаре `appendFileSync` падает `EBADF` там, где
+ * `writeFileSync` работает, и живой прогон уже гасил этим весь дамп (см. докстринг
+ * `dumpExchange`). Тот же метод (читаем целиком, пишем целиком через `writeFileSync`)
+ * используется здесь и для СЛИЯНИЯ повторной разметки (`mergeLabel`) — это не то же самое,
+ * что дописывание байт в конец файла, и второй точки отказа не заводит. Разбирающий
+ * корпус читает файл пары и файл метки по общему имени, если она есть; парные `seq` не
+ * гарантируются — потребитель размечает ПОСЛЕДНИЙ известный ему путь, а между дампом и
+ * разметкой мог случиться ещё один запрос того же исполнителя (например, добор
+ * `files_to_touch` в `FormFillExecutor`).
+ *
+ * Отказ записи метки НЕ гасит дамп пар (`dumpExchange`) — у него свой счётчик отказов
+ * (`noteLabelFailure`/`labelDisabled`), не общий с `failures`/`dir`: до этой правки три
+ * подряд отказа именно записи `.label.json` (например, превышение `MAX_PATH` на Windows у
+ * более длинного пути метки) выключали ВЕСЬ дамп процесса, а не только разметку
+ * (code-review-all, 2026-09-27).
+ *
+ * Синхронная (не `fs.promises`) пара `readFileSync`/`writeFileSync` — сознательно, а не по
+ * инерции с `dumpExchange`: вызывающие (`LoopExecutor.friction`, цикл полей
+ * `FormFillExecutor`) зовут эту функцию в потенциально горячих местах (несколько раз за
+ * ход/пачку), и синхронный I/O там платится реальной ценой на медленной ФС. Но переход на
+ * асинхронные `fs.promises.readFile`/`writeFile` без единой блокировки открыл бы окно
+ * между чтением и записью, где ДВА параллельных вызова (пачка `Promise.allSettled` в
+ * `FormFillExecutor`, параллельные субагенты в `LoopExecutor`) читают одно и то же старое
+ * содержимое и один перезаписывает слияние другого — ровно та гонка, ради устранения
+ * которой заведён `mergeLabel`. Дёшево и безопасно одновременно здесь не вышло: остаётся
+ * блокирующий, но корректный синхронный путь (code-review-all, 2026-09-27).
+ */
+export function annotateExchange(path: string | null, label: ExchangeLabel): void {
+  if (path === null || labelDisabled) return;
+  const file = `${path}.label.json`;
+  try {
+    let toWrite = label;
+    try {
+      const prior = JSON.parse(readFileSync(file, 'utf8')) as ExchangeLabel;
+      toWrite = mergeLabel(prior, label);
+    } catch {
+      // Файла нет (первая метка этого обмена) либо он битый — пишем новую метку как есть.
+    }
+    writeFileSync(file, `${JSON.stringify(toWrite, null, 1)}\n`, 'utf8');
+    labelFailures = 0;
+  } catch (e) {
+    noteLabelFailure(e);
+  }
 }

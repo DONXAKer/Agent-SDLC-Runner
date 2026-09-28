@@ -72,6 +72,7 @@ import {
   type ChatMessage,
   type ChatProvider,
 } from '../provider/ChatProvider.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
 import { budgetParams, ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from './contextBudget.ts';
 import { writeThroughGate } from './gateWrite.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
@@ -1191,6 +1192,15 @@ export class FormFillExecutor implements StageExecutor {
           resetRejectionStreak();
 
           let answerText = a.value.text;
+          // Мишень T2 корпуса — ИМЕННО этот путь (`docs/model-tuning.md`: «карточка поля →
+          // значение (`FormFillExecutor`, `compactForms`)»), а до этой правки он не размечал
+          // ни одного обмена: серия с `compactForms: 'fill'/'all'` давала 0 пар корпуса
+          // независимо от качества ответов (code-review-all, 2026-09-27). Оракул честнее,
+          // чем у режима диапазонов: не имитация проверок, а настоящий `applyFill` ниже.
+          let finalRawLogPath = a.value.rawLogPath ?? null;
+          const rejectFieldCompact = (reason: string, oracle = 'form-field-checks'): void => {
+            annotateExchange(finalRawLogPath, { accepted: false, oracle, target: 'form-field', reason });
+          };
 
           // Прямая проверка сбоя генерации ДО applyFill — тем же порядком, что range-режим
           // (строки ниже, `foreignScript`/`looksLikeToolCallEcho` на `filled`), а не разбор
@@ -1202,12 +1212,14 @@ export class FormFillExecutor implements StageExecutor {
             const rejection = `ответ на поле ${field.id} отклонён: чужая письменность («${foreign}»)`;
             notes.push(rejection);
             fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            rejectFieldCompact('foreign-script');
             continue;
           }
           if (looksLikeToolCallEcho(answerText)) {
             const rejection = `ответ на поле ${field.id} отклонён: JSON-конверт вызова инструмента вместо значения`;
             notes.push(rejection);
             fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            rejectFieldCompact('tool-call-echo');
             continue;
           }
 
@@ -1216,13 +1228,22 @@ export class FormFillExecutor implements StageExecutor {
           // новым. До этого фикса компактный режим (`compactForms: 'fill'`) эту проверку не
           // исполнял вовсе.
           const inventedCompact = filesToTouchInventedPathsCompact(field, answerText, req.cwd);
+          // Держит состояние «путь так и остался выдуманным» до самой финальной метки —
+          // успешный топ-ап сбрасывает флаг НЕ пересчётом (тот же принцип, что у режима
+          // диапазонов: см. комментарий у `filesToTouchInventedPaths`, «ответ добора
+          // принимается как есть, без повторной проверки», иначе легитимный новый файл без
+          // пометки «новый» наказывался бы дважды).
+          let filesToTouchInvalid = inventedCompact.length > 0;
           if (inventedCompact.length > 0 && callsSpent < requestBudget) {
+            rejectFieldCompact('invented-path', 'files-to-touch-paths');
             callsSpent++;
             try {
               const more = await askFilesToTouchTopUpCompact(field, answerText, inventedCompact);
               usage = addUsage(usage, more.usage);
               if (more.text.trim() !== '' && !more.text.includes('‹')) {
                 answerText = more.text;
+                finalRawLogPath = more.rawLogPath ?? null;
+                filesToTouchInvalid = false;
                 notes.push(
                   `добор ${field.id}: похоже на путь, но не найдено на диске (${inventedCompact.join(', ')}) — переспрошено`,
                 );
@@ -1240,6 +1261,9 @@ export class FormFillExecutor implements StageExecutor {
           // задаётся один раз, оба текста склеиваются, и только тогда — единственный
           // applyFill. Дубли верхнего уровня из повторного ответа модели отсекаются по
           // нормализованному содержимому строки, тем же приёмом, что у legacy-добора.
+          // `recordsInvalid` — тем же правилом, что `filesToTouchInvalid` выше: держит
+          // «дефицит листа» до финальной метки, а не только до заметки в отчёте.
+          let recordsInvalid = false;
           if (field.kind === 'records' && field.min !== undefined && callsSpent < requestBudget) {
             const min = field.min;
             // Тот же класс бага, что у legacy-добора (askClaimsTopUp): один выстрел без
@@ -1255,10 +1279,14 @@ export class FormFillExecutor implements StageExecutor {
             };
             for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < requestBudget; attempt++) {
               if (shortfall(answerText) === null) break;
+              // Обмен, который дал ТЕКУЩИЙ дефицитный `answerText`, размечается отказом до
+              // следующей попытки — тем же приёмом, что у режима диапазонов.
+              rejectFieldCompact('records-below-minimum', 'records-minimum');
               callsSpent++;
               try {
                 const more = await askTopUpCompact(field, answerText, attempt > 0);
                 usage = addUsage(usage, more.usage);
+                finalRawLogPath = more.rawLogPath ?? null;
                 const seen = new Set(
                   answerText
                     .split('\n')
@@ -1279,6 +1307,7 @@ export class FormFillExecutor implements StageExecutor {
               }
             }
             const stillShort = shortfall(answerText);
+            recordsInvalid = stillShort !== null;
             if (stillShort !== null) {
               notes.push(
                 `добор поля ${field.id} не закрыл минимум за ${CLAIMS_TOPUP_ATTEMPTS} попытки: ` +
@@ -1300,11 +1329,28 @@ export class FormFillExecutor implements StageExecutor {
                 ? `поле ${field.id} не найдено в бланке: ${applied.problem}`
                 : `ответ на поле ${field.id} отклонён: ${applied.problem}`,
             );
+            // `applyFill` внутри зовёт `parseFieldValue` (`sheet.ts`) — настоящий
+            // механический оракул T2, честнее имитации проверок режима диапазонов.
+            rejectFieldCompact('apply-fill-rejected', 'apply-fill');
             // Классы «сбой генерации» (чужая письменность, JSON-конверт) отсечены раньше,
             // прямой проверкой ответа выше — сюда доходят только отказы `applyFill` по
             // другим причинам (поле не найдено, формат значения), для которых памяти нет.
             continue;
           }
+          // Метка корпуса на итоговый обмен: `applyFill` разобрал ответ по-настоящему
+          // (оракул T2), а `filesToTouchInvalid`/`recordsInvalid` держат случаи, где топ-ап
+          // не спас дефицит (тем же правилом, что у режима диапазонов).
+          annotateExchange(finalRawLogPath, {
+            accepted: !filesToTouchInvalid && !recordsInvalid,
+            oracle: recordsInvalid ? 'records-minimum' : filesToTouchInvalid ? 'files-to-touch-paths' : 'apply-fill',
+            target: 'form-field',
+            reason:
+              recordsInvalid || filesToTouchInvalid
+                ? recordsInvalid
+                  ? 'records-below-minimum'
+                  : 'invented-path'
+                : 'accepted',
+          });
           text = applied.text;
           filledFields.add(field);
           fieldsFilled++;
@@ -1414,25 +1460,55 @@ export class FormFillExecutor implements StageExecutor {
               continue;
             }
             resetRejectionStreak();
+            // Мишень T2 корпуса (`docs/model-tuning.md`): путь дампа обмена, который
+            // РЕАЛЬНО дал текущее содержимое поля. `?? null` — дамп выключен или обмен не
+            // сохранился (см. `ChatTurn.rawLogPath`). `finalRawLogPath` — а не константа:
+            // топ-ап (files_to_touch, claim-лист) переспрашивает поле ДОПОЛНИТЕЛЬНЫМ
+            // обменом, и метка обязана указывать на обмен, который дал итоговый ответ, а не
+            // на первый — иначе провальный первый обмен метится принятым, а обмен топ-апа,
+            // реально решивший поле, остаётся без метки вовсе (code-review-all, 2026-09-27).
+            let finalRawLogPath = a.value.rawLogPath ?? null;
+            // Отказ по механическому оракулу поля — на обмен, что дал ТЕКУЩЕЕ `filled`
+            // (см. `finalRawLogPath` выше). Один хелпер вместо повторяющегося литерала на
+            // каждой reject-ветке: те же четыре поля, разница только в `reason`/`oracle`
+            // (code-review-all, 2026-09-27).
+            const rejectField = (reason: string, oracle = 'form-field-checks'): void => {
+              annotateExchange(finalRawLogPath, { accepted: false, oracle, target: 'form-field', reason });
+            };
             let filled = cleanFieldAnswer(a.value.text);
             if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
             const isFilesToTouchRow = range.kind === 'row' && FILES_TO_TOUCH_HEADER.test(range.header);
             const empty = filled === '' || filled.includes('‹');
-            const invented =
+            let invented =
               !empty && isFilesToTouchRow ? filesToTouchInventedPaths(filled, req.cwd) : [];
             if ((empty || invented.length > 0) && isFilesToTouchRow && range.kind === 'row' && callsSpent < requestBudget) {
+              // Исходный обмен уже провалил оракул путей (пуст или выдуманный путь) — метка
+              // на НЕГО ставится здесь, пока `finalRawLogPath` ещё указывает на него: ниже
+              // он смещается на обмен топ-апа, и путь исходного больше нигде не всплывёт.
+              rejectField(empty ? 'empty-or-placeholder' : 'invented-path', 'files-to-touch-paths');
               callsSpent++;
               try {
                 const more = await askFilesToTouchTopUp(path, text, range, invented);
                 usage = addUsage(usage, more.usage);
                 const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
                 if (extra !== '' && !extra.includes('‹')) {
-                  filled = extra;
                   notes.push(
                     invented.length > 0
                       ? `добор files_to_touch: похоже на путь, но не найдено на диске (${invented.join(', ')}) — переспрошено`
                       : `добор files_to_touch: список был пуст, добавлено ${extra.split('\n').length} строк`,
                   );
+                  filled = extra;
+                  finalRawLogPath = more.rawLogPath ?? null;
+                  // `invented` СБРАСЫВАЕТСЯ (заметка выше уже сказана по СТАРОМУ значению), а
+                  // не пересчитывается по новому ответу: комментарий у
+                  // `filesToTouchInventedPaths` выше по файлу называет это решение прямо —
+                  // «ложное срабатывание… стоит один лишний запрос, а не потерю данных:
+                  // ответ добора принимается как есть, без повторной проверки». Повторная
+                  // проверка здесь наказала бы легитимный новый файл, который модель снова
+                  // не пометила словом «новый», ровно тем сбоем, от которого страхуется тот
+                  // комментарий — метка корпуса обязана доверять топ-апу СТРОГО так же, как
+                  // доверяет ему запись в артефакт (структурный успех: не пусто, без ‹›).
+                  invented = [];
                 } else {
                   notes.push('добор files_to_touch не удался: список снова пуст');
                 }
@@ -1444,7 +1520,10 @@ export class FormFillExecutor implements StageExecutor {
             }
             // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
             // как был, и его честно назовут страж и предусловие следующего этапа.
-            if (filled === '' || filled.includes('‹')) continue;
+            if (filled === '' || filled.includes('‹')) {
+              rejectField('empty-or-placeholder');
+              continue;
+            }
             // Чужая письменность — тот же класс: не значение поля, а сбой генерации
             // (`sheet.ts::foreignScript`; компактный путь отказывает в `parseFieldValue`).
             // Причина называется вслух, в отличие от двух отказов выше: поле, пропущенное
@@ -1456,6 +1535,7 @@ export class FormFillExecutor implements StageExecutor {
               const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: чужая письменность («${foreign}»)`;
               notes.push(rejection);
               fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
+              rejectField('foreign-script');
               continue;
             }
             // Модель спутала «ответить на карточку» с «вызвать инструмент» и вернула JSON-
@@ -1467,6 +1547,7 @@ export class FormFillExecutor implements StageExecutor {
               const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: JSON-конверт вызова инструмента вместо значения`;
               notes.push(rejection);
               fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
+              rejectField('tool-call-echo');
               continue;
             }
             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому
@@ -1481,10 +1562,15 @@ export class FormFillExecutor implements StageExecutor {
               for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < requestBudget; attempt++) {
                 const have = countClaims(filled);
                 if (have.rows >= CLAIMS_MINIMUM.rows && have.edges >= CLAIMS_MINIMUM.edges) break;
+                // Обмен, который дал ТЕКУЩИЙ (ещё дефицитный) `filled`, размечается отказом
+                // ДО следующей попытки — иначе после успешного добора эта метка была бы
+                // невосстановима (тот же класс дефекта, что у files_to_touch выше).
+                rejectField('claims-below-minimum', 'claims-minimum');
                 callsSpent++;
                 try {
                   const more = await askClaimsTopUp(path, text, range, filled, attempt > 0);
                   usage = addUsage(usage, more.usage);
+                  finalRawLogPath = more.rawLogPath ?? null;
                     const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
                   // Модели на добор часто возвращают ВЕСЬ лист заново с теми же id —
                   // фильтр «дубль id → в мусор» выбрасывал и новые пункты (r17e, лист
@@ -1537,6 +1623,32 @@ export class FormFillExecutor implements StageExecutor {
                 );
               }
             }
+            // Метка корпуса на итоговый обмен (`finalRawLogPath` — исходный, если топ-апа
+            // не было, иначе последний топ-ап) — здесь, а не раньше: пункты приёмки могли
+            // пройти через добор выше и всё равно остаться короче минимума методологии —
+            // это тоже отказ оракула, даже когда строка всё же уходит в артефакт (страж
+            // этапа 3 честно найдёт нехватку сам). Пересчёт `countClaims` независим от
+            // `stillShort` внутри блока добора: тот объявлен в его собственной области
+            // видимости и сюда не достаёт, а вызов чистый и второго знания не заводит.
+            // Строка `files_to_touch` — тем же правилом, но `invented` тут значим ТОЛЬКО
+            // когда топ-ап не спасло: `filled` уже прошёл проверки «пусто»/чужая
+            // письменность/эхо выше, а успешный топ-ап сбрасывает `invented` в `[]` (см.
+            // комментарий у `filesToTouchInventedPaths` про доверие ответу добора без
+            // повторной проверки) — здесь остаётся только случай «выдуманный путь дожил до
+            // конца», не тронутый ни одной из этих веток (code-review-all, 2026-09-27).
+            const claimsRow = range.kind === 'row' && /claim-/.test(range.text);
+            const claimsShort = claimsRow ? countClaims(filled) : null;
+            const belowClaimsMinimum =
+              claimsShort !== null &&
+              (claimsShort.rows < CLAIMS_MINIMUM.rows || claimsShort.edges < CLAIMS_MINIMUM.edges);
+            const filesToTouchStillInvalid = isFilesToTouchRow && invented.length > 0;
+            const rejected = belowClaimsMinimum || filesToTouchStillInvalid;
+            annotateExchange(finalRawLogPath, {
+              accepted: !rejected,
+              oracle: claimsRow ? 'claims-minimum' : isFilesToTouchRow ? 'files-to-touch-paths' : 'form-field-checks',
+              target: 'form-field',
+              reason: rejected ? (belowClaimsMinimum ? 'claims-below-minimum' : 'invented-path') : 'accepted',
+            });
             // Ячейка таблицы, спрошенная по одной (владение ячейкой «Ответ человека»): ответ
             // ложится внутрь строки, и перевод строки или голая `|` в нём разорвали бы таблицу.
             if (range.kind === 'cell' && lineAt(text, range.start).trimStart().startsWith('|')) {

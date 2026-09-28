@@ -25,6 +25,7 @@ import type { Usage } from '@sdlc-runner/shared';
 import { AFFIRMATIVE_HEAD, AXIS_HINTS, axisHint } from './reviewFill.ts';
 import { axisOutcomePromptOptions, matchAxisOutcome } from './axisOutcomes.ts';
 import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
 import { axisRowOf, axisRowProblems, type AxisContext, type AxisName } from '../artifacts/planAxes.ts';
 import type { AxisFillAnswer } from '../artifacts/renderAxes.ts';
 
@@ -96,7 +97,7 @@ export function planAxisContext(i: PlanAxisFillInput): AxisContext {
 }
 
 /** Исход одного вопроса добора; `env` — сбой среды, добор прекращается целиком. */
-export type PlanAxisReply = { text: string } | { env: string } | { failed: string };
+export type PlanAxisReply = { text: string; rawLogPath: string | null } | { env: string } | { failed: string };
 
 /**
  * Один вопрос добора без истории: `system` этапа + вопрос. Общий для обеих форм добора —
@@ -122,7 +123,7 @@ export async function askPlanAxes(i: PlanAxisFillInput, user: string): Promise<P
     return { failed: e instanceof Error ? e.message : String(e) };
   }
   i.onUsage?.(response.usage);
-  return { text: response.text };
+  return { text: response.text, rawLogPath: response.rawLogPath ?? null };
 }
 
 function planAxisQuestion(i: PlanAxisFillInput): string {
@@ -406,6 +407,17 @@ export async function fillPlanAxes(i: PlanAxisFillInput): Promise<PlanAxisFillRe
     return { answers: [], envFailure: 'env' in reply ? reply.env : null };
   }
   const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(i.axes, reply.text, planAxisContext(i));
+  // Мишень корпуса `planAxisFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
+  // `bench/src/corpus.ts`) — до этой правки трасса писалась (`host.trace('plan',
+  // 'planAxisFill')`), а метку не ставил никто: три из пяти заявленных обучаемых режимов
+  // были структурно недостижимы (code-review-all, 2026-09-27). Оракул — тот же контракт
+  // формы «ровно N строк», что у `reviewFill`/`claimFill`.
+  annotateExchange(reply.rawLogPath, {
+    accepted: answeredIdx.size === i.axes.length,
+    oracle: 'plan-axis-parse',
+    target: 'plan-axis-fill',
+    reason: answeredIdx.size === i.axes.length ? 'accepted' : `answered-${answeredIdx.size}-of-${i.axes.length}`,
+  });
   if (answeredIdx.size < i.axes.length) {
     i.onProgress?.(`ответ по осям плана неполон: разобрано ${answeredIdx.size} из ${i.axes.length}`);
   }

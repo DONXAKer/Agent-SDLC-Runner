@@ -63,10 +63,12 @@ import { symlinkEscape } from '../approval/symlink.ts';
 import { git } from '../gates/git.ts';
 import { isAbsolute, relativizeWithin, resolveUserPath, toPosix } from '../policy/paths.ts';
 import type { ChatMessage, ChatProvider, FinishReason } from '../provider/ChatProvider.ts';
+import { annotateExchange } from '../provider/rawLog.ts';
 import { normalize } from './normalize.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import { cap, executeTool, type ToolContext } from './tools/index.ts';
 import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './contextBudget.ts';
+import { buildStepContext } from './stepContext.ts';
 
 /**
  * Исход проверки после шага. `skipped` — проверка не состоялась (строки гейта нет, среда
@@ -97,6 +99,8 @@ export interface StepExecutorOptions {
    * никакой защиты (code-review-all, 2026-09-11).
    */
   contextWindow?: number;
+  /** Лексический контекст шага (`stepContext.ts`) — см. `ModelDef.stepContext`. */
+  stepContext: boolean;
   steps: readonly PlanStep[];
   /** Текст плана — для ориентира; режется по `maxResultBytes`. */
   planText: string;
@@ -149,17 +153,25 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
     // `<<<<<<< SEARCH SEARCH: src/oversize.ts` и подобные — маркер построен верно, но
     // с лишним текстом на той же строке; семь подряд одинаковых спецсимволов на строке
     // практически не встречаются в реальном коде случайно, риск ложного совпадения низкий.
+    if (/^<{7}\s*SEARCH\b/.test(t)) {
+      // A nested opener means the outer block is malformed. Restarting here salvages a
+      // later well-formed block without ever writing protocol markers into source code.
+      state = 'search';
+      search = [];
+      replace = [];
+      continue;
+    }
     if (state === 'idle') {
-      if (/^<{7}\s*SEARCH\b/.test(t)) {
-        state = 'search';
-        search = [];
-        replace = [];
-      }
       continue;
     }
     if (state === 'search') {
       if (/^={7}(\s|$)/.test(t)) state = 'replace';
+      else if (/^>{7}\s*REPLACE\b/.test(t)) state = 'idle';
       else search.push(line);
+      continue;
+    }
+    if (/^={7}(\s|$)/.test(t)) {
+      state = 'idle';
       continue;
     }
     if (/^>{7}\s*REPLACE\b/.test(t)) {
@@ -169,6 +181,18 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
       continue;
     }
     replace.push(line);
+  }
+  if (out.length > 0) return out;
+
+  // Weak models also use an unambiguous fenced variant. Accept only complete multiline
+  // pairs; inline `SEARCH: x` and prose remain rejected because their boundaries are not safe.
+  const fenced = /(?:^|\n)\s*SEARCH:\s*\n```[^\n]*\n([\s\S]*?)\n```\s*\n+\s*REPLACE:\s*\n```[^\n]*\n([\s\S]*?)\n```/g;
+  for (const match of answer.matchAll(fenced)) {
+    const oldStr = match[1] ?? '';
+    const newStr = match[2] ?? '';
+    if (oldStr.trim() === '') continue;
+    if (/^(?:<{7}\s*SEARCH|={7}(?:\s|$)|>{7}\s*REPLACE)/m.test(`${oldStr}\n${newStr}`)) continue;
+    out.push({ oldStr, newStr });
   }
   return out;
 }
@@ -345,6 +369,48 @@ export function mentionsFile(problem: string, file: string): boolean {
   const matches = [...problem.matchAll(re)];
   if (matches.length === 0) return false;
   return matches.some((m) => m[1] === undefined || toPosix(m[1]) === ownDir);
+}
+
+/** Converts frequent compiler failures into a narrow instruction for the next repair round. */
+export function repairGuidance(problem: string, current: string | null): string[] {
+  const guidance: string[] = [];
+  const duplicate = /Identifier ['"]([^'"]+)['"] has already been declared/i.exec(problem);
+  if (duplicate !== null) {
+    const name = duplicate[1] ?? '';
+    const declaration = new RegExp(`\\b(?:const|let|var|function|class|interface|type)\\s+${escapeRegExp(name)}\\b`);
+    const locations = (current ?? '')
+      .split(/\r?\n/)
+      .map((line, index) => ({ line, n: index + 1 }))
+      .filter(({ line }) => declaration.test(line))
+      .map(({ line, n }) => `${n}: ${line.trim()}`);
+    guidance.push(
+      `Идентификатор \`${name}\` объявлен повторно. Удали или переиспользуй одно из существующих объявлений; не добавляй ещё одно.` +
+        (locations.length === 0 ? '' : `\nТекущие объявления:\n${locations.join('\n')}`),
+    );
+  }
+  if (/import declarations may only appear at top level|Unexpected token.*import|Cannot use import statement/i.test(problem)) {
+    guidance.push('Статический `import` разрешён только в начале модуля. Добавь его рядом с существующими импортами, не внутри функции.');
+  }
+  const missingExport = /does not provide an export named ['"]([^'"]+)['"]/i.exec(problem);
+  if (missingExport !== null) {
+    guidance.push(`Модуль не экспортирует \`${missingExport[1] ?? ''}\`. Используй только экспорты из контекста проекта или исправь имя импорта.`);
+  }
+  if (/require is not defined|Cannot find name ['"]require['"]/i.test(problem)) {
+    guidance.push('Проект использует ESM: замени `require(...)` статическим импортом в начале файла.');
+  }
+  const syntaxLine = /(?:file:\/\/\/[^\s:]+|(?:[A-Za-z]:)?[^\s:]+):(\d+)(?::\d+)?[\s\S]*?SyntaxError/i.exec(problem);
+  if (syntaxLine !== null && current !== null) {
+    const n = Number.parseInt(syntaxLine[1] ?? '', 10);
+    if (Number.isFinite(n) && n > 0) {
+      const lines = current.split(/\r?\n/);
+      const excerpt = lines
+        .slice(Math.max(0, n - 3), Math.min(lines.length, n + 2))
+        .map((line, index) => `${Math.max(0, n - 3) + index + 1}: ${line}`)
+        .join('\n');
+      guidance.push(`Синтаксическая ошибка указана около строки ${n}. Исправь структуру именно в этом месте:\n${excerpt}`);
+    }
+  }
+  return guidance;
 }
 
 /**
@@ -528,7 +594,9 @@ export class StepExecutor implements StageExecutor {
       return null;
     };
 
-    const chat = async (messages: ChatMessage[]): Promise<{ text: string; finishReason: FinishReason }> => {
+    const chat = async (
+      messages: ChatMessage[],
+    ): Promise<{ text: string; finishReason: FinishReason; rawLogPath: string | null }> => {
       const startedAt = Date.now();
       const answer = await this.o.provider.chat({
         model: req.model,
@@ -545,7 +613,7 @@ export class StepExecutor implements StageExecutor {
       // сразу за обменом: печать хода прогона закрывает им блок этого запроса.
       hooks.onExchange?.({ question: messages.at(-1)?.content ?? '', answer: answer.text });
       hooks.onUsage(answer.usage, Date.now() - startedAt);
-      return { text: answer.text, finishReason: answer.finishReason };
+      return { text: answer.text, finishReason: answer.finishReason, rawLogPath: answer.rawLogPath ?? null };
     };
 
     // Модель, потратившая весь выходной бюджет на рассуждение, не «не поняла формат» —
@@ -662,7 +730,13 @@ export class StepExecutor implements StageExecutor {
         callerTools: req.allowedTools,
       });
       if (!decision.allowed) {
-        hooks.onFriction('denied');
+        // `hooks.onFriction('denied')` НЕ зовётся здесь: `apply()` не знает `rawLogPath`
+        // текущего раунда (он в области видимости внешнего цикла попыток, не этой функции),
+        // а метрика трения и метка корпуса обязаны идти ОДНИМ вызовом — тем же приёмом, что
+        // `LoopExecutor.friction()` (см. её докстринг). Вызывающий код (ветка
+        // `applied.denied` ниже) зовёт `hooks.onFriction('denied')` сам, рядом со своим
+        // `annotateExchange(...policy-denied...)` — два места, знающие об одном трении, не
+        // должны жить в разных функциях (code-review-all, 2026-09-27).
         hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
         return { ok: false, denied: true, noChange: null, partialNote: '', text: `запись отклонена: ${decision.reason}` };
       }
@@ -690,12 +764,13 @@ export class StepExecutor implements StageExecutor {
       }
 
       const before = readInsideRoot(req.cwd, step.file);
+      const stepContext = this.o.stepContext ? await buildStepContext(req.cwd, step, req.signal) : '';
       const messages: ChatMessage[] = [
         { role: 'system', content: SYSTEM },
         // Номер — `step.n` из плана, не позиция в отфильтрованном списке: сам план
         // (приложенный ниже целиком) ссылается на шаги под их настоящими номерами, и
         // расхождение двух нумераций в одном промпте путает модель.
-        { role: 'user', content: this.stepMessage(step, step.n, total, planBlock, factsBlock, briefBlock, before) },
+        { role: 'user', content: this.stepMessage(step, step.n, total, planBlock, factsBlock, briefBlock, stepContext, before) },
       ];
 
       let calls = 0;
@@ -743,6 +818,10 @@ export class StepExecutor implements StageExecutor {
               ...(applyProblem === null
                 ? []
                 : ['## Твоя правка не применилась', '', '```', cap(applyProblem, this.o.maxResultBytes), '```', '']),
+              ...repairGuidance(
+                [checkProblem, applyProblem].filter((value): value is string => value !== null).join('\n'),
+                current,
+              ).flatMap((hint) => ['## Точное ограничение ремонта', '', hint, '']),
               'Ошибки в ДРУГИХ файлах не чини — они закрываются другими шагами.',
               '',
               ...(current === null
@@ -773,10 +852,12 @@ export class StepExecutor implements StageExecutor {
 
         let answer: string;
         let finishReason: FinishReason;
+        let rawLogPath: string | null;
         try {
           const result = await chat(messages);
           answer = result.text;
           finishReason = result.finishReason;
+          rawLogPath = result.rawLogPath;
         } catch (e) {
           if (req.signal.aborted) return stop('этап отменён');
           throw e;
@@ -788,6 +869,12 @@ export class StepExecutor implements StageExecutor {
         // достигает: третий раунд с тем же ответом стоил бы ещё один полный файл в контексте
         // и ту же проверку. Шаг закрывается сразу — как красный, с названной причиной.
         if (round > 0 && answer === lastAnswer) {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'repeated-answer',
+          });
           hooks.onFriction('repeat');
           status = '❌';
           note = `ремонт остановлен: ответ повторён дословно — ${note}`;
@@ -798,16 +885,37 @@ export class StepExecutor implements StageExecutor {
         const applied = await apply(step, current, answer, finishReason);
 
         if (applied.noChange !== null) {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'no-change',
+          });
           status = '⏭';
           note = `без правок: ${applied.noChange}`;
           break;
         }
         if (applied.denied) {
+          // Метрика трения и метка корпуса — рядом, одним местом: см. комментарий у
+          // `hooks.onFriction('denied')`, которого больше НЕТ внутри `apply()`.
+          hooks.onFriction('denied');
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'policy-denied',
+          });
           status = '❌';
           note = applied.text;
           break;
         }
         if (!applied.ok) {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'patch-not-applied',
+          });
           applyProblem = applied.text;
           note = applied.text.split('\n')[0] ?? applied.text;
           continue;
@@ -836,11 +944,23 @@ export class StepExecutor implements StageExecutor {
         // Добавляется явно, отдельным хвостом, во всех трёх исходах ниже.
         const partialSuffix = applied.partialNote === '' ? '' : `; ${applied.partialNote}`;
         if (check.status === 'ok') {
+          annotateExchange(rawLogPath, {
+            accepted: this.o.check !== null,
+            oracle: this.o.check === null ? 'no-step-check' : `gate:${checkName ?? 'unnamed'}`,
+            target: 'plan-step',
+            reason: this.o.check === null ? 'no-mechanical-oracle' : 'check-passed',
+          });
           status = '✅';
           note = (applied.text.split('\n')[0] ?? 'применено') + partialSuffix;
           break;
         }
         if (check.status === 'skipped') {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'check-skipped',
+          });
           status = '✅';
           note = `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; проверка после шага не состоялась: ${check.note}`;
           break;
@@ -850,6 +970,12 @@ export class StepExecutor implements StageExecutor {
         // Ремонт здесь подталкивал бы убрать верный импорт. Проверят следующие шаги и
         // прогон тестов после этапа.
         if (!mentionsFile(check.problem, step.file)) {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'check-not-attributable-to-step',
+          });
           status = '✅';
           note =
             `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; гейт «${checkName ?? ''}» красный вне этого файла: ` +
@@ -857,6 +983,12 @@ export class StepExecutor implements StageExecutor {
           hooks.onWarn(`шаг ${step.n}: ${note}`);
           break;
         }
+        annotateExchange(rawLogPath, {
+          accepted: false,
+          oracle: `gate:${checkName ?? 'unnamed'}`,
+          target: 'plan-step',
+          reason: 'check-failed',
+        });
         checkProblem = check.problem;
         note = `после правки проверка красная: ${check.problem.split('\n')[0] ?? check.problem}`;
       }
@@ -893,6 +1025,7 @@ export class StepExecutor implements StageExecutor {
     planBlock: string,
     factsBlock: string,
     briefBlock: string,
+    stepContext: string,
     content: string | null,
   ): string {
     const card = [
@@ -917,6 +1050,7 @@ export class StepExecutor implements StageExecutor {
     ];
     if (factsBlock !== '') parts.push('', factsBlock);
     if (briefBlock !== '') parts.push('', briefBlock);
+    if (stepContext !== '') parts.push('', stepContext);
     if (content !== null) {
       const truncated = Buffer.byteLength(content, 'utf8') > this.o.maxResultBytes;
       parts.push('', `## Текущее содержимое \`${step.file}\``, '', '```', cap(content, this.o.maxResultBytes), '```');
