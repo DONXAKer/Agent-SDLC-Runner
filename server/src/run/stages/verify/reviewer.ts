@@ -18,6 +18,7 @@ import type { ExecHooks, SubagentDef } from '../../../exec/StageExecutor.ts';
 import { isToolName } from '../../../exec/toolSpecs.ts';
 import { createProvider } from '../../../provider/registry.ts';
 import { AXIS_HINTS, reviewByHunks } from '../../reviewFill.ts';
+import type { AxisAsk } from '../../reviewFill.ts';
 import type { StageHost } from '../types.ts';
 import { REVIEW_GATE } from './gates.ts';
 import { acceptRecord } from './records.ts';
@@ -73,6 +74,23 @@ export function axisVerificationBlock(planText: string | null): string | null {
   ].join('\n');
 }
 
+/** ReviewFill checks every canonical readiness axis, including axes omitted by the plan. */
+export function reviewAxes(planText: string | null): AxisAsk[] {
+  const rows = planText === null ? [] : parsePlanAxes(planText).rows;
+  const byAxis = new Map<AxisName, AxisRow>();
+  for (const row of rows) if (row.canonical !== null) byAxis.set(row.canonical, row);
+  const canonical = AXES.map((name) => {
+    const row = byAxis.get(name);
+    return { name, affected: row?.affected ?? null, outcomeRaw: row?.outcomeRaw ?? '' };
+  });
+  const projectDefined = rows.filter((row) => row.canonical === null).map((row) => ({
+    name: row.name,
+    affected: row.affected,
+    outcomeRaw: row.outcomeRaw,
+  }));
+  return [...canonical, ...projectDefined];
+}
+
 /**
  * Отчёт независимого рецензента, прогнанного рантаймом, — блоком во вход этапа.
  *
@@ -120,9 +138,7 @@ export async function runReviewFill(host: StageHost, route: ResolvedRoute): Prom
     return null;
   }
   const plan = readArtifact(host.paths.plan);
-  const axes = plan.exists
-    ? parsePlanAxes(plan.text).rows.map((r) => ({ name: r.name, affected: r.affected, outcomeRaw: r.outcomeRaw }))
-    : [];
+  const axes = reviewAxes(plan.exists ? plan.text : null).map((r) => ({ name: r.name, affected: r.affected, outcomeRaw: r.outcomeRaw }));
   const intent = readArtifact(host.paths.intent);
   const taskContext = intent.exists ? [...host.intentClaimLines(intent.text).values()].join('\n') : '';
   const limits = host.limits();

@@ -209,6 +209,7 @@ export const askStage: StageDef = {
 
 export const askModule: StageModule = {
   def: askStage,
+  runtimeFacts: [],
   formFillExecutor: false,
   leanDocTools: true,
   mechanicalJobs: (host) => [

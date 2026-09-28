@@ -24,6 +24,7 @@ import {
   sliceHunks,
 } from '../src/run/reviewFill.ts';
 import { splitHunks } from '../src/run/claimEvidence.ts';
+import { reviewAxes } from '../src/run/stages/verify/reviewer.ts';
 
 const DIFF = [
   'diff --git a/src/tariffs.ts b/src/tariffs.ts',
@@ -161,7 +162,32 @@ describe('разбор комбинированного ответа по ося
     { name: 'Настройки', affected: false, outcomeRaw: '' },
     { name: 'Наблюдаемость', affected: false, outcomeRaw: '' },
     { name: 'Безопасность', affected: true, outcomeRaw: 'claim-1' },
-  ];
+];
+
+describe('reviewAxes', () => {
+  it('проверяет канонические оси даже если план их не содержит', () => {
+    deepStrictEqual(reviewAxes(null).map((axis) => axis.name), [
+      'Безопасность',
+      'Ресурсы и скорость',
+      'Отказы зависимостей',
+      'Настройки',
+      'Совместимость и данные',
+      'Наблюдаемость',
+    ]);
+  });
+
+  it('сохраняет пользовательские оси плана после шести канонических', () => {
+    const plan = [
+      '## Последствия шагов',
+      '| Ось | Затронута | Исход |',
+      '|---|---|---|',
+      '| Лицензирование | нет | н/п — не меняется |',
+    ].join('\n');
+    const axes = reviewAxes(plan);
+    strictEqual(axes.length, 7);
+    deepStrictEqual(axes[6], { name: 'Лицензирование', affected: false, outcomeRaw: 'н/п — не меняется' });
+  });
+});
 
   it('строки «N. …» разбираются по номеру, а не по порядку прихода', () => {
     const answer = ['2. нет', '1. да | читается ENV | src/tariffs.ts:11', '3. да | claim-1 про другое | x.ts:1'].join(
@@ -254,7 +280,7 @@ describe('конвейер', () => {
     ok(r.findings.every((f) => f.kind === 'record_finding'));
     // Затронутая ось теперь ТОЖЕ спрашивается — вопрос про то, покрывает ли заявленный
     // исход реально сделанное, а не «трогает ли» (план и так сказал «да»).
-    ok(provider.asked.some((q) => q.includes('«Безопасность» — в плане объявлена ЗАТРОНУТОЙ')));
+    ok(provider.asked.some((q) => q.includes('«Безопасность» — в плане объявлена затронутой')));
     // Сводка называет проверенные файлы — этим она и якорится к патчу.
     ok(r.text.includes('src/tariffs.ts') && r.text.includes('test/oversize.test.ts'));
     ok(r.text.includes('фрагментов проверено 2 из 2'));

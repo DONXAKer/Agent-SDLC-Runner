@@ -15,10 +15,16 @@ import {
   seedFilesToTouch,
   touchListEntries,
 } from '../../artifacts/planFiles.ts';
-import { extractExplicitSteps } from '../../artifacts/planSteps.ts';
+import { explicitStepProblems, extractExplicitSteps, planSteps } from '../../artifacts/planSteps.ts';
+import { readRequirementsHash, resolvedRequirementsHash } from '../../artifacts/resolvedRequirements.ts';
+import { clarificationResolutionBlock, clarificationResolutionProblem } from '../../artifacts/clarificationResolution.ts';
+import { claimIdOf } from '../../artifacts/claims.ts';
 import { applyAxisAnswers } from '../../artifacts/renderAxes.ts';
 import type { ResolvedRoute } from '../../config/schema.ts';
 import { gateKey } from '../../gates/gatesFile.ts';
+import { readTree } from '../../explore/tree.ts';
+import { callersOf } from '../../explore/symbols.ts';
+import { capBytes } from '../../prompt/bytes.ts';
 import type { GatesFile } from '../../gates/gatesFile.ts';
 import { h2SectionRanges } from '../../md/table.ts';
 import { ProviderEnvError } from '../../provider/ChatProvider.ts';
@@ -131,6 +137,167 @@ export function planStepSampleTextProblem(c: StageContext): string | null {
     );
   }
   return null;
+}
+
+/** Структура шагов и адресуемость claims проверяются до завершения plan. */
+export function planStepsProblem(c: StageContext): string | null {
+  const plan = readArtifact(c.paths.plan);
+  if (!plan.exists) return null;
+  // Existing plans in the legacy files_to_touch form stay on the locator fallback.
+  if (extractExplicitSteps(plan.text).length === 0) return null;
+  const problems = explicitStepProblems(plan.text);
+  if (problems.length === 0) return null;
+  return `карточки шагов плана не готовы:\n${problems.map((p) => `- ${p}`).join('\n')}`;
+}
+
+/**
+ * Сверяет адреса явного плана с текущим деревом до начала chunk. Это ранняя защита от
+ * устаревшей карты; старые планы остаются на прежнем locator-пути и не блокируются.
+ */
+export function planMapProblem(c: StageContext): string | null {
+  const plan = readArtifact(c.paths.plan);
+  if (!plan.exists) return null;
+  const requirementProblem = planRequirementsProblem(c);
+  if (requirementProblem !== null) return requirementProblem;
+  const clarificationProblem = planClarificationProblem(c, plan.text);
+  if (clarificationProblem !== null) return clarificationProblem;
+  const steps = extractExplicitSteps(plan.text);
+  if (steps.length === 0) return null;
+  const files = new Set(extractFilesToTouch(plan.text));
+  const index = readTree(c.paths.projectRoot);
+  const issues: string[] = [];
+  for (const step of steps) {
+    if (!files.has(step.file)) {
+      issues.push(`шаг ${step.n}: ${step.file} отсутствует в files_to_touch`);
+      continue;
+    }
+    if (step.isNew) continue;
+    const indexed = index.files.find((f) => f.path === step.file);
+    if (indexed === undefined) {
+      if (!existsSync(join(c.paths.projectRoot, step.file))) {
+        issues.push(`шаг ${step.n}: существующий файл ${step.file} не найден`);
+      }
+      continue; // неиндексируемые форматы не дают надёжной проверки символов
+    }
+    if (step.symbol !== null && !indexed.symbols.some((symbol) => symbol.name === step.symbol)) {
+      issues.push(`шаг ${step.n}: символ ${step.symbol} не найден в ${step.file}`);
+    }
+  }
+  const callersProblem = planCallersProblem(c, plan.text, index);
+  if (callersProblem !== null) issues.push(callersProblem);
+  return issues.length === 0
+    ? null
+    : `карта плана разошлась с кодовой базой; вернись на этап 4 до расхода попытки:\n${issues.map((p) => `- ${p}`).join('\n')}`;
+}
+
+/** Every recorded human answer must be explicitly reconciled in the approved plan. */
+export function planClarificationProblem(c: StageContext, planText?: string): string | null {
+  const plan = planText ?? readArtifact(c.paths.plan).text;
+  const report = readArtifact(c.paths.clarificationReport);
+  const intent = readArtifact(c.paths.intent);
+  const acceptedClaimIds = new Set(
+    (intent.exists ? intent.text : '').split(/\r?\n/)
+      .map(claimIdOf)
+      .filter((claimId): claimId is string => claimId !== null),
+  );
+  return clarificationResolutionProblem(plan, report.exists ? report.text : '', acceptedClaimIds);
+}
+
+/** Require a per-callsite disposition for every indexed caller of a changed contract. */
+export function planCallersProblem(
+  c: StageContext,
+  planText?: string,
+  indexOverride?: ReturnType<typeof readTree>,
+): string | null {
+  const plan = planText ?? readArtifact(c.paths.plan).text;
+  const steps = extractExplicitSteps(plan).filter(
+    (step) => step.contractChange !== null && !/^н\s*\/\s*п\b/i.test(step.contractChange),
+  );
+  if (steps.length === 0) return null;
+  const index = indexOverride ?? readTree(c.paths.projectRoot);
+  const sectionStart = plan.search(/^##\s+Затронутые вызовы\/сигнатуры\s*$/im);
+  const section = sectionStart < 0 ? '' : (plan.slice(sectionStart).split(/^##\s+/m).slice(1)[0] ?? '');
+  const rows = section.split(/\r?\n/).filter((line) => /^\s*\|/.test(line)).map((line) =>
+    line.split('|').slice(1, -1).map((cell) => cell.replace(/`/g, '').trim()),
+  );
+  const filesToTouch = new Set(extractFilesToTouch(plan));
+  const missing: string[] = [];
+  for (const step of steps) {
+    if (step.isNew) continue;
+    if (step.symbol === null) {
+      missing.push(`шаг ${step.n}: меняющийся контракт не привязан к символу`);
+      continue;
+    }
+    const file = index.files.find((candidate) => candidate.path === step.file);
+    if (file === undefined || !file.symbols.some((symbol) => symbol.name === step.symbol && symbol.exported)) continue;
+    const callers = callersOf(index, step.symbol, step.file, index.files.length);
+    const matchingRows = rows.filter((row) => row[0] === `${step.file}:${step.symbol}`);
+    for (const caller of callers) {
+      const address = `${caller.path}:${caller.line}`;
+      const addressed = matchingRows.some((row) =>
+        (row[2] ?? '').split(/[;,]/).some((part) => part.trim().replace(/\s+\([^)]*\)$/, '') === address) &&
+        (filesToTouch.has(caller.path)
+          ? /^да(?:\s|$)/i.test(row[3] ?? '')
+          : /^нет\s*[—-]\s*\S/i.test(row[3] ?? '')),
+      );
+      if (!addressed) missing.push(`${step.file}:${step.symbol} ← ${address}`);
+    }
+  }
+  if (missing.length === 0) return null;
+  const bounded = missing.slice(0, 30);
+  return `карта вызывающих не доведена: для каждого найденного места вызова укажи контракт и решение по колонке «Учтены в files_to_touch?»: ${bounded.join('; ')}${missing.length > bounded.length ? `; ещё ${missing.length - bounded.length}` : ''}`;
+}
+
+/** Require the approved plan to identify the exact requirement sources it was based on. */
+export function planRequirementsProblem(c: StageContext): string | null {
+  const plan = readArtifact(c.paths.plan);
+  if (!plan.exists) return null;
+  const intent = readArtifact(c.paths.intent);
+  const clarification = readArtifact(c.paths.clarificationReport);
+  const expected = resolvedRequirementsHash(intent.exists ? intent.text : '', clarification.exists ? clarification.text : '');
+  const actual = readRequirementsHash(plan.text);
+  return actual === expected
+    ? null
+    : `источники требований изменились после подготовки плана или в плане нет их отпечатка (ожидался SHA-256 ${expected}); вернись на этап 4 и получи новое одобрение`;
+}
+
+/** Готовая карта вызывающих для файлов, уже предложенных в `files_to_touch`. */
+export function callersBlock(c: StageContext): string | null {
+  const plan = readArtifact(c.paths.plan);
+  if (!plan.exists) return null;
+  const paths = extractFilesToTouch(plan.text);
+  if (paths.length === 0) return null;
+  const index = readTree(c.paths.projectRoot);
+  const indexedPaths = new Set(paths);
+  const rows: string[] = [];
+  for (const file of index.files) {
+    if (!indexedPaths.has(file.path) || file.kind === 'doc') continue;
+    for (const symbol of file.symbols.filter((s) => s.exported)) {
+      const callers = callersOf(index, symbol.name, file.path, index.files.length);
+      if (callers.length === 0) continue;
+      rows.push(
+        `| \`${file.path}:${symbol.name}\` | ${callers.map((v) => `\`${v.path}:${v.line}${v.symbol === null ? '' : ` (${v.symbol})`}\``).join(', ')} |`,
+      );
+    }
+  }
+  if (rows.length === 0) {
+    return [
+      '## Вызывающие из индекса проекта',
+      '',
+      'Для экспортируемых символов в текущей карте вызывающие не найдены. Индекс ограничен распознанными исходниками; проверьте публичные потребители вне репозитория отдельно.',
+    ].join('\n');
+  }
+  const text = [
+    '## Вызывающие из индекса проекта',
+    '',
+    'Факты индекса для файлов files_to_touch. Это кандидаты; решение об изменении контракта и необходимости править вызовы остаётся в плане.',
+    '',
+    '| Символ | Вызывающие (все найденные места) |',
+    '|---|---|',
+    ...rows,
+    ...(index.skipped.files > 0 ? ['', `Индекс пропустил файлов: ${index.skipped.files}; карта неполна.`] : []),
+  ].join('\n');
+  return capBytes(text, 24_000).text;
 }
 
 /**
@@ -326,6 +493,7 @@ export const planStage: StageDef = {
 
 export const planModule: StageModule = {
   def: planStage,
+  runtimeFacts: [{ id: 'indexed-callers', purpose: 'вызывающие экспортируемых символов из файлов files_to_touch', freshness: 'live' }],
   formFillExecutor: true,
   leanDocTools: true,
   mechanicalJobs: (host) => {
@@ -335,16 +503,21 @@ export const planModule: StageModule = {
         path: host.paths.plan,
         fill: async (t) => {
           const head = await host.head();
+          const intent = readArtifact(host.paths.intent);
+          const clarification = readArtifact(host.paths.clarificationReport);
           const autofilled = autofillPlan(t, {
             title: host.slug,
             explorationDone: artifactExists(host.paths.explorationReport),
             clarificationDone: artifactExists(host.paths.clarificationReport),
             base: head.sha ?? head.why,
+            requirementsHash: resolvedRequirementsHash(
+              intent.exists ? intent.text : '',
+              clarification.exists ? clarification.text : '',
+            ),
           });
           // Засев files_to_touch (4.1, «П»-половина): модель решает по готовой строке
           // (оставить/исключить/добавить), а не составляет список с нуля. Идемпотентно —
           // см. докстринг `seedFilesToTouch`.
-          const intent = readArtifact(host.paths.intent);
           const touch = intent.exists ? touchListEntries(intent.text) : [];
           const seeded = seedFilesToTouch(autofilled.text, touch);
           return { text: seeded.text, filled: autofilled.filled + seeded.seeded };
@@ -355,6 +528,13 @@ export const planModule: StageModule = {
   },
   checksBranchOnEntry: true,
   begin: (host, route) => ({
+    enterFacts: async () => {
+      const ctx = host.ctx();
+      const callers = callersBlock(ctx);
+      const clarification = readArtifact(ctx.paths.clarificationReport);
+      const resolutions = clarificationResolutionBlock(clarification.exists ? clarification.text : '');
+      return [callers, resolutions].filter((fact): fact is string => fact !== null);
+    },
     // Снимка секций задачи может не быть (виток начат до его появления или с середины по
     // снимку артефактов) — тогда он снимается здесь, с предупреждением: с этого момента
     // задача под сверкой, а что было до — не проверено.
@@ -408,6 +588,14 @@ export const planModule: StageModule = {
       if (touchProblem !== null) return touchProblem;
       const sampleProblem = planStepSampleTextProblem(host.ctx());
       if (sampleProblem !== null) return sampleProblem;
+      const stepProblem = planStepsProblem(host.ctx());
+      if (stepProblem !== null) return stepProblem;
+      const mapProblem = planMapProblem(host.ctx());
+      if (mapProblem !== null) return mapProblem;
+      const requirementsProblem = planRequirementsProblem(host.ctx());
+      if (requirementsProblem !== null) return requirementsProblem;
+      const clarificationProblem = planClarificationProblem(host.ctx());
+      if (clarificationProblem !== null) return clarificationProblem;
       const problems = axisProblems(host);
       if (problems.length === 0) return null;
       return [

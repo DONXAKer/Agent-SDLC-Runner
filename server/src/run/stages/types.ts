@@ -172,6 +172,8 @@ export interface MechanicalJob {
 /** Модуль этапа витка: определение и то, чем этап отличается в рантайме. */
 export interface StageModule {
   def: StageDef;
+  /** Runtime-only facts appended to the prompt, declared for audit and dashboard display. */
+  runtimeFacts: readonly { id: string; purpose: string; freshness: StageDataFreshness }[];
   /**
    * Исполняется ли этап режимом заполнения по полям (`ModelDef.formFill`). Только этапы,
    * чей результат целиком выводится из входов промпта: у explore источник — разведка
@@ -352,8 +354,23 @@ export interface StageDef {
 
 export interface StageInput {
   path: string;
+  /** Почему этап читает этот артефакт и какое решение он обосновывает. */
+  purpose: string;
+  origin: StageDataOrigin;
+  freshness: StageDataFreshness;
   /** Необязательный вход: отсутствие файла не мешает этапу. */
   optional: boolean;
+}
+
+export type StageDataOrigin = StageId | 'operator' | 'project' | 'runtime';
+export type StageDataFreshness = 'current-run' | 'approved' | 'attempt' | 'live';
+
+export interface StageOutputContract {
+  path: string;
+  purpose: string;
+  origin: StageId;
+  required: boolean;
+  freshness: StageDataFreshness;
 }
 
 export interface PreconditionProblem {

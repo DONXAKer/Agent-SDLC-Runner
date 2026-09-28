@@ -58,6 +58,8 @@ function dropMetrics(root: string, slug: string): void {
 export class SnapshotError extends Error {}
 
 export interface SnapshotMeta {
+  /** Actual route that produced the snapshot; absent in older snapshots. */
+  authorModel?: string;
   /** Слаг витка контрольного прогона, с которого снят снимок. */
   slug: string;
   branch: string;
@@ -153,6 +155,7 @@ export function firstMeasuredFrom(start: StageId, measured: readonly StageId[]):
  * именем стирается — имя это слот, а не история версий: история — дело git, не бенчмарка.
  */
 export function makeSnapshot(args: {
+  authorModel?: string;
   workspaceRoot: string;
   snapshotsDir: string;
   name: string;
@@ -170,6 +173,7 @@ export function makeSnapshot(args: {
   dropMetrics(dest, args.slug);
 
   const meta: SnapshotMeta = {
+    ...(args.authorModel === undefined ? {} : { authorModel: args.authorModel }),
     slug: args.slug,
     branch: args.branch,
     stoppedAfterStage: args.stoppedAfterStage,

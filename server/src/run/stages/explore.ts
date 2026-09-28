@@ -452,6 +452,7 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
 
 export const exploreModule: StageModule = {
   def: exploreStage,
+  runtimeFacts: [],
   formFillExecutor: false,
   leanDocTools: false,
   mechanicalJobs: (host) => [{ path: host.paths.explorationReport, fill: async (t) => autofillTitle(t, host.slug) }],

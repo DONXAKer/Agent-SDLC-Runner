@@ -81,6 +81,7 @@ const TEMPLATES: Record<string, string> = {
   'plan.template.md': [
     '# План: ‹название витка›',
     '',
+    '- **Требования (SHA-256):** ‹sha256 требований›',
     '- **Одобрение:** ‹подпись и дата›',
     '',
     '## files_to_touch',
@@ -196,7 +197,7 @@ interface RequestSummary {
   lastRole: string;
 }
 
-async function startModel(queues: Queues): Promise<{ baseUrl: string; requests: RequestSummary[]; close: () => void }> {
+async function startModel(queues: Queues, root: string): Promise<{ baseUrl: string; requests: RequestSummary[]; close: () => void }> {
   const requests: RequestSummary[] = [];
   let seq = 0;
   const server = createServer((req, res) => {
@@ -215,7 +216,24 @@ async function startModel(queues: Queues): Promise<{ baseUrl: string; requests: 
         tools: (parsed.tools ?? []).map((t) => t.function.name).sort(),
         lastRole: parsed.messages.at(-1)?.role ?? '',
       });
-      const reply = queues[stage as StageId]?.shift() ?? { text: 'готово' };
+      let reply = queues[stage as StageId]?.shift() ?? { text: 'готово' };
+      // Static scripted plans must preserve the runtime-owned requirements fingerprint just
+      // as a real model using Edit/FillField must; the harness reads the actual seeded value
+      // so this stays correct when the intent or clarification fixture changes.
+      if ('tool' in reply && reply.tool === 'Write' && String(reply.args['file_path'] ?? '').replace(/\\/g, '/') === '.sdlc/demo/plan.md') {
+        const seeded = readFileSync(join(root, '.sdlc', 'demo', 'plan.md'), 'utf8');
+        const hash = /^- \*\*Требования \(SHA-256\):\*\*\s*`?([a-f0-9]{64})`?\s*$/im.exec(seeded)?.[1];
+        if (hash !== undefined && typeof reply.args['content'] === 'string') {
+          let content = reply.args['content'];
+          const line = `- **Требования (SHA-256):** \`${hash}\``;
+          if (/^- \*\*Требования \(SHA-256\):\*\*/im.test(content)) {
+            content = content.replace(/^- \*\*Требования \(SHA-256\):\*\*.*$/im, line);
+          } else {
+            content = content.replace(/^(# .*\r?\n)/, `$1\n${line}\n`);
+          }
+          reply = { ...reply, args: { ...reply.args, content } };
+        }
+      }
       const message =
         'text' in reply
           ? { role: 'assistant', content: reply.text }
@@ -423,7 +441,7 @@ async function scenario(
   } = {},
 ): Promise<void> {
   const root = makeProject(gates, opts.reviewer === true);
-  const model = await startModel(queues);
+  const model = await startModel(queues, root);
   const events: RunEvent[] = [];
   const results: Record<string, unknown> = {};
   const run = makeRun(root, model.baseUrl, events, opts.route, opts.ensemble);

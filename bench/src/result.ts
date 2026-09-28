@@ -22,9 +22,11 @@ import type { HonestyCheck } from './honesty.ts';
 import type { BenchOptions, TurnLimits } from './options.ts';
 import type { BuiltProfile } from './profile.ts';
 import type { SeedProbe } from './seeds.ts';
+import type { RunDiagnostics } from './diagnostics.ts';
 import { taskById } from './tasks.ts';
 
 export interface BenchResult {
+  diagnostics?: RunDiagnostics;
   /** Идентификация прогона — не измерение, а его паспорт. */
   run: {
     slug: string;

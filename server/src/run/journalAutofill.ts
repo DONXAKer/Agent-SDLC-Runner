@@ -22,7 +22,17 @@
  *    поработавшим.
  */
 
-import { isDecisionLine, lineAt, placeholderRanges } from '../artifacts/artifact.ts';
+import { DECISION, readDecision, isDecisionLine, lineAt, placeholderRanges } from '../artifacts/artifact.ts';
+
+/** Copy an existing granted decision; never invent an approval or its date. */
+export function approvedPlanDate(text: string): string | null {
+  const decision = readDecision(text, DECISION.approval);
+  if (decision.state !== 'granted') return null;
+  const match = /\d{4}-\d{2}-\d{2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}/.exec(
+    ('raw' in decision ? decision.raw : undefined) ?? '',
+  );
+  return match?.[0] ?? null;
+}
 import { LEADING_PIPE_SEPARATOR_RE, escapeCell, h2SectionRanges, splitRow } from '../md/table.ts';
 
 export interface ChunkJournalFacts {

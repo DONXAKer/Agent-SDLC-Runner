@@ -58,6 +58,8 @@ export interface StageInfo {
    */
   envNotes?: string[];
   produces: string[];
+  outputContracts: { path: string; purpose: string; origin: StageId; required: boolean; freshness: 'current-run' | 'approved' | 'attempt' | 'live' }[];
+  runtimeFacts: { id: string; purpose: string; freshness: 'current-run' | 'approved' | 'attempt' | 'live' }[];
   /**
    * Все артефакты из `produces` существуют на диске И БЕЗ плейсхолдеров — факт, а не
    * вывод. Раньше клиент выводил «пройденность» эвристикой «самый дальний этап без
@@ -508,6 +510,11 @@ export interface DashboardArtifact {
   mtime: string | null;
   /** Для входов — `StageInput.optional`; для выходов всегда `false`. */
   optional: boolean;
+  /** Для входов — назначение артефакта в решениях этого этапа. */
+  purpose?: string;
+  /** Provenance for stage I/O contracts. */
+  origin?: StageId | 'operator' | 'project' | 'runtime';
+  freshness?: 'current-run' | 'approved' | 'attempt' | 'live';
   /** Слот решения человека в этом артефакте (`StageDef.humanGate`); `null` — слота нет. */
   decision: { label: string; state: 'granted' | 'declined' | 'pending' } | null;
 }
@@ -522,6 +529,8 @@ export interface DashboardStage {
   note: string | null;
   /** Артефакты, которые этап производит (`produces`). */
   outputs: DashboardArtifact[];
+  /** Runtime facts injected by the stage module, with purpose and freshness. */
+  runtimeFacts?: { id: string; purpose: string; freshness: 'current-run' | 'approved' | 'attempt' | 'live' }[];
 }
 
 /** Проект конфига. Несколько имён на один корень сводятся в один ref: витки на диске одни. */

@@ -35,6 +35,15 @@ describe('нормализация записей', () => {
     strictEqual(call.kind === 'record_claim' && call.id, 'claim-4');
   });
 
+  it('uncertain принимается SDK-схемой и превращается в статус ⚠', () => {
+    const call = normalize('mcp__sdlc__record_claim', {
+      id: 'claim-1',
+      status: 'uncertain',
+      evidence: 'test/example.test.ts',
+    });
+    strictEqual(call.kind === 'record_claim' && call.status, '⚠');
+  });
+
   it('пятой градации нет: «частично» уходит в unknown, а не в свой статус', () => {
     // Таблица вердикта знает четыре значения. Принять пятое значило бы завести его молча.
     const call = normalize('RecordClaim', { id: 'claim-1', status: 'частично', evidence: 'x' });

@@ -7,7 +7,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
-import { describeStep, extractExplicitSteps, planSteps, stepsFromFilesToTouch } from '../src/artifacts/planSteps.ts';
+import { describeStep, explicitStepProblems, extractExplicitSteps, planSteps, stepsFromFilesToTouch } from '../src/artifacts/planSteps.ts';
 
 const EXPLICIT = [
   '# План',
@@ -20,6 +20,8 @@ const EXPLICIT = [
   '- действие: экспортировать функцию надбавки по порогам плана',
   '- закрывает: claim-2, claim-4',
   '- проверка: `node --test test/oversize.test.ts` · ожидаемо: зелёный',
+  '- контракт: новый экспорт `surchargeFor(input) → amount`; см. вызывающие в таблице плана',
+  '- зависит от: нет',
   '- факты человека: ставка за сумму измерений — 90 %',
   '',
   '### Шаг 2: Использовать `surchargeFor` в `priceFor`',
@@ -27,6 +29,9 @@ const EXPLICIT = [
   '- **символ:** priceFor',
   '- **действие:** прибавить надбавку к базовой цене',
   '- **закрывает:** claim-1',
+  '- проверка: `node --test test/tariffs.test.ts` · ожидаемо: зелёный',
+  '- контракт: н/п — сигнатура `priceFor` не меняется',
+  '- зависит от: шаг 1',
   '',
   '### Шаг 3 — шаг без файла',
   '- действие: ничего исполнимого',
@@ -71,6 +76,8 @@ describe('явная форма шага плана', () => {
     deepStrictEqual(s1.claims, ['claim-2', 'claim-4']);
     strictEqual(s1.check, 'node --test test/oversize.test.ts');
     strictEqual(s1.expect, 'зелёный');
+    strictEqual(s1.contractChange, 'новый экспорт `surchargeFor(input) → amount`; см. вызывающие в таблице плана');
+    deepStrictEqual(s1.dependsOn, []);
     ok(s1.facts?.includes('90 %'));
     strictEqual(s1.explicit, true);
 
@@ -80,7 +87,18 @@ describe('явная форма шага плана', () => {
     strictEqual(s2.symbol, 'priceFor');
     strictEqual(s2.action, 'прибавить надбавку к базовой цене');
     deepStrictEqual(s2.claims, ['claim-1']);
-    strictEqual(s2.check, null);
+    strictEqual(s2.check, 'node --test test/tariffs.test.ts');
+    strictEqual(s2.checkSpecified, true);
+    deepStrictEqual(s2.dependsOn, [1]);
+  });
+
+  it('проверяет полноту карточек и порядок зависимостей', () => {
+    const valid = EXPLICIT.replace('### Шаг 3 — шаг без файла\n- действие: ничего исполнимого\n', '');
+    deepStrictEqual(explicitStepProblems(valid), []);
+    const invalid = valid.replace('- зависит от: шаг 1', '- зависит от: шаг 3');
+    ok(explicitStepProblems(invalid).some((p) => p.includes('более ранний шаг')));
+    ok(explicitStepProblems(valid.replace('- контракт: н/п — сигнатура `priceFor` не меняется\n', ''))
+      .some((p) => p.includes('контракт')));
   });
 
   it('planSteps предпочитает явную форму, когда она есть', () => {

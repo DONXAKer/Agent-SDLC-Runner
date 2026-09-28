@@ -31,6 +31,8 @@ export const TASKS: readonly TaskId[] = TASK_DEFS.map((t) => t.id);
 export type Task = TaskId;
 
 export interface BenchOptions {
+  /** Stop the measurement at this stage, without executing downstream routes. */
+  stopAfterStage?: StageId;
   mode: BenchMode;
   /** Измеряемая модель — id из `config/models.json`. */
   model: string;
@@ -245,6 +247,7 @@ ${taskListForUsage()}
   --quiet               не печатать живой ход прогона: этапы, вызовы, ветки решений, контекст
   --make-snapshot <имя> остановиться после точки снимка и сохранить снимок под этим именем
   --snapshot-after <этап> точка снимка для --make-snapshot (умолчание plan)
+  --stop-after-stage <этап> остановить измерение после этапа, не запускать следующие маршруты
   --from-snapshot <имя> начать с этого снимка — со следующего этапа после его точки
   --seed <класс>        посеять дефект перед этапом 6 и замерить, назван ли он:
                         ${seedIds().join(' | ')}
@@ -291,6 +294,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   // `null` — ключ не задан; умолчание `plan` подставляется на выходе. Один факт в одной
   // переменной, а не значение + флаг-спутник, которые разъезжаются при правке разбора.
   let snapshotAfter: StageId | null = null;
+  let stopAfterStage: StageId | undefined;
   let seed: string | null = null;
 
   const next = (i: number, key: string): string => {
@@ -421,6 +425,13 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         i++;
         break;
       }
+      case '--stop-after-stage': {
+        const value = next(i, key);
+        if (!STAGE_ORDER.includes(value as StageId)) throw new OptionsError(`неизвестный этап: ${value}`);
+        stopAfterStage = value as StageId;
+        i++;
+        break;
+      }
       case '--from-snapshot':
         fromSnapshot = next(i, key);
         i++;
@@ -492,10 +503,17 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   }
 
   const resolvedMode: BenchMode = mode ?? { kind: 'all' };
+  if (stopAfterStage !== undefined) {
+    if (makeSnapshot !== null || probe || preflightOnly) throw new OptionsError('--stop-after-stage несовместим со снимком или пробой');
+    if (resolvedMode.kind === 'stage' && STAGE_ORDER.indexOf(stopAfterStage) < STAGE_ORDER.indexOf(resolvedMode.stage)) {
+      throw new OptionsError('--stop-after-stage не может предшествовать измеряемому этапу');
+    }
+  }
   const resolvedModel = model ?? '';
   const modeTag = resolvedMode.kind === 'all' ? 'all' : resolvedMode.stage;
 
   return {
+    ...(stopAfterStage === undefined ? {} : { stopAfterStage }),
     mode: resolvedMode,
     model: resolvedModel,
     task,

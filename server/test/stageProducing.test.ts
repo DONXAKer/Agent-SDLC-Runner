@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { WitokPaths } from '../src/artifacts/paths.ts';
+import { resolvedRequirementsHash } from '../src/artifacts/resolvedRequirements.ts';
 import { checkPreconditions, stageById, stageProducing } from '../src/run/stages.ts';
 
 describe('stageProducing', () => {
@@ -43,7 +44,8 @@ describe('виновник у решения человека', () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-granted-'));
     const c = { paths: new WitokPaths(root, 'demo'), chunk: 1, attempt: 1 };
     mkdirSync(join(root, '.sdlc', 'demo'), { recursive: true });
-    writeFileSync(c.paths.plan, planText);
+    const requirementsHash = resolvedRequirementsHash('', '');
+    writeFileSync(c.paths.plan, `- **Требования (SHA-256):** \`${requirementsHash}\`\n\n${planText}`);
     try {
       return { details: checkPreconditions(stageById('chunk'), c).details, plan: c.paths.plan };
     } finally {

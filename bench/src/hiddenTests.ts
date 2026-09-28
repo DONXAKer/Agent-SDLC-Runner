@@ -62,7 +62,7 @@ export function summarize(cases: HiddenCaseResult[]): Omit<HiddenTestsSummary, '
  * где лежит `src/`, обычно копия рабочей копии витка ПОСЛЕ chunk'а, снятая на одноразовой
  * копии — см. комментарий в самом `.hidden.mjs`).
  */
-export async function runHiddenTests(args: { hiddenFile: string; targetDir: string; timeoutMs?: number }): Promise<HiddenTestsSummary> {
+export async function runHiddenTests(args: { hiddenFile: string; targetDir: string; timeoutMs?: number; signal?: AbortSignal }): Promise<HiddenTestsSummary> {
   // `--test-reporter=tap` (внутри spawnNodeTest): репортёр по умолчанию (`spec`) не даёт
   // машиночитаемых строк «ok N - имя» — только символы ✔/✖ для терминала. TAP — единственный
   // штатный формат, который парсится регуляркой, а не угадыванием по эмодзи.
@@ -70,7 +70,9 @@ export async function runHiddenTests(args: { hiddenFile: string; targetDir: stri
     testArgs: [args.hiddenFile],
     env: { BENCH_TARGET_DIR: args.targetDir },
     ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
+    ...(args.signal === undefined ? {} : { signal: args.signal }),
   });
+  if (out.cancelled) return { total: 0, pass: 0, fail: 0, skipped: 0, cases: [], errorText: 'скрытые тесты отменены оператором' };
   const cases = parseTap(out.stdout);
   if (cases.length === 0) {
     // Причина краха до единого кейса (битый импорт цели) приходит от `node --test` в STDOUT

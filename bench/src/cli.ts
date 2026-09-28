@@ -26,10 +26,14 @@ import { ApprovalBus, AskBus, HumanScriptError, attachOperator, emptyOperatorLog
 import { createCollector } from './collector.ts';
 import type { ToolRequestEvent, ToolResolvedEvent } from './collector.ts';
 import { runBench } from './driver.ts';
+import type { DriverStageRecord, DriverStopReason } from './driver.ts';
+import { observeArtifacts, passport, treeDigest } from './diagnostics.ts';
+import type { DiagnosticPassport, RunDiagnostics } from './diagnostics.ts';
 import { buildResult, writeResult } from './result.ts';
 import { OptionsError, USAGE, parseArgs, rawLogWanted, resolveTurnLimits } from './options.ts';
 import type { BenchOptions } from './options.ts';
 import { ControlError, buildProfile, readControl } from './profile.ts';
+import type { BuiltProfile } from './profile.ts';
 import { WorkspaceError, prepareWorkspace } from './workspace.ts';
 import { SnapshotError, makeSnapshot, restoreSnapshot, startStageAfter, verifyRestoredBranch } from './snapshot.ts';
 import { TaskError, requireTaskFiles } from './tasks.ts';
@@ -245,7 +249,12 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       targetSlug: opts.slug,
       expectedTask: opts.task,
     });
-    await verifyRestoredBranch(restored.root, restored.branch);
+    try {
+      await verifyRestoredBranch(restored.root, restored.branch);
+    } catch (error) {
+      restored.dispose();
+      throw error;
+    }
     wsRoot = restored.root;
     wsBranch = restored.branch;
     wsDispose = restored.dispose;
@@ -255,6 +264,14 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     // Точку снимка `restoreSnapshot` уже проверил (`readSnapshotMeta` бросает на `null`).
     const nextStage = startStageAfter(restored.stoppedAfterStage)!;
     startStage = nextStage;
+    if (opts.mode.kind === 'stage' && STAGE_ORDER.indexOf(opts.mode.stage) < STAGE_ORDER.indexOf(nextStage)) {
+      restored.dispose();
+      throw new SnapshotError(`снимок уже прошёл измеряемый этап ${opts.mode.stage}; выбери снимок до него`);
+    }
+    if (opts.stopAfterStage !== undefined && STAGE_ORDER.indexOf(opts.stopAfterStage) < STAGE_ORDER.indexOf(nextStage)) {
+      restored.dispose();
+      throw new SnapshotError(`снимок начинает с ${nextStage}, но --stop-after-stage ${opts.stopAfterStage} уже пройден`);
+    }
     console.log(`снимок:        ${opts.fromSnapshot} (после ${restored.stoppedAfterStage}, старт с ${nextStage})`);
     console.log(`рабочая копия: ${wsRoot}`);
     // Посев вносится ПОСЛЕ восстановления и ДО первого этапа прогона: патч попытки
@@ -288,7 +305,13 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     console.log(`ветка витка:   ${ws.branch} (база ${ws.baseCommit.slice(0, 8)})`);
   }
 
-  const built = buildProfile({ projectRoot: wsRoot, models: config.models, control, opts });
+  let built: BuiltProfile;
+  try {
+    built = buildProfile({ projectRoot: wsRoot, models: config.models, control, opts });
+  } catch (error) {
+    wsDispose();
+    throw error;
+  }
   console.log(`профиль:       ${built.profile.label}`);
   for (const stage of STAGE_ORDER) {
     const measured = built.measured.includes(stage);
@@ -386,10 +409,12 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       throw e;
     }
   };
+  let lastEvent: RunDiagnostics['lastEvent'] = null;
   const collector = createCollector({
     projectRoot: () => wsRoot,
     slug: () => opts.slug,
     onEvent: (e) => {
+      lastEvent = { type: e.type, stage: 'stage' in e ? String(e.stage) : null, at: new Date().toISOString() };
       progress(e);
       runState.onEvent(e);
     },
@@ -497,8 +522,64 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   collector.emit({ type: 'run_started', runId: run.id, slug: opts.slug, profile: built.profile.label, projectRoot: wsRoot });
 
   const startedAt = new Date();
+  const records: DriverStageRecord[] = [];
+  const cancellation = new AbortController();
+  let conditions: DiagnosticPassport;
   try {
+    conditions = passport({
+      repo: resolve(BENCH_DIR, '..'),
+      input: opts.fromSnapshot === null ? wsRoot : join(SNAPSHOTS_DIR, opts.fromSnapshot),
+      config, snapshotName: opts.fromSnapshot,
+      stageTimeoutMs: opts.stageTimeoutMs, runTimeoutMs: opts.runTimeoutMs,
+      promptRoots: [config.runner.skillsDir, config.runner.agentsDir, config.runner.methodologyDir],
+    });
+  } catch (error) {
+    run.cancel('failed to capture diagnostic passport');
+    operatorHandle.detach();
+    await run.dispose();
+    wsDispose();
+    runState.exception(error instanceof Error ? error.message : String(error));
+    runState.close();
+    throw error;
+  }
+  const diagnostic = (state: RunDiagnostics['state']): RunDiagnostics => ({
+    passport: conditions, workspaceHash: treeDigest(wsRoot), state, capturedAt: new Date().toISOString(), lastEvent,
+    artifacts: observeArtifacts(new WitokPaths(wsRoot, opts.slug).dir), semanticAssessment: 'not-assessed',
+  });
+  const persistPartial = (state: RunDiagnostics['state'], reason: DriverStopReason): void => {
+    const result = buildResult({
+      opts, built, startedAt, finishedAt: new Date(),
+      driver: { stages: [...records], finalVerdict: run.lastVerdict, stopped: reason },
+      metrics: run.metrics, operator: operatorLog, observed: collector.state,
+      turnLimits: resolveTurnLimits(base.runner.limits, opts),
+    });
+    result.diagnostics = diagnostic(state);
+    writeResult(join(RESULTS_DIR, `${opts.slug}.json`), result);
+    const artifactDir = join(TRACES_DIR, opts.slug, 'artifacts');
+    mkdirSync(artifactDir, { recursive: true });
+    for (const artifact of result.diagnostics.artifacts) {
+      const destination = join(artifactDir, artifact.path);
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(join(new WitokPaths(wsRoot, opts.slug).dir, artifact.path), destination);
+    }
+  };
+  const onCancel = (): void => {
+    cancellation.abort();
+    run.cancel('benchmark cancelled by operator');
+    try { persistPartial('cancelled', 'cancelled'); }
+    catch (error) { writeProgressFile(`cancel checkpoint failed: ${String(error)}`); }
+  };
+  process.on('SIGINT', onCancel);
+  process.on('SIGTERM', onCancel);
+  const checkpoint = setInterval(() => {
+    try { persistPartial(cancellation.signal.aborted ? 'cancelled' : 'running', cancellation.signal.aborted ? 'cancelled' : 'running'); }
+    catch (error) { writeProgressFile(`checkpoint failed: ${String(error)}`); }
+  }, 10_000);
+  try {
+    persistPartial('running', 'running');
     const driverResult = await runBench({
+      records, signal: cancellation.signal,
+      ...(opts.stopAfterStage === undefined ? {} : { measurementEnd: opts.stopAfterStage }),
       run,
       stageTimeoutMs: opts.stageTimeoutMs,
       runTimeoutMs: opts.runTimeoutMs,
@@ -519,6 +600,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       onDecision: logLine,
     });
     const finishedAt = new Date();
+    clearInterval(checkpoint);
+    persistPartial(driverResult.stopped === 'cancelled' ? 'cancelled' : 'running', driverResult.stopped);
     writeProgressFile(
       `\n# ${finishedAt.toTimeString().slice(0, 8)} остановка: ${driverResult.stopped} · вердикт: ` +
         `${driverResult.finalVerdict === null ? '—' : driverResult.finalVerdict.action} · ` +
@@ -535,7 +618,9 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
         branch: wsBranch,
         stoppedAfterStage: opts.snapshotAfter,
         task: opts.task,
+        authorModel: built.routes[opts.snapshotAfter],
       });
+      persistPartial('finished', 'snapshot-point');
       runState.snapshot(opts.makeSnapshot);
       console.log(`\nснимок сохранён: ${opts.makeSnapshot} (после ${opts.snapshotAfter})`);
       return {
@@ -556,10 +641,22 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       const reportPath = run.ctx.paths.verificationReport(run.ctx.chunk, run.ctx.attempt);
       const reportText = existsSync(reportPath) ? readFileSync(reportPath, 'utf8') : '';
       const verdictReasons = driverResult.finalVerdict?.reasons ?? null;
+      const verifyRecord = [...driverResult.stages].reverse().find((stage) => stage.stage === 'verify');
+      const measured =
+        verifyRecord !== undefined &&
+        verifyRecord.blockers.length === 0 &&
+        !verifyRecord.timedOut &&
+        verifyRecord.envFailure === undefined &&
+        driverResult.finalVerdict !== null;
       seedProbe =
         opts.seed === SEED_NONE
-          ? probeNoSeed({ verdictReasons, gateResults: run.gateResults })
-          : probeSeed({ seed: seedById(opts.seed), reportText, verdictReasons, gateResults: run.gateResults });
+          ? probeNoSeed({
+              verdictReasons,
+              gateResults: run.gateResults,
+              measured,
+              verdictPassed: driverResult.finalVerdict?.passed ?? null,
+            })
+          : probeSeed({ seed: seedById(opts.seed), reportText, verdictReasons, gateResults: run.gateResults, measured });
       console.log(`посев:     ${seedProbe.note}`);
     }
 
@@ -583,8 +680,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     // наборов), не должен вешать бенчмарк после оплаченного прогона — зависший импорт цели
     // без потолка висел бы вечно.
     const hidden =
-      hasFeature && chunkRan
-        ? await runHiddenTests({ hiddenFile: files.hiddenFile, targetDir: wsRoot, timeoutMs: HIDDEN_TESTS_TIMEOUT_MS })
+      hasFeature && chunkRan && !cancellation.signal.aborted
+        ? await runHiddenTests({ hiddenFile: files.hiddenFile, targetDir: wsRoot, timeoutMs: HIDDEN_TESTS_TIMEOUT_MS, signal: cancellation.signal })
         : null;
 
     const honesty = checkHonesty({
@@ -618,6 +715,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     });
 
     const resultPath = join(RESULTS_DIR, `${opts.slug}.json`);
+    result.diagnostics = diagnostic(cancellation.signal.aborted || driverResult.stopped === 'cancelled' ? 'cancelled' : 'finished');
     writeResult(resultPath, result);
     runState.resultWritten();
     console.log(`\nостановка: ${driverResult.stopped}`);
@@ -662,12 +760,17 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       seed: seedProbe,
     };
   } catch (e) {
+    try { persistPartial(cancellation.signal.aborted ? 'cancelled' : 'exception', cancellation.signal.aborted ? 'cancelled' : 'exception'); }
+    catch (error) { writeProgressFile(`exception checkpoint failed: ${String(error)}`); }
     // Прогон, упавший исключением, — строкой в логе: без неё по файлу он неотличим от ещё
     // идущего или убитого процесса.
     writeProgressFile(`\n# ${new Date().toTimeString().slice(0, 8)} исключение: ${e instanceof Error ? e.message : String(e)}`);
     runState.exception(e instanceof Error ? e.message : String(e));
     throw e;
   } finally {
+    clearInterval(checkpoint);
+    process.off('SIGINT', onCancel);
+    process.off('SIGTERM', onCancel);
     if (progressFd !== null) {
       try {
         closeSync(progressFd);
@@ -863,17 +966,16 @@ async function seriesRun(opts: BenchOptions, flags: LiveRunFlags): Promise<numbe
   // рецензента (`docs/proposals/reviewer-qualification.md`): смешанное «X из N» уже давало
   // читателю неверное впечатление о находимости рецензента (`gpt-oss-20b-rf`, «3/8» вместо
   // честных «1 из 6» review-классов — два из трёх пойманных были gate-контролем).
-  const withSeed = measuredSamples.filter((o): o is LiveOutcome & { slug: string; seed: SeedProbe } => o.seed !== null);
-  if (withSeed.length > 0) {
-    const { seedId, expected } = withSeed[0]!.seed;
+  const seedSamples = measuredSamples.filter((o): o is LiveOutcome & { slug: string; seed: SeedProbe } => o.seed !== null);
+  const withSeed = seedSamples.filter((o) => o.seed.measured === true);
+  if (seedSamples.length > 0) {
+    const { seedId, expected } = seedSamples[0]!.seed;
     const caught = withSeed.filter((o) => o.seed.caught).length;
-    const sampleNote = withSeed.length < measuredSamples.length ? ` (по ${withSeed.length} из ${measuredSamples.length} сэмплов)` : '';
+    const sampleNote = withSeed.length < seedSamples.length ? ` (по ${withSeed.length} из ${seedSamples.length} сэмплов)` : '';
     if (seedId === SEED_NONE) {
-      // `caught` здесь значит «сработало ложно» (`probeNoSeed`), НЕ «дефект пойман» — печатать
-      // той же формулой «поймано N из M», что у настоящего посева, значило бы читаться как
-      // «N дефектов найдено» ровно наоборот смыслу контрольного прогона (code-review-all,
-      // 2026-09-27, критерий 5 квалификации рецензента).
-      console.log(`  посев «none» (контроль — ложные срабатывания): сработало ложно ${caught} из ${withSeed.length}${sampleNote}`);
+      const reviewCount = withSeed.filter((o) => o.seed.reviewRequired === true).length;
+      const notMeasured = seedSamples.length - withSeed.length;
+      console.log(`  посев «none» (кандидаты для ручной сверки): ${reviewCount}; измерено ${withSeed.length}/${seedSamples.length}, не измерено ${notMeasured}`);
     } else {
       const kindLabel =
         expected === 'gate'
@@ -881,7 +983,8 @@ async function seriesRun(opts: BenchOptions, flags: LiveRunFlags): Promise<numbe
           : expected === 'review'
             ? 'review-класс — ловит только чтение diff\'а'
             : 'класс не размечен';
-      console.log(`  посев «${seedId}» (${kindLabel}): поймано ${caught} из ${withSeed.length}${sampleNote}`);
+      const notMeasured = seedSamples.length - withSeed.length;
+      console.log(`  посев «${seedId}» (${kindLabel}): поймано ${caught} из ${withSeed.length}; не измерено ${notMeasured}${sampleNote}`);
     }
   }
 

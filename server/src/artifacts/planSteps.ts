@@ -1,16 +1,14 @@
 /**
  * Шаги плана как исполняемые единицы этапа 5.
  *
- * Методология (`templates/plan.template.md`) задаёт шаг как строку нумерованного списка
- * без формы: у шага нет поля файла, символа, пункта приёмки и проверки, а пять секций
- * плана (шаги / files_to_touch / сигнатуры / покрытие claims / необратимые) не связаны
- * ключом. Рантайму от такого плана нечего исполнять по одному и нечем проверять после
- * шага — отсюда «один гигантский ход» этапа 5, на котором слабые модели и сгорают.
+ * Новая форма плана задаёт каждый шаг отдельной карточкой с адресом, действием,
+ * связанными пунктами приёмки, проверкой и изменением контракта. Старый список
+ * `files_to_touch` остаётся fallback для уже созданных планов.
  *
  * Здесь две формы:
  *
  *  1. **Явная** — заголовок `### Шаг N — ‹глагол + символ›` со списком полей
- *     (`файл`, `символ`, `действие`, `закрывает`, `проверка`, `факты человека`). Один
+ *     (`файл`, `символ`, `действие`, `закрывает`, `проверка`, `контракт`, `зависит от`, `факты человека`). Один
  *     файл на шаг: шаг на два файла — это два шага. Это предложение к форме плана
  *     методологии; пока эталон её не требует, парсер принимает её как расширение.
  *  2. **Fallback** — план старой формы: по одному шагу на строку таблицы
@@ -41,6 +39,16 @@ export interface PlanStep {
   check: string | null;
   /** Что ожидается от проверки — текст после «ожидаемо:». */
   expect: string | null;
+  /** Поле проверки задано содержательно, даже если для шага нет отдельной команды. */
+  checkSpecified: boolean;
+  /** Краткий контракт до/после либо явное «н/п — причина». */
+  contractChange: string | null;
+  /** Поле контракта явно заполнено, включая отсутствие изменения. */
+  contractSpecified: boolean;
+  /** Номера шагов, результат которых нужен этому шагу. */
+  dependsOn: number[];
+  /** Поле зависимостей явно заполнено («нет» — допустимое значение). */
+  dependenciesSpecified: boolean;
   /** Факты человека, относящиеся к шагу, — дословно из поля. */
   facts: string | null;
   /** Явная форма (`### Шаг N`) — `true`; fallback по `files_to_touch` — `false`. */
@@ -96,6 +104,13 @@ export function extractExplicitSteps(planText: string): PlanStep[] {
       const checkRaw = f.get('проверка') ?? '';
       const checkCmd = /`([^`]+)`/.exec(checkRaw)?.[1]?.trim() ?? null;
       const expect = /ожидаемо\s*:\s*(.+)$/i.exec(checkRaw)?.[1]?.trim() ?? null;
+      const checkSpecified = checkRaw.trim() !== '' && !checkRaw.includes('‹');
+      const contractRaw = f.get('контракт') ?? '';
+      const contractChange = contractRaw.trim() === '' || contractRaw.includes('‹') ? null : contractRaw.trim();
+      const contractSpecified = contractChange !== null;
+      const dependsOnRaw = f.get('зависит от') ?? f.get('после') ?? '';
+      const dependsOn = [...dependsOnRaw.matchAll(/\b(?:шаг\s*)?(\d+)\b/gi)].map((m) => Number(m[1]));
+      const dependenciesSpecified = dependsOnRaw.trim() !== '' && !dependsOnRaw.includes('‹');
       const facts = f.get('факты человека') ?? f.get('факты') ?? null;
       out.push({
         n: cur.n,
@@ -107,6 +122,11 @@ export function extractExplicitSteps(planText: string): PlanStep[] {
         claims: claimsOf(f.get('закрывает') ?? ''),
         check: checkCmd,
         expect,
+        checkSpecified,
+        contractChange,
+        contractSpecified,
+        dependsOn,
+        dependenciesSpecified,
         facts: facts === null || facts.trim() === '' ? null : facts.trim(),
         explicit: true,
       });
@@ -163,6 +183,11 @@ export function stepsFromFilesToTouch(planText: string): PlanStep[] {
       claims: claimsOf(rowText),
       check: null,
       expect: null,
+      checkSpecified: false,
+      contractChange: null,
+      contractSpecified: false,
+      dependsOn: [],
+      dependenciesSpecified: false,
       facts: null,
       explicit: false,
     };
@@ -175,6 +200,32 @@ export function planSteps(planText: string): PlanStep[] {
   return explicit.length > 0 ? explicit : stepsFromFilesToTouch(planText);
 }
 
+/** Проверяет структуру явных карточек; семантические ссылки проверяет вызывающий этап. */
+export function explicitStepProblems(planText: string): string[] {
+  const headings = [...planText.matchAll(/^#{2,4}\s*Шаг\s+(\d+)\b/gim)];
+  if (headings.length === 0) return ['явные карточки шагов отсутствуют'];
+  const steps = extractExplicitSteps(planText);
+  const problems: string[] = [];
+  if (steps.length !== headings.length) {
+    problems.push('у одной или нескольких карточек нет корректного поля «файл»');
+  }
+  const seen = new Set<number>();
+  for (const [index, step] of steps.entries()) {
+    if (seen.has(step.n)) problems.push(`номер шага ${step.n} повторяется`);
+    seen.add(step.n);
+    if (step.n !== index + 1) problems.push(`шаги должны идти подряд с 1; ожидался шаг ${index + 1}, найден ${step.n}`);
+    if (step.action === '' || step.action.includes('‹')) problems.push(`шаг ${step.n}: не заполнено поле «действие»`);
+    if (step.claims.length === 0) problems.push(`шаг ${step.n}: укажи закрываемый claim-N или явно объясни, почему шаг не закрывает пункт`);
+    if (!step.checkSpecified) problems.push(`шаг ${step.n}: укажи проверку результата или «н/п — причина»`);
+    if (!step.contractSpecified) problems.push(`шаг ${step.n}: укажи изменение контракта или «н/п — причина»`);
+    if (!step.dependenciesSpecified) problems.push(`шаг ${step.n}: укажи зависимые шаги или «нет»`);
+    if (step.dependsOn.some((dependency) => dependency < 1 || dependency >= step.n)) {
+      problems.push(`шаг ${step.n}: зависимость должна ссылаться на более ранний шаг`);
+    }
+  }
+  return problems;
+}
+
 /** Строка таблицы `files_to_touch` для fallback-шага — чтобы тест видел, что читается. */
 export function describeStep(s: PlanStep): string {
   const bits = [
@@ -185,4 +236,3 @@ export function describeStep(s: PlanStep): string {
   ].filter((b): b is string => b !== null);
   return bits.join(' — ');
 }
-

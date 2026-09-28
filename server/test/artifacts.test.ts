@@ -20,6 +20,7 @@ import {
   writeArtifact,
 } from '../src/artifacts/artifact.ts';
 import { WitokPaths } from '../src/artifacts/paths.ts';
+import { resolvedRequirementsHash } from '../src/artifacts/resolvedRequirements.ts';
 import { checkPreconditions, stageById } from '../src/run/stages.ts';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-test-')));
@@ -215,9 +216,18 @@ describe('предусловия этапов', () => {
   });
 
   it('chunk начинается, когда одобрение записано в файл', () => {
-    writeArtifact(paths.plan, setDecision(PLAN_UNAPPROVED, DECISION.approval, 'Иван · 2026-08-16'));
-    const r = checkPreconditions(stageById('chunk'), ctx);
-    ok(r.ok, r.problems.join('; '));
+    const isolatedRoot = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-approved-plan-')));
+    try {
+      const isolatedPaths = new WitokPaths(isolatedRoot, 'demo');
+      const plan = `${PLAN_UNAPPROVED}- **Требования (SHA-256):** \`${resolvedRequirementsHash('', '')}\`\n`;
+      writeArtifact(isolatedPaths.intent, '');
+      writeArtifact(isolatedPaths.clarificationReport, '');
+      writeArtifact(isolatedPaths.plan, setDecision(plan, DECISION.approval, 'Иван · 2026-08-16'));
+      const r = checkPreconditions(stageById('chunk'), { paths: isolatedPaths, chunk: 1, attempt: 1 });
+      ok(r.ok, r.problems.join('; '));
+    } finally {
+      rmSync(isolatedRoot, { recursive: true, force: true });
+    }
   });
 
   it('отрицательное решение блокирует так же, как незаполненное', () => {

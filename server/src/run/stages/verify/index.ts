@@ -13,6 +13,7 @@ import { writeEvidenceLines, writeGateRowStatus, writeVerdictSection } from '../
 import { preflightGateBlockers } from '../../../gates/preflight.ts';
 import { preflightBlockers } from '../../../sandbox/preflight.ts';
 import { RUNTIME_PROTECTED, exists, granted, intentSectionsIntact, intentTamperedSections } from '../preconditions.ts';
+import { planClarificationProblem, planRequirementsProblem } from '../plan.ts';
 import type { StageDef, StageModule } from '../types.ts';
 import { runEnsembleReviewers } from './ensemble.ts';
 import { RECONCILE_GATE, REVIEW_GATE, attemptEvidenceFact, diffStillMatchesTree, gateReportBlock, runVerifyGates } from './gates.ts';
@@ -58,6 +59,16 @@ export const verifyStage: StageDef = {
   subagents: ['sdlc-reviewer'],
   produces: (c) => [c.paths.verificationReport(c.chunk, c.attempt)],
   requires: [
+    {
+      describe: 'отпечаток плана совпадает с текущими требованиями и уточнениями человека',
+      check: (c) => planRequirementsProblem(c),
+      artifact: (c) => c.paths.plan,
+    },
+    {
+      describe: 'каждый ответ человека явно разрешён в одобренном плане',
+      check: (c) => planClarificationProblem(c),
+      artifact: (c) => c.paths.plan,
+    },
     exists('журнал chunk’а на месте', (c) => c.paths.chunkJournal(c.chunk)),
     exists('патч попытки на месте', (c) => c.paths.chunkDiff(c.chunk, c.attempt)),
     exists('набор гейтов проекта на месте', (c) => c.paths.gates),
@@ -78,6 +89,7 @@ export const verifyStage: StageDef = {
 
 export const verifyModule: StageModule = {
   def: verifyStage,
+  runtimeFacts: [{ id: 'preflight-gates', purpose: 'фактические результаты проверок до начала рецензирования', freshness: 'current-run' }],
   formFillExecutor: false,
   leanDocTools: false,
   checksBranchOnEntry: true,

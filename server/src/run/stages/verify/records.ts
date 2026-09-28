@@ -15,6 +15,7 @@ import { claimTextCell } from '../../../verdict/retryBrief.ts';
 import { fillClaims } from '../../claimFill.ts';
 import type { ClaimAsk } from '../../claimFill.ts';
 import { autofillVerificationReport } from '../../verifyAutofill.ts';
+import { approvedPlanDate } from '../../journalAutofill.ts';
 import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } from '../../verifyReport.ts';
 import type { SeededArtifact, StageHost } from '../types.ts';
 import { REVIEW_GATE, earlyGateRows, earlyGatesForModel, reportedBy } from './gates.ts';
@@ -221,6 +222,7 @@ export function autofillVerification(host: StageHost, seeded: SeededArtifact[]):
 
   const gates = verify.lastGateResults.filter((g) => gateKey(g.name) !== gateKey(REVIEW_GATE));
   const { text, filled } = autofillVerificationReport(report.text, gates, {
+    planApprovedOn: approvedPlanDate(readArtifact(host.paths.plan).text),
     chunk: host.chunk(),
     attempt: host.attempt(),
     slug: host.slug,

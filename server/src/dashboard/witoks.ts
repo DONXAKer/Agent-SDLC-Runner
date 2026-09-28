@@ -42,8 +42,9 @@ import { normalizeMetrics, readMetricsRaw } from '../run/metricsSnapshot.ts';
 import { decisionArtifactPath, decisionState } from '../run/stageInfo.ts';
 import { chunkFromNames, restoreAttemptFromJournal } from '../run/stages/chunk/restore.ts';
 import { entryProblems } from '../run/stages/entry.ts';
+import { stageArtifactPurpose, stageOutputContracts } from '../run/stages/inputs.ts';
 import type { EntryProblem } from '../run/stages/entry.ts';
-import { STAGES } from '../run/stages/index.ts';
+import { STAGES, STAGE_MODULES } from '../run/stages/index.ts';
 import { artifactPlaceholders } from '../run/stages/preconditions.ts';
 import type { StageContext, StageDef } from '../run/stages/types.ts';
 import { verdictPath } from '../run/verdictStore.ts';
@@ -89,7 +90,7 @@ function witokSource(files: readonly string[], runnerFiles: readonly string[], e
 export function witokArtifactStatus(
   ctx: StageContext,
   abs: string,
-  opts: { optional?: boolean; decision?: DashboardArtifact['decision']; stageId?: StageId } = {},
+  opts: { optional?: boolean; purpose?: string; origin?: DashboardArtifact['origin']; freshness?: DashboardArtifact['freshness']; decision?: DashboardArtifact['decision']; stageId?: StageId } = {},
 ): DashboardArtifact {
   const { stageId, ...rest } = opts;
   const override =
@@ -103,6 +104,7 @@ export function witokArtifactStatus(
  */
 function stageOutputs(def: StageDef, ctx: StageContext, required: readonly string[], exists: (p: string) => boolean): DashboardArtifact[] {
   const extra = (def.evidence?.(ctx) ?? []).filter((x) => !required.includes(x) && exists(x));
+  const contracts = new Map(stageOutputContracts(def, ctx).map((contract) => [contract.path, contract]));
   const decisionPath = decisionArtifactPath(def, ctx);
   return [...required, ...extra].map((abs) => {
     const decision =
@@ -112,7 +114,14 @@ function stageOutputs(def: StageDef, ctx: StageContext, required: readonly strin
             return st === null ? null : { label: def.humanGate.label, state: st };
           })()
         : null;
-    return witokArtifactStatus(ctx, abs, { decision, stageId: def.id });
+    const contract = contracts.get(abs);
+    return witokArtifactStatus(ctx, abs, {
+      decision,
+      stageId: def.id,
+      purpose: contract?.purpose ?? stageArtifactPurpose(def.id, abs, 'output'),
+      origin: contract?.origin ?? def.id,
+      freshness: contract?.freshness ?? 'current-run',
+    });
   });
 }
 
@@ -350,6 +359,7 @@ export function witokCardFromFacts(
       blamed: r.blamed,
       note: r.note,
       outputs: facts.stages[i]!.outputs,
+      runtimeFacts: [...STAGE_MODULES[r.id].runtimeFacts],
     })),
     usage,
     ...(currency === undefined ? {} : { currency }),

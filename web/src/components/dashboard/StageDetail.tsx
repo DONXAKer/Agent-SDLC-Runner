@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-import type { DashboardCard, DashboardStageDetail, StageId } from '@sdlc-runner/shared';
+import type { DashboardArtifact, DashboardCard, DashboardStageDetail, StageId } from '@sdlc-runner/shared';
 
 import { fmtBytes } from '../../lib/dashboardStages.ts';
 import { fmtCost, fmtDuration, fmtTokens } from '../../lib/format.ts';
@@ -22,6 +22,16 @@ function tabBtn(active: boolean): string {
 
 function Empty({ children }: { children: string }): JSX.Element {
   return <div className="mt-3 text-xs text-neutral-500">{children}</div>;
+}
+
+function contractNote(artifact: DashboardArtifact, optional = false): string | undefined {
+  const parts = [
+    optional ? 'необязательный вход' : null,
+    artifact.purpose,
+    artifact.origin === undefined ? null : `источник: ${artifact.origin}`,
+    artifact.freshness === undefined ? null : `актуальность: ${artifact.freshness}`,
+  ].filter((part): part is string => part !== null && part !== undefined);
+  return parts.length === 0 ? undefined : parts.join(' · ');
 }
 
 /** Размер в байтах UTF-8: длина строки — символы, а у русского текста байт почти вдвое больше. */
@@ -48,7 +58,7 @@ function InputTab({ card, stage }: { card: DashboardCard; stage: DashboardStageD
         </Empty>
       ) : (
         stage.inputs.map((a) => (
-          <ArtifactViewer key={a.name} cardRef={card.ref} artifact={a} {...(a.optional ? { note: 'необязательный вход' } : {})} />
+          <ArtifactViewer key={a.name} cardRef={card.ref} artifact={a} {...(contractNote(a, a.optional) === undefined ? {} : { note: contractNote(a, a.optional) })} />
         ))
       )}
 
@@ -91,7 +101,7 @@ function OutputTab({ card, stage }: { card: DashboardCard; stage: DashboardStage
           {card.ref.source === 'bench' ? 'файлы витка стенда не сохраняются — есть результат, отчёт и лента' : 'этап не пишет артефактов'}
         </Empty>
       ) : (
-        stage.outputs.map((a) => <ArtifactViewer key={a.name} cardRef={card.ref} artifact={a} />)
+        stage.outputs.map((a) => <ArtifactViewer key={a.name} cardRef={card.ref} artifact={a} {...(contractNote(a) === undefined ? {} : { note: contractNote(a) })} />)
       )}
 
       <div className="mt-4 text-xs uppercase tracking-wide text-neutral-500">Ответ модели</div>
@@ -218,6 +228,14 @@ function InfoTab({
                 {b.blamed !== null ? <span className="text-amber-300"> (виновник: {titles[b.blamed] ?? b.blamed})</span> : null}
               </li>
             ))}
+          </ul>
+        </div>
+      ) : null}
+      {(stage.runtimeFacts?.length ?? 0) > 0 ? (
+        <div className="mt-3">
+          <div className="text-xs uppercase tracking-wide text-neutral-500">Факты рантайма во входе этапа</div>
+          <ul className="mt-1 space-y-1 text-xs text-neutral-300">
+            {(stage.runtimeFacts ?? []).map((fact) => <li key={fact.id}><span className="font-mono">{fact.id}</span> — {fact.purpose} <span className="text-neutral-500">({fact.freshness})</span></li>)}
           </ul>
         </div>
       ) : null}

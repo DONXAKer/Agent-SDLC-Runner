@@ -39,10 +39,12 @@ export interface PlanFacts {
   clarificationDone: boolean;
   /** HEAD либо причина его отсутствия — строкой: поле обязано закрыться. */
   base: string;
+  requirementsHash: string;
 }
 
 export function autofillPlan(text: string, f: PlanFacts): { text: string; filled: number } {
   return fillMechanicalPlaceholders(text, (inner, line) => {
+    if (inner === 'sha256 требований' && /\*\*Требования \(SHA-256\):\*\*/u.test(line)) return f.requirementsHash;
     if (inner === 'название витка') return f.title;
     // `‹да/нет›` стоит и в таблице осей плана — там это выбор модели, а не факт рантайма.
     if (!/\*\*(Вход|База):\*\*/u.test(line)) return null;

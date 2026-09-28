@@ -4,14 +4,15 @@
  * chunk'а и попытки — `chunk/restore.ts`.
  */
 
-import { DECISION, readArtifact, readDecision, writeArtifact } from '../../../artifacts/artifact.ts';
+import { DECISION, readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
 import { attemptDiff } from '../../../gates/git.ts';
 import { preflightGateBlockers } from '../../../gates/preflight.ts';
 import { ensureSandboxFor } from '../../../sandbox/registry.ts';
 import { checkJournalClaimsVsBash } from '../../../verdict/honesty.ts';
-import { autofillChunkJournal } from '../../journalAutofill.ts';
+import { approvedPlanDate, autofillChunkJournal } from '../../journalAutofill.ts';
 import { attemptJudgedInLog, readRunVerdict } from '../../verdictStore.ts';
 import { RUNTIME_PROTECTED, granted, intentSectionsIntact, readinessReady } from '../preconditions.ts';
+import { planMapProblem } from '../plan.ts';
 import { attemptHadBash, ensureBaseline, recordEvidence } from './evidence.ts';
 import type { SeededArtifact, StageDef, StageHost, StageModule } from '../types.ts';
 import type { TreeChange } from '../../evidence.ts';
@@ -46,6 +47,11 @@ export const chunkStage: StageDef = {
     // Без заполненного поля одобрения chunk не начинается — так требует методология,
     // и проверяется именно поле в файле, а не память диалога.
     granted('план одобрен человеком', (c) => c.paths.plan, DECISION.approval),
+    {
+      describe: 'адреса явных шагов плана совпадают с текущим деревом',
+      artifact: (c) => c.paths.plan,
+      check: (c) => planMapProblem(c),
+    },
     // Задача переписана после одобрения плана — дешевле узнать здесь, чем сжечь попытку на
     // этапе 6 (`SDLC.md` требует сверку на этапах 4 и 6; вход chunk — та же сверка раньше).
     intentSectionsIntact('задача не переписана внутри витка (снимок секций intent.md)'),
@@ -88,6 +94,7 @@ export const chunkStage: StageDef = {
 
 export const chunkModule: StageModule = {
   def: chunkStage,
+  runtimeFacts: [{ id: 'carry-forward', purpose: 'диагнозы и результаты гейтов предыдущей попытки для корректирующей работы', freshness: 'attempt' }],
   formFillExecutor: false,
   leanDocTools: false,
   checksBranchOnEntry: true,
@@ -299,17 +306,8 @@ export async function autofillJournal(host: StageHost, seeded: SeededArtifact[])
 
   // Дата одобрения плана — только из фактического решения в plan.md: сочинять дату
   // решения человека нельзя, не извлеклась — поле остаётся плейсхолдером.
-  let planApprovedOn: string | null = null;
   const plan = readArtifact(host.paths.plan);
-  if (plan.exists) {
-    const d = readDecision(plan.text, DECISION.approval);
-    if (d.state === 'granted') {
-      const m = /\d{4}-\d{2}-\d{2}|\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}/.exec(
-        ('raw' in d ? d.raw : undefined) ?? '',
-      );
-      planApprovedOn = m === null ? null : m[0];
-    }
-  }
+  const planApprovedOn = plan.exists ? approvedPlanDate(plan.text) : null;
 
   const { text, filled } = autofillChunkJournal(journal.text, {
     chunk: host.chunk(),

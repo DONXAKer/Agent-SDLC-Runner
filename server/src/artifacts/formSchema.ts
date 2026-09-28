@@ -1000,6 +1000,7 @@ export const SCHEMA_OVERRIDES: Readonly<Record<string, Readonly<Record<string, O
     'что придётся тронуть': { stageOnly: 'explore' },
   },
   'plan.template.md': {
+    'требования': { owner: 'runtime', kind: 'mechanical' },
     'название витка': { owner: 'runtime', kind: 'mechanical' },
     'вход/1': { owner: 'runtime', kind: 'mechanical' },
     'вход/2': { owner: 'runtime', kind: 'mechanical' },

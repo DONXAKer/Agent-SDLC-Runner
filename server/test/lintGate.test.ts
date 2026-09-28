@@ -14,6 +14,9 @@ import { join } from 'node:path';
 import { match, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+const okCommand = process.platform === 'win32' ? 'ver' : 'true';
+const failCommand = process.platform === 'win32' ? 'where.exe __sdlc_runner_missing__' : 'false';
+
 import { BUILTIN } from '../src/gates/builtin/index.ts';
 import type { GateContext } from '../src/gates/builtin/index.ts';
 import type { ModuleProfile } from '../src/config/schema.ts';
@@ -60,14 +63,14 @@ describe('гейт линта экосистемы', () => {
   it('чистый прогон даёт ✅', async () => {
     ok(lint !== undefined);
     const root = repo();
-    const outcome = await lint(ctx(root, [{ dir: 'api', build: 'true', lint: 'true' }]));
+    const outcome = await lint(ctx(root, [{ dir: 'api', build: okCommand, lint: okCommand }]));
     strictEqual(outcome.status, '✅');
   });
 
   it('нарушения дают ❌, а не пропуск', async () => {
     ok(lint !== undefined);
     const root = repo();
-    const outcome = await lint(ctx(root, [{ dir: 'api', build: 'true', lint: 'false' }]));
+    const outcome = await lint(ctx(root, [{ dir: 'api', build: okCommand, lint: failCommand }]));
     strictEqual(outcome.status, '❌');
   });
 

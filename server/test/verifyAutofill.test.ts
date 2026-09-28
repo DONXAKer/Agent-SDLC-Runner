@@ -85,6 +85,29 @@ describe('autofillVerificationReport', () => {
     match(text, /\| ‹гейт› \| ‹причина› \| ‹имя› \|/);
   });
 
+  it('копирует известную дату одобрения плана в составную строку формы', () => {
+    const source = TEMPLATE.replace(
+      '- **Diff:**',
+      '- **Задача:** `intent.md` (run) · **План:** `plan.md`, одобрение от ‹дата›\n\n- **Diff:**',
+    );
+    const { text, filled } = autofillVerificationReport(source, [], { ...FACTS, planApprovedOn: '2026-09-01' });
+    ok(text.includes('· **План:** `plan.md`, одобрение от 2026-09-01'), text);
+    strictEqual(filled, 7);
+    const again = autofillVerificationReport(text, [], { ...FACTS, planApprovedOn: '2026-09-01' });
+    strictEqual(again.filled, 0);
+    strictEqual(again.text, text);
+  });
+
+  it('leaves unknown approval dates and human decisions untouched', () => {
+    const source = TEMPLATE.replace(
+      '- **Diff:**',
+      '- **Задача:** `intent.md` (run) · **План:** `plan.md`, одобрение от ‹дата›\n\n- **Diff:**',
+    );
+    const { text } = autofillVerificationReport(source, [], { ...FACTS, planApprovedOn: null });
+    ok(text.includes('одобрение от ‹дата›'), text);
+    ok(text.includes('- **passed:** true / false'), text);
+  });
+
   it('таблица неприменимости и гейты ранних этапов не заполняются даже при совпадении имён', () => {
     const { text } = autofillVerificationReport(
       TEMPLATE,

@@ -19,5 +19,5 @@ export { hasOpenQuestions, isSmallContour, relOf } from './stages/preconditions.
 export { stageInputs } from './stages/inputs.ts';
 export { intentPlaceholderProblem } from './stages/intent.ts';
 export { declaredAsNew, explorationPathProblem } from './stages/explore.ts';
-export { filesToTouchProblem } from './stages/plan.ts';
+export { filesToTouchProblem, planClarificationProblem, planMapProblem, planRequirementsProblem, planStepsProblem } from './stages/plan.ts';
 export { STAGES, checkPreconditions, isStageId, stageById, stageProducing } from './stages/index.ts';

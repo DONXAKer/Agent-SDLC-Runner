@@ -85,7 +85,7 @@ function presenceOf(f: FileFacts): ArtifactPresence {
 export function artifactStatus(
   paths: WitokPaths,
   abs: string,
-  opts: { optional?: boolean; decision?: DashboardArtifact['decision']; placeholders?: number } = {},
+  opts: { optional?: boolean; purpose?: string; origin?: DashboardArtifact['origin']; freshness?: DashboardArtifact['freshness']; decision?: DashboardArtifact['decision']; placeholders?: number } = {},
 ): DashboardArtifact {
   const name = relName(paths, abs);
   const raw = fileFacts(abs, name);
@@ -98,6 +98,9 @@ export function artifactStatus(
     sizeBytes: f.sizeBytes,
     mtime: f.mtimeMs === null ? null : new Date(f.mtimeMs).toISOString(),
     optional: opts.optional ?? false,
+    ...(opts.purpose === undefined ? {} : { purpose: opts.purpose }),
+    ...(opts.origin === undefined ? {} : { origin: opts.origin }),
+    ...(opts.freshness === undefined ? {} : { freshness: opts.freshness }),
     decision: opts.decision ?? null,
   };
 }

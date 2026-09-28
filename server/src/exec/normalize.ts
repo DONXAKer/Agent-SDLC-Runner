@@ -96,7 +96,7 @@ export function claimStatusOf(raw: string): ClaimStatus | null {
   const t = raw.trim().toLowerCase();
   if (t.includes('✅') || t === 'passed' || t === 'pass' || t === 'true' || t === 'да') return '✅';
   if (t.includes('❌') || t === 'failed' || t === 'fail' || t === 'false' || t === 'нет') return '❌';
-  if (t.includes('⚠') || t === 'unknown' || t === 'unverifiable') return '⚠';
+  if (t.includes('⚠') || t === 'unknown' || t === 'uncertain' || t === 'unverifiable') return '⚠';
   if (t === 'manual') return 'manual';
   return null;
 }

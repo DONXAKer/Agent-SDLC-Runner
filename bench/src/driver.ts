@@ -49,6 +49,10 @@ export interface DriverStageRecord {
 }
 
 export type DriverStopReason =
+  | 'running'
+  | 'stage-measured'
+  | 'cancelled'
+  | 'exception'
   /** Виток дошёл до конца, handoff отработал — не значит «вердикт зелёный». */
   | 'handoff'
   /** Этап не начался — предусловие не выполнено. Это не провал модели, виток стоит. */
@@ -87,6 +91,11 @@ export interface DriverResult {
 }
 
 export interface DriverArgs {
+  /** Diagnostic boundary; unlike a snapshot, also stops on failed/incomplete stages. */
+  measurementEnd?: StageId;
+  signal?: AbortSignal;
+  /** Shared array allows the CLI to persist completed observations after exceptions. */
+  records?: DriverStageRecord[];
   run: Run;
   stageTimeoutMs: number;
   runTimeoutMs: number;
@@ -151,7 +160,12 @@ async function runStageWithTimeout(
     timer = setTimeout(() => resolve('timeout'), timeoutMs);
   });
 
-  const race = await Promise.race([stagePromise, timeout]);
+  let race: StageResult | 'timeout';
+  try {
+    race = await Promise.race([stagePromise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
   if (race !== 'timeout') {
     clearTimeout(timer);
     return { result: race, timedOut: false };
@@ -236,7 +250,7 @@ export function decideAfterStageFailure(args: {
 export async function runBench(args: DriverArgs): Promise<DriverResult> {
   const { run, stageTimeoutMs, runTimeoutMs, attempts } = args;
   const say = args.onDecision ?? ((): void => {});
-  const stages: DriverStageRecord[] = [];
+  const stages: DriverStageRecord[] = args.records ?? [];
   const deadline = Date.now() + runTimeoutMs;
 
   /** `blocked_env` не занимает попытку, но два подряд означают сломанную машину, не виток. */
@@ -263,6 +277,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
   let i = args.startStage === undefined ? 0 : STAGE_ORDER.indexOf(args.startStage);
   while (i < STAGE_ORDER.length) {
     const stage = STAGE_ORDER[i]!;
+    if (args.signal?.aborted) return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'cancelled' };
 
     if (Date.now() > deadline) {
       say(`⏱ виток превысил лимит стенных часов (${runTimeoutMs} мс) — остановка`);
@@ -316,6 +331,11 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       ...(modelRequests === undefined ? {} : { modelRequests }),
       ...(result.closedBy === undefined ? {} : { closedBy: result.closedBy }),
     });
+
+    if (args.signal?.aborted) return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'cancelled' };
+    if (stage === args.measurementEnd && (timedOut || !result.ok || stage === 'verify')) {
+      return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: timedOut ? 'stage-timeout' : 'stage-measured' };
+    }
 
     if (timedOut) {
       // Бюджет времени на ЭТАП, а не на всё, что он успел записать: `runStageWithTimeout`
@@ -418,6 +438,9 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       }
     }
 
+    if (stage === args.measurementEnd) {
+      return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'stage-measured' };
+    }
     if (stage === args.stopAfterStage) {
       say(`📸 точка снимка после ${stage} — остановка`);
       return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'snapshot-point' };

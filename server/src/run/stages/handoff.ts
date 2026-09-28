@@ -406,6 +406,10 @@ async function staleVerdictReason(host: StageHost): Promise<string | null> {
 
 export const handoffModule: StageModule = {
   def: handoffStage,
+  runtimeFacts: [
+    { id: 'run-postmortem', purpose: 'измеренные расход, длительность и итоги витка', freshness: 'current-run' },
+    { id: 'next-steps', purpose: 'долги и условия повторного рассмотрения, выведенные из артефактов витка', freshness: 'current-run' },
+  ],
   formFillExecutor: false,
   leanDocTools: false,
   mechanicalJobs: (host: StageHost, opts) => [

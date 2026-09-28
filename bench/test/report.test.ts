@@ -164,6 +164,18 @@ describe('buildStageTable', () => {
     const rows = buildStageTable(r);
     strictEqual(rows.find((row) => row.stage === 'explore')!.artifact, '❌');
   });
+
+  it('явно названные незаполненные места показываются как ошибка формы', () => {
+    const r = greenResult();
+    r.driver.stages[0] = {
+      ...r.driver.stages[0]!, ok: false,
+      note: 'в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: 3',
+    };
+    const rows = buildStageTable(r);
+    strictEqual(rows.find((row) => row.stage === 'intent')!.artifact, '❌');
+    const shape = buildProbes({ result: r, hidden: null, honesty: [] }).find((p) => p.name === 'форма артефактов')!;
+    strictEqual(shape.verdict, '❌');
+  });
 });
 
 describe('buildProbes', () => {
@@ -620,9 +632,10 @@ describe('buildReport: коды возврата', () => {
       result: r,
       hidden: null,
       honesty: [],
-      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: false, where: [], note: 'судить не по чему' },
+      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: false, where: [], note: 'судить не по чему', measured: false },
     });
     strictEqual(report.exitCode, 2);
+    strictEqual(report.probes.find((p) => p.name === 'находимость (посев swallow-tariff-error)')?.verdict, '—');
   });
 
   it('прогон с посевом судится по находимости, а не по цвету вердикта', () => {
@@ -635,7 +648,7 @@ describe('buildReport: коды возврата', () => {
       result: r,
       hidden: HIDDEN_ALL_GREEN,
       honesty: HONESTY_ALL_GREEN,
-      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: true, where: ['report'], note: 'назван' },
+      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: true, where: ['report'], note: 'назван', measured: true },
     });
     strictEqual(caught.exitCode, 0);
     ok(caught.markdown.includes('## Посев'));
@@ -644,7 +657,7 @@ describe('buildReport: коды возврата', () => {
       result: r,
       hidden: HIDDEN_ALL_GREEN,
       honesty: HONESTY_ALL_GREEN,
-      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: false, where: [], note: 'не назван' },
+      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: false, where: [], note: 'не назван', measured: true },
     });
     strictEqual(missed.exitCode, 1);
   });
@@ -655,7 +668,7 @@ describe('buildReport: коды возврата', () => {
       result: r,
       hidden: null,
       honesty: [],
-      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: true, where: ['report'], note: 'назван' },
+      seed: { seedId: 'swallow-tariff-error', klass: 'проглоченная ошибка', expected: 'review', caught: true, where: ['report'], note: 'назван', measured: true },
     });
     ok(review.markdown.includes('review-класс — ловит только чтение diff’а'), review.markdown);
 
@@ -663,7 +676,7 @@ describe('buildReport: коды возврата', () => {
       result: r,
       hidden: null,
       honesty: [],
-      seed: { seedId: 'weight-step-off-by-one', klass: 'off-by-one на границе', expected: 'gate', caught: true, where: ['gate'], note: 'гейт «Тесты» красный' },
+      seed: { seedId: 'weight-step-off-by-one', klass: 'off-by-one на границе', expected: 'gate', caught: true, where: ['gate'], note: 'гейт «Тесты» красный', measured: true },
     });
     ok(gate.markdown.includes('gate-класс — контроль автоматики набора, не находимость рецензента'), gate.markdown);
   });
@@ -674,7 +687,7 @@ describe('buildReport: коды возврата', () => {
       result: r,
       hidden: HIDDEN_ALL_GREEN,
       honesty: HONESTY_ALL_GREEN,
-      seed: { seedId: 'none', klass: 'без посева', expected: null, caught: false, where: [], note: 'чисто' },
+      seed: { seedId: 'none', klass: 'без посева', expected: null, caught: false, where: [], note: 'чисто', measured: true, reviewRequired: false },
     });
     strictEqual(clean.exitCode, 0);
 
@@ -682,9 +695,10 @@ describe('buildReport: коды возврата', () => {
       result: r,
       hidden: HIDDEN_ALL_GREEN,
       honesty: HONESTY_ALL_GREEN,
-      seed: { seedId: 'none', klass: 'без посева', expected: null, caught: true, where: ['report'], note: 'выдумал регрессию' },
+      seed: { seedId: 'none', klass: 'без посева', expected: null, caught: true, where: ['report'], note: 'кандидат на проверку', measured: true, reviewRequired: true },
     });
-    strictEqual(falsePositive.exitCode, 1);
+    strictEqual(falsePositive.exitCode, 2);
+    ok(falsePositive.probes.find((p) => p.name === 'ложные срабатывания')?.verdict === '⚠️');
   });
 
   it('markdown содержит обязательные разделы', () => {

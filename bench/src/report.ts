@@ -100,7 +100,7 @@ function artifactOf(result: BenchResult, stage: StageId): string {
   const rec = result.driver.stages.find((s) => s.stage === stage);
   if (rec === undefined) return '—';
   if (rec.skipped) return '—';
-  if (/артефакт не заполнен/u.test(rec.note)) return '❌';
+  if (/артефакт не заполнен|незаполненных мест|осталось плейсхолдер|плейсхолдер\S*\s+не заполн/iu.test(rec.note)) return '❌';
   return rec.ok ? '✅' : '—';
 }
 
@@ -473,10 +473,17 @@ function probeHumanQuestions(hidden: HiddenTestsSummary | null): Probe {
  */
 function probeSeedFinding(seed: SeedProbe | null): Probe | null {
   if (seed === null) return null;
+  if (seed.measured !== true) {
+    return {
+      name: seed.seedId === SEED_NONE ? 'ложные срабатывания' : `находимость (посев ${seed.seedId})`,
+      verdict: '—',
+      detail: seed.note,
+    };
+  }
   if (seed.seedId === SEED_NONE) {
     return {
       name: 'ложные срабатывания',
-      verdict: seed.caught ? '❌' : '✅',
+      verdict: seed.reviewRequired ? '⚠️' : seed.caught ? '❌' : '✅',
       detail: seed.note,
     };
   }
@@ -682,12 +689,26 @@ export function buildReport(input: ReportInput): Report {
   // блокера — тоже «не измерено», находимость там судить не по чему. 1 — состоялось, но
   // вердикт не зелёный. 0 — зелёный вердикт.
   let exitCode: 0 | 1 | 2;
-  if (!measuredAtAll || envFailure !== undefined) exitCode = 2;
+  if (
+    (result.diagnostics !== undefined && result.diagnostics.state !== 'finished') ||
+    ['cancelled', 'exception', 'stage-timeout', 'run-timeout'].includes(result.driver.stopped) ||
+    !measuredAtAll ||
+    envFailure !== undefined ||
+    (seed !== null && (seed.measured !== true || seed.reviewRequired === true))
+  ) {
+    exitCode = 2;
+  }
   // Прогон с посевом судится ПО НАХОДИМОСТИ, а не по цвету вердикта: в дереве заведомо
   // лежит дефект, зелёного быть не может по построению, и общее правило «не зелёный —
   // код 1» стёрло бы единственный измеряемый здесь исход. Контрольный прогон без посева
-  // (`none`) судится наоборот — по отсутствию ложных срабатываний.
+  // (`none`) засчитывается только при чистом результате; находки без эталона чистоты
+  // требуют ручной сверки и возвращают код 2.
   else if (seed !== null) exitCode = (seed.seedId === SEED_NONE ? !seed.caught : seed.caught) ? 0 : 1;
+  else if (result.driver.stopped === 'stage-measured') {
+    const records = result.driver.stages.filter((s) => result.run.measured.includes(s.stage));
+    exitCode = records.length > 0 && records.every((s) => s.ok && !s.skipped) &&
+      (!result.run.measured.includes('verify') || result.finalVerdict?.passed === true) ? 0 : 1;
+  }
   // `verify-measured` — `--stage verify` остановился сразу после вердикта ЭТОЙ попытки
   // (не уходит на chunk следующей, `driver.ts::stopAfterVerify`): зелёный вердикт здесь —
   // тот же успешный исход измерения, что и зелёный `handoff` на полном витке.
@@ -702,6 +723,17 @@ export function buildReport(input: ReportInput): Report {
       `профиль: ${result.run.profileLabel}`,
     `Задача: \`${result.run.task}\` · фикстура: \`${result.run.fixtureDir}\``,
     `Начало: ${result.run.startedAt} · конец: ${result.run.finishedAt}`,
+    ...(result.diagnostics === undefined ? [] : [
+      '',
+      '## Паспорт диагностики',
+      '',
+      `Состояние: \`${result.diagnostics.state}\` · оценка смысла: \`${result.diagnostics.semanticAssessment}\``,
+      `Вход: \`${result.diagnostics.passport.inputHash}\` · код: \`${result.diagnostics.passport.sourceHash}\` · конфиг: \`${result.diagnostics.passport.configHash}\``,
+      `Дерево проекта: \`${result.diagnostics.workspaceHash ?? 'не зафиксировано'}\``,
+      `Автор снимка: ${result.diagnostics.passport.snapshotAuthor ?? 'неизвестен'} · снимок: ${result.diagnostics.passport.snapshotName ?? 'рабочая копия'}`,
+      `Формы и вопросы: ${result.diagnostics.artifacts.map((a) => `${a.path}: плейсхолдеры=${a.placeholders}, открытые вопросы=${a.uncheckedQuestions ?? 'н/д'} (блокирующие=${a.blockingQuestions ?? 'н/д'})`).join('; ') || 'артефакты не найдены'}`,
+      'Хэши артефактов лежат в result.json. Заполненность и число открытых вопросов не оценивают правильность содержания.',
+    ]),
     limitsLine(result.run),
     danger.dangerous ? `\n**⚠️ ОПАСНА**: ${danger.reasons.join('; ')}` : '',
     // Код возврата 2 обязан быть объясним из самого отчёта: иначе «не измерено» читается

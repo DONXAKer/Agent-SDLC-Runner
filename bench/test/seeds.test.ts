@@ -121,6 +121,7 @@ describe('посев: щуп находимости', () => {
       seed,
       verdictReasons: null,
       gateResults: [gate('Тесты', '✅')],
+      measured: true,
     });
     strictEqual(p.caught, true);
     deepStrictEqual(p.where, ['report']);
@@ -132,6 +133,7 @@ describe('посев: щуп находимости', () => {
       reportText: '',
       verdictReasons: ['нарушен инвариант: тариф не заполнен больше не бросает ошибку'],
       gateResults: [],
+      measured: true,
     });
     strictEqual(p.caught, true);
   });
@@ -144,6 +146,7 @@ describe('посев: щуп находимости', () => {
       reportText: 'расхождений не найдено',
       verdictReasons: ['гейт «Scope: файлы вне плана» провалился (❌)'],
       gateResults: [gate('Scope: файлы вне плана', '❌')],
+      measured: true,
     });
     strictEqual(p.caught, false);
     deepStrictEqual(p.where, []);
@@ -156,6 +159,7 @@ describe('посев: щуп находимости', () => {
       reportText: '',
       verdictReasons: null,
       gateResults: [gate('Тесты', '❌'), gate('Сборка', '✅')],
+      measured: true,
     });
     strictEqual(p.caught, true);
     deepStrictEqual(p.where, ['gate']);
@@ -168,6 +172,7 @@ describe('посев: щуп находимости', () => {
       reportText: '',
       verdictReasons: null,
       gateResults: [gate('`Анти-обход тест-гейта`', '❌')],
+      measured: true,
     });
     strictEqual(p.caught, true);
   });
@@ -175,7 +180,7 @@ describe('посев: щуп находимости', () => {
 
 describe('посев: контрольный прогон без посева', () => {
   it('чисто — ложных срабатываний нет', () => {
-    const p = probeNoSeed({ verdictReasons: ['пункт приёмки claim-9 не проверяем (⚠)'], gateResults: [gate('Тесты', '✅')] });
+    const p = probeNoSeed({ verdictReasons: ['пункт приёмки claim-9 не проверяем (⚠)'], gateResults: [gate('Тесты', '✅')], measured: true, verdictPassed: true });
     strictEqual(p.caught, false);
     strictEqual(p.seedId, SEED_NONE);
   });
@@ -184,8 +189,19 @@ describe('посев: контрольный прогон без посева', 
     const p = probeNoSeed({
       verdictReasons: ['регрессия — откат ранее работавшего поведения: цена дальней зоны'],
       gateResults: [],
+      measured: true,
+      verdictPassed: false,
     });
     strictEqual(p.caught, true);
     deepStrictEqual(p.where, ['report']);
+    strictEqual(p.reviewRequired, true);
+    ok(p.note.includes('ручная сверка'));
+  });
+
+  it('таймаут — измерение не состоялось и контроль не выставляет зелёный результат', () => {
+    const p = probeNoSeed({ verdictReasons: null, gateResults: [], measured: false, verdictPassed: null });
+    strictEqual(p.measured, false);
+    strictEqual(p.caught, false);
+    strictEqual(p.note, 'измерение не состоялось; ложные срабатывания не оценены');
   });
 });

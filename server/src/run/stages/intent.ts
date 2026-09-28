@@ -162,6 +162,7 @@ export const intentStage: StageDef = {
 
 export const intentModule: StageModule = {
   def: intentStage,
+  runtimeFacts: [{ id: 'git-branch', purpose: 'текущая ветка рабочего дерева для поля ветки задачи', freshness: 'live' }],
   formFillExecutor: true,
   leanDocTools: true,
   mechanicalJobs: (host) => {

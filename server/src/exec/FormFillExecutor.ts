@@ -293,6 +293,51 @@ export interface FormFillOptions {
  * которые модель добавляет «из вежливости» (fenced-блок, внешние кавычки) — содержимое
  * не редактируется: редактировать ответ значило бы сочинять артефакт за модель.
  */
+/** Preserve the exact target of a compact scalar, including compound labelled lines. */
+export function compactScalarContext(field: SchemaField, snapshot: string): string[] {
+  if (field.kind !== 'scalar') return [];
+  return [
+    `- строка бланка: ${lineAt(snapshot, field.valueRange.start).trim()}`,
+    `- заполняемое место: ${snapshot.slice(field.valueRange.start, field.valueRange.end)}`,
+  ];
+}
+
+/** Detect a model answer that copied another section heading into the current list field. */
+export function copiedOtherSectionHeading(answer: string, template: string, currentSection: string): string | null {
+  const key = (value: string): string => value
+    .replace(/^\d+[.)]\s*/, '')
+    .replace(/[`*_#]/g, '')
+    .replace(/[«»"]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[:：]$/, '')
+    .trim()
+    .toLocaleLowerCase('ru-RU')
+    .replace(/ё/g, 'е');
+  const current = key(currentSection);
+  const headings = new Set<string>();
+  for (const line of template.split(/\r?\n/)) {
+    const match = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line.trim());
+    if (match === null) continue;
+    const heading = key(match[1]!);
+    if (heading !== '' && heading !== current) headings.add(heading);
+  }
+  for (const line of answer.split(/\r?\n/)) {
+    const item = line.trim().replace(/^[-*+]\s+/, '');
+    const boldLabel = /^\*\*(.+?:)\**/.exec(item)?.[1];
+    const candidate = key(boldLabel ?? item);
+    if (headings.has(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** A scalar slot must not receive a miniature markdown document or a list of form sections. */
+export function structuredScalarAnswer(answer: string): boolean {
+  const structure = answer.split(/\r?\n/).filter((line) =>
+    /^\s*#{1,6}\s+/.test(line) || /^\s*[-*+]\s+\*\*[^*]+:\*\*/.test(line) || /^\s*\d+[.)]\s+/.test(line),
+  );
+  return structure.length >= 2;
+}
+
 export function cleanFieldAnswer(raw: string): string {
   let text = raw.trim();
   const fence = /^```[a-z]*\n([\s\S]*?)\n?```$/i.exec(text);
@@ -1005,6 +1050,7 @@ export class FormFillExecutor implements StageExecutor {
           : [`Прошлая попытка этого поля отклонена: ${priorRejection}. Не повтори эту же ошибку.`, '']),
         `- id: \`${field.id}\``,
         `- вид: ${field.kind}`,
+        ...compactScalarContext(field, snapshot),
         // Раздел бланка — контекст поля без подсказки; когда пользы в нём нет, строки не
         // будет вовсе (см. `cardSection`).
         ...(cardSection(field) === null ? [] : [`- раздел бланка: ${cardSection(field)}`]),
@@ -1220,6 +1266,22 @@ export class FormFillExecutor implements StageExecutor {
             notes.push(rejection);
             fieldRejectionMemo.set(compactFieldKey(field), rejection);
             rejectFieldCompact('tool-call-echo');
+            continue;
+          }
+
+          const copiedHeading = copiedOtherSectionHeading(answerText, startText, field.section);
+          if (copiedHeading !== null) {
+            const rejection = `ответ на поле ${field.id} отклонён: скопирован заголовок соседнего раздела «${copiedHeading}»`;
+            notes.push(rejection);
+            fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            rejectFieldCompact('copied-other-section-heading');
+            continue;
+          }
+          if ((field.kind === 'scalar' || field.kind === 'choice') && structuredScalarAnswer(answerText)) {
+            const rejection = `ответ на скалярное поле ${field.id} отклонён: вместо одного значения получен структурированный документ`;
+            notes.push(rejection);
+            fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            rejectFieldCompact('structured-scalar-answer');
             continue;
           }
 

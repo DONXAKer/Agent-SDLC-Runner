@@ -48,6 +48,7 @@ export interface VerifyReportFacts {
   attempt: number;
   slug: string;
   attemptBudget: number;
+  planApprovedOn?: string | null;
   /**
    * Статус гейтов РАННИХ этапов, которые рантайм посчитал сам (сегодня — «Разбор
    * последствий» этапа 4). Имя гейта → статус и адрес артефакта, где он виден.
@@ -217,8 +218,10 @@ export function autofillVerificationReport(
 
   // Шаг 2: механические плейсхолдеры шапки и вердикта — общей механикой (та же, что у
   // журнала chunk'а: с конца, строки решений человека не трогаются).
-  const mech = fillMechanicalPlaceholders(lines.join('\n'), (inner) =>
-    inner === 'N'
+  const mech = fillMechanicalPlaceholders(lines.join('\n'), (inner, line) =>
+    inner === 'дата' && line.includes('**План:**')
+      ? f.planApprovedOn ?? null
+      : inner === 'N'
       ? String(f.chunk)
       : inner === 'K'
         ? String(f.attempt)

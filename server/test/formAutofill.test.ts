@@ -41,7 +41,7 @@ const PLAN = [
 ].join('\n');
 
 describe('autofillPlan', () => {
-  const facts = { title: 'demo', explorationDone: true, clarificationDone: false, base: 'abc123' };
+  const facts = { title: 'demo', explorationDone: true, clarificationDone: false, base: 'abc123', requirementsHash: 'a'.repeat(64) };
 
   it('закрывает название, вход и базу; решение человека, подход и таблицу осей не трогает', () => {
     const { text, filled } = autofillPlan(PLAN, facts);
@@ -276,7 +276,7 @@ const noTemplates = existsSync(templatesDir) ? false : 'эталон метод�
 
 describe('скрепа: поля рантайма реальных шаблонов закрываются автозаполнением', { skip: noTemplates }, () => {
   const fill: Record<string, (t: string) => string> = {
-    'plan.template.md': (t) => autofillPlan(t, { title: 'demo', explorationDone: true, clarificationDone: true, base: 'abc' }).text,
+    'plan.template.md': (t) => autofillPlan(t, { title: 'demo', explorationDone: true, clarificationDone: true, base: 'abc', requirementsHash: 'a'.repeat(64) }).text,
     'readiness.template.md': (t) =>
       autofillReadiness(autofillReadiness(t, { title: 'demo', date: '2026-09-14', run: 1 }).text, {
         title: 'demo',

@@ -319,9 +319,8 @@ export function hunkQuestion(h: Hunk, n: number, total: number): string {
 function axisBlock(n: number, axis: AxisAsk, pack: string): string {
   const declared = axis.affected === true;
   return [
-    declared
-      ? `### ${n}. Ось «${axis.name}» — в плане объявлена ЗАТРОНУТОЙ`
-      : `### ${n}. Ось «${axis.name}» — в плане объявлена НЕ затронутой`,
+    `### ${n}. Ось «${axis.name}» — ${axis.affected === null ? 'не указана в плане' : declared ? 'в плане объявлена затронутой' : 'в плане объявлена незатронутой'}`,
+    axis.affected === null ? 'Статус отсутствует: самостоятельно определи по diff, затрагивает ли правка эту ось.' : '',
     '',
     `Что считается затрагиванием: ${axisHint(axis.name)}.`,
     axis.outcomeRaw.trim() === '' ? '' : `Исход по плану: ${axis.outcomeRaw.trim()}`,

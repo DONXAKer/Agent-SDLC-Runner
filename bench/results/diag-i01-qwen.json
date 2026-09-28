@@ -1,0 +1,270 @@
+{
+  "run": {
+    "slug": "diag-i01-qwen",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill-selfreview",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill-selfreview",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "claude-sdk:sonnet",
+      "verify": "claude-sdk:opus",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-09-28T19:53:05.574Z",
+    "finishedAt": "2026-09-28T20:01:59.509Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": true,
+    "maxIterationsByStage": {}
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: 3 — задача не готова. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 43
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 251476,
+          "outputTokens": 22080,
+          "cacheReadTokens": 235697,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1006169
+        },
+        "durationMs": 525736,
+        "requestDurationsMs": [
+          19090,
+          22313,
+          34927,
+          31204,
+          50839,
+          58069,
+          6191,
+          20578,
+          41663,
+          23408,
+          8758,
+          17199,
+          23301,
+          6892,
+          20711,
+          26378,
+          12608,
+          24773,
+          34930,
+          7992,
+          13759,
+          31509,
+          11249,
+          35518,
+          46653,
+          14492,
+          22348,
+          30019,
+          6031,
+          18220,
+          29097,
+          14738,
+          20619,
+          32181,
+          11040,
+          16410,
+          32395,
+          7113,
+          23090,
+          31644,
+          16190,
+          17067,
+          32986
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 11
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 5
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:4945c9ff-ea93-4ec2-8424-a4d23be8eeb9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-i01-qwen\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:fd6a4776-8500-4d7b-97a1-1f0a189eaaa8",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-i01-qwen\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10831,
+        "userChars": 4754,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7e35bece59e31eceb2b540308675d46846ed1227",
+      "sourceHash": "b2850273c4dabf05ef2254ba24b0bae4daaa89f4840f6abc4705f7134bfb87fb",
+      "configHash": "e712550d1da77362b2a92c8ad3a3132b61f374b5902c8098774cdef84063d14b",
+      "inputHash": "23d4df09196a17b0462f4ff5e5e551b3ef771797bbfaf10b41820b2cd567bb36",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 900000,
+      "runTimeoutMs": 900000
+    },
+    "state": "finished",
+    "capturedAt": "2026-09-28T20:01:59.517Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-28T20:01:59.506Z"
+    },
+    "artifacts": [
+      {
+        "path": "intent.md",
+        "sha256": "9dcff46ffe631b7670f29ca5fa7053f9df24a84ebc83b3e14e761a478e34b917",
+        "placeholders": 5
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "e3e6fd892b61df6334ff5bcd219f8300514592ac54810799727976a467b58d38",
+        "placeholders": 1
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

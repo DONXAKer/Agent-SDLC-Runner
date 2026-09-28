@@ -11,7 +11,8 @@ import type { StageId, StageInfo } from '@sdlc-runner/shared';
 
 import { readArtifact, readDecision, readLastDecision } from '../artifacts/artifact.ts';
 import { artifactPathOf } from '../artifacts/paths.ts';
-import { STAGES } from './stages/index.ts';
+import { STAGES, STAGE_MODULES } from './stages/index.ts';
+import { stageOutputContracts } from './stages/inputs.ts';
 import { artifactPlaceholders } from './stages/preconditions.ts';
 import type { StageContext, StageDef } from './stages/types.ts';
 
@@ -87,6 +88,8 @@ export function stageInfos(ctx: StageContext, deps: StageInfoDeps): StageInfo[] 
       abortBlockers: s.id === 'handoff' ? deps.blockers(s.id, { abortHandoff: true }) : null,
       ...(envNotes === undefined ? {} : { envNotes }),
       produces: out,
+      outputContracts: stageOutputContracts(s, ctx),
+      runtimeFacts: [...STAGE_MODULES[s.id].runtimeFacts],
       // Факт с диска тем же чтением, что блокеры: клиентская эвристика «дальний этап без
       // блокеров = всё до него пройдено» врала на этапах с общими предусловиями (ask и
       // plan разблокированы сразу после intent, до всякой разведки) — см. StageInfo.produced.

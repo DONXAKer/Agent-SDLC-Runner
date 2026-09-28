@@ -64,6 +64,9 @@ export function witokDetail(
     const inputs = stageInputs(s.id, ctx).map((inp) =>
       witokArtifactStatus(ctx, inp.path, {
         optional: inp.optional,
+        purpose: inp.purpose,
+        origin: inp.origin,
+        freshness: inp.freshness,
         ...(inp.path === paths.readiness ? { stageId: 'intent' as const } : {}),
       }),
     );

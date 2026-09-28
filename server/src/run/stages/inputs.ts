@@ -4,7 +4,7 @@
  */
 
 import type { StageId } from '@sdlc-runner/shared';
-import type { StageContext, StageInput } from './types.ts';
+import type { StageContext, StageDef, StageInput, StageOutputContract } from './types.ts';
 
 /**
  * Артефакты, которые этап читает на входе. Они подклеиваются в пользовательское сообщение
@@ -18,8 +18,8 @@ import type { StageContext, StageInput } from './types.ts';
  */
 export function stageInputs(id: StageId, c: StageContext): StageInput[] {
   const p = c.paths;
-  const req = (path: string): StageInput => ({ path, optional: false });
-  const opt = (path: string): StageInput => ({ path, optional: true });
+  const req = (path: string): StageInput => inputContract(id, path, false);
+  const opt = (path: string): StageInput => inputContract(id, path, true);
 
   switch (id) {
     case 'intent':
@@ -74,4 +74,90 @@ export function stageInputs(id: StageId, c: StageContext): StageInput[] {
         opt(p.chunkJournal(c.chunk)),
       ];
   }
+}
+
+function inputContract(stage: StageId, path: string, optional: boolean): StageInput {
+  const name = (path.split(/[\\/]/).at(-1) ?? path).toLowerCase();
+  const origin: StageInput['origin'] = name === 'gates.md' ? 'project'
+    : name === 'intent.md' ? 'operator'
+    : name.includes('chunk-') || name.includes('journal') ? 'runtime'
+    : name === 'clarification-report.md' ? 'ask'
+    : name === 'exploration-report.md' ? 'explore'
+    : name === 'readiness.md' ? (stage === 'explore' ? 'intent' : 'plan')
+    : name === 'plan.md' ? 'plan'
+    : name === 'verification-report.md' ? 'verify'
+    : 'runtime';
+  const freshness: StageInput['freshness'] = origin === 'project' ? 'live'
+    : (stage === 'chunk' || stage === 'verify' || stage === 'handoff') && name === 'plan.md' ? 'approved'
+    : name.includes('chunk-') || name.includes('journal') ? 'attempt'
+    : 'current-run';
+  return { path, optional, origin, freshness, purpose: stageArtifactPurpose(stage, path, 'input') };
+}
+
+export function stageOutputContracts(def: StageDef, c: StageContext): StageOutputContract[] {
+  const required = def.produces(c);
+  const all = [...new Set([...required, ...(def.evidence?.(c) ?? [])])];
+  return all.map((path) => ({
+    path,
+    purpose: stageArtifactPurpose(def.id, path, 'output'),
+    origin: def.id,
+    required: required.includes(path),
+    freshness: /(?:chunk|attempt)-\d+/i.test(path) ? 'attempt' : 'current-run',
+  }));
+}
+
+export function stageArtifactPurpose(stage: StageId, path: string, direction: 'input' | 'output'): string {
+  const name = (path.split(/[\\/]/).at(-1) ?? path).toLowerCase();
+  const input: Partial<Record<StageId, Record<string, string>>> = {
+    intent: { 'gates.md': 'выбрать применимые проверки и обязательные ограничения процесса' },
+    explore: {
+      'intent.md': 'разобрать приёмочные требования и заявленные границы работы',
+      'readiness.md': 'учесть известные риски и ограничения подготовки',
+      'gates.md': 'соблюдать применимые проверки проекта',
+    },
+    ask: {
+      'intent.md': 'найти открытые требования и вопросы к человеку',
+      'exploration-report.md': 'уточнить возникшие при разведке неоднозначности',
+    },
+    plan: {
+      'intent.md': 'связать план с исходными требованиями и пунктами приёмки',
+      'readiness.md': 'учесть риски и ограничения готовности',
+      'exploration-report.md': 'использовать найденные файлы, символы и зависимости',
+      'clarification-report.md': 'соблюсти ответы и решения человека',
+    },
+    chunk: {
+      'plan.md': 'следовать одобренным шагам и контрактам',
+    },
+    verify: {
+      'intent.md': 'проверить каждый пункт приёмки против результата',
+      'plan.md': 'сверить фактические изменения с одобренным объёмом и контрактом',
+      'gates.md': 'выполнить настроенные проверки проекта',
+      'clarification-report.md': 'сверить решение с ответами человека',
+    },
+    handoff: {
+      'intent.md': 'зафиксировать цель и критерии передачи',
+      'plan.md': 'зафиксировать одобренный объём и принятые риски',
+      'gates.md': 'указать настроенные условия передачи',
+    },
+  };
+  if (direction === 'input') {
+    const exact = input[stage]?.[name];
+    if (exact !== undefined) return exact;
+    if (name.includes('chunk-') && name.includes('diff')) return 'сравнить текущую попытку с предыдущей работой';
+    if (name.includes('chunk-') && name.includes('test')) return 'учесть результаты проверок уже выполненной попытки';
+    if (name.includes('chunk-') && name.includes('evidence')) return 'проверить происхождение и базу свидетельств попытки';
+    if (name.includes('journal')) return 'восстановить ход и нерешённые замечания прошлой попытки';
+    return 'контекст этапа; использовать только факты, нужные для его решения';
+  }
+  if (name === 'intent.md') return 'исходные требования и пункты приёмки следующего этапа';
+  if (name === 'readiness.md') return 'состояние готовности и известные риски';
+  if (name === 'exploration-report.md') return 'адресация кода, последствия и найденные зависимости';
+  if (name === 'clarification-report.md') return 'записанные ответы человека и уточнения требований';
+  if (name === 'plan.md') return 'одобренный порядок шагов, проверок и контрактов';
+  if (name === 'verification-report.md') return 'свидетельства и итоговая оценка реализации';
+  if (name === 'handoff.md') return 'решение и запись о передаче результата';
+  if (name.endsWith('.diff') || name.endsWith('.patch')) return 'снимок фактических изменений для проверки';
+  if (name.includes('review')) return 'результат независимой проверки изменений';
+  if (name.includes('journal')) return 'машинная запись состояния и проверок попытки';
+  return 'результат этапа, на который опираются последующие решения';
 }

@@ -114,4 +114,16 @@ describe('runHiddenTests: разбор TAP на синтетическом фа�
     strictEqual(r.total, 0);
     strictEqual(r.pass, 0);
   });
+
+  it('отмена SIGINT во время скрытых тестов прерывает дочерний node', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-hidden-')));
+    roots.push(dir);
+    const file = join(dir, 'slow.hidden.mjs');
+    writeFileSync(file, 'await new Promise((resolve) => setTimeout(resolve, 10000));\n', 'utf8');
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 50);
+    const r = await runHiddenTests({ hiddenFile: file, targetDir: dir, signal: controller.signal });
+    strictEqual(r.errorText, 'скрытые тесты отменены оператором');
+    strictEqual(r.total, 0);
+  });
 });
