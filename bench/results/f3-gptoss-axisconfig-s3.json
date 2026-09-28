@@ -1,0 +1,461 @@
+{
+  "run": {
+    "slug": "f3-gptoss-axisconfig-s3",
+    "model": "ollama:gpt-oss-20b-rf",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:cline_roocode:8b-ctx16k",
+      "verify": "ollama:gpt-oss-20b-rf",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-28T09:55:40.124Z",
+    "finishedAt": "2026-09-28T10:01:20.203Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "FinalizeArtifact прошёл и страж завершения молчит — этап закрыт по диску сразу, без лишних ходов цикла — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 0, осталось на диске 0 полей модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 13,
+        "closedBy": "runtime"
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "регрессия — откат ранее работавшего поведения: — |",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "verify-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 274045,
+          "outputTokens": 11274,
+          "cacheReadTokens": 233134,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 411486
+        },
+        "durationMs": 339907,
+        "requestDurationsMs": [
+          18878,
+          54615,
+          106194,
+          17509,
+          61798,
+          1743,
+          1570,
+          1226,
+          3368,
+          2064,
+          643,
+          4590,
+          14738,
+          79365,
+          2910,
+          16289,
+          2007,
+          21988
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "claim",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 2,
+        "truncated": 0,
+        "toolCalls": 12,
+        "reminders": 2
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 172
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 291
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 233
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 339
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 220
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 96
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 52
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 48
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 9,
+        "waitMs": 20
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 3
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "регрессия — откат ранее работавшего поведения: — |",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "loop:60c4cfe6-4cef-41ae-91d9-90e96d6bfda7",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:bfca89d5-8a12-4d8e-9503-e20fdcb79413",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:be6ad668-f658-4d11-9999-38b18981ca33",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:9c9878b4-d81f-488e-b9a3-b691809e83f2",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:d44396d3-7da5-4c5b-b768-eac79ee11a98",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc/f3-gptoss-axisconfig-s3/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:ba5c3327-e9a2-4e1a-84dd-36bec8122c19",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:3732d869-9c82-4ba6-8229-31fdef0231ce",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/f3-gptoss-axisconfig-s3/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:bd43ae47-bb49-49f3-aa14-c06e63f6066f",
+        "kind": "finalize_artifact",
+        "toolName": "FinalizeArtifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-NKaQlo\\.sdlc\\f3-gptoss-axisconfig-s3\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "verify",
+        "requestId": "loop:ee15719e-4767-49d8-af79-042075011543",
+        "reason": "policy"
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:577990fa-2d05-4960-8ad6-8cf627230cee",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "unknown"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "unknown"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FinalizeArtifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 11953,
+        "userChars": 37340,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [
+      {
+        "stage": "verify",
+        "requestId": "loop:ee15719e-4767-49d8-af79-042075011543",
+        "toolName": "RecordClaim",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «RecordClaim» не разобран: инструмент на этапе verify объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори. Ты прислал поля: `evidence`."
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:577990fa-2d05-4960-8ad6-8cf627230cee",
+        "toolName": "RecordClaim",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] вызов «RecordClaim» не разобран: инструмент на этапе verify объявлен и доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в правах — сверь вызов со схемой инструмента и повтори. Ты прислал поля: `evidence`."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": {
+    "seedId": "axis-config-blind",
+    "klass": "ось: настройки — значение из окружения без умолчания",
+    "expected": "review",
+    "caught": false,
+    "where": [],
+    "note": "посев «axis-config-blind» НЕ назван: `basePrice` начинает читать зональную надбавку из переменной окружения `TARIFF_ZONE_EXTRA`: умолчания в коде нет, значение не проверяется, и при `TARIFF_ZONE_EXTRA=abc` цена становится NaN. Тесты фикстуры переменную не задают — при пустом окружении надбавка равна нулю, и прогон остаётся зелёным"
+  },
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 2"
+    }
+  ]
+}

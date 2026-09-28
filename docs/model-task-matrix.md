@@ -109,7 +109,8 @@ ollama оставляет запас под вычислительные буф�
 
 | id | provider | size | contextWindow | formF | stepF | explF | planAxF | revF | compF | self-rev | best stage | blocking class | run id | Результат | База |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `ollama:gpt-oss-20b-rf` | ollama | — | ⏭ | ✓ | — | — | ✓ | ✓ | — | — | verify | — | — | chunk ✅, verify escalate по своим тестам | `gpt-oss-20b` |
+| `ollama:gpt-oss-20b-rf` | ollama | 13 ГБ | 32768 | ✓ | — | — | ✓ | ✓ | — | — | verify | форма/скорость | — | verify-only на `oversize-axes2` (посев теперь виден, фикс 2026-09-28): `axis-config-blind` 0/3, `axis-secret-in-log` 0/3, `none` 3× `stage-timeout` (0 ложных из успевших) — 100% GPU, но `formFill`-ответ по полю до 892–988 с | `gpt-oss-20b` |
+| `claude-sdk:haiku-reviewer` | claude-sdk | — | ⏭ | — | — | — | — | — | — | — | verify | — | — | verify-only на `oversize-axes2`: `axis-config-blind` 1/1 (поймано), `axis-secret-in-log` 1/1 (поймано), `none` — засчитан «ложно» щупом стенда, но по факту нашла реальный дефект фикстуры (`test/oversize.test.ts:59`, weightG 900≠300); n=1 на посев, серия ≥3 не снята | контроль (обход правила рецензента) |
 | `ollama:devstral-small-2` | ollama | — | 16384 | — | ✓ | — | — | — | — | — | verify | — | — | chunk ✅, verify blocked 0/3 | `devstral-small-2` |
 | `ollama:qwen3-coder-30b-a3b` (историческая, удалена 2026-09-22) | ollama | — | ⏭ | ⏭ | ⏭ | ⏭ | ⏭ | ⏭ | ⏭ | — | chunk | — | — | intent ⚠ среда, chunk ✅, verify escalate | `qwen3-coder-30b-a3b` |
 | `ollama:qwen3:8b-ctx16k` | ollama | — | ⏭ | ✓ | ✓ | — | — | — | — | — | chunk | — | — | intent ✅, explore/ask 🟡, chunk ✅ | `qwen3:8b` |

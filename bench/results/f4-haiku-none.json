@@ -1,0 +1,647 @@
+{
+  "run": {
+    "slug": "f4-haiku-none",
+    "model": "claude-sdk:haiku-reviewer",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "claude-sdk:haiku",
+      "explore": "claude-sdk:sonnet",
+      "ask": "claude-sdk:haiku",
+      "plan": "claude-sdk:sonnet",
+      "chunk": "ollama:cline_roocode:8b-ctx16k",
+      "verify": "claude-sdk:haiku-reviewer",
+      "handoff": "claude-sdk:haiku"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-28T12:49:19.813Z",
+    "finishedAt": "2026-09-28T12:57:13.783Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "этап завершён за 25 ход(ов)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 25
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "пункт приёмки claim-7 не проверяем (⚠)",
+        "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "verify-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 202,
+          "outputTokens": 37248,
+          "cacheReadTokens": 1151699,
+          "cacheWriteTokens": 107191,
+          "costUsd": 0.5521589,
+          "durationMs": 465348
+        },
+        "durationMs": 473783,
+        "requestDurationsMs": [
+          315890,
+          149458
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "claim",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 34,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 179
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 274
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 486
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 296
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 196
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 92
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 49
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 46
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 21,
+        "waitMs": 52
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "пункт приёмки claim-7 не проверяем (⚠)",
+      "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "toolu_01HVNeDoequWU2fpnZ8biGeg",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01LbmdEwQ4RMLB5cGBW5hXzy",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01BWUBCn1d3XT1fXD5yUVq3h",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_017nGXLUcpuGjkeT1wXS6bLH",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_0114XJscAEwVDaoWehUAyyrn",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01DQgQTmkCjob9ovkFE66PRB",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01QJDjqpQGGYXCg99TV4Cejz",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_0125vrU5gcyPCLZDhi2CzFe8",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01StPUAvdGbzVHEe1KerbkKd",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_018iviuKiA5S4W8fMVJBFDL8",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01Qrp6sCTr2kxhd4VTqLQaZm",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01NqwJ3n7MtjLrhTV9LhWYnN",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_018Rrcc8upeBr8EP7Z9FqYJ4",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01WoUG1SvTfTwTrsAWBebwWb",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_015b4ueygsREUPsKMbNmHxvs",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01T7CnWkkgDJKMkkRHN2UW1t",
+        "kind": "record_claim",
+        "toolName": "mcp__sdlc__record_claim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_012HFtatbLKmeGi29pDnHhqT",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_017ExVuK27JV1TPP1YpQgHCS",
+        "kind": "record_finding",
+        "toolName": "mcp__sdlc__record_finding",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01RqXAVnFFAcsW6kKDqrej4c",
+        "kind": "finalize_artifact",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01P8NyR1wiuZzkufJvvKSMYb",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-sKoYFJ\\.sdlc\\f4-haiku-none\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "verify",
+        "requestId": "toolu_01CfvnLtog4iP9EPhms4YhBR",
+        "reason": "policy"
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01P5BM4RvvQih11YEQASfT2t",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "unknown"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "unknown"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__record_finding",
+        "kind": "record_finding"
+      },
+      {
+        "stage": "verify",
+        "toolName": "mcp__sdlc__finalize_artifact",
+        "kind": "finalize_artifact"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 11164,
+        "userChars": 36935,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [
+      {
+        "stage": "verify",
+        "requestId": "toolu_01CfvnLtog4iP9EPhms4YhBR",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] инструмент «mcp__sdlc__record_claim» не объявлен на этапе verify и не опознан рантаймом."
+      },
+      {
+        "stage": "verify",
+        "requestId": "toolu_01P5BM4RvvQih11YEQASfT2t",
+        "toolName": "mcp__sdlc__record_claim",
+        "kind": "unknown",
+        "policy": "stageTools",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[stageTools] инструмент «mcp__sdlc__record_claim» не объявлен на этапе verify и не опознан рантаймом."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": {
+    "seedId": "none",
+    "klass": "без посева — проверка ложных срабатываний",
+    "expected": null,
+    "caught": true,
+    "where": [
+      "report"
+    ],
+    "note": "без посева ЕСТЬ срабатывания (report): подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет"
+  },
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 2"
+    }
+  ]
+}
