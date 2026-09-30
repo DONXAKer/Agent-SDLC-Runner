@@ -20,7 +20,8 @@ describe('stage diagnostics', () => {
       stageTimeoutMs: 1000, runTimeoutMs: 2000, onStageCompleted: () => { order.push('capture'); } });
     deepStrictEqual(order, ['run', 'approval', 'capture']);
     strictEqual(parseArgs(['--model', 'x', '--all', '--capture-inputs']).captureInputs, true);
-    throws(() => parseArgs(['--model', 'x', '--stage', 'plan', '--capture-inputs']));
+    strictEqual(parseArgs(['--model', 'x', '--stage', 'plan', '--capture-inputs']).captureInputs, true);
+    throws(() => parseArgs(['--model', 'x', '--all', '--capture-inputs', '--dry-run']));
   });
   it('accepts a stage boundary and rejects an earlier boundary or snapshot combination', () => {
     strictEqual(parseArgs(['--model', 'x', '--stage', 'plan', '--stop-after-stage', 'plan']).stopAfterStage, 'plan');

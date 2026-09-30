@@ -245,7 +245,7 @@ ${taskListForUsage()}
   --quiet               не печатать живой ход прогона: этапы, вызовы, ветки решений, контекст
   --make-snapshot <имя> остановиться после точки снимка и сохранить снимок под этим именем
   --snapshot-after <этап> точка снимка для --make-snapshot (умолчание plan)
-  --capture-inputs сохранять входы последующих этапов полного цикла для диагностики
+  --capture-inputs сохранять входы после успешных этапов живого прогона для диагностики
   --stop-after-stage <этап> остановить измерение после этапа, не запускать следующие маршруты
   --from-snapshot <имя> начать с этого снимка — со следующего этапа после его точки
   --seed <класс>        посеять дефект перед этапом 6 и замерить, назван ли он:
@@ -515,8 +515,8 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   const resolvedModel = model ?? '';
   const modeTag = resolvedMode.kind === 'all' ? 'all' : resolvedMode.stage;
 
-  if (captureInputs && (resolvedMode.kind !== 'all' || dryRun || probe || preflightOnly || makeSnapshot !== null)) {
-    throw new OptionsError('--capture-inputs требует живого полного цикла --all без --make-snapshot');
+  if (captureInputs && (dryRun || probe || preflightOnly || makeSnapshot !== null)) {
+    throw new OptionsError('--capture-inputs требует живого прогона без --make-snapshot');
   }
   return {
     ...(captureInputs ? { captureInputs } : {}),

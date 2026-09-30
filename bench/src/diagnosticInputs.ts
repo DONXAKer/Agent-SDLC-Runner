@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { WitokPaths } from '../../server/src/artifacts/paths.ts';
 import { stageById } from '../../server/src/run/stages.ts';
-import { startStageAfter } from './snapshot.ts';
+import { snapshotRuntimeVerdict, startStageAfter } from './snapshot.ts';
 import { taskById, taskPaths } from './tasks.ts';
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import { sha256Text } from '../../server/src/run/evidence.ts';
@@ -10,6 +10,7 @@ import { sha256Text } from '../../server/src/run/evidence.ts';
 export interface DiagnosticCase {
   id: string; task: string; stage: string; snapshotAfter: string | null;
   snapshot?: string; seed?: string; evaluation: string; problemIds?: number[];
+  expectedBlocked?: boolean;
 }
 
 export interface DiagnosticInput {
@@ -26,6 +27,7 @@ export function diagnosticCliArgs(args: {
   const out = ['--model', model, '--task', testCase.task, '--stage', testCase.stage, '--slug', slug,
     '--stop-after-stage', testCase.stage, '--stage-timeout', String(timeoutMinutes),
     '--run-timeout', String(timeoutMinutes), '--no-preflight', '--quiet'];
+  out.push('--capture-inputs');
   if (args.local) for (const stage of STAGE_ORDER) out.push(`--control-${stage}`, model);
   if (args.snapshot) out.push('--from-snapshot', args.snapshot);
   if (testCase.seed) out.push('--seed', testCase.seed);
@@ -57,8 +59,21 @@ export function checkDiagnosticInput(bench: string, testCase: DiagnosticCase): D
         continue;
       }
       if (typeof meta.slug !== 'string' || !meta.slug) throw new Error('snapshot slug missing');
+      if (testCase.expectedBlocked && meta.inputPreparation?.kind !== 'missing-runtime-verdict') continue;
       if (testCase.seed && testCase.seed !== 'none' && testCase.stage !== 'verify') throw new Error('seed is only valid for verify');
       const context = { paths: new WitokPaths(root, meta.slug), chunk: 1, attempt: 1 };
+      if (testCase.stage === 'handoff') {
+        if (testCase.expectedBlocked && !snapshotRuntimeVerdict(root, meta)
+          && existsSync(context.paths.verificationReport(1, 1))
+          && stageById('handoff').requires.some((requirement) => requirement.check(context) !== null)) {
+          return { status: 'available', reason: `${name}: expected missing runtime verdict`, snapshot: name };
+        }
+        if (meta.verdictSource?.chunk === 1 && meta.verdictSource?.attempt === 1 && snapshotRuntimeVerdict(root, meta)) {
+          return { status: 'available', reason: name, snapshot: name };
+        }
+        lastProblem = { status: 'invalid-snapshot', reason: `${name}: no matching passed runtime verdict for attempt 1`, snapshot: null };
+        continue;
+      }
       const blockers = stageById(testCase.stage as Parameters<typeof stageById>[0]).requires
         .map((requirement) => requirement.check(context)).filter((reason) => reason !== null);
       if (blockers.length) {

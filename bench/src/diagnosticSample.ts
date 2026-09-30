@@ -19,7 +19,7 @@ export interface DiagnosticSample {
 }
 
 export function assessDiagnosticSample(
-  raw: Record<string, any>, slug: string, exitCode: number | null, stage?: string,
+  raw: Record<string, any>, slug: string, exitCode: number | null, stage?: string, expectedBlocked = false,
 ): DiagnosticSample {
   const stages: any[] = raw.driver?.stages ?? [];
   const target = stage ?? raw.run?.mode?.stage;
@@ -30,7 +30,8 @@ export function assessDiagnosticSample(
   const envFailure = measured.find((entry) => entry.envFailure)?.envFailure;
   const stageOk = started && measured.every((entry) => entry.ok || entry.skipped);
   const finished = raw.diagnostics?.state === 'finished' && exitCode !== null;
-  const outcome = !started ? 'not-started' : !finished ? 'incomplete'
+  const safelyBlocked = expectedBlocked && !started && finished && blockers.length > 0;
+  const outcome = safelyBlocked ? 'safely-blocked' : !started ? 'not-started' : !finished ? 'incomplete'
     : timedOut ? 'timeout' : envFailure ? 'environment-error'
     : stageOk ? 'completed' : 'stage-failed';
   // A precondition failure never tells us whether the reviewer can find the seed.
@@ -38,7 +39,8 @@ export function assessDiagnosticSample(
   const hiddenFailed = started && ['chunk', 'handoff'].includes(target) && Number(raw.hidden?.fail) > 0;
   const elapsed = Date.parse(raw.run?.finishedAt ?? '') - Date.parse(raw.run?.startedAt ?? '');
   const problemCodes = [
-    ...(!started ? ['INPUT_BLOCKED'] : []),
+    ...(!started && !safelyBlocked ? ['INPUT_BLOCKED'] : []),
+    ...(expectedBlocked && started ? ['EXPECTED_BLOCK_MISSING'] : []),
     ...(started && !finished ? ['INCOMPLETE'] : []),
     ...(timedOut ? ['TIMEOUT'] : []),
     ...(envFailure ? ['ENV_FAILURE'] : []),

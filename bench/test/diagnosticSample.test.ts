@@ -2,6 +2,19 @@ import { deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { it } from 'node:test';
 import { assessDiagnosticSample } from '../src/diagnosticSample.ts';
 
+it('expected safety blocking is distinct from model failure and from a bypass', () => {
+  const blocked = assessDiagnosticSample({ diagnostics: { state: 'finished' },
+    driver: { stages: [{ stage: 'handoff', ok: false, skipped: false, blockers: ['runtime verdict missing'] }] },
+  }, 'negative', 1, 'handoff', true);
+  strictEqual(blocked.outcome, 'safely-blocked');
+  strictEqual(blocked.stageStarted, false);
+  deepStrictEqual(blocked.problemCodes, []);
+  const bypassed = assessDiagnosticSample({ diagnostics: { state: 'finished' },
+    driver: { stages: [{ stage: 'handoff', ok: true, skipped: false, blockers: [] }] },
+  }, 'bypass', 0, 'handoff', true);
+  deepStrictEqual(bypassed.problemCodes, ['EXPECTED_BLOCK_MISSING']);
+});
+
 it('unfinished evidence cannot qualify a mechanically successful stage', () => {
   for (const [state, exitCode] of [['running', 0], ['finished', null]] as const) {
     const sample = assessDiagnosticSample({ diagnostics: { state },

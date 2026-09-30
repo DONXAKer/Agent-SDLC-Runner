@@ -18,6 +18,7 @@ try {
     $diagLog = Join-Path $PSScriptRoot "results/recovery-$batch-$modelSlug-diagnostic.log"
     & node bench/src/diagnose.ts --model $model --repeat $DiagnosticRepeats --stage-timeout $StageTimeout *> $diagLog
     $diagnosticExit = $LASTEXITCODE
+    & node bench/prepare-handoff-control.ts
     & node bench/update-diagnostic-status.mjs
     # Exit 2 can mean unavailable inputs. Read structured preflight/case evidence to distinguish it.
     $reportFile = Get-ChildItem (Join-Path $PSScriptRoot "results/diagnostics-$modelSlug-*.json") | Sort-Object LastWriteTime -Descending | Select-Object -First 1

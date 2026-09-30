@@ -603,7 +603,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
         const name = `${opts.slug}-after-${record.stage}-c${record.chunk}-a${record.attempt}`;
         makeSnapshot({ workspaceRoot: wsRoot, snapshotsDir: SNAPSHOTS_DIR, name, slug: opts.slug,
           branch: wsBranch, stoppedAfterStage: record.stage, task: opts.task,
-          authorModel: built.routes[record.stage] });
+          authorModel: built.routes[record.stage], chunk: record.chunk, attempt: record.attempt });
         logLine(`📸 диагностический вход сохранён: ${name}`);
       } } : {}),
     });

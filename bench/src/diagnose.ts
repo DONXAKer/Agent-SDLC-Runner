@@ -66,17 +66,17 @@ function run(args: string[], timeoutMs: number): number | null {
   return proc.status;
 }
 
-function sample(slug: string, exitCode: number | null, stage: string): Sample {
+function sample(slug: string, exitCode: number | null, stage: string, expectedBlocked = false): Sample {
   const file = join(RESULTS, `${slug}.json`);
-  if (!existsSync(file)) return { slug, exitCode, outcome: exitCode === null ? 'execution-error' : 'no-result', semanticAssessment: 'not-assessed' };
+  if (!existsSync(file)) return { slug, exitCode, outcome: exitCode === null ? 'execution-error' : 'no-result', semanticAssessment: 'not-assessed', problemCodes: [exitCode === null ? 'EXECUTION_ERROR' : 'NO_RESULT'] };
   try {
     const r = JSON.parse(readFileSync(file, 'utf8')) as Record<string, any>;
     return {
-      ...assessDiagnosticSample(r, slug, exitCode, stage),
+      ...assessDiagnosticSample(r, slug, exitCode, stage, expectedBlocked),
       resultFile: relative(ROOT, file).replaceAll('\\', '/'),
     };
   } catch (e) {
-    return { slug, exitCode, outcome: 'invalid-result', semanticAssessment: 'not-assessed', reason: String(e) };
+    return { slug, exitCode, outcome: 'invalid-result', semanticAssessment: 'not-assessed', reason: String(e), problemCodes: ['INVALID_RESULT'] };
   }
 }
 
@@ -158,15 +158,17 @@ async function main(): Promise<number> {
   };
   if (preflightCode === 0) {
     for (const c of cases) {
-      if (c.inputStatus !== 'available') continue;
       const input = checkInput(c);
+      c.inputStatus = input.status;
+      c.inputReason = input.reason;
+      if (input.status !== 'available') continue;
       for (let i = 1; i <= opts.repeats; i++) {
         const slug = `diag-${opts.model.replace(/[^a-zA-Z0-9_-]/g, '-')}-${c.id.toLowerCase()}-${Date.now()}-${i}`;
         const cliArgs = diagnosticCliArgs({ model: opts.model, testCase: c, slug,
           timeoutMinutes: opts.timeout, snapshot: input.snapshot,
           local: modelDefinition.provider === 'ollama' || modelDefinition.provider === 'lmstudio' });
         const code = run(cliArgs, opts.timeout * 60_000 + 60_000);
-        c.samples.push(sample(slug, code, c.stage));
+        c.samples.push(sample(slug, code, c.stage, c.expectedBlocked));
       }
     }
   }

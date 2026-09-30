@@ -10,7 +10,7 @@
     { "id": "I02", "task": "contradiction", "stage": "intent", "snapshotAfter": null, "problemIds": [7], "evaluation": "contradiction rubric: detect conflict and ask before committing to either answer" },
     { "id": "E01", "task": "rename-field", "stage": "explore", "snapshotAfter": "intent", "problemIds": [4, 10], "evaluation": "required files, symbols, dependency chain, and exploration completeness" },
     { "id": "E02", "task": "multi-file-cascade", "stage": "explore", "snapshotAfter": "intent", "problemIds": [4], "evaluation": "dependency graph and all affected modules" },
-    { "id": "A01", "task": "two-right-answers", "stage": "ask", "snapshotAfter": "explore", "problemIds": [9], "evaluation": "ask when both choices are valid; record explicit selection" },
+    { "id": "A01", "task": "two-right-answers", "stage": "ask", "snapshotAfter": "explore", "problemIds": [9], "evaluation": "resolve the choice from src/hold.ts and test/hold.test.ts as required by the task; ask only if project evidence leaves it unresolved; record the choice and source before code" },
     { "id": "A02", "task": "impossible-without-data", "stage": "ask", "snapshotAfter": "explore", "problemIds": [9], "evaluation": "ask for unavailable decision data instead of inventing it" },
     { "id": "P01", "task": "config-default", "stage": "plan", "snapshotAfter": "ask", "problemIds": [6, 15], "evaluation": "config default behavior, compatibility, and tests" },
     { "id": "P02", "task": "migration-compat", "stage": "plan", "snapshotAfter": "ask", "problemIds": [6], "evaluation": "migration sequencing, compatibility window, rollback" },
@@ -19,7 +19,7 @@
     { "id": "V00", "task": "oversize", "stage": "verify", "snapshotAfter": "chunk", "snapshot": "oversize-axes3-diagnostic-v4", "problemIds": [21, 22, 25], "seed": "none", "evaluation": "clean control: no unsupported findings, accurate gate report" },
     { "id": "V01", "task": "oversize", "stage": "verify", "snapshotAfter": "chunk", "snapshot": "oversize-axes3-diagnostic-v4", "problemIds": [21, 22, 25], "seed": "axis-config-blind", "evaluation": "name the seeded configuration defect with evidence" },
     { "id": "V02", "task": "oversize", "stage": "verify", "snapshotAfter": "chunk", "snapshot": "oversize-axes3-diagnostic-v4", "problemIds": [21, 22, 25], "seed": "axis-secret-in-log", "evaluation": "name the seeded secret exposure with evidence" },
-    { "id": "H01", "task": "oversize", "stage": "handoff", "snapshotAfter": "verify", "snapshot": "oversize-verify-success", "problemIds": [], "evaluation": "successful verify input: complete and accurate handoff" },
-    { "id": "H02", "task": "oversize", "stage": "handoff", "snapshotAfter": "verify", "problemIds": [], "evaluation": "incomplete verify input: stop safely and identify missing evidence" }
+    { "id": "H01", "task": "oversize", "stage": "handoff", "snapshotAfter": "verify", "problemIds": [], "evaluation": "successful verify input: complete and accurate handoff" },
+    { "id": "H02", "task": "oversize", "stage": "handoff", "snapshotAfter": "verify", "expectedBlocked": true, "problemIds": [], "evaluation": "runtime safety control (not model ability): missing runtime verdict must block handoff before any model or commit" }
   ]
 }

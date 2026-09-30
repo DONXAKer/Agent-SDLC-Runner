@@ -44,7 +44,7 @@ const rows = [...records.entries()]
     const cases = report.cases.map((testCase) => ({ ...testCase, samples: (testCase.samples ?? []).map((sample) => {
       const path = sample.resultFile ? resolve(root, sample.resultFile) : join(resultsDir, `${sample.slug}.json`);
       if (!existsSync(path)) return sample;
-      try { return assessDiagnosticSample(JSON.parse(readFileSync(path, 'utf8')), sample.slug, sample.exitCode, testCase.stage); }
+      try { return assessDiagnosticSample(JSON.parse(readFileSync(path, 'utf8')), sample.slug, sample.exitCode, testCase.stage, testCase.expectedBlocked); }
       catch { return { ...sample, problemCodes: ['INVALID_RESULT'] }; }
     }) }));
     const available = cases.filter((testCase) => testCase.inputStatus === 'available');

@@ -18,6 +18,7 @@ import type { StageId } from '@sdlc-runner/shared';
 
 import { git } from '../../server/src/gates/git.ts';
 import { SDLC_DIR, WitokPaths } from '../../server/src/artifacts/paths.ts';
+import { patchShaOf, readRunVerdict, writeRunVerdict, type StoredVerdict } from '../../server/src/run/verdictStore.ts';
 
 /**
  * Лента событий прогона в снимок не входит.
@@ -58,6 +59,8 @@ function dropMetrics(root: string, slug: string): void {
 export class SnapshotError extends Error {}
 
 export interface SnapshotMeta {
+  /** Reference to a real verdict in runtime storage, never a model-written passed flag. */
+  verdictSource?: { projectRoot: string; slug: string; chunk: number; attempt: number };
   /** Actual route that produced the snapshot; absent in older snapshots. */
   authorModel?: string;
   /** Слаг витка контрольного прогона, с которого снят снимок. */
@@ -155,6 +158,8 @@ export function firstMeasuredFrom(start: StageId, measured: readonly StageId[]):
  * именем стирается — имя это слот, а не история версий: история — дело git, не бенчмарка.
  */
 export function makeSnapshot(args: {
+  chunk?: number;
+  attempt?: number;
   authorModel?: string;
   workspaceRoot: string;
   snapshotsDir: string;
@@ -180,6 +185,17 @@ export function makeSnapshot(args: {
     createdAt: new Date().toISOString(),
     task: args.task,
   };
+  if (args.stoppedAfterStage === 'verify') {
+    const chunk = args.chunk ?? 1;
+    const attempt = args.attempt ?? 1;
+    const paths = new WitokPaths(args.workspaceRoot, args.slug);
+    const verdict = readRunVerdict(paths, chunk, attempt);
+    if (verdict?.passed && verdict.patchSha !== null && verdict.patchSha === patchShaOf(paths, chunk, attempt)) {
+      // Preserve the judged state separately: the live cycle may commit or advance afterward.
+      writeRunVerdict(new WitokPaths(dest, args.slug), chunk, attempt, verdict);
+      meta.verdictSource = { projectRoot: dest, slug: args.slug, chunk, attempt };
+    }
+  }
   writeFileSync(metaPath(dest), `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
 }
 
@@ -189,6 +205,16 @@ export interface RestoredSnapshot {
   branch: string;
   stoppedAfterStage: StageId;
   dispose(): void;
+}
+
+/** A copied report cannot authorize handoff. Reuse only the actual runtime verdict for this patch. */
+export function snapshotRuntimeVerdict(root: string, meta: SnapshotMeta): StoredVerdict | null {
+  const source = meta.verdictSource;
+  if (!source || typeof source.projectRoot !== 'string' || typeof source.slug !== 'string'
+    || !Number.isInteger(source.chunk) || source.chunk < 1 || !Number.isInteger(source.attempt) || source.attempt < 1) return null;
+  const verdict = readRunVerdict(new WitokPaths(source.projectRoot, source.slug), source.chunk, source.attempt);
+  if (!verdict?.passed || verdict.committedSha !== null || verdict.patchSha === null) return null;
+  return verdict.patchSha === patchShaOf(new WitokPaths(root, meta.slug), source.chunk, source.attempt) ? verdict : null;
 }
 
 /**
@@ -227,10 +253,14 @@ export function restoreSnapshot(args: {
     // восстановлении.
     dropEventLog(root, meta.slug);
     dropMetrics(root, meta.slug);
+    const verdict = meta.stoppedAfterStage === 'verify' ? snapshotRuntimeVerdict(root, meta) : null;
     if (args.targetSlug !== meta.slug) {
       const from = join(root, SDLC_DIR, meta.slug);
       const to = join(root, SDLC_DIR, args.targetSlug);
       if (existsSync(from)) renameSync(from, to);
+    }
+    if (verdict !== null && meta.verdictSource) {
+      writeRunVerdict(new WitokPaths(root, args.targetSlug), meta.verdictSource.chunk, meta.verdictSource.attempt, verdict);
     }
     return {
       root,

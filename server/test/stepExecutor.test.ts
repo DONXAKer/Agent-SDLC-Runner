@@ -685,6 +685,14 @@ describe('mentionsFile', () => {
 });
 
 describe('repairGuidance', () => {
+  it('объясняет необъявленный параметр и необъявленный импорт', () => {
+    for (const name of ['opts', 'calculateVat']) {
+      const hints = repairGuidance(`ReferenceError: ${name} is not defined`, '');
+      ok(hints.join('\n').includes(name));
+      ok(hints.join('\n').includes('параметр функции'));
+      ok(hints.join('\n').includes('импорт'));
+    }
+  });
   it('показывает все текущие объявления повторённого идентификатора', () => {
     const hints = repairGuidance(
       "SyntaxError: Identifier 'sub' has already been declared",

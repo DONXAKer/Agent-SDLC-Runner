@@ -384,6 +384,10 @@ export function mentionsFile(problem: string, file: string): boolean {
 /** Converts frequent compiler failures into a narrow instruction for the next repair round. */
 export function repairGuidance(problem: string, current: string | null): string[] {
   const guidance: string[] = [];
+  const undefinedName = /(?:ReferenceError:\s*|Cannot find name\s+['"])([\p{L}_$][\p{L}\p{N}_$]*)(?:['"]|\s+is not defined)/u.exec(problem);
+  if (undefinedName) {
+    guidance.push(`Идентификатор \`${undefinedName[1]}\` используется без объявления. Исправь его источник в текущем файле: параметр функции, локальное объявление или импорт из реально экспортирующего модуля. Повтор той же строки вызова не устраняет ошибку.`);
+  }
   const duplicate = /Identifier ['"]([^'"]+)['"] has already been declared/i.exec(problem);
   if (duplicate !== null) {
     const name = duplicate[1] ?? '';
@@ -489,6 +493,8 @@ const SYSTEM = [
   '- не удаляй существующее поведение, если шаг этого не требует; не сокращай файл;',
   '- импортируй только то, что действительно экспортируется, с точностью до регистра;',
   '- реализуй действие целиком: согласуй сигнатуры, типы, импорты и тело функции в названном файле;',
+  '- при добавлении или передаче аргумента проверь объявление параметра у вызывающей функции;',
+  '- если контракт требует отсутствия опционального поля, не добавляй ключ со значением undefined;',
   '- верни краткий завершённый рабочий код; комментарии объясняют только конкретные решения реализации;',
   '- если сделать шаг нельзя без решения человека — ответь ОДНОЙ строкой `БЕЗ ПРАВОК:',
   '  требует решения человека: <что именно>`, а не выдумывай значение;',
