@@ -71,6 +71,7 @@ import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './Stage
 import { cap, executeTool, type ToolContext } from './tools/index.ts';
 import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './contextBudget.ts';
 import { buildStepContext } from './stepContext.ts';
+import { stepPlanContext } from './stepPlanContext.ts';
 
 /**
  * Исход проверки после шага. `skipped` — проверка не состоялась (строки гейта нет, среда
@@ -487,6 +488,8 @@ const SYSTEM = [
   '- числа, пороги и формулировки из «фактов человека» и плана переноси ДОСЛОВНО;',
   '- не удаляй существующее поведение, если шаг этого не требует; не сокращай файл;',
   '- импортируй только то, что действительно экспортируется, с точностью до регистра;',
+  '- реализуй действие целиком: согласуй сигнатуры, типы, импорты и тело функции в названном файле;',
+  '- верни краткий завершённый рабочий код; комментарии объясняют только конкретные решения реализации;',
   '- если сделать шаг нельзя без решения человека — ответь ОДНОЙ строкой `БЕЗ ПРАВОК:',
   '  требует решения человека: <что именно>`, а не выдумывай значение;',
   '- никаких пояснений вне требуемого формата ответа.',
@@ -583,7 +586,7 @@ export class StepExecutor implements StageExecutor {
     let callsTotal = 0;
     const outcomes: StepOutcome[] = [];
     const total = this.o.steps.length;
-    const planBlock = cap(this.o.planText, this.o.maxResultBytes);
+    const planBlock = stepPlanContext(this.o.planText, this.o.maxResultBytes);
     const factsBlock = cap(this.o.humanFacts.trim(), this.o.maxResultBytes);
     const briefBlock = this.o.retryBrief === null ? '' : cap(this.o.retryBrief.trim(), this.o.maxResultBytes);
 

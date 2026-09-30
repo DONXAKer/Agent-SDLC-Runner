@@ -2,6 +2,16 @@ import { deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { it } from 'node:test';
 import { assessDiagnosticSample } from '../src/diagnosticSample.ts';
 
+it('unfinished evidence cannot qualify a mechanically successful stage', () => {
+  for (const [state, exitCode] of [['running', 0], ['finished', null]] as const) {
+    const sample = assessDiagnosticSample({ diagnostics: { state },
+      driver: { stages: [{ stage: 'intent', ok: true, blockers: [], skipped: false }] },
+    }, 'unfinished', exitCode, 'intent');
+    strictEqual(sample.outcome, 'incomplete');
+    deepStrictEqual(sample.problemCodes, ['INCOMPLETE']);
+  }
+});
+
 it('a completed chunk with failed hidden checks remains a diagnostic failure', () => {
   const sample = assessDiagnosticSample({ diagnostics: { state: 'finished' }, hidden: { fail: 2 },
     driver: { stages: [{ stage: 'chunk', ok: true, blockers: [], skipped: false }] },

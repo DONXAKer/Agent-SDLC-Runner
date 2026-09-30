@@ -39,6 +39,7 @@ export function assessDiagnosticSample(
   const elapsed = Date.parse(raw.run?.finishedAt ?? '') - Date.parse(raw.run?.startedAt ?? '');
   const problemCodes = [
     ...(!started ? ['INPUT_BLOCKED'] : []),
+    ...(started && !finished ? ['INCOMPLETE'] : []),
     ...(timedOut ? ['TIMEOUT'] : []),
     ...(envFailure ? ['ENV_FAILURE'] : []),
     ...(started && !stageOk && !timedOut && !envFailure && seedCaught !== true ? ['STAGE_FAILED'] : []),
