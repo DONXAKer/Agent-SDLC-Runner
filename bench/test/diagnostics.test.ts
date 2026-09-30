@@ -10,6 +10,18 @@ import { parseArgs } from '../src/options.ts';
 import { runBench } from '../src/driver.ts';
 
 describe('stage diagnostics', () => {
+  it('captures a successful stage input after its human approval is recorded', async () => {
+    const order: string[] = [];
+    const run = { chunk: 1, attempt: 1, lastVerdict: null, blockerDetails: () => [],
+      runStage: async () => { order.push('run'); return { ok: true, usage: emptyUsage(), finalText: 'filled', note: '' }; },
+      recordDecision: () => { order.push('approval'); },
+    } as unknown as Run;
+    await runBench({ run, startStage: 'plan', measurementEnd: 'plan', attempts: 1,
+      stageTimeoutMs: 1000, runTimeoutMs: 2000, onStageCompleted: () => { order.push('capture'); } });
+    deepStrictEqual(order, ['run', 'approval', 'capture']);
+    strictEqual(parseArgs(['--model', 'x', '--all', '--capture-inputs']).captureInputs, true);
+    throws(() => parseArgs(['--model', 'x', '--stage', 'plan', '--capture-inputs']));
+  });
   it('accepts a stage boundary and rejects an earlier boundary or snapshot combination', () => {
     strictEqual(parseArgs(['--model', 'x', '--stage', 'plan', '--stop-after-stage', 'plan']).stopAfterStage, 'plan');
     throws(() => parseArgs(['--model', 'x', '--stage', 'plan', '--stop-after-stage', 'intent']));

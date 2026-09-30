@@ -32,7 +32,7 @@ try {
     foreach ($task in $tasks) {
       $slug = "recovery-$batch-$modelSlug-$task"
       $log = Join-Path $PSScriptRoot "results/$slug.log"
-      & node bench/src/cli.ts --model $model --task $task --all --slug $slug --stage-timeout $StageTimeout --run-timeout 60 --quiet *> $log
+      & node bench/src/cli.ts --model $model --task $task --all --capture-inputs --slug $slug --stage-timeout $StageTimeout --run-timeout 60 --quiet *> $log
       $progress += [pscustomobject]@{ model=$model; task=$task; diagnostic=$reportFile.Name; result="$slug.json"; exitCode=$LASTEXITCODE; status='cycle-recorded'; ready=$false }
       # Readiness is established only after semantic review of all required cases and cycles.
       $progress | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $PSScriptRoot "results/recovery-$batch-progress.json") -Encoding utf8

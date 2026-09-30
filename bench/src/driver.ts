@@ -135,6 +135,8 @@ export interface DriverArgs {
    * только в `result.json` после прогона.
    */
   onDecision?: (line: string) => void;
+  /** Called after successful stage completion and recording its human decision. */
+  onStageCompleted?: (record: DriverStageRecord) => void;
 }
 
 /** Индекс этапа `chunk` в `STAGE_ORDER` — сюда прыгает `retry`. */
@@ -438,6 +440,10 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       }
     }
 
+    if (!skipped) {
+      const completed = stages.at(-1);
+      if (completed?.ok) args.onStageCompleted?.(completed);
+    }
     if (stage === args.measurementEnd) {
       return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'stage-measured' };
     }

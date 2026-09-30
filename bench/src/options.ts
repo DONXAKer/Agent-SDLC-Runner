@@ -112,6 +112,8 @@ export interface BenchOptions {
    * это отдельный режим, не довесок к измерению.
    */
   makeSnapshot: string | null;
+  /** Preserve approved inputs after each successful stage of a full cycle. */
+  captureInputs?: boolean;
   /**
    * Имя снимка, с которого восстановить рабочую копию вместо прохода этапов с начала.
    * Точка снимка хранится в нём самом (`stoppedAfterStage`) — driver стартует со
@@ -243,6 +245,7 @@ ${taskListForUsage()}
   --quiet               не печатать живой ход прогона: этапы, вызовы, ветки решений, контекст
   --make-snapshot <имя> остановиться после точки снимка и сохранить снимок под этим именем
   --snapshot-after <этап> точка снимка для --make-snapshot (умолчание plan)
+  --capture-inputs сохранять входы последующих этапов полного цикла для диагностики
   --stop-after-stage <этап> остановить измерение после этапа, не запускать следующие маршруты
   --from-snapshot <имя> начать с этого снимка — со следующего этапа после его точки
   --seed <класс>        посеять дефект перед этапом 6 и замерить, назван ли он:
@@ -286,6 +289,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   let engineReload = false;
   let quiet = false;
   let makeSnapshot: string | null = null;
+  let captureInputs = false;
   let fromSnapshot: string | null = null;
   // `null` — ключ не задан; умолчание `plan` подставляется на выходе. Один факт в одной
   // переменной, а не значение + флаг-спутник, которые разъезжаются при правке разбора.
@@ -428,6 +432,9 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         i++;
         break;
       }
+      case '--capture-inputs':
+        captureInputs = true;
+        break;
       case '--from-snapshot':
         fromSnapshot = next(i, key);
         i++;
@@ -508,7 +515,11 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   const resolvedModel = model ?? '';
   const modeTag = resolvedMode.kind === 'all' ? 'all' : resolvedMode.stage;
 
+  if (captureInputs && (resolvedMode.kind !== 'all' || dryRun || probe || preflightOnly || makeSnapshot !== null)) {
+    throw new OptionsError('--capture-inputs требует живого полного цикла --all без --make-snapshot');
+  }
   return {
+    ...(captureInputs ? { captureInputs } : {}),
     ...(stopAfterStage === undefined ? {} : { stopAfterStage }),
     mode: resolvedMode,
     model: resolvedModel,
