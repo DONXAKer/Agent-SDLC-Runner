@@ -40,7 +40,7 @@ describe('runStage не ветвится по имени этапа', () => {
   // каркасе: иначе логика этапа снова расползается по `Run.ts`, и изучить этап в одном файле
   // нельзя. Комментарии не в счёт — в них история прежних ветвлений законна.
   it('в runStage и finishFormArtifact нет сравнений stage с литералом', () => {
-    const text = readFileSync(join(STAGES_DIR, '..', 'Run.ts'), 'utf8');
+    const text = readFileSync(join(STAGES_DIR, '..', 'Run.ts'), 'utf8').replace(/\r\n/g, '\n');
     for (const head of ['  async runStage(', '  private async finishFormArtifact(']) {
       const start = text.indexOf(head);
       ok(start >= 0, `в Run.ts нет ${head.trim()}`);

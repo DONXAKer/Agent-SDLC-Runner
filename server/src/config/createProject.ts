@@ -20,11 +20,7 @@ import { isWithinAny } from '../policy/paths.ts';
 import { realpathPosix } from '../fs/realpath.ts';
 import { badSlug } from '../validation.ts';
 
-/**
- * Один профиль на все стадии, во флоу `sdk` (Max-подписка) — тот же выбор моделей, что
- * у ручного `example.json`. Правило рецензента (verify строго сильнее chunk) здесь
- * соблюдено: `opus` (90) > `sonnet` (70).
- */
+/** Default Claude profile. Reviewer selection is independent of model rank. */
 const DEFAULT_PROFILE = {
   claude: {
     label: 'Claude (Max-подписка)',

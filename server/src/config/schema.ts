@@ -104,10 +104,7 @@ export interface ModelDef {
   id: string;
   provider: string;
   model: string;
-  /**
-   * Проставляется руками. Нужен ровно для одного: правила методологии «рецензент этапа 6
-   * строго сильнее исполнителя этапа 5».
-   */
+  /** Manually assigned approximate capability rank; used to order escalation candidates. */
   rank: number;
   /**
    * Сырые поля тела запроса `chat/completions` для этой модели: temperature, max_tokens,
@@ -239,6 +236,7 @@ export interface ModelDef {
    * на замер» этого не пережило. Умолчание — выключено: ручка заведена под замер, не
    * для всех.
    */
+  /** Defaults on when stepFill is enabled; set false for controlled comparisons. */
   stepContext?: boolean;
   /**
    * Схема формы вместо сплошного текста бланка — три независимых эффекта под одной

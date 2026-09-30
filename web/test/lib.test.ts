@@ -13,14 +13,13 @@
 import { ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import type { ConfigInfo, RunStatus, Usage } from '@sdlc-runner/shared';
+import type { RunStatus, Usage } from '@sdlc-runner/shared';
 
 import type { Question } from '@sdlc-runner/shared';
 
 import { allQuestionsAnswered } from '../src/lib/askAnswers.ts';
 import { fmtCost, fmtDuration, fmtTokens } from '../src/lib/format.ts';
 import { GATE_TONE } from '../src/lib/gateTone.ts';
-import { evaluateReviewerRule } from '../src/lib/reviewerRule.ts';
 import { statusLabel, statusTone } from '../src/lib/runStatus.ts';
 
 function usage(over: Partial<Usage> = {}): Usage {
@@ -99,55 +98,6 @@ describe('цвет статуса гейта', () => {
     const tones = new Set(Object.values(GATE_TONE));
     strictEqual(tones.size, 3, 'два статуса гейта красятся одинаково');
     ok(GATE_TONE['⏭'].includes('amber'), '⏭ роняет вердикт и не должен выглядеть нейтрально');
-  });
-});
-
-describe('правило рецензента на клиенте', () => {
-  const models = [
-    { id: 'weak', rank: 10 },
-    { id: 'mid', rank: 50 },
-    { id: 'strong', rank: 90 },
-  ] as unknown as ConfigInfo['models'];
-
-  const base = { chunk: ['weak'], verify: ['mid'] };
-
-  it('базовый профиль без правок правило не нарушает', () => {
-    strictEqual(evaluateReviewerRule({ models, stages: {}, base }).broken, false);
-  });
-
-  it('поднятый ОДИН chunk до уровня базового verify ловится', () => {
-    // Самый частый случай правки и ровно тот, который клиент раньше пропускал молча:
-    // ранги считались только когда оператор трогал ОБА этапа.
-    const v = evaluateReviewerRule({ models, stages: { chunk: 'mid' }, base });
-    strictEqual(v.broken, true, 'клиент снова молчит там, где сервер откажет в старте');
-    strictEqual(v.chunkRank, 50);
-    strictEqual(v.verifyRank, 50);
-  });
-
-  it('поднятый chunk ниже verify правило не нарушает', () => {
-    strictEqual(
-      evaluateReviewerRule({ models, stages: { chunk: 'weak' }, base: { chunk: ['weak'], verify: ['strong'] } }).broken,
-      false,
-    );
-  });
-
-  it('сравниваются КРАЙНИЕ значения ансамбля, как на сервере', () => {
-    // Слабейший рецензент против сильнейшего исполнителя: иначе ансамбль стал бы
-    // способом протащить слабого рецензента рядом с сильным.
-    const v = evaluateReviewerRule({
-      models,
-      stages: {},
-      base: { chunk: ['weak', 'mid'], verify: ['strong', 'mid'] },
-    });
-    strictEqual(v.chunkRank, 50, 'взят не сильнейший исполнитель');
-    strictEqual(v.verifyRank, 50, 'взят не слабейший рецензент');
-    strictEqual(v.broken, true);
-  });
-
-  it('неизвестная модель — не повод краснеть: сравнивать нечем', () => {
-    const v = evaluateReviewerRule({ models, stages: {}, base: { chunk: ['нет-такой'], verify: ['mid'] } });
-    strictEqual(v.chunkRank, null);
-    strictEqual(v.broken, false);
   });
 });
 

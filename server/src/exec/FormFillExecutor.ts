@@ -84,6 +84,90 @@ import type { ToolContext } from './tools/index.ts';
  * не шторм для локального сервера, который всё равно исполняет запросы по одному.
  */
 const FIELD_PARALLEL = 3;
+const FIELD_GROUP_SIZE = 3;
+const HIGH_RISK_FIELD = /security|безопас|денеж|оплат|налог|миграц|совместим|api|контракт|персональн|секрет|аутентификац|авторизац|данных/i;
+
+/** Batch only fields explicitly declared as a compact group; keep other fields isolated. */
+export function compactFieldGroups(fields: readonly SchemaField[], maxSize = FIELD_GROUP_SIZE): SchemaField[][] {
+  const groups: SchemaField[][] = [];
+  const pending = new Map<string, SchemaField[]>();
+  const batchable = (field: SchemaField): boolean =>
+      (field.kind === 'scalar' || field.kind === 'choice') &&
+      field.min === undefined &&
+      !HIGH_RISK_FIELD.test(`${field.section} ${field.id} ${field.label ?? ''} ${field.hint}`);
+  for (const field of fields) {
+    if (maxSize > 1 && field.compactGroup !== undefined && batchable(field)) {
+      const group = pending.get(field.compactGroup) ?? [];
+      group.push(field);
+      pending.set(field.compactGroup, group);
+    } else {
+      groups.push([field]);
+    }
+  }
+  for (const group of pending.values()) {
+    for (let i = 0; i < group.length; i += maxSize) groups.push(group.slice(i, i + maxSize));
+  }
+  // Keep deterministic source ordering even when group members were separated in the form.
+  const order = new Map(fields.map((field, index) => [field, index]));
+  groups.sort((a, b) => order.get(a[0]!)! - order.get(b[0]!)!);
+  return groups;
+}
+
+/** OpenAI-compatible JSON Schema for a grouped scalar/choice response. */
+export function compactGroupResponseFormat(fields: readonly SchemaField[]): Record<string, unknown> {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'sdlc_form_fields',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: Object.fromEntries(fields.map((field) => [field.id, {
+          type: 'string',
+          ...(field.kind === 'choice' && field.options !== undefined
+            ? { enum: field.options.map((option) => option.key) }
+            : {}),
+        }])),
+        required: fields.map((field) => field.id),
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
+/** Parse and validate all keys before any grouped value can be written. */
+export function parseCompactGroupResponse(text: string, fields: readonly SchemaField[]): Record<string, string> | null {
+  let parsed: unknown;
+  try {
+    const content = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const record = parsed as Record<string, unknown>;
+  const ids = fields.map((field) => field.id);
+  if (Object.keys(record).length !== ids.length || ids.some((id) => typeof record[id] !== 'string')) return null;
+  return record as Record<string, string>;
+}
+
+/** Return the template's explicit empty alternative only for a marked, absent risk scope. */
+export function conditionalFieldEmptyAlternative(
+  field: Pick<SchemaField, 'section' | 'hint' | 'emptyAlternative'>,
+  taskContext: string,
+): string | null {
+  if (field.emptyAlternative === undefined || !/если применимо|при наличии|если затрагивается|если меняется/i.test(field.hint)) return null;
+  const descriptor = `${field.section} ${field.hint}`;
+  const scopes = [
+    { descriptor: /security|безопас|аутентификац|авторизац|секрет|персональн/i, trigger: /security|безопас|аутентификац|авторизац|секрет|персональн|доступ|учетн/i },
+    { descriptor: /миграц|схем|баз[аеы]? данных|персист|хранени/i, trigger: /миграц|схем|баз[аеы]? данных|персист|хранени|таблиц|запис.{0,20}данн/i },
+    { descriptor: /совместим|публичн|api|контракт|экспортируем/i, trigger: /совместим|публичн|api|контракт|экспорт|интеграц|вызывающ/i },
+    { descriptor: /производительност|ресурс|скорост|нагрузк/i, trigger: /производительност|ресурс|скорост|нагрузк|латентност|пропускн/i },
+  ];
+  const scope = scopes.find((candidate) => candidate.descriptor.test(descriptor));
+  if (scope === undefined || scope.trigger.test(taskContext)) return null;
+  return field.emptyAlternative;
+}
 
 /** Шапка таблицы `files_to_touch` плана (`plan.template.md`) — узнаётся по колонкам. */
 const FILES_TO_TOUCH_HEADER = /\|\s*Путь\s*\|\s*Что делаем\s*\|/;
@@ -573,13 +657,17 @@ export class FormFillExecutor implements StageExecutor {
    * нет инструментов (`tools: []`), результатов, приходящих после оценки, не бывает, и
    * запас в целый результат (~3000 токенов) сажал ответ поля на пол 256 на окне 16K.
    */
-  private paramsFor(messages: readonly ChatMessage[], hooks: ExecHooks): Record<string, unknown> | null {
+  private paramsFor(
+    messages: readonly ChatMessage[],
+    hooks: ExecHooks,
+    overrides?: Record<string, unknown>,
+  ): Record<string, unknown> | null {
     const estimate = estimateMessageTokens(messages);
     this.maxRequestTokens = Math.max(this.maxRequestTokens ?? 0, estimate);
     const window = this.o.contextWindow;
     return budgetParams({
       contextWindow: window,
-      params: this.o.params,
+      params: { ...(this.o.params ?? {}), ...(overrides ?? {}) },
       promptTokens: estimate,
       marginTokens: ESTIMATE_MARGIN_TOKENS,
       onClamped: (maxTokens) =>
@@ -590,17 +678,65 @@ export class FormFillExecutor implements StageExecutor {
     });
   }
 
+  /** Local Ollama form fills use bounded answers and disable chain-of-thought only for
+   * scalar/choice fields. Long lists and records retain low reasoning. */
+  private compactFillParams(req: ExecRequest, fields: readonly SchemaField[], extra: Record<string, unknown> = {}): Record<string, unknown> {
+    const substantive = (field: SchemaField): boolean =>
+      field.kind !== 'scalar' && field.kind !== 'choice' ||
+      HIGH_RISK_FIELD.test(`${field.section} ${field.id} ${field.label ?? ''} ${field.hint}`) ||
+      /зачем|цель|задач|описан|требован|риск|инвариант|ответ|вопрос|провер|обоснован|последств|итог|критер|пример|файл/iu.test(field.id);
+    const perField = (field: SchemaField): number => {
+      switch (field.kind) {
+        case 'choice': return 96;
+        case 'scalar': return substantive(field) ? 900 : 320;
+        case 'multiline': return 900;
+        case 'list': return 1400;
+        case 'records':
+        case 'group': return 2200;
+        case 'decision':
+        case 'mechanical': return 320;
+      }
+    };
+    const responseCap = Math.min(4096, fields.reduce((sum, field) => sum + perField(field), 0));
+    const configuredCap = this.o.params?.['max_tokens'];
+    const maxTokens = typeof configuredCap === 'number' ? Math.min(configuredCap, responseCap) : responseCap;
+    const out: Record<string, unknown> = { ...extra, max_tokens: maxTokens };
+    if ((req.model.startsWith('ollama:') || req.model.startsWith('lmstudio:')) && this.o.params?.['reasoning_effort'] === undefined) {
+      const simple = fields.every((field) => !substantive(field));
+      out['reasoning_effort'] = simple ? 'none' : 'low';
+    }
+    return out;
+  }
+
   /** Полевой запрос без инструментов — одна форма на все виды вопросов режима. */
-  private async ask(req: ExecRequest, messages: ChatMessage[], hooks: ExecHooks): ReturnType<ChatProvider['chat']> {
+  private async ask(
+    req: ExecRequest,
+    messages: ChatMessage[],
+    hooks: ExecHooks,
+    params?: Record<string, unknown>,
+  ): ReturnType<ChatProvider['chat']> {
     const startedAt = Date.now();
-    const answer = await this.o.provider.chat({
+    const requestParams = this.paramsFor(messages, hooks, params);
+    let answer = await this.o.provider.chat({
       model: req.model,
       messages,
       tools: [],
       signal: req.signal,
       temperature: null,
-      params: this.paramsFor(messages, hooks),
+      params: requestParams,
     });
+    if (this.o.compact && answer.finishReason === 'max_tokens' && typeof requestParams?.['max_tokens'] === 'number') {
+      const raised = Math.min(8192, Number(requestParams['max_tokens']) * 2);
+      if (raised > Number(requestParams['max_tokens'])) {
+        hooks.onWarn(`ответ поля обрезан лимитом ${requestParams['max_tokens']} токенов; повторяю один раз с лимитом ${raised}`);
+        const retryParams = this.paramsFor(messages, hooks, { ...(params ?? {}), max_tokens: raised });
+        const retry = await this.o.provider.chat({
+          model: req.model, messages, tools: [], signal: req.signal, temperature: null, params: retryParams,
+        });
+        answer = { ...retry, usage: addUsage(answer.usage, retry.usage) };
+        if (retry.finishReason === 'max_tokens') hooks.onWarn(`повтор поля тоже обрезан лимитом ${retryParams?.['max_tokens']} токенов`);
+      }
+    }
     // В лог — карточка поля, а не весь промпт этапа, повторяющийся в каждом запросе.
     const last = messages.at(-1)?.content ?? '';
     const question = last.startsWith(req.prompt.user) ? last.slice(req.prompt.user.length).trim() : last;
@@ -1108,10 +1244,42 @@ export class FormFillExecutor implements StageExecutor {
           { role: 'system', content: req.prompt.system },
           { role: 'user', content: [req.prompt.user, '', card].join('\n') },
         ];
-      return this.ask(req, messages, hooks);
+      if (field.kind === 'scalar' || field.kind === 'choice') {
+        const result = await this.ask(req, messages, hooks, this.compactFillParams(req, [field], { response_format: compactGroupResponseFormat([field]) }));
+        const decoded = parseCompactGroupResponse(result.text, [field]);
+        return decoded === null ? result : { ...result, text: decoded[field.id]! };
+      }
+      return this.ask(req, messages, hooks, this.compactFillParams(req, [field]));
     };
 
     /** Добор записи ниже минимума (`compact`) — та же идея, что `askClaimsTopUp`, через `applyFill('add')`. */
+    const askFieldGroupCompact = async (
+      fields: readonly SchemaField[],
+      snapshot: string,
+    ): ReturnType<ChatProvider['chat']> => {
+      const cards = fields.map((field) => [
+        `### Поле \`${field.id}\` (${field.kind})`,
+        `- раздел: ${field.section}`,
+        `- строка бланка: ${lineAt(snapshot, field.valueRange.start).trim()}`,
+        `- подсказка: ${field.hint === '' ? '(нет)' : field.hint.slice(0, 450)}`,
+        ...(field.options === undefined ? [] : [`- допустимые варианты: ${field.options.map((o) => o.key).join(' / ')}`]),
+      ].join('\n'));
+      const messages: ChatMessage[] = [
+        { role: 'system', content: req.prompt.system },
+        {
+          role: 'user',
+          content: [
+            req.prompt.user,
+            '',
+            'Заполни все перечисленные независимые поля. Для каждого значения используй только факты задачи; если данных нет, укажи это явно. Верни объект JSON: ключ — точный id поля, значение — строка для этого поля. Не добавляй другие ключи.',
+            '',
+            ...cards,
+          ].join('\n'),
+        },
+      ];
+      return this.ask(req, messages, hooks, this.compactFillParams(req, fields, { response_format: compactGroupResponseFormat(fields) }));
+    };
+
     const askTopUpCompact = (
       field: SchemaField,
       already: string,
@@ -1207,22 +1375,85 @@ export class FormFillExecutor implements StageExecutor {
       const fields = this.compactFields(text, path);
       /** Поля этого прохода, уже вписанные в текст, — для узнавания соседей по ключу (`currentFieldId`). */
       const filledFields = new Set<SchemaField>();
+      const remainingFields: SchemaField[] = [];
+      for (const field of fields) {
+        const empty = conditionalFieldEmptyAlternative(field, req.prompt.user);
+        if (empty === null) {
+          remainingFields.push(field);
+          continue;
+        }
+        const id = currentFieldId(this.compactFields(text, path), fields, field, filledFields);
+        const applied = applyFill(text, id, empty, 'set', templateNameFor(path));
+        if (!applied.ok) {
+          remainingFields.push(field);
+          notes.push(`не удалось применить допустимый пустой вариант поля ${field.id}: ${applied.problem}`);
+          continue;
+        }
+        text = applied.text;
+        changed = true;
+        fieldsFilled++;
+        filledFields.add(field);
+        notes.push(`поле ${field.id}: применён шаблонный ответ «не применимо» по отсутствию маркеров риска в задаче`);
+      }
+      // A rejected value must be retried alone so its field card can include the
+      // concrete rejection reason. Re-grouping it would lose that recovery hint.
+      const groups = compactFieldGroups(remainingFields).flatMap((group) => {
+        const rejected = group.filter((field) => fieldRejectionMemo.has(compactFieldKey(field)));
+        if (rejected.length === 0) return [group];
+        return [...rejected.map((field) => [field]), ...compactFieldGroups(group.filter((field) => !rejected.includes(field)))];
+      });
 
-      for (let batchStart = 0; batchStart < fields.length; batchStart += FIELD_PARALLEL) {
+      for (let batchStart = 0; batchStart < groups.length; batchStart += FIELD_PARALLEL) {
         if (req.signal.aborted) return { stop: { ok: false, finalText: '', usage, note: 'этап отменён' }, changed, text };
 
         const allowed = Math.min(FIELD_PARALLEL, requestBudget - callsSpent);
-        const batch = fields.slice(batchStart, batchStart + FIELD_PARALLEL);
+        const batch = groups.slice(batchStart, batchStart + FIELD_PARALLEL);
         if (allowed <= 0) continue;
-        const asked = batch.slice(0, allowed);
-        callsSpent += asked.length;
+        const askedGroups = batch.slice(0, allowed);
+        const asked = askedGroups.flat();
+        callsSpent += askedGroups.length;
 
         // `startText`, а не текущий `text`: схема полей выведена из него, и смещения
         // `field.range` действительны только в нём.
-        const answers = await Promise.allSettled(asked.map((f) => askFieldCompact(f, startText)));
-        for (const a of answers) {
-          if (a.status !== 'fulfilled') continue;
-          usage = addUsage(usage, a.value.usage);
+        const groupResults = await Promise.allSettled(askedGroups.map((group) =>
+          group.length === 1 ? askFieldCompact(group[0]!, startText) : askFieldGroupCompact(group, startText),
+        ));
+        const answers: PromiseSettledResult<Awaited<ReturnType<ChatProvider['chat']>>>[] = [];
+        for (let i = 0; i < askedGroups.length; i++) {
+          const group = askedGroups[i]!;
+          const result = groupResults[i]!;
+          if (result.status === 'rejected') {
+            for (const _field of group) answers.push({ status: 'rejected', reason: result.reason });
+            continue;
+          }
+          usage = addUsage(usage, result.value.usage);
+          if (group.length === 1) {
+            answers.push(result);
+            continue;
+          }
+          const decoded = parseCompactGroupResponse(result.value.text, group);
+          if (decoded !== null) {
+            group.forEach((field, fieldIndex) => answers.push({
+              status: 'fulfilled',
+              value: {
+                ...result.value,
+                text: decoded[field.id]!,
+                usage: fieldIndex === 0 ? result.value.usage : emptyUsage(),
+              },
+            }));
+            continue;
+          }
+          notes.push(`групповой ответ для ${group.map((field) => field.id).join(', ')} не прошёл схему; поля повторно запрошены отдельно`);
+          if (callsSpent + group.length <= requestBudget) {
+            callsSpent += group.length;
+            const fallback = await Promise.allSettled(group.map((field) => askFieldCompact(field, startText)));
+            for (const item of fallback) {
+              if (item.status === 'fulfilled') usage = addUsage(usage, item.value.usage);
+              answers.push(item);
+            }
+          } else {
+            for (const _field of group) answers.push({ status: 'rejected', reason: new Error('некорректный JSON и исчерпан бюджет повторов') });
+          }
         }
 
         for (const [idx, field] of asked.entries()) {

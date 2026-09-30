@@ -34,7 +34,9 @@
  *    человека: …`, а не выдумкой;
  *  - команда из поля «проверка» шага НЕ исполняется: это текст, написанный моделью на
  *    этапе 4, и запускать его без гейта одобрения значило бы обойти политику `Bash`.
- *    Проверяют гейты набора проекта; тесты прогоняет `recordAttemptEvidence` после этапа;
+ *    Проверяют включённые гейты набора проекта; если подходящей проверки нет или среда
+ *    пропустила её, шаг получает `⏭`, но применённая правка всё равно доходит до verify;
+ *    тесты попытки повторно прогоняет `recordAttemptEvidence` после этапа;
  *  - журнал chunk'а исполнитель не пишет: механику заполняет `autofillJournal`,
  *    содержательные поля — дозаполнение по полям с отчётом о шагах во входе;
  *  - улики по-прежнему пишет рантайм: шаг без diff'а — факт в отчёте, не «сделано»;
@@ -77,7 +79,14 @@ import { buildStepContext } from './stepContext.ts';
 export type StepCheck =
   | { status: 'ok' }
   | { status: 'skipped'; note: string }
-  | { status: 'failed'; problem: string };
+  | { status: 'inapplicable'; reason: string; approvedBy: string; approvedAt: string }
+  | { status: 'failed'; problem: string; integrity?: true };
+
+function signedStepDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value;
+}
 
 export interface StepExecutorOptions {
   provider: ChatProvider;
@@ -931,13 +940,23 @@ export class StepExecutor implements StageExecutor {
         // продолжить, как поступает `LoopExecutor` с инструментом.
         let check: StepCheck;
         if (this.o.check === null) {
-          check = { status: 'ok' };
+          check = { status: 'skipped', note: 'в наборе нет включённого build/test-гейта для шага' };
         } else {
           try {
             check = await this.o.check.run(step);
           } catch (e) {
             check = { status: 'failed', problem: `гейт «${checkName ?? ''}» упал с исключением: ${(e as Error).message}` };
           }
+        }
+        if (
+          check.status === 'inapplicable' &&
+          (check.reason.trim() === '' || check.approvedBy.trim() === '' || !signedStepDate(check.approvedAt))
+        ) {
+          check = {
+            status: 'failed',
+            problem: 'неприменимость проверки требует причины, имени утвердившего и даты YYYY-MM-DD',
+            integrity: true,
+          };
         }
         // `.split('\n')[0]` режет `applied.text` до первой строки — `partialNote` (какие
         // блоки правки не легли) сюда бы не попал молча (code-review-all, 2026-09-26).
@@ -961,15 +980,26 @@ export class StepExecutor implements StageExecutor {
             target: 'plan-step',
             reason: 'check-skipped',
           });
-          status = '✅';
+          status = '⏭';
           note = `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; проверка после шага не состоялась: ${check.note}`;
+          break;
+        }
+        if (check.status === 'inapplicable') {
+          annotateExchange(rawLogPath, {
+            accepted: false,
+            oracle: 'step-check',
+            target: 'plan-step',
+            reason: 'check-inapplicable-signed',
+          });
+          status = '⏭';
+          note = `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; проверка неприменима: ${check.reason} (подтвердил ${check.approvedBy}, ${check.approvedAt})`;
           break;
         }
         // Красная сборка, в которой файл шага не упомянут, — чужая: порядок fallback-шагов
         // не порядок зависимостей, и импорт из ещё не написанного файла краснеет законно.
         // Ремонт здесь подталкивал бы убрать верный импорт. Проверят следующие шаги и
         // прогон тестов после этапа.
-        if (!mentionsFile(check.problem, step.file)) {
+        if (!check.integrity && !mentionsFile(check.problem, step.file)) {
           annotateExchange(rawLogPath, {
             accepted: false,
             oracle: 'step-check',
@@ -1001,7 +1031,7 @@ export class StepExecutor implements StageExecutor {
     const bad = outcomes.filter((o) => o.status === '❌').length;
     const done = outcomes.filter((o) => o.status === '✅').length;
     const skipped = outcomes.filter((o) => o.status === '⏭').length;
-    const summary = `шагов ${outcomes.length}: применено ${done}, без правок ${skipped}, красных ${bad}`;
+    const summary = `шагов ${outcomes.length}: применено ${done}, без правок/пропусков ${skipped}, красных ${bad}`;
     // Этап закрыт, если хоть один шаг дал правку — красный шаг его не роняет. Красный шаг
     // (проверка после трёх ремонтов так и не позеленела) — это дерево с красным тестом, и
     // судить его — работа этапа 6: рецензент назовёт причину брифом на следующую попытку. В
@@ -1036,7 +1066,7 @@ export class StepExecutor implements StageExecutor {
       `- действие: ${step.action}`,
       ...(step.claims.length === 0 ? [] : [`- закрывает пункты приёмки: ${step.claims.join(', ')}`]),
       // Команда проверки — справка о том, чем шаг ПОТОМ проверят, а не поручение её запустить.
-      ...(step.check === null ? [] : [`- чем проверяется после этапа: \`${step.check}\`${step.expect === null ? '' : ` · ожидаемо: ${step.expect}`}`]),
+      ...(step.check === null ? [] : [`- заявленная проверка: \`${step.check}\`${step.expect === null ? '' : ` · ожидаемо: ${step.expect}`} (полная попытка; не запускай эту команду сам)`]),
       ...(step.facts === null ? [] : [`- факты человека для этого шага: ${step.facts}`]),
     ];
     const parts = [

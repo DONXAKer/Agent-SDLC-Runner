@@ -1,0 +1,297 @@
+{
+  "run": {
+    "slug": "pilot-resume-devstral-vat",
+    "model": "ollama:devstral-small-2",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:devstral-small-2",
+      "explore": "ollama:devstral-small-2",
+      "ask": "ollama:devstral-small-2",
+      "plan": "ollama:devstral-small-2",
+      "chunk": "ollama:devstral-small-2",
+      "verify": "ollama:devstral-small-2",
+      "handoff": "ollama:devstral-small-2"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-29T10:21:50.458Z",
+    "finishedAt": "2026-09-29T10:29:07.213Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 41, осталось на диске 0 полей модели; ответ на поле прогон 1/4/где видно / что чинить отклонён: поле «прогон 1/4/где видно / что чинить»: пустой ответ",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 21
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "проверка готовности (прогон 1) вынесла «не готова» — задачу чинят до следующего этапа (C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-m0kQRD\\.sdlc\\pilot-resume-devstral-vat\\readiness.md)",
+        "blockers": [
+          "проверка готовности (прогон 1) вынесла «не готова» — задачу чинят до следующего этапа (C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-m0kQRD\\.sdlc\\pilot-resume-devstral-vat\\readiness.md)"
+        ],
+        "timedOut": false,
+        "skipped": false,
+        "blamedStage": "intent"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 117836,
+          "outputTokens": 1644,
+          "cacheReadTokens": 107216,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 772406
+        },
+        "durationMs": 436234,
+        "requestDurationsMs": [
+          42141,
+          48026,
+          58354,
+          38011,
+          55958,
+          168343,
+          10366,
+          13492,
+          21916,
+          18455,
+          31383,
+          44119,
+          13372,
+          23940,
+          49654,
+          7857,
+          25148,
+          52193,
+          8389,
+          30867,
+          10434
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 15
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:204356ce-c6cf-4300-820e-5fd2a5353797",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pilot-resume-devstral-vat\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:b5ca7bd0-6353-4284-842d-778293319456",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pilot-resume-devstral-vat\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:f9f7169f-0f02-412a-b2c6-1149b6e083d3",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pilot-resume-devstral-vat\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10891,
+        "userChars": 4383,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "543f66891f73e8a6871b7bf2b9ff8804d112b4a59691bb0093342287deeac004",
+      "configHash": "e16fa1e85bcae5d54f53497dbd184c1b8687c6f0131aa22c954ab23c5aa0f03c",
+      "inputHash": "e5170d457676bcc455d1dc2202665a89a5aedab3c08188051d6784fa8a3228fe",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "5d21c42c9544537519cb22fac8f7b99faa1df97ce52c572886e2a6c587d4e5ca",
+    "state": "finished",
+    "capturedAt": "2026-09-29T10:29:07.228Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-29T10:29:07.208Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "3522c4dad014d216d448bd4cf084a4ec1b05b18f43d5947168c668ecff4e16ce",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "71b96b35a2e082460a101f5224d927ce937629fea7bb213255815d178bf8d032",
+        "placeholders": 2,
+        "uncheckedQuestions": 4,
+        "blockingQuestions": 4
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "efc63267f203a5a22795f96bbed498ea359b953ae7986071dd720a19081790a2",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

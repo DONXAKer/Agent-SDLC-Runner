@@ -7,14 +7,14 @@ function cleanCell(value: string): string {
   return value.trim().replace(/\\\|/g, '|').replace(/\s+/g, ' ');
 }
 
-/** Runtime-provided evidence; the agent records how each answer changes scope. */
+/** Runtime-provided evidence; the agent refers to facts by ID instead of copying them. */
 export function clarificationResolutionBlock(reportText: string): string | null {
   const facts = extractHumanFacts(reportText);
   if (facts.length === 0) return null;
   const lines = [
-    '## Ответы человека для сопоставления с исходными требованиями',
+    '## Источники ответов человека (не копировать в план)',
     '',
-    'Каждый ответ должен получить строку в плане. Сверь его с пунктами intent.md: укажи claim-N и либо подтверди его без изменения, либо запиши новую принятую формулировку. Если противоречие не разрешено, не выдавай план на одобрение — вернись к вопросу человеку.',
+    'Ниже — неизменяемые факты рантайма. В таблице плана перечисли каждый ID ровно один раз, укажи исходный claim-N и решение. Не переписывай вопрос и ответ: рантайм хранит их здесь и проверяет ссылку по ID. Если противоречие не разрешено, не выдавай план на одобрение — вернись к вопросу человеку.',
     '',
     '| ID ответа | Вопрос | Ответ человека |',
     '|---|---|---|',
@@ -35,13 +35,11 @@ export function clarificationResolutionProblem(
   const tables = parseTables(range === undefined ? '' : planText.slice(range.start, range.end));
   const table = tables.find((candidate) =>
     columnIndex(candidate.header, 'ID ответа') >= 0 &&
-    columnIndex(candidate.header, 'Вопрос') >= 0 &&
-    columnIndex(candidate.header, 'Ответ человека') >= 0 &&
     columnIndex(candidate.header, 'Исходный пункт') >= 0 &&
     columnIndex(candidate.header, 'Решение') >= 0,
   );
   if (table === undefined) {
-    return 'в плане нет таблицы «Уточнения и разрешение расхождений»; сопоставь каждый ответ человека с исходным claim и явным решением';
+    return 'в плане нет таблицы сопоставления ID ответа с исходным claim и явным решением';
   }
   const idCol = columnIndex(table.header, 'ID ответа');
   const questionCol = columnIndex(table.header, 'Вопрос');
@@ -49,6 +47,12 @@ export function clarificationResolutionProblem(
   const claimCol = columnIndex(table.header, 'Исходный пункт');
   const resolutionCol = columnIndex(table.header, 'Решение');
   const problems: string[] = [];
+  const expectedIds = new Set(facts.map((_, i) => 'ответ-' + (i + 1)));
+  const actualIds = table.rows.map((row) => cleanCell(row[idCol] ?? ''));
+  for (const actual of actualIds) {
+    if (!expectedIds.has(actual)) problems.push('неизвестный ID ответа: ' + actual);
+  }
+  if (new Set(actualIds).size !== actualIds.length) problems.push('ID ответа повторяется');
   for (let i = 0; i < facts.length; i++) {
     const fact = facts[i]!;
     const id = 'ответ-' + (i + 1);
@@ -57,8 +61,14 @@ export function clarificationResolutionProblem(
       problems.push(id + ': строка отсутствует');
       continue;
     }
-    if (cleanCell(row[questionCol] ?? '') !== cleanCell(fact.question)) problems.push(id + ': вопрос не совпадает с clarification-report.md');
-    if (cleanCell(row[answerCol] ?? '') !== cleanCell(fact.answer)) problems.push(id + ': ответ не совпадает с clarification-report.md');
+    // Старый формат с копией вопроса/ответа остаётся читаемым. Новый формат опускает эти
+    // колонки: ID ответа — неизменяемая ссылка на текст в clarification-report.md.
+    if (questionCol >= 0 && answerCol >= 0) {
+      const question = cleanCell(row[questionCol] ?? '');
+      const answer = cleanCell(row[answerCol] ?? '');
+      if (question !== cleanCell(fact.question) && question !== id) problems.push(id + ': вопрос не совпадает с источником');
+      if (answer !== cleanCell(fact.answer) && answer !== id) problems.push(id + ': ответ не совпадает с источником');
+    }
     const sourceClaim = cleanCell(row[claimCol] ?? '');
     const sourceClaimId = /^claim-\d+\b/i.exec(sourceClaim)?.[0]?.toLowerCase();
     const resolution = cleanCell(row[resolutionCol] ?? '');

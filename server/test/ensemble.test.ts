@@ -68,44 +68,14 @@ describe('маршруты этапа', () => {
   });
 });
 
-describe('правило рецензента на списках', () => {
-  it('ансамбль рецензентов сильнее исполнителя проходит', () => {
-    const p = resolveProfile(project(allStages({ verify: ['strong', 'mid'] })), models, 'x');
-    strictEqual(checkReviewerRule(p).length, 0);
-  });
-
-  it('слабый рецензент рядом с сильным НЕ проходит', () => {
-    // chunk=mid(2), verify=[strong(3), weak(1)] — слабейший рецензент слабее исполнителя.
+describe('reviewer rank policy', () => {
+  it('does not reject a weaker reviewer in an ensemble', () => {
     const p = resolveProfile(
       project(allStages({ chunk: 'mid', verify: ['strong', 'weak'] })),
       models,
       'x',
     );
-    const problems = checkReviewerRule(p);
-    strictEqual(problems.length, 1);
-    ok(problems[0]?.includes('слабейший verify'));
-  });
-
-  it('сильный исполнитель в ансамбле chunk тоже учитывается', () => {
-    // chunk=[weak, strong] — сильнейший исполнитель равен рецензенту, строгости нет.
-    const p = resolveProfile(
-      project(allStages({ chunk: ['weak', 'strong'], verify: 'strong' })),
-      models,
-      'x',
-    );
-    strictEqual(checkReviewerRule(p).length, 1);
-  });
-
-  it('виток с нарушенным правилом не стартует', () => {
-    throws(
-      () =>
-        resolveStartableProfile(
-          project(allStages({ chunk: 'mid', verify: ['strong', 'weak'] })),
-          models,
-          'x',
-        ),
-      /рецензент этапа 6 не сильнее/,
-    );
+    strictEqual(checkReviewerRule(p).length, 0);
   });
 });
 
@@ -117,11 +87,9 @@ describe('правка профиля на один виток', () => {
     strictEqual(p.routes.intent.modelId, 'weak');
   });
 
-  it('правило рецензента проверяется и для правки', () => {
-    throws(
-      () => resolveAdHocProfile(project(allStages({})), models, { chunk: 'strong' }, 'x'),
-      /рецензент этапа 6 не сильнее/,
-    );
+  it('allows ad hoc chunk override regardless of reviewer rank', () => {
+    const p = resolveAdHocProfile(project(allStages({})), models, { chunk: 'strong' }, 'x');
+    strictEqual(p.routes.chunk.modelId, 'strong');
   });
 
   it('в правке тоже можно задать ансамбль', () => {

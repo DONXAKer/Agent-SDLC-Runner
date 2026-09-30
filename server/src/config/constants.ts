@@ -36,7 +36,6 @@ export interface SdlcConstants {
   defect_actions: string[];
   verdict_table: [string, string][];
   overwrite_threshold_percent: number;
-  model_order: string[];
   defect_classes: string[];
 }
 
@@ -48,7 +47,6 @@ const REQUIRED: (keyof SdlcConstants)[] = [
   'human_decision_labels',
   'attempt_default_budget',
   'overwrite_threshold_percent',
-  'model_order',
   'defect_classes',
 ];
 

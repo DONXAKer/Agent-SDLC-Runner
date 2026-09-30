@@ -1,0 +1,279 @@
+{
+  "run": {
+    "slug": "cycle-fixed2-ollama-qwen3-8b",
+    "model": "ollama:qwen3:8b-ctx16k",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3:8b-ctx16k",
+      "explore": "ollama:qwen3:8b-ctx16k",
+      "ask": "ollama:qwen3:8b-ctx16k",
+      "plan": "ollama:qwen3:8b-ctx16k",
+      "chunk": "ollama:qwen3:8b-ctx16k",
+      "verify": "ollama:qwen3:8b-ctx16k",
+      "handoff": "ollama:qwen3:8b-ctx16k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-29T19:06:27.427Z",
+    "finishedAt": "2026-09-29T19:10:51.631Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "артефакт этапа не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-xzlcsx\\.sdlc\\cycle-fixed2-ollama-qwen3-8b\\readiness.md. Ход не закончен — открой файл, замени места «‹…›» своим содержимым и сохрани инструментом Edit.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 15
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 85508,
+          "outputTokens": 11435,
+          "cacheReadTokens": 79750,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 454102
+        },
+        "durationMs": 263671,
+        "requestDurationsMs": [
+          13727,
+          50236,
+          60337,
+          9426,
+          14816,
+          25508,
+          24787,
+          33554,
+          96988,
+          30548,
+          9169,
+          20935,
+          28871,
+          14095,
+          21120
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 2,
+        "approvals": 1,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "readiness.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:aabf2056-6f61-4916-8a37-6d88946df719",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\cycle-fixed2-ollama-qwen3-8b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "**Какой параметр передаётся в `bill(..., opts?)` и как он влияет на структуру счёта?**"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "**Что именно нужно уточнить о правиле расчёта налога, чтобы реализовать его в модуле `src/vat.ts` без правок существующих тестов?**"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10763,
+        "userChars": 4383,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-18e93188-2a32-4a4f-b79a-0ed902cc2c3c-1",
+        "questionId": "intent-open-0",
+        "text": "**Какой параметр передаётся в `bill(..., opts?)` и как он влияет на структуру счёта?**"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-18e93188-2a32-4a4f-b79a-0ed902cc2c3c-1",
+        "questionId": "intent-open-1",
+        "text": "**Что именно нужно уточнить о правиле расчёта налога, чтобы реализовать его в модуле `src/vat.ts` без правок существующих тестов?**"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "04e29698ceb18e5e0aa9c40fe14cd0ba077ed211caf490b041450c93e9b324f1",
+      "configHash": "e16fa1e85bcae5d54f53497dbd184c1b8687c6f0131aa22c954ab23c5aa0f03c",
+      "inputHash": "5062b7386877cfcae112f1a2979e034f23ee3f0ca4af031fe8f3120efa6ca510",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 360000,
+      "runTimeoutMs": 2700000
+    },
+    "workspaceHash": "37d94cff444e935026d0e3581e6c7b586a04370421904e2cebad49b0d18e682d",
+    "state": "finished",
+    "capturedAt": "2026-09-29T19:10:51.647Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-09-29T19:10:51.628Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "87ec1c08558c98ab1c573892bb7ff71667f1c083cd29603f9ffb7e64e03b19f0",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "8e6371f209a71696f596adfac57604003e43a2a767001e1aea124f8b9782389e",
+        "placeholders": 6,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "1ead894d17cbba64082d3d8ae1c21859b6840a5be39921c2c636c163ba2a3556",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "1ed013fa21880b4250a7de4385959c342a23dacf8cb6c6733e2d275ee19ce679",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

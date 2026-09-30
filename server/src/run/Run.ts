@@ -62,6 +62,10 @@ import type { LoadedConfig } from '../config/load.ts';
 import { EMPTY_MCP, rulesForStage } from '../config/mcp.ts';
 import { effectiveMode } from '../policy/mcp.ts';
 import { missingNow, seedArtifacts, stillMissing, untouchedSeeds } from './seed.ts';
+
+function isRuntimeOwnedSeed(stage: StageId, path: string): boolean {
+  return stage === 'intent' && basename(path) === 'readiness.md';
+}
 import { countsTowardBudget, SpentLedger } from './spentLedger.ts';
 import type { McpSetup } from '../config/mcp.ts';
 import { McpHub } from '../mcp/McpHub.ts';
@@ -928,20 +932,13 @@ export class Run {
    * витка меняет стоимость и поведение, и решает это человек.
    */
   get escalation(): Escalation {
-    // КРАЙНИЕ значения ансамбля, ровно как в `checkReviewerRule`: сильнейший исполнитель
-    // против слабейшего рецензента. Пока брался первый маршрут, предложение «поднять chunk
-    // до X, правило рецензента сохраняется» приводило к профилю, который сам же
-    // `resolveStartableProfile` отказывался стартовать — совет, ломающий запуск.
+    // Escalate above the strongest chunk route so a retry can change models.
     const chunkRoutes = this.profile.ensemble.chunk ?? [this.profile.routes.chunk];
-    const verifyRoutes = this.profile.ensemble.verify ?? [this.profile.routes.verify];
     const chunk = chunkRoutes.reduce((a, b) => (a.rank >= b.rank ? a : b), this.profile.routes.chunk);
-    const verify = verifyRoutes.reduce((a, b) => (a.rank <= b.rank ? a : b), this.profile.routes.verify);
     return suggestEscalation({
       failedClaimsByAttempt: this.failedClaimsByAttempt,
       chunkModelId: chunk.modelId,
       chunkRank: chunk.rank,
-      verifyModelId: verify.modelId,
-      verifyRank: verify.rank,
       models: this.config.models.models,
     });
   }
@@ -2442,7 +2439,7 @@ export class Run {
       // байт. Без второй половины проверка стала бы самообманом — бланк кладёт сам рантайм.
       const notDone = (): string[] => [
         ...stillMissing(produced, missingBefore),
-        ...untouchedSeeds(seeded),
+        ...untouchedSeeds(seeded).filter((path) => !isRuntimeOwnedSeed(stage, path)),
         ...(inv.extraNotDone?.() ?? []),
       ];
       for (const path of this.seeded) {

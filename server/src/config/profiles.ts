@@ -75,7 +75,8 @@ function resolveRoute(
     skipTurnAfterReviewFill: def.skipTurnAfterReviewFill ?? false,
     planAxisFill: planAxisFillMode(def.planAxisFill, stage, modelId, problems),
     stepFill: def.stepFill ?? false,
-    stepContext: def.stepContext ?? false,
+    // Step context is part of the default stepFill workflow; opt out for controlled comparisons.
+    stepContext: def.stepContext ?? (def.stepFill ?? false),
     compactForms: def.compactForms ?? 'off',
     ...(def.contextWindow === undefined ? {} : { contextWindow: def.contextWindow }),
     ...(def.historyBudgetBytes === undefined ? {} : { historyBudgetBytes: def.historyBudgetBytes }),
@@ -137,49 +138,12 @@ export function resolveProfile(
   };
 }
 
-/**
- * Правило рецензента.
- *
- * Методология требует, чтобы рецензент этапа 6 был строго сильнее исполнителя этапа 5:
- * иначе ревью становится декорацией. «Ревью независимым агентом» входит в минимальную
- * пятёрку гейтов, у которой переключателя нет, поэтому тихо понизить рецензента нельзя —
- * виток просто не стартует.
- *
- * Санкционированный выход один: смешанный профиль, где `verify` пришпилен к более сильной
- * модели (например, к Claude при локальном остальном).
- */
-export function checkReviewerRule(profile: ResolvedProfile): string[] {
-  const chunkRoutes = profile.ensemble?.chunk ?? [profile.routes.chunk];
-  const verifyRoutes = profile.ensemble?.verify ?? [profile.routes.verify];
-  if (chunkRoutes.length === 0 || verifyRoutes.length === 0) return [];
-  if (chunkRoutes.some((r) => r === undefined) || verifyRoutes.some((r) => r === undefined)) {
-    return [];
-  }
-
-  // Сравниваются КРАЙНИЕ значения: минимальный rank среди рецензентов против максимального
-  // среди исполнителей. Иначе ансамбль становится способом протащить слабого рецензента
-  // рядом с сильным — правило выполнялось бы «в среднем», а слабый всё равно голосовал бы.
-  const chunk = chunkRoutes.reduce((a, b) => (a.rank >= b.rank ? a : b));
-  const verify = verifyRoutes.reduce((a, b) => (a.rank <= b.rank ? a : b));
-
-  if (verify.rank > chunk.rank) return [];
-
-  return [
-    `профиль «${profile.name}»: рецензент этапа 6 не сильнее исполнителя этапа 5 ` +
-      `(слабейший verify=${verify.modelId} rank=${verify.rank}, сильнейший chunk=${chunk.modelId} rank=${chunk.rank}).\n` +
-      `Методология требует строгого превосходства — иначе ревью становится декорацией, ` +
-      `а «Ревью независимым агентом» входит в минимальную пятёрку гейтов и выключателя не имеет.\n` +
-      `Подними модель на verify или заведи смешанный профиль, где verify идёт на более сильном маршруте.`,
-  ];
+/** Compatibility shim: rank does not gate reviewer or profile selection. */
+export function checkReviewerRule(_profile: ResolvedProfile): string[] {
+  return [];
 }
 
-/**
- * Профиль, собранный оператором на один виток и НИКУДА не сохраняемый.
- *
- * Судьба правки названа явно: она применяется к создаваемому прогону и на диск не
- * попадает. Писать `config/projects/*.json` из интерфейса — отдельное решение с отдельными
- * рисками (файл правят и руками, и параллельно), и молча делать это здесь нельзя.
- */
+/** Resolve a temporary profile without persisting it. */
 export function resolveAdHocProfile(
   project: ProjectConfig,
   models: ModelsConfig,

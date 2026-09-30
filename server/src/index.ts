@@ -229,7 +229,9 @@ app.post('/api/probe', async (req, reply) => {
     const report = await probeModel({
       provider,
       model: def.model,
-      params: def.params ?? null,
+      params: def.provider === 'lmstudio'
+        ? { ...(def.params ?? {}), reasoning_effort: def.params?.['reasoning_effort'] ?? 'none' }
+        : def.params ?? null,
       // Потолок кейса СВОЙ, а не транспортный `chatTimeoutMs`: проба обещает секунды, и
       // три кейса по десять минут держали бы HTTP-запрос дольше самого замера.
       caseTimeoutMs: Math.min(config.runner.limits.chatTimeoutMs, PROBE_CASE_TIMEOUT_MS),

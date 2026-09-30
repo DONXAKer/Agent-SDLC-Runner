@@ -125,7 +125,7 @@ type Check = ((s: PlanStep) => Promise<StepCheck>) | null;
 const exec = (
   provider: ChatProvider,
   steps: PlanStep[],
-  check: Check = null,
+  check: Check = async () => ({ status: 'ok' }),
   retryBrief: string | null = null,
   stepContext = false,
 ): StepExecutor =>
@@ -465,8 +465,53 @@ describe('исполнение по шагам', () => {
       request(root),
       hooks(seen),
     );
-    ok(r.ok);
+    strictEqual(r.ok, false, 'применённая, но непроверенная правка не закрывает шаг');
     ok(r.finalText.includes('проверка после шага не состоялась: нет tsc'), r.finalText);
+    ok(r.finalText.includes('⏭'), r.finalText);
+  });
+
+  it('отсутствие проверки получает ⏭ и не закрывает шаг', async () => {
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([SR('  return a + b;', '  return a + b + 1;')]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })], null).run(request(root), hooks(seen));
+    strictEqual(r.ok, false);
+    ok(r.finalText.includes('⏭'), r.finalText);
+    ok(r.finalText.includes('нет включённого build/test-гейта'), r.finalText);
+  });
+
+  it('подписанная неприменимость прозрачна и не считается зелёной проверкой', async () => {
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([SR('  return a + b;', '  return a + b + 1;')]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({
+      status: 'inapplicable',
+      reason: 'шаг меняет только документацию',
+      approvedBy: 'Иванов',
+      approvedAt: '2026-09-30',
+    })).run(request(root), hooks(seen));
+    strictEqual(r.ok, false, 'неприменимость записана, но проверка не дала зелёного результата');
+    ok(r.finalText.includes('⏭'), r.finalText);
+    ok(r.finalText.includes('подтвердил Иванов, 2026-09-30'), r.finalText);
+  });
+
+  it('неполная подпись неприменимости превращает шаг в красный', async () => {
+    const root = setup();
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    const provider = scripted([
+      SR('  return a + b;', '  return a + b + 1;'),
+      SR('  return a + b + 1;', '  return a + b + 2;'),
+      SR('  return a + b + 2;', '  return a + b + 3;'),
+    ]);
+    const r = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({
+      status: 'inapplicable',
+      reason: '  ',
+      approvedBy: '',
+      approvedAt: 'вчера',
+    })).run(request(root), hooks(seen));
+    strictEqual(r.ok, false);
+    ok(r.finalText.includes('❌'), r.finalText);
+    ok(r.finalText.includes('требует причины, имени утвердившего и даты YYYY-MM-DD'), r.finalText);
   });
 
   it('отказ гейта окончателен: ремонта нет, шаг ❌', async () => {
@@ -579,12 +624,12 @@ describe('исполнение по шагам', () => {
 });
 
 describe('stepContext (ModelDef.stepContext)', () => {
-  it('выключен по умолчанию: `buildStepContext` не подмешивается в промпт шага', async () => {
+  it('явный opt-out: `buildStepContext` не подмешивается в промпт шага', async () => {
     const root = setup();
     writeFileSync(join(root, 'src/b.ts'), 'export function helper(): void {}\n');
     const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
     const provider = scripted(['БЕЗ ПРАВОК: уже реализовано']);
-    await exec(provider, [step({ file: 'src/a.ts' })]).run(request(root), hooks(seen));
+    await exec(provider, [step({ file: 'src/a.ts' })], null, null, false).run(request(root), hooks(seen));
     ok(!provider.asked[0]!.includes('## Контекст проекта для этого шага'), provider.asked[0]);
   });
 

@@ -37,25 +37,22 @@ function project(chunk: string, verify: string): ProjectConfig {
   };
 }
 
-describe('правило рецензента', () => {
-  it('пропускает профиль, где рецензент сильнее исполнителя', () => {
+describe('назначение моделей этапам не зависит от ранга', () => {
+  it('принимает модель verify слабее модели chunk', () => {
+    const p = resolveStartableProfile(project('ollama:big', 'ollama:small'), models, 'p');
+    strictEqual(p.routes.verify.rank, 20);
+    strictEqual(p.routes.chunk.rank, 30);
+  });
+
+  it('принимает профиль, где рецензент сильнее исполнителя', () => {
     const p = resolveStartableProfile(project('ollama:small', 'ollama:big'), models, 'p');
     strictEqual(p.routes.verify.rank, 30);
     strictEqual(p.routes.chunk.rank, 20);
   });
 
-  it('не даёт стартовать при равных рангах — равенство не является превосходством', () => {
-    throws(
-      () => resolveStartableProfile(project('ollama:small', 'ollama:small'), models, 'p'),
-      (e: unknown) => e instanceof ProfileError && /не сильнее исполнителя/.test(e.message),
-    );
-  });
-
-  it('не даёт стартовать при рецензенте слабее исполнителя', () => {
-    throws(
-      () => resolveStartableProfile(project('claude-sdk:opus', 'ollama:small'), models, 'p'),
-      (e: unknown) => e instanceof ProfileError,
-    );
+  it('allows equal reviewer rank', () => {
+    const p = resolveStartableProfile(project('ollama:small', 'ollama:small'), models, 'p');
+    strictEqual(p.routes.verify.modelId, 'ollama:small');
   });
 
   it('смешанный профиль — санкционированный выход', () => {
@@ -88,6 +85,25 @@ describe('разрешение профиля', () => {
       () => resolveProfile(project('ollama:small', 'ollama:big'), models, 'нет'),
       /Известные: p/,
     );
+  });
+});
+
+describe('разрешение контекста шага', () => {
+  it('по умолчанию включает контекст для stepFill и уважает явное отключение', () => {
+    const stepModels: ModelsConfig = {
+      ...models,
+      models: models.models.map((model) => model.id === 'ollama:small' ? { ...model, stepFill: true } : model),
+    };
+    const defaultOn = resolveProfile(project('ollama:small', 'ollama:big'), stepModels, 'p');
+    strictEqual(defaultOn.routes.chunk.stepFill, true);
+    strictEqual(defaultOn.routes.chunk.stepContext, true);
+
+    const optedOut: ModelsConfig = {
+      ...stepModels,
+      models: stepModels.models.map((model) => model.id === 'ollama:small' ? { ...model, stepContext: false } : model),
+    };
+    const disabled = resolveProfile(project('ollama:small', 'ollama:big'), optedOut, 'p');
+    strictEqual(disabled.routes.chunk.stepContext, false);
   });
 });
 

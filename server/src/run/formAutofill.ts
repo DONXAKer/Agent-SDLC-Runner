@@ -60,24 +60,73 @@ export interface ReadinessFacts {
   date: string;
   /** Чей прогон: 1 — этап intent, 2 — этап plan. Дата другого прогона не трогается. */
   run: 1 | 2;
+  /** Runtime-computed compact evidence; absent during the initial mechanical seed pass. */
+  checks?: string;
+  verdict?: 'ready' | 'not';
 }
 
 /** Секция второго прогона. Окончание перечислено явно: `\b` по кириллице не работает. */
 const RUN_2_HEADING = /^##\s+Прогон\s+2(\s|$)/mu;
+const RUN_2_PENDING = {
+  date: '\u041e\u0436\u0438\u0434\u0430\u0435\u0442 \u043f\u0440\u043e\u0433\u043e\u043d\u0430 2',
+  checks: '\u041e\u0436\u0438\u0434\u0430\u0435\u0442 \u044d\u0442\u0430\u043f\u0430 \u043f\u043b\u0430\u043d\u0430',
+  verdict: '\u041d\u0435 \u0432\u044b\u0447\u0438\u0441\u043b\u0435\u043d',
+} as const;
+const RUN_1_PENDING = {
+  checks: 'Ожидает проверки этапа intent',
+  verdict: 'Не вычислен',
+} as const;
 
 export function autofillReadiness(text: string, f: ReadinessFacts): { text: string; filled: number } {
   const cut = text.search(RUN_2_HEADING);
-  const head = cut < 0 ? text : text.slice(0, cut);
-  const tail = cut < 0 ? '' : text.slice(cut);
+  let head = cut < 0 ? text : text.slice(0, cut);
+  let tail = cut < 0 ? '' : text.slice(cut);
+  let resolvedRun1Pending = 0;
+  let resolvedPending = 0;
+  if (f.run === 1) {
+    const replacements: Array<[string, string | undefined]> = [
+      [RUN_1_PENDING.checks, f.checks],
+      [RUN_1_PENDING.verdict, f.verdict === undefined ? undefined : f.verdict === 'ready' ? 'готова' : 'не готова'],
+    ];
+    for (const [pending, value] of replacements) {
+      if (value !== undefined && head.includes(pending)) {
+        head = head.replaceAll(pending, value);
+        resolvedRun1Pending++;
+      }
+    }
+  }
+  if (f.run === 2) {
+    const replacements: Array<[string, string | undefined]> = [
+      [RUN_2_PENDING.date, f.date],
+      [RUN_2_PENDING.checks, f.checks],
+      [RUN_2_PENDING.verdict, f.verdict === undefined ? undefined : f.verdict === 'ready' ? 'готова' : 'не готова'],
+    ];
+    for (const [pending, value] of replacements) {
+      if (value !== undefined && tail.includes(pending)) {
+        tail = tail.replaceAll(pending, value);
+        resolvedPending++;
+      }
+    }
+  }
   const part = (chunk: string, ownRun: boolean) =>
-    fillMechanicalPlaceholders(chunk, (inner) => {
+    fillMechanicalPlaceholders(chunk, (inner, line) => {
       if (inner === 'название витка') return f.title;
       if (inner === 'дата' && ownRun) return f.date;
+      if (ownRun && line.includes('**Проверки:**')) return f.checks ?? RUN_1_PENDING.checks;
+      if (ownRun && line.includes('**Вердикт прогона') && f.verdict !== undefined) {
+        return f.verdict === 'ready' ? 'готова' : 'не готова';
+      }
+      if (ownRun && line.includes('**Вердикт прогона')) return RUN_1_PENDING.verdict;
+      if (!ownRun && f.run === 1) {
+        if (inner === 'дата') return RUN_2_PENDING.date;
+        if (line.includes('**Проверки:**')) return RUN_2_PENDING.checks;
+        if (line.includes('**Вердикт прогона')) return RUN_2_PENDING.verdict;
+      }
       return null;
     });
   const a = part(head, f.run === 1);
   const b = part(tail, f.run === 2);
-  return { text: a.text + b.text, filled: a.filled + b.filled };
+  return { text: a.text + b.text, filled: a.filled + b.filled + resolvedRun1Pending + resolvedPending };
 }
 
 /**

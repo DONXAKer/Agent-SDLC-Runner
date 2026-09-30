@@ -256,6 +256,24 @@ export function closeAnsweredQuestions(
   return { text: before + newSection + after, closed };
 }
 
+/** Reopen any model-checked question that has no matching recorded human answer. */
+export function reopenUnverifiedQuestions(intentText: string, facts: readonly HumanFact[]): { text: string; reopened: number } {
+  const lines = intentText.split(/(?<=\n)/u);
+  let inQuestions = false;
+  let reopened = 0;
+  const out = lines.map((line) => {
+    if (/^#{1,6}\s+/u.test(line)) inQuestions = /открытые вопросы/i.test(line);
+    if (!inQuestions || !/^\s*[-*+]\s*\[x\]/iu.test(line)) return line;
+    const question = line.replace(/^\s*[-*+]\s*\[x\]\s*/iu, '').replace(/\*\*/gu, '')
+      .replace(/^\[(?:блокирующий|неблокирующий)\]\s*/iu, '').trim();
+    const answered = facts.some((fact) => normalizeQuestion(fact.question) === normalizeQuestion(question));
+    if (answered) return line;
+    reopened++;
+    return line.replace(/^(\s*[-*+]\s*)\[x\]/iu, '$1[ ]');
+  });
+  return { text: out.join(''), reopened };
+}
+
 // ---------------------------------------------------------------------------
 // Вопрос человеку задаёт рантайм, не модель (3.4 / S1: «Один механизм полей человека»)
 // ---------------------------------------------------------------------------

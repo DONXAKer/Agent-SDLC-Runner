@@ -233,7 +233,7 @@ describe('раскладка измеряемых этапов', () => {
     deepStrictEqual(measuredStages({ kind: 'stage', stage: 'chunk' }), ['chunk']);
   });
 
-  it('режим --all не измеряет verify: рецензент обязан быть строго сильнее исполнителя', () => {
+  it('verify runs as control but is excluded from --all measurements', () => {
     const stages = measuredStages({ kind: 'all' });
     strictEqual(stages.includes('verify'), false);
     strictEqual(stages.includes('chunk'), true);

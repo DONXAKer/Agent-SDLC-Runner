@@ -92,6 +92,8 @@ export interface FormField {
   shape: FieldShape;
   /** Ближайший заголовок над полем, нормализованный. */
   section: string;
+  /** Явная группа независимых полей для компактного заполнения. */
+  compactGroup?: string;
   label: string | null;
   /** Легенда секции и текст плейсхолдера — подсказка для карточки поля. */
   hint: string;
@@ -987,6 +989,7 @@ interface Override {
   kind?: FieldKind;
   owner?: FieldOwner;
   stageOnly?: StageId;
+  compactGroup?: string;
 }
 
 /**
@@ -998,6 +1001,8 @@ interface Override {
 export const SCHEMA_OVERRIDES: Readonly<Record<string, Readonly<Record<string, Override>>>> = {
   'intent.template.md': {
     'что придётся тронуть': { stageOnly: 'explore' },
+    'зачем': { compactGroup: 'intent-purpose' },
+    коротко: { compactGroup: 'intent-purpose' },
   },
   'plan.template.md': {
     'требования': { owner: 'runtime', kind: 'mechanical' },
@@ -1078,6 +1083,15 @@ function applyOverrides(fields: FormField[], templateName: string | undefined): 
     if (o.kind !== undefined) f.kind = o.kind;
     if (o.owner !== undefined) f.owner = o.owner;
     if (o.stageOnly !== undefined) f.stageOnly = o.stageOnly;
+    if (o.compactGroup !== undefined) f.compactGroup = o.compactGroup;
+  }
+  // Readiness is an executable report. The checks and verdict are computed from the
+  // artifacts by the runtime, so never ask the model to self-certify them.
+  if (templateName === 'readiness.template.md') {
+    for (const field of fields) {
+      field.owner = 'runtime';
+      field.kind = 'mechanical';
+    }
   }
   return unresolved;
 }

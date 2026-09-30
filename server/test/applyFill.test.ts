@@ -281,13 +281,13 @@ describe('applyFill: раунд-трип по реальным шаблонам 
   // Разбор v15: общая метка колонки таблицы («статус» — у каждой строки readiness одна и
   // та же) даёт `near` того же размера, что и общий список «доступные поля», и раньше не
   // сортировалась и не считала остаток вовсе.
-  it('readiness: общая метка «статус» (12 строк) — near тоже обрезается с «(и ещё N)»', () => {
+  it('readiness: all fields are runtime-owned and excluded from model filling', () => {
     const name = 'readiness.template.md';
     const original = readFileSync(join(templatesDir, name), 'utf8');
-    const r = applyFill(original, 'статус', 'да', 'set', name);
-    ok(!r.ok);
-    ok(r.problem.includes('под другим id'), r.problem);
-    ok(r.problem.includes('(и ещё 4)'), `ожидалось «(и ещё 4)» из 12 совпадений по метке «статус»: ${r.problem}`);
+    const schema = deriveSchema(original, name);
+    ok(schema.fields.length > 0, 'readiness template should expose runtime fields');
+    ok(schema.fields.every((field) => field.owner === 'runtime'), 'every readiness field must be runtime-owned');
+    strictEqual(modelFields(schema).length, 0, 'readiness fields must be excluded from model filling');
   });
 
   // handoff: заголовок «### Запись N» — group-поле с owner:'model', но заполняется не через

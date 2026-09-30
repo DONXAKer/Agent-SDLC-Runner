@@ -1,0 +1,497 @@
+{
+  "run": {
+    "slug": "pair-base-ollama-gpt-oss-20b-ctx32k",
+    "model": "ollama:gpt-oss-20b-ctx32k",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-ctx32k",
+      "explore": "ollama:gpt-oss-20b-ctx32k",
+      "ask": "ollama:gpt-oss-20b-ctx32k",
+      "plan": "ollama:gpt-oss-20b-ctx32k",
+      "chunk": "ollama:gpt-oss-20b-ctx32k",
+      "verify": "ollama:gpt-oss-20b-ctx32k",
+      "handoff": "ollama:gpt-oss-20b-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-09-29T14:56:59.310Z",
+    "finishedAt": "2026-09-29T15:12:47.594Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 41, осталось на диске 0 полей модели; добор поля приемочный лист (попытка 1): запрошен и добавлен; ответ на поле прогон 1/1/где видно / что чинить отклонён: поле «прогон 1/1/где видно / что чинить»: пустой ответ",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 22
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "модель упёрлась в лимит длины ответа — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 15, осталось на диске 1 полей модели; групповой ответ для язык / стек, сборка / тесты, конвенции не прошёл схему; поля повторно запрошены отдельно; ответ на поле опоры осей отклонён: поле «опоры осей»: записей нет, а альтернативы «пусто» у него нет; ответ на поле опоры осей отклонён: поле «опоры осей»: записей нет, а альтернативы «пусто» у него нет",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 23,
+        "modelRequests": 17
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 113042,
+          "outputTokens": 20602,
+          "cacheReadTokens": 100608,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 760542
+        },
+        "durationMs": 387286,
+        "requestDurationsMs": [
+          28217,
+          40814,
+          44247,
+          5562,
+          23146,
+          66973,
+          25579,
+          16535,
+          20334,
+          24511,
+          25729,
+          44496,
+          57796,
+          26568,
+          56539,
+          68619,
+          13169,
+          33064,
+          36908,
+          39470,
+          54155,
+          8126
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 409010,
+          "outputTokens": 29844,
+          "cacheReadTokens": 378433,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 817428
+        },
+        "durationMs": 560435,
+        "requestDurationsMs": [
+          5833,
+          3927,
+          2854,
+          11685,
+          817,
+          2544,
+          1779,
+          954,
+          968,
+          871,
+          6114,
+          997,
+          966,
+          3285,
+          14236,
+          12666,
+          6400,
+          3555,
+          2919,
+          3542,
+          78871,
+          22162,
+          8562,
+          1815,
+          4265,
+          17086,
+          4453,
+          1028,
+          1043,
+          126351,
+          22603,
+          26558,
+          31169,
+          13504,
+          19467,
+          26507,
+          17732,
+          20761,
+          35042,
+          26221,
+          36515,
+          41197,
+          19643,
+          40459,
+          51017,
+          13727,
+          22781
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 1,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 0,
+        "toolCalls": 28,
+        "reminders": 2
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 15
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 5,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "readiness.md",
+        "placeholders": 1
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 7
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:3f059c63-b7dd-4e66-ac95-898d9a9205e9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-gpt-oss-20b-ctx32k\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:e5b71498-8a00-4aa4-88ef-f907ad27fe45",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-gpt-oss-20b-ctx32k\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:f0b525eb-e2ae-406c-ab34-232d82274b2f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-gpt-oss-20b-ctx32k\\readiness.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:4ee2ab14-67d3-438e-8a19-f497ad882746",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:505b433b-99c8-4caf-9786-9cdd837c5620",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:73a95a7e-5185-4f6c-9eab-8d9b173335d4",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:dd040075-9413-4d2f-b373-236f625e3ad3",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-gpt-oss-20b-ctx32k\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:e5142d4b-6fe2-4a4d-83b7-751ceb095d28",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\pair-base-ollama-gpt-oss-20b-ctx32k\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": [
+      {
+        "stage": "explore",
+        "requestId": "loop:da93a8db-4b87-4328-84c9-2c5ee0a233c0",
+        "reason": "policy"
+      }
+    ]
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Grep",
+        "kind": "grep"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10941,
+        "userChars": 4383,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10524,
+        "userChars": 10721,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [
+      {
+        "stage": "explore",
+        "requestId": "loop:da93a8db-4b87-4328-84c9-2c5ee0a233c0",
+        "toolName": "Grep",
+        "kind": "grep",
+        "policy": "readScope",
+        "destructive": null,
+        "by": "policy",
+        "reason": "[readScope] поиск на этапе explore задел бы «.sdlc/pair-base-ollama-gpt-oss-20b-ctx32k/intent.md» — файл, закрытый этому вызывающему на чтение. Сузь поиск: каталог исходников в path или фильтр имён (Grep: glob, например \"*.ts\"; Glob: шаблон по коду). Артефакты витка (intent.md, plan.md) читай Read или Grep по самому файлу. Связь между попытками несут retry_instruction и carry_forward, которые подаёт машина витка."
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": false,
+      "detail": "разрушающих перезаписей: 0, отказов политики: 1"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "9a76e1580ec40918cee2720772bae970da21bdef",
+      "sourceHash": "543f66891f73e8a6871b7bf2b9ff8804d112b4a59691bb0093342287deeac004",
+      "configHash": "e16fa1e85bcae5d54f53497dbd184c1b8687c6f0131aa22c954ab23c5aa0f03c",
+      "inputHash": "069c73374135c2f840a5414bf5e584268d73d270e5935676c296911c89e7f54f",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "b25c0099c6a4985d2c7cc0903d41e05f3cd2550e5fd8ea4fcfefac7a0809e9a9",
+    "state": "finished",
+    "capturedAt": "2026-09-29T15:12:47.615Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-09-29T15:12:47.592Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "5a864074f29cf90c7bc38b9f4498cde4c15e99825223ade3505819187d195c38",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "3bf61154c18b3319ede9e68473fc06e2ac18f0b992f6e895a53ee3eb5161adff",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "1ec3f2af79a6ae2181834c124dcf5d22f4277e3ba06bf2760d2ff13953cb53d1",
+        "placeholders": 2,
+        "uncheckedQuestions": 1,
+        "blockingQuestions": 1
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "a1aa36574011b00c4e387eabbae89eb194440111c6c67021e01e13e94f79023d",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

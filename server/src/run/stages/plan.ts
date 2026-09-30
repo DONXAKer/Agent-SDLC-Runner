@@ -30,6 +30,7 @@ import { h2SectionRanges } from '../../md/table.ts';
 import { ProviderEnvError } from '../../provider/ChatProvider.ts';
 import { createProvider } from '../../provider/registry.ts';
 import { autofillPlan, autofillReadiness } from '../formAutofill.ts';
+import { readinessRun2 } from '../readinessChecks.ts';
 import { fillPlanAxes } from '../planAxisFill.ts';
 import { fillPlanAxesStepwise } from '../planAxisStepwise.ts';
 import { explorationPathsExist } from './explore.ts';
@@ -578,6 +579,17 @@ export const planModule: StageModule = {
     // после ухода планировщика, а дописывать исход за него стало бы некому — кроме
     // самого исполнителя, которому решение человека не принадлежит.
     finishProblem: () => {
+      const readinessResult = readinessRun2(host.ctx());
+      const readiness = readArtifact(host.paths.readiness);
+      const runtimeChecklist = readiness.exists && readiness.text.includes('**Проверки:**');
+      if (runtimeChecklist) {
+        const date = new Date().toISOString().slice(0, 10);
+        const updated = autofillReadiness(readiness.text, {
+          title: host.slug, date, run: 2, checks: readinessResult.checks,
+          verdict: readinessResult.ready ? 'ready' : 'not',
+        });
+        if (updated.text !== readiness.text) host.writeAutofilled(host.paths.readiness, updated.text, []);
+      }
       // Пустой files_to_touch — раньше axisProblems: без адресов правки разбор
       // последствий по осям тоже не может ссылаться на реальные пути, но само по
       // себе отсутствие files_to_touch — более фундаментальная и более дешёвая в
@@ -597,7 +609,8 @@ export const planModule: StageModule = {
       const clarificationProblem = planClarificationProblem(host.ctx());
       if (clarificationProblem !== null) return clarificationProblem;
       const problems = axisProblems(host);
-      if (problems.length === 0) return null;
+      if (problems.length === 0 && (!runtimeChecklist || readinessResult.ready)) return null;
+      if (problems.length === 0) return `проверки готовности прогона 2 не пройдены: ${readinessResult.checks}`;
       return [
         'секция «Последствия шагов» плана не доведена:',
         ...problems.map((p) => `- ${p}`),

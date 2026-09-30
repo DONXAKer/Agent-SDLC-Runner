@@ -19,6 +19,7 @@ import {
   literalsOf,
   openQuestions,
   renderAnswerRow,
+  reopenUnverifiedQuestions,
   unaskedQuestions,
   unreflectedAnswers,
 } from '../src/artifacts/humanFacts.ts';
@@ -101,27 +102,45 @@ describe('extractHumanFacts', () => {
     ok(promptBlock);
     strictEqual(clarificationResolutionProblem('# plan\n', REPORT) !== null, true);
     strictEqual(clarificationResolutionProblem('# plan\n', '# no answers\n'), null);
-    const tableRows = facts.map((fact, i) => {
+    const tableRows = facts.map((_, i) => {
       const claim = i === 0 ? 'claim-3' : 'claim-7';
       const answerId = '\u043e\u0442\u0432\u0435\u0442-' + (i + 1);
       const confirmation = '\u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442 ' + claim + ' \u0431\u0435\u0437 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439';
-      return '| ' + answerId + ' | ' + escapeCell(fact.question) + ' | ' + escapeCell(fact.answer) + ' | ' + claim + ' | ' + confirmation + ' |';
+      return '| ' + answerId + ' | ' + claim + ' | ' + confirmation + ' |';
     });
     const approvedPlan = [
       '# Plan',
       '',
       '## \u0423\u0442\u043e\u0447\u043d\u0435\u043d\u0438\u044f \u0438 \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043d\u0438\u0435 \u0440\u0430\u0441\u0445\u043e\u0436\u0434\u0435\u043d\u0438\u0439',
       '',
-      '| ID \u043e\u0442\u0432\u0435\u0442\u0430 | \u0412\u043e\u043f\u0440\u043e\u0441 | \u041e\u0442\u0432\u0435\u0442 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430 | \u0418\u0441\u0445\u043e\u0434\u043d\u044b\u0439 \u043f\u0443\u043d\u043a\u0442 | \u0420\u0435\u0448\u0435\u043d\u0438\u0435 |',
-      '|---|---|---|---|---|',
+      '| ID \u043e\u0442\u0432\u0435\u0442\u0430 | \u0418\u0441\u0445\u043e\u0434\u043d\u044b\u0439 \u043f\u0443\u043d\u043a\u0442 | \u0420\u0435\u0448\u0435\u043d\u0438\u0435 |',
+      '|---|---|---|',
       ...tableRows,
     ].join('\n');
     strictEqual(clarificationResolutionProblem(approvedPlan, REPORT, new Set(['claim-3', 'claim-7'])), null);
     strictEqual(clarificationResolutionProblem(approvedPlan, REPORT, new Set(['claim-3'])) !== null, true);
-    const alteredAnswer = approvedPlan.replace(facts[0]!.answer, 'invented answer');
-    strictEqual(clarificationResolutionProblem(alteredAnswer, REPORT) !== null, true);
+    const missingAnswer = approvedPlan.replace('| ' + '\u043e\u0442\u0432\u0435\u0442-2' + ' | claim-7 |', '| ' + '\u043e\u0442\u0432\u0435\u0442-9' + ' | claim-7 |');
+    strictEqual(clarificationResolutionProblem(missingAnswer, REPORT) !== null, true);
     const unresolved = approvedPlan.replace('\u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442 claim-3 \u0431\u0435\u0437 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439', 'unresolved');
     strictEqual(clarificationResolutionProblem(unresolved, REPORT) !== null, true);
+  });
+
+  it('keeps accepting the legacy plan table while old plans are being migrated', () => {
+    const facts = extractHumanFacts(REPORT);
+    const rows = facts.map((fact, index) => {
+      const claim = index === 0 ? 'claim-3' : 'claim-7';
+      const answerId = '\u043e\u0442\u0432\u0435\u0442-' + (index + 1);
+      const resolution = '\u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442 ' + claim + ' \u0431\u0435\u0437 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439';
+      return `| ${answerId} | ${fact.question} | ${fact.answer} | ${claim} | ${resolution} |`;
+    });
+    const legacyPlan = [
+      '# Plan',
+      '## \u0423\u0442\u043e\u0447\u043d\u0435\u043d\u0438\u044f \u0438 \u0440\u0430\u0437\u0440\u0435\u0448\u0435\u043d\u0438\u0435 \u0440\u0430\u0441\u0445\u043e\u0436\u0434\u0435\u043d\u0438\u0439',
+      '| ID \u043e\u0442\u0432\u0435\u0442\u0430 | \u0412\u043e\u043f\u0440\u043e\u0441 | \u041e\u0442\u0432\u0435\u0442 \u0447\u0435\u043b\u043e\u0432\u0435\u043a\u0430 | \u0418\u0441\u0445\u043e\u0434\u043d\u044b\u0439 \u043f\u0443\u043d\u043a\u0442 | \u0420\u0435\u0448\u0435\u043d\u0438\u0435 |',
+      '|---|---|---|---|---|',
+      ...rows,
+    ].join('\n');
+    strictEqual(clarificationResolutionProblem(legacyPlan, REPORT), null);
   });
 
 });
@@ -343,6 +362,20 @@ describe('openQuestions (3.4: вопрос человеку задаёт ран�
       { question: 'Ставка для суммы >300см?', blocking: true, source: 'intent' },
       { question: 'Нужен ли кеш?', blocking: false, source: 'exploration' },
     ]);
+  });
+
+  it('открывает обратно галочку модели без ответа человека и сохраняет закрытую с human fact', () => {
+    const checked = INTENT
+      .replace('- [x] **[неблокирующий]** Уже закрытый, не в списке\n', '')
+      .replace('- [ ] **[блокирующий]** Ставка для суммы >300см?', '- [x] **[блокирующий]** Ставка для суммы >300см?');
+    const facts = extractHumanFacts(REPORT);
+    const withFact = reopenUnverifiedQuestions(checked, facts);
+    strictEqual(withFact.reopened, 0);
+    ok(withFact.text.includes('- [x] **[блокирующий]** Ставка для суммы >300см?'));
+
+    const noFact = reopenUnverifiedQuestions(checked, []);
+    strictEqual(noFact.reopened, 1);
+    ok(noFact.text.includes('- [ ] **[блокирующий]** Ставка для суммы >300см?'));
   });
 
   it('оба текста пусты или без секции — пустой список, не падение', () => {

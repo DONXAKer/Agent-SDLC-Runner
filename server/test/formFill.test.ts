@@ -15,7 +15,17 @@ import { after, describe, it } from 'node:test';
 
 import type { NormalizedCall, ToolName } from '@sdlc-runner/shared';
 
-import { FormFillExecutor, cleanFieldAnswer, cleanRowAnswer, groupFields } from '../src/exec/FormFillExecutor.ts';
+import {
+  FormFillExecutor,
+  cleanFieldAnswer,
+  cleanRowAnswer,
+  compactFieldGroups,
+  compactGroupResponseFormat,
+  conditionalFieldEmptyAlternative,
+  groupFields,
+  parseCompactGroupResponse,
+} from '../src/exec/FormFillExecutor.ts';
+import { deriveSchema } from '../src/artifacts/formSchema.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import { ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from '../src/exec/contextBudget.ts';
@@ -1017,6 +1027,85 @@ const execCompact = (provider: ChatProvider, stage: 'intent' | 'explore' | 'plan
   });
 
 describe('режим compact: поля из схемы, ответ рисует applyFill', () => {
+  it('задаёт Ollama низкое reasoning и лимит по виду поля; поднимает лимит один раз при truncation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-local-params-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(artifact, '# Задача\n\n- **Тема:** ‹тема›\n');
+    const seen: (Record<string, unknown> | null | undefined)[] = [];
+    let calls = 0;
+    const provider: ChatProvider = {
+      name: 'local-spy',
+      async chat(req: ChatRequest) {
+        seen.push(req.params);
+        calls++;
+        return {
+          text: calls === 1 ? '{"тема":"дем' : '{"тема":"демо"}',
+          toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: calls === 1 ? 'max_tokens' as const : 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const warnings: string[] = [];
+    const h = { ...hooks({ writes: [] }, true), onWarn: (warning: string) => warnings.push(warning) } as ExecHooks;
+    const result = await execCompact(provider).run(request(root, artifact, { model: 'ollama:unit-test' }), h);
+    strictEqual(result.ok, true);
+    strictEqual(calls, 2);
+    strictEqual(seen[0]?.['reasoning_effort'], 'none');
+    strictEqual(seen[1]?.['reasoning_effort'], 'none');
+    strictEqual(seen[0]?.['max_tokens'], 320);
+    strictEqual(seen[1]?.['max_tokens'], 640);
+    ok(warnings.some((warning) => warning.includes('обрезан')));
+    ok(readFileSync(artifact, 'utf8').includes('демо'));
+  });
+
+  it('содержательное scalar-поле получает низкое reasoning и больший безопасный лимит', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-local-substantive-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(artifact, '# Задача\n\n- **Зачем:** ‹почему›\n');
+    let params: Record<string, unknown> | null | undefined;
+    const provider: ChatProvider = {
+      name: 'local-spy',
+      async chat(req: ChatRequest) {
+        params = req.params;
+        return {
+          text: '{"зачем":"Нужно включить расчёт налога"}', toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const result = await execCompact(provider).run(request(root, artifact, { model: 'ollama:unit-test' }), hooks({ writes: [] }, true));
+    strictEqual(result.ok, true);
+    strictEqual(params?.['reasoning_effort'], 'low');
+    strictEqual(params?.['max_tokens'], 900);
+  });
+
+  it('LM Studio compact fills disable reasoning when the profile leaves it unset', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-lmstudio-params-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(artifact, '# Task\n\n- **Topic:** \u2039topic\u203a\n');
+    let params: Record<string, unknown> | null | undefined;
+    const provider: ChatProvider = {
+      name: 'lmstudio-spy',
+      async chat(req: ChatRequest) {
+        params = req.params;
+        return {
+          text: '{"topic":"demo"}', toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const result = await execCompact(provider).run(request(root, artifact, { model: 'lmstudio:unit-test' }), hooks({ writes: [] }, true));
+    strictEqual(result.ok, true);
+    strictEqual(params?.['reasoning_effort'], 'none');
+    strictEqual(params?.['max_tokens'], 320);
+  });
+
   it('scalar/choice/records заполняются без разметки в ответе модели, запись — через гейт', async () => {
     const { root, artifact } = setupCompact();
     const seen = { writes: [] as NormalizedCall[] };
@@ -1085,6 +1174,28 @@ describe('режим compact: поля из схемы, ответ рисует 
       name: 'echo-then-fix',
       async chat(req: ChatRequest) {
         const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        if (req.params?.['response_format'] !== undefined) {
+          const ids = [...user.matchAll(/### Поле `([^`]+)`/g)].map((match) => match[1]!);
+          if (ids.length === 0) {
+            const singleId = /- id: `([^`]+)`/.exec(user)?.[1];
+            if (singleId !== undefined) ids.push(singleId);
+          }
+          const grouped = Object.fromEntries(ids.map((id) => {
+            if (!/ветка витка/i.test(id)) return [id, 'готово'];
+            branchCalls++;
+            const value = branchCalls === 1
+              ? '{"tool":"Read","arguments":{"file_path":"./x.ts"}}'
+              : 'sdlc/oversize';
+            if (branchCalls > 1) secondCallPrompt = user;
+            return [id, value];
+          }));
+          return {
+            text: JSON.stringify(grouped),
+            toolCalls: [],
+            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+            finishReason: 'end_turn' as const,
+          };
+        }
         if (user.includes('`ветка витка`')) {
           branchCalls++;
           if (branchCalls === 1) {
@@ -1326,5 +1437,51 @@ describe('режим compact: поля из схемы, ответ рисует 
     });
     const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
     deepStrictEqual(topupLabel, { accepted: true, oracle: 'apply-fill', target: 'form-field', reason: 'accepted' });
+  });
+});
+
+describe('адаптивное заполнение формы', () => {
+  it('группирует только поля с явной меткой группы и отделяет решения повышенного риска', () => {
+    const fields = deriveSchema([
+      '# Задача',
+      '## Базовые сведения',
+      '- **Цель:** ‹цель›',
+      '## Безопасность',
+      '- **Контроль:** ‹если применимо, проверить доступ›',
+      '## Продолжение',
+      '- **Ветка:** ‹ветка›',
+    ].join('\n'), 'intent.template.md').fields;
+    fields[0]!.compactGroup = 'goal';
+    fields[2]!.compactGroup = 'goal';
+    const groups = compactFieldGroups(fields);
+    deepStrictEqual(groups.map((group) => group.length), [2, 1]);
+    deepStrictEqual(groups[0]!.map((field) => field.id), [fields[0]!.id, fields[2]!.id]);
+    strictEqual(compactGroupResponseFormat(groups[0]!)['type'], 'json_schema');
+    const choice = deriveSchema('# T\n## S\n- **Contour:** full / minor', 'intent.template.md').fields[0]!;
+    const choiceFormat = compactGroupResponseFormat([choice]);
+    const choiceSchema = (choiceFormat['json_schema'] as { schema: { properties: Record<string, { enum?: string[] }> } }).schema;
+    deepStrictEqual(choiceSchema.properties[choice.id]?.enum, ['full', 'minor']);
+  });
+
+  it('принимает только полный JSON-объект с точным набором id полей', () => {
+    const fields = deriveSchema('# T\n## S\n- **A:** ‹a›\n- **B:** ‹b›', 'intent.template.md').fields;
+    fields.forEach((field) => { field.compactGroup = 'same'; });
+    const group = compactFieldGroups(fields)[0]!;
+    const good = Object.fromEntries(group.map((field, i) => [field.id, `value-${i}`]));
+    deepStrictEqual(parseCompactGroupResponse(JSON.stringify(good), group), good);
+    strictEqual(parseCompactGroupResponse(JSON.stringify({ [group[0]!.id]: 'one' }), group), null);
+    strictEqual(parseCompactGroupResponse(JSON.stringify({ ...good, [group[1]!.id]: 2 }), group), null);
+    strictEqual(parseCompactGroupResponse(JSON.stringify({ ...good, extra: 'x' }), group), null);
+  });
+
+  it('снимает условное необязательное поле только по явной пустой альтернативе и отсутствию риска', () => {
+    const field = {
+      section: 'Безопасность',
+      hint: 'если применимо: доступ, секреты',
+      emptyAlternative: 'н/п — нет изменения доступа или секретов',
+    };
+    strictEqual(conditionalFieldEmptyAlternative(field, 'Добавить сортировку каталога'), field.emptyAlternative);
+    strictEqual(conditionalFieldEmptyAlternative(field, 'Добавить авторизацию пользователя'), null);
+    strictEqual(conditionalFieldEmptyAlternative({ section: field.section, hint: field.hint }, 'обычная задача'), null);
   });
 });

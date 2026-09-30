@@ -67,10 +67,14 @@ describe('autofillReadiness', () => {
     '## Прогон 1 — перед разведкой',
     '',
     '- **Дата:** ‹дата›',
+    '- **Проверки:** ‹проверки прогона 1›',
+    '- **Вердикт прогона 1:** ‹готова / не готова›',
     '',
     '## Прогон 2 — перед планом',
     '',
     '- **Дата:** ‹дата›',
+    '- **Проверки:** ‹проверки прогона 2›',
+    '- **Вердикт прогона 2:** ‹готова / не готова›',
     '',
   ].join('\n');
 
@@ -79,14 +83,31 @@ describe('autofillReadiness', () => {
     ok(text.startsWith('# Готовность задачи: demo'), text);
     const [run1, run2] = text.split('## Прогон 2');
     ok(run1!.includes('**Дата:** 2026-09-14'), text);
-    ok(run2!.includes('**Дата:** ‹дата›'), text);
+    ok(run2!.includes('**Дата:** Ожидает прогона 2'), text);
+  });
+
+  it('первичный seed закрывает поля обоих прогонов, а finish заменяет pending для прогона 1', () => {
+    const seeded = autofillReadiness(READINESS, { title: 'demo', date: '2026-09-14', run: 1 });
+    ok(!seeded.text.includes('‹'), seeded.text);
+    ok(seeded.text.includes('Ожидает проверки этапа intent'), seeded.text);
+    const finished = autofillReadiness(seeded.text, {
+      title: 'demo', date: '2026-09-14', run: 1, checks: 'Все проверки пройдены', verdict: 'ready',
+    });
+    ok(finished.text.includes('**Проверки:** Все проверки пройдены'), finished.text);
+    ok(finished.text.includes('**Вердикт прогона 1:** готова'), finished.text);
+    ok(!finished.text.includes('Ожидает проверки'), finished.text);
   });
 
   it('этап plan ставит дату прогона 2', () => {
     const afterIntent = autofillReadiness(READINESS, { title: 'demo', date: '2026-09-14', run: 1 }).text;
-    const { text, filled } = autofillReadiness(afterIntent, { title: 'demo', date: '2026-09-15', run: 2 });
-    strictEqual(filled, 1);
-    ok(text.split('## Прогон 2')[1]!.includes('**Дата:** 2026-09-15'), text);
+    const { text, filled } = autofillReadiness(afterIntent, {
+      title: 'demo', date: '2026-09-15', run: 2, checks: 'Проверки пройдены', verdict: 'ready',
+    });
+    strictEqual(filled, 3);
+    const run2 = text.split('## Прогон 2')[1]!;
+    ok(run2.includes('**Дата:** 2026-09-15'), text);
+    ok(run2.includes('**Проверки:** Проверки пройдены'), text);
+    ok(run2.includes('**Вердикт прогона 2:** готова'), text);
   });
 });
 
@@ -278,10 +299,12 @@ describe('скрепа: поля рантайма реальных шаблон�
   const fill: Record<string, (t: string) => string> = {
     'plan.template.md': (t) => autofillPlan(t, { title: 'demo', explorationDone: true, clarificationDone: true, base: 'abc', requirementsHash: 'a'.repeat(64) }).text,
     'readiness.template.md': (t) =>
-      autofillReadiness(autofillReadiness(t, { title: 'demo', date: '2026-09-14', run: 1 }).text, {
+      autofillReadiness(autofillReadiness(t, { title: 'demo', date: '2026-09-14', run: 1, checks: 'runtime checks', verdict: 'ready' }).text, {
         title: 'demo',
         date: '2026-09-14',
         run: 2,
+        checks: 'runtime checks',
+        verdict: 'ready',
       }).text,
     'clarification-report.template.md': (t) => autofillClarification(t, { title: 'demo', explorationDone: true }).text,
     'exploration-report.template.md': (t) => autofillTitle(t, 'demo').text,

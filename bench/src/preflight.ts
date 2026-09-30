@@ -652,7 +652,9 @@ async function checkModel(deps: PreflightDeps, config: LoadedConfig, opts: Bench
   const probeArgs = {
     provider,
     model: def.model,
-    params: def.params ?? null,
+    params: def.provider === 'lmstudio'
+      ? { ...(def.params ?? {}), reasoning_effort: def.params?.['reasoning_effort'] ?? 'none' }
+      : def.params ?? null,
     caseTimeoutMs: opts.probeTimeoutMs ?? PROBE_CASE_TIMEOUT_MS,
     role: (forReviewer ? 'verify' : 'chunk') as 'chunk' | 'verify',
   };

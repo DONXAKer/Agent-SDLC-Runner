@@ -2,12 +2,15 @@
 
 import { existsSync } from 'node:fs';
 
-import type { StageId } from '@sdlc-runner/shared';
+import type { Question, StageId } from '@sdlc-runner/shared';
 
 import { DecisionFormError, readArtifact, readField, setDecision } from '../../artifacts/artifact.ts';
 import { writeIntentSnapshot } from '../../artifacts/intentSections.ts';
 import { currentBranch, isRepo } from '../../gates/git.ts';
-import { autofillReadiness } from '../formAutofill.ts';
+import { appendAnswerRows, askedQuestionCount, closeAnsweredQuestions, extractHumanFacts, openQuestions, renderAnswerRow, reopenUnverifiedQuestions, unaskedQuestions } from '../../artifacts/humanFacts.ts';
+import { autofillClarification, autofillReadiness } from '../formAutofill.ts';
+import { seedArtifacts } from '../seed.ts';
+import { readinessRun1 } from '../readinessChecks.ts';
 import { claimsMinimum, intentPlaceholderCount, readinessVerdict } from './preconditions.ts';
 import type { SeededArtifact, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 
@@ -185,6 +188,47 @@ export const intentModule: StageModule = {
     // заполнено (`branchMismatchBlocker` сверяет его на входе plan/chunk/verify/handoff).
     autofill: (seeded) => autofillBranchField(host, seeded),
 
+    afterTurn: async (_prompt, signal) => {
+      if (signal.aborted) return;
+      const intent = readArtifact(host.paths.intent);
+      if (!intent.exists) return;
+      const reportPath = host.paths.clarificationReport;
+      let report = readArtifact(reportPath);
+      const seeded = report.exists ? [] : seedArtifacts([reportPath], host.runner().methodologyDir);
+      if (!report.exists && seeded.length > 0) {
+        const filled = autofillClarification(readArtifact(reportPath).text, { title: host.slug, explorationDone: false });
+        host.writeAutofilled(reportPath, filled.text, seeded);
+        report = readArtifact(reportPath);
+      }
+      if (!report.exists) return;
+      const facts = extractHumanFacts(report.text);
+      const reopened = reopenUnverifiedQuestions(intent.text, facts);
+      if (reopened.reopened > 0) host.writeAutofilled(host.paths.intent, reopened.text, []);
+      const currentIntent = readArtifact(host.paths.intent);
+      if (!currentIntent.exists) return;
+      const pending = unaskedQuestions(openQuestions(currentIntent.text, ''), report.text)
+        .filter((q) => q.source === 'intent').slice(0, 4);
+      if (pending.length === 0) return;
+      const questions: Question[] = pending.map((q, i) => ({
+        id: `intent-open-${i}`,
+        question: q.question,
+        header: q.blocking ? 'Блокирующий вопрос задачи' : 'Вопрос задачи',
+        multiSelect: false,
+        options: [],
+      }));
+      const answers = await host.askHuman('intent', questions);
+      if (signal.aborted) return;
+      const start = askedQuestionCount(report.text);
+      const rows = pending.map((q, i) => {
+        const answer = (answers[questions[i]!.id] ?? []).join(', ').trim();
+        return renderAnswerRow(start + i + 1, q, answer === '' ? null : answer);
+      });
+      const updated = appendAnswerRows(report.text, rows);
+      if (updated !== report.text) host.writeAutofilled(reportPath, updated, []);
+      const closed = closeAnsweredQuestions(currentIntent.text, extractHumanFacts(updated));
+      if (closed.closed > 0) host.writeAutofilled(host.paths.intent, closed.text, []);
+    },
+
     // Снимок секций задачи — по факту готовности (прогон 1 сказал «готова»): дальше
     // intent.md правится только тремя законными правками, и этапы 4 и 6 сверяют с ним.
     evidence: async () => {
@@ -209,7 +253,20 @@ export const intentModule: StageModule = {
       // (нужно 2) — этап 3 отклонит», этап всё равно закрывался ✅, и виток вставал на
       // входе разведки, где чинить уже некому (разбор серии v9, 2026-09-15). Тот же класс
       // потери, что `intentPlaceholderProblem` рядом.
-      return claimsMinimum().check(host.ctx());
+      const minimumProblem = claimsMinimum().check(host.ctx());
+      const result = readinessRun1(host.ctx());
+      const readiness = readArtifact(host.paths.readiness);
+      const runtimeChecklist = readiness.exists && readiness.text.includes('**Проверки:**');
+      if (runtimeChecklist) {
+        const date = new Date().toISOString().slice(0, 10);
+        const updated = autofillReadiness(readiness.text, {
+          title: host.slug, date, run: 1, checks: result.checks, verdict: result.ready ? 'ready' : 'not',
+        });
+        if (updated.text !== readiness.text) host.writeAutofilled(host.paths.readiness, updated.text, []);
+      }
+      if (minimumProblem !== null) return minimumProblem;
+      if (!runtimeChecklist) return null;
+      return result.ready ? null : `проверки готовности прогона 1 не пройдены: ${result.checks}`;
     },
   }),
 };

@@ -817,7 +817,9 @@ async function probeRun(opts: BenchOptions): Promise<number> {
     model: def.model,
     // Та же конфигурация, что у этапа: без params проба мерила бы не ту модель,
     // которую потом запускают (params и заводились ради tool-calling).
-    params: def.params ?? null,
+    params: def.provider === 'lmstudio'
+      ? { ...(def.params ?? {}), reasoning_effort: def.params?.['reasoning_effort'] ?? 'none' }
+      : def.params ?? null,
     // Свой потолок на КАЖДЫЙ кейс, а не общий на пробу: медленная модель исчерпывала
     // общий сигнал первым кейсом, и остальные красились тем же приговором.
     caseTimeoutMs: opts.stageTimeoutMs,
