@@ -43,7 +43,7 @@ export interface PlanFacts {
 }
 
 export function autofillPlan(text: string, f: PlanFacts): { text: string; filled: number } {
-  return fillMechanicalPlaceholders(text, (inner, line) => {
+  const filled = fillMechanicalPlaceholders(text, (inner, line) => {
     if (inner === 'sha256 требований' && /\*\*Требования \(SHA-256\):\*\*/u.test(line)) return f.requirementsHash;
     if (inner === 'название витка') return f.title;
     // `‹да/нет›` стоит и в таблице осей плана — там это выбор модели, а не факт рантайма.
@@ -53,6 +53,20 @@ export function autofillPlan(text: string, f: PlanFacts): { text: string; filled
     if (inner.startsWith('base_sha')) return f.base;
     return null;
   });
+  // Older templates have no fingerprint field. Add it while preparing the plan,
+  // before human approval; never repair an approved snapshot on restore.
+  if (!/^\s*- \*\*Требования \(SHA-256\):\*\*/mu.test(filled.text)) {
+    const line = `- **Требования (SHA-256):** ${f.requirementsHash}\n`;
+    const base = /^- \*\*База:\*\*[^\n]*(?:\n|$)/mu;
+    const text2 = base.test(filled.text)
+      ? filled.text.replace(base, (match) => `${match.trimEnd()}\n${line}`)
+      : `${filled.text.trimEnd()}\n\n${line}`;
+    return { text: text2, filled: filled.filled + 1 };
+  }
+  const refreshed = replaceAfterLabel(filled.text, 'Требования (SHA-256)', f.requirementsHash);
+  return refreshed !== null && refreshed !== filled.text
+    ? { text: refreshed, filled: filled.filled + 1 }
+    : filled;
 }
 
 export interface ReadinessFacts {
@@ -78,6 +92,24 @@ const RUN_1_PENDING = {
 } as const;
 
 export function autofillReadiness(text: string, f: ReadinessFacts): { text: string; filled: number } {
+  // The original readiness template asked the model to certify a table and four
+  // generic human answers. Readiness now comes from executable artifact checks.
+  // Normalize that known template while seeding it, retaining recorded answers.
+  if (/^\|\s*#\s*\|\s*Проверка\s*\|\s*Статус\s*\|/mu.test(text)) {
+    const answers = text.split(/\r?\n/u).filter((line) =>
+      /^- \*\*Ответ человека \(/u.test(line) && !/[‹›]/u.test(line),
+    );
+    const sections = text.split(/(?=^##\s+Прогон\s+[12](?:\s|$))/mu);
+    const title = sections.shift() ?? '# Готовность задачи: ‹название витка›\n\n';
+    text = title + sections.map((section) => {
+      const run = /^##\s+Прогон\s+([12])/mu.exec(section)?.[1];
+      const date = /^(?:- )?\*\*Дата:\*\*\s*(.*)$/mu.exec(section)?.[1] ?? '‹дата›';
+      return [section.split(/\r?\n/u)[0], '', `- **Дата:** ${date}`,
+        `- **Проверки:** ‹проверки прогона ${run}›`,
+        `- **Вердикт прогона ${run}:** ‹готова / не готова›`, '', ''].join('\n');
+    }).join('');
+    if (answers.length) text += `## Ранее записанные ответы человека\n\n${answers.join('\n')}\n`;
+  }
   const cut = text.search(RUN_2_HEADING);
   let head = cut < 0 ? text : text.slice(0, cut);
   let tail = cut < 0 ? '' : text.slice(cut);
@@ -126,7 +158,20 @@ export function autofillReadiness(text: string, f: ReadinessFacts): { text: stri
     });
   const a = part(head, f.run === 1);
   const b = part(tail, f.run === 2);
-  return { text: a.text + b.text, filled: a.filled + b.filled + resolvedRun1Pending + resolvedPending };
+  let own = f.run === 1 ? a.text : b.text;
+  let refreshed = 0;
+  for (const [label, value] of [
+    ['Проверки', f.checks],
+    [`Вердикт прогона ${f.run}`, f.verdict === undefined ? undefined : f.verdict === 'ready' ? 'готова' : 'не готова'],
+  ]) {
+    if (value === undefined) continue;
+    const replaced = replaceAfterLabel(own, label!, value);
+    if (replaced !== null && replaced !== own) { own = replaced; refreshed++; }
+  }
+  return {
+    text: f.run === 1 ? own + b.text : a.text + own,
+    filled: a.filled + b.filled + resolvedRun1Pending + resolvedPending + refreshed,
+  };
 }
 
 /**

@@ -24,6 +24,14 @@ import {
   unreflectedAnswers,
 } from '../src/artifacts/humanFacts.ts';
 
+it('не выдаёт запись рантайма об отсутствии вопросов за ответ человека', () => {
+  const empty = ['## Вопросы и ответы', '| # | Вопрос | Блокирующий | Ответ человека | Что изменилось в задаче |',
+    '|---|---|---|---|---|',
+    '| — | по существу пусто — открытых вопросов нет; записано рантаймом | н/п | н/п | ничего |'].join('\n');
+  deepStrictEqual(extractHumanFacts(empty), []);
+  strictEqual(clarificationResolutionProblem('# План', empty), null);
+});
+
 const REPORT = `# Вопросы и ответы: Надбавка
 
 ## Вопросы и ответы

@@ -174,7 +174,7 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
                   continue;
                 }
                 if (r.status === '❌') {
-                  const tail = (r.outputTail ?? '').trim();
+                  const tail = (r.output ?? r.outputTail ?? '').trim();
                   failures.push({
                     status: 'failed',
                     problem:

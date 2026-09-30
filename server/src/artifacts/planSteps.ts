@@ -100,7 +100,7 @@ export function extractExplicitSteps(planText: string): PlanStep[] {
     const file = stripTicks((fileRaw.split(/[\s,;]+/)[0] ?? '').replace(/[,;:]+$/, ''));
     if (file !== '' && !file.includes('‹')) {
       const symbolRaw = f.get('символ') ?? '';
-      const symbol = stripTicks(symbolRaw.split(/\s+/)[0] ?? '');
+      const symbol = stripTicks(symbolRaw.split(/\s+/)[0] ?? '').replace(/[;,]+$/u, '');
       const checkRaw = f.get('проверка') ?? '';
       const checkCmd = /`([^`]+)`/.exec(checkRaw)?.[1]?.trim() ?? null;
       const expect = /ожидаемо\s*:\s*(.+)$/i.exec(checkRaw)?.[1]?.trim() ?? null;
@@ -117,7 +117,7 @@ export function extractExplicitSteps(planText: string): PlanStep[] {
         title: cur.title,
         file,
         isNew: NEW_MARK_RE.test(fileRaw) || NEW_MARK_RE.test(symbolRaw),
-        symbol: symbol === '' || symbol.includes('‹') ? null : symbol,
+        symbol: symbol === '' || symbol.includes('‹') || /^н\s*\/\s*п$/iu.test(symbol) ? null : symbol,
         action: (f.get('действие') ?? cur.title).trim(),
         claims: claimsOf(f.get('закрывает') ?? ''),
         check: checkCmd,
@@ -148,6 +148,10 @@ export function extractExplicitSteps(planText: string): PlanStep[] {
     if (cur === null) continue;
     const m = FIELD_RE.exec(line);
     if (m !== null) cur.fields.set(fieldKey(m[1]!), (m[2] ?? '').trim());
+    else if (/^\s{2,}\S/u.test(line)) {
+      const key = [...cur.fields.keys()].at(-1);
+      if (key !== undefined) cur.fields.set(key, `${cur.fields.get(key)} ${line.trim()}`);
+    }
   }
   flush();
   return out;

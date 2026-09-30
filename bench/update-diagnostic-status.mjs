@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assessDiagnosticSample } from './src/diagnosticSample.ts';
+import { checkDiagnosticInput } from './src/diagnosticInputs.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const resultsDir = join(root, 'bench', 'results');
@@ -28,21 +30,29 @@ const latest = [...records.values()]
   .sort((a, b) => Date.parse(a.generatedAt) - Date.parse(b.generatedAt))
   .at(-1);
 const latestDate = latest.generatedAt;
-const totalCases = latest.cases.length;
-const availableCases = latest.cases.filter((testCase) => testCase.inputStatus === 'available').length;
-const missingCases = latest.cases
+const manifest = JSON.parse(readFileSync(join(root, 'bench/diagnostics/cases.json'), 'utf8'));
+const currentCases = manifest.cases.map((testCase) => ({ ...testCase, inputStatus: checkDiagnosticInput(join(root, 'bench'), testCase).status }));
+const totalCases = currentCases.length;
+const availableCases = currentCases.filter((testCase) => testCase.inputStatus === 'available').length;
+const missingCases = currentCases
   .filter((testCase) => testCase.inputStatus !== 'available')
   .map((testCase) => testCase.id);
 
 const rows = [...records.entries()]
   .sort(([a], [b]) => a.localeCompare(b))
   .map(([model, { name, report }]) => {
-    const available = report.cases.filter((testCase) => testCase.inputStatus === 'available');
-    const sampled = available.filter((testCase) => testCase.samples?.length > 0);
-    const samples = sampled.flatMap((testCase) => testCase.samples);
+    const cases = report.cases.map((testCase) => ({ ...testCase, samples: (testCase.samples ?? []).map((sample) => {
+      const path = sample.resultFile ? resolve(root, sample.resultFile) : join(resultsDir, `${sample.slug}.json`);
+      if (!existsSync(path)) return sample;
+      try { return assessDiagnosticSample(JSON.parse(readFileSync(path, 'utf8')), sample.slug, sample.exitCode, testCase.stage); }
+      catch { return { ...sample, problemCodes: ['INVALID_RESULT'] }; }
+    }) }));
+    const available = cases.filter((testCase) => testCase.inputStatus === 'available');
+    const sampled = available.filter((testCase) => testCase.samples?.some((sample) => sample.stageStarted));
+    const samples = cases.flatMap((testCase) => testCase.samples);
     const timeouts = samples.filter((sample) => sample.timedOut).length;
-    const verifyCases = report.cases.filter((testCase) => ['V01', 'V02'].includes(testCase.id));
-    const verifySamples = verifyCases.flatMap((testCase) => testCase.samples ?? []);
+    const verifyCases = cases.filter((testCase) => ['V01', 'V02'].includes(testCase.id));
+    const verifySamples = verifyCases.flatMap((testCase) => testCase.samples ?? []).filter((sample) => sample.stageStarted && sample.seedCaught !== null);
     const verifyCaught = verifySamples.filter((sample) => sample.seedCaught === true).length;
     const preflightCode = report.preflight?.exitCode;
     const preflight = preflightCode === 0
@@ -50,10 +60,16 @@ const rows = [...records.entries()]
       : preflightCode === 3221226505
         ? `CRASH ${preflightCode}`
         : `FAIL ${preflightCode ?? 'unknown'}`;
-    const semantic = samples.length === 0 ? 'not run' : 'not assessed';
+    const semantic = sampled.length === 0 ? 'not run' : 'not assessed';
+    const problems = new Map();
+    for (const sample of samples) for (const code of sample.problemCodes ?? []) problems.set(code, (problems.get(code) ?? 0) + 1);
+    for (const testCase of cases.filter((entry) => entry.inputStatus === 'invalid-snapshot')) problems.set('INPUT_INVALID', (problems.get('INPUT_INVALID') ?? 0) + 1);
+    const failedChecks = (report.preflight?.checks ?? []).filter((check) => !check.ok);
+    const detail = failedChecks.map((check) => `${check.env ? 'ENV' : 'MODEL'}: ${check.detail}`).join('; ');
+    const signals = [...problems].map(([code, count]) => `${code} (${count})`).join('; ') || (preflightCode === 0 ? '—' : detail || 'preflight; см. отчёт');
     const link = `../bench/results/${name.replace(/\.json$/u, '.report.md')}`;
 
-    return `| [${model}](${link}) | ${preflight} | ${sampled.length}/${available.length} | ${timeouts} | ${verifySamples.length === 0 ? '—' : `${verifyCaught}/${verifySamples.length}`} | ${semantic} |`;
+    return `| [${model}](${link}) | ${preflight} | ${sampled.length}/${availableCases} | ${timeouts} | ${verifySamples.length === 0 ? 'не измерено' : `${verifyCaught}/${verifySamples.length}`} | ${signals.replaceAll('|', '\\|').replaceAll('\n', ' ')} | ${semantic} |`;
   });
 
 const content = [
@@ -61,8 +77,8 @@ const content = [
   '',
   `Срез: ${latestDate.slice(0, 10)} · доступно кейсов: ${availableCases}/${totalCases} · нет входных снимков: ${missingCases.length ? missingCases.join(', ') : 'нет'}.`,
   '',
-  '| Модель | Preflight | Кейсы | Таймауты | Verify-дефекты пойманы | Смысловая оценка |',
-  '|---|---:|---:|---:|---:|---|',
+  '| Модель | Preflight | Запущено / доступно | Таймауты | Verify-дефекты пойманы | Проблемы | Смысловая оценка |',
+  '|---|---:|---:|---:|---:|---|---|',
   ...rows,
   '',
 ].join('\n');

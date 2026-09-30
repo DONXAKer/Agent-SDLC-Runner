@@ -10,7 +10,7 @@ import { currentBranch, isRepo } from '../../gates/git.ts';
 import { appendAnswerRows, askedQuestionCount, closeAnsweredQuestions, extractHumanFacts, openQuestions, renderAnswerRow, reopenUnverifiedQuestions, unaskedQuestions } from '../../artifacts/humanFacts.ts';
 import { autofillClarification, autofillReadiness } from '../formAutofill.ts';
 import { seedArtifacts } from '../seed.ts';
-import { readinessRun1 } from '../readinessChecks.ts';
+import { hasRuntimeReadiness, readinessRun1 } from '../readinessChecks.ts';
 import { claimsMinimum, intentPlaceholderCount, readinessVerdict } from './preconditions.ts';
 import type { SeededArtifact, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 
@@ -256,7 +256,7 @@ export const intentModule: StageModule = {
       const minimumProblem = claimsMinimum().check(host.ctx());
       const result = readinessRun1(host.ctx());
       const readiness = readArtifact(host.paths.readiness);
-      const runtimeChecklist = readiness.exists && readiness.text.includes('**Проверки:**');
+      const runtimeChecklist = readiness.exists && hasRuntimeReadiness(readiness.text);
       if (runtimeChecklist) {
         const date = new Date().toISOString().slice(0, 10);
         const updated = autofillReadiness(readiness.text, {

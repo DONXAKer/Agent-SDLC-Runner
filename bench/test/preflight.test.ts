@@ -214,7 +214,7 @@ describe('runPreflight', () => {
     ok(report.checks.some((c) => c.name.startsWith('модель: честность')), 'проба должна была гоняться следом');
   });
 
-  it('частичный офлоад — красная строка «модели» (не среды) до пробы, критерий 1 квалификации рецензента', async () => {
+  it('частичный офлоад блокирует измерение по раскладке среды до пробы модели', async () => {
     const report = await runPreflight(
       opts(['--model', MODEL, '--stage', 'chunk']),
       greenDeps({
@@ -222,7 +222,7 @@ describe('runPreflight', () => {
       }),
     );
     strictEqual(report.passed, false);
-    strictEqual(preflightExitCode(report), 1, 'находка про конкретную модель на этом железе, не про среду — код 1, не 2');
+    strictEqual(preflightExitCode(report), 2, 'раскладка VRAM не является провалом модельного кейса');
     ok(report.checks.some((c) => c.name === 'модель: раскладка после прогрева' && !c.ok && c.detail.includes('офлоад')));
     strictEqual(report.checks.some((c) => c.name.startsWith('модель: честность')), false, 'проба не должна была гоняться');
   });

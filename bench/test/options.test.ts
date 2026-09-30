@@ -233,10 +233,10 @@ describe('раскладка измеряемых этапов', () => {
     deepStrictEqual(measuredStages({ kind: 'stage', stage: 'chunk' }), ['chunk']);
   });
 
-  it('verify runs as control but is excluded from --all measurements', () => {
+  it('--all measures verify with the other six stages', () => {
     const stages = measuredStages({ kind: 'all' });
-    strictEqual(stages.includes('verify'), false);
+    strictEqual(stages.includes('verify'), true);
     strictEqual(stages.includes('chunk'), true);
-    strictEqual(stages.length, 6);
+    strictEqual(stages.length, 7);
   });
 });

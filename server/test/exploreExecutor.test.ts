@@ -324,6 +324,19 @@ async function scenario(blank: string, over: { axesEnabled?: boolean; claims?: n
 }
 
 describe('конвейер разведки на копии бланка', () => {
+  it('именованный путь из выданного индекса заполняет карту и touch, выдуманный путь не принимается', async () => {
+    const { root, paths } = setup(BLANK);
+    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+    await executor(root, paths, { provider: provider([], { map:
+      '1. src/tariffs.ts | priceFor | добавить льготу\n2. src/tariffs.ts | priceFor | дубль\n3. src/invented.ts | модуль | изменить',
+    }) }).run(request(root, paths), hooks(seen));
+    const report = readFileSync(paths.explorationReport, 'utf8');
+    const intent = readFileSync(paths.intent, 'utf8');
+    ok(report.includes('| src/tariffs.ts | priceFor | добавить льготу |'), report);
+    strictEqual(report.includes('src/invented.ts'), false);
+    ok(intent.includes('src/tariffs.ts — добавить льготу'), intent);
+    strictEqual(intent.includes('‹path/to/file›'), false);
+  });
   it('карта из индекса, новый файл помечен, вопросы видны этапу 3, записи только через гейт', async () => {
     const { seen, result, report, intent, paths } = await scenario(BLANK);
     ok(result.ok, result.note);

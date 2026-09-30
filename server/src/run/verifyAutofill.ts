@@ -49,6 +49,8 @@ export interface VerifyReportFacts {
   slug: string;
   attemptBudget: number;
   planApprovedOn?: string | null;
+  baseSha?: string | null;
+  headSha?: string | null;
   /**
    * Статус гейтов РАННИХ этапов, которые рантайм посчитал сам (сегодня — «Разбор
    * последствий» этапа 4). Имя гейта → статус и адрес артефакта, где он виден.
@@ -229,10 +231,19 @@ export function autofillVerificationReport(
           ? f.slug
           : inner === 'бюджет'
             ? String(f.attemptBudget)
+            : inner === 'base_sha' ? f.baseSha ?? null
+            : inner === 'head_sha' ? f.headSha ?? null
             : null,
   );
-
-  return { text: mech.text, filled: filled + mech.filled };
+  // These numbers are inside the canonical diff filename, where the general
+  // placeholder scanner deliberately ignores inline code examples.
+  let output = mech.text;
+  output = output.replace(/^(\s*-\s*\*\*Diff:\*\*[^\r\n]*)/gmu, (line) => {
+    const changed = line.replaceAll('chunk-‹N›-attempt-‹K›-diff.patch', `chunk-${f.chunk}-attempt-${f.attempt}-diff.patch`);
+    if (changed !== line) filled++;
+    return changed;
+  });
+  return { text: output, filled: filled + mech.filled };
 }
 
 /**

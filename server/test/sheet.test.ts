@@ -186,6 +186,15 @@ describe('parseListItems', () => {
 });
 
 describe('parseRecordRows', () => {
+  it('смешанная запись: пункт без метки и процедура на продолжении остаются одним критерием', () => {
+    const columns = [
+      { id: 'пункт', header: 'Пункт', kind: 'scalar' },
+      { id: 'как проверить', header: 'Как проверить', kind: 'scalar' },
+    ];
+    deepStrictEqual(parseRecordRows('- [edge] Проверка лимита\n  как проверить: node --test test/limit.test.ts — резерв отклонён', columns), [
+      { пункт: '[edge] Проверка лимита', 'как проверить': 'node --test test/limit.test.ts — резерв отклонён' },
+    ]);
+  });
   const columns = [
     { id: 'путь', header: 'path/to/file', kind: 'scalar' },
     { id: 'что здесь меняем', header: 'что здесь меняем', kind: 'scalar' },

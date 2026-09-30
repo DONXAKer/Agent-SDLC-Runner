@@ -1060,4 +1060,5 @@ export async function main(argv: readonly string[]): Promise<number> {
 }
 
 const code = await main(process.argv.slice(2));
-process.exit(code);
+// Let pending HTTP/libuv handles close before exit (forced exit can assert on Windows).
+process.exitCode = code;

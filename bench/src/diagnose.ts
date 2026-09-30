@@ -1,37 +1,28 @@
 /** Run the available stage-isolated diagnostic cases and compare them with a prior report. */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { taskById, taskPaths } from './tasks.ts';
-import type { TaskId } from './tasks.ts';
-import { startStageAfter } from './snapshot.ts';
 import { digest, treeDigest } from './diagnostics.ts';
+import { assessDiagnosticSample, type DiagnosticSample } from './diagnosticSample.ts';
+import { parseArgs as parseBenchArgs } from './options.ts';
+import { formatPreflight, preflightExitCode, runPreflight, type PreflightCheck } from './preflight.ts';
+import { checkDiagnosticInput, diagnosticCliArgs, type DiagnosticCase } from './diagnosticInputs.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const BENCH = join(ROOT, 'bench');
-const SNAPSHOTS = join(BENCH, 'snapshots');
 const RESULTS = join(BENCH, 'results');
 const manifest = JSON.parse(readFileSync(join(BENCH, 'diagnostics/cases.json'), 'utf8')) as {
   cases: DiagnosticCase[];
 };
 
-interface DiagnosticCase {
-  id: string; task: string; stage: string; snapshotAfter: string | null;
-  snapshot?: string; seed?: string; evaluation: string; problemIds?: number[];
-}
-interface Sample {
-  slug: string; exitCode: number | null; outcome: string; resultFile?: string;
-  durationMs?: number; tokens?: number; timedOut?: boolean; toolCalls?: number; friction?: number;
-  seedCaught?: boolean | null; semanticAssessment: 'not-assessed'; reason?: string;
-  passport?: { sourceHash?: string; configHash?: string; inputHash?: string; gitHead?: string | null };
-}
+type Sample = DiagnosticSample;
 interface CaseResult extends DiagnosticCase {
   inputStatus: 'available' | 'missing-input' | 'missing-snapshot' | 'invalid-snapshot';
   inputReason: string; samples: Sample[];
 }
 interface DiagnosticReport {
-  version: 1; generatedAt: string; model: string; repeats: number; preflight: { exitCode: number | null };
+  version: 1; generatedAt: string; model: string; repeats: number; preflight: { exitCode: number | null; checks: PreflightCheck[] };
   fingerprint: { gitHead: string | null; sourceHash: string; configHash: string; modelConfigHash: string };
   cases: CaseResult[]; problemCoverage: Array<{ problemId: number; cases: string[]; available: number; total: number; status: string }>;
 }
@@ -63,27 +54,7 @@ function parseArgs(args: string[]): { model: string; repeats: number; only: stri
 }
 
 function checkInput(c: DiagnosticCase): { status: CaseResult['inputStatus']; reason: string; snapshot: string | null } {
-  const task = taskById(c.task as TaskId);
-  const paths = taskPaths(BENCH, task);
-  const missing = [paths.taskFile, paths.humanFile, paths.expectedFile, paths.hiddenFile].filter((p) => !existsSync(p));
-  if (missing.length) return { status: 'missing-input', reason: `missing ${missing.map((p) => p.replace(`${BENCH}/`, '')).join(', ')}`, snapshot: null };
-  if (c.snapshotAfter === null) return { status: 'available', reason: 'fixture input', snapshot: null };
-  const dirs = readdirSync(SNAPSHOTS, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-  const chosen = c.snapshot ?? dirs.find((name) => {
-    try {
-      const m = JSON.parse(readFileSync(join(SNAPSHOTS, name, 'snapshot.json'), 'utf8')) as { task?: string; stoppedAfterStage?: string };
-      return m.task === c.task && m.stoppedAfterStage === c.snapshotAfter;
-    } catch { return false; }
-  });
-  if (!chosen) return { status: 'missing-snapshot', reason: `no validated ${c.task} snapshot after ${c.snapshotAfter}`, snapshot: null };
-  try {
-    const meta = JSON.parse(readFileSync(join(SNAPSHOTS, chosen, 'snapshot.json'), 'utf8')) as { task?: string; stoppedAfterStage?: string };
-    if (meta.task !== c.task || meta.stoppedAfterStage !== c.snapshotAfter || startStageAfter(meta.stoppedAfterStage) !== c.stage) {
-      return { status: 'invalid-snapshot', reason: `${chosen} does not start ${c.stage} for ${c.task}`, snapshot: null };
-    }
-    if (c.seed && c.seed !== 'none' && c.stage !== 'verify') return { status: 'invalid-snapshot', reason: 'seed is only valid for verify', snapshot: null };
-    return { status: 'available', reason: chosen, snapshot: chosen };
-  } catch { return { status: 'missing-snapshot', reason: `snapshot ${chosen} is unavailable`, snapshot: null }; }
+  return checkDiagnosticInput(BENCH, c);
 }
 
 function run(args: string[], timeoutMs: number): number | null {
@@ -95,24 +66,14 @@ function run(args: string[], timeoutMs: number): number | null {
   return proc.status;
 }
 
-function sample(slug: string, exitCode: number | null): Sample {
+function sample(slug: string, exitCode: number | null, stage: string): Sample {
   const file = join(RESULTS, `${slug}.json`);
   if (!existsSync(file)) return { slug, exitCode, outcome: exitCode === null ? 'execution-error' : 'no-result', semanticAssessment: 'not-assessed' };
   try {
     const r = JSON.parse(readFileSync(file, 'utf8')) as Record<string, any>;
-    const stages = r.driver?.stages ?? [];
-    const diag = r.diagnostics;
-    const seedCaught = typeof r.seed?.caught === 'boolean' ? r.seed.caught : null;
-    const elapsed = Date.parse(r.run?.finishedAt ?? '') - Date.parse(r.run?.startedAt ?? '');
-    const outcome = exitCode === null || diag?.state !== 'finished' ? 'incomplete' : exitCode === 0 ? 'completed' : 'completed-with-findings';
     return {
-      slug, exitCode, outcome, resultFile: relative(ROOT, file).replaceAll('\\', '/'),
-      ...(Number.isFinite(elapsed) ? { durationMs: Math.max(0, elapsed) } : {}),
-      ...(Array.isArray(r.metrics?.stages) ? { tokens: r.metrics.stages.reduce((n: number, x: any) => n + (Number(x.usage?.inputTokens) || 0) + (Number(x.usage?.outputTokens) || 0), 0) } : {}),
-      timedOut: stages.some((s: any) => s.timedOut),
-      toolCalls: Array.isArray(r.observed?.toolCalls) ? r.observed.toolCalls.reduce((n: number, x: any) => n + (Number(x.count) || 1), 0) : undefined,
-      friction: Array.isArray(r.metrics?.friction) ? r.metrics.friction.reduce((n: number, x: any) => n + ['repeat', 'badJson', 'denied', 'truncated'].reduce((m, k) => m + (Number(x[k]) || 0), 0), 0) : undefined,
-      seedCaught, semanticAssessment: 'not-assessed', passport: diag?.passport,
+      ...assessDiagnosticSample(r, slug, exitCode, stage),
+      resultFile: relative(ROOT, file).replaceAll('\\', '/'),
     };
   } catch (e) {
     return { slug, exitCode, outcome: 'invalid-result', semanticAssessment: 'not-assessed', reason: String(e) };
@@ -121,11 +82,11 @@ function sample(slug: string, exitCode: number | null): Sample {
 
 function recommendations(report: DiagnosticReport): string[] {
   const out: string[] = [];
-  const completed = report.cases.flatMap((c) => c.samples).filter((s) => s.outcome === 'completed' || s.outcome === 'completed-with-findings');
+  const completed = report.cases.flatMap((c) => c.samples).filter((s) => s.stageStarted);
   if (report.preflight.exitCode !== 0) out.push('Исправить среду или конфигурацию по preflight; результаты модельных кейсов не запускались.');
   if (report.cases.some((c) => c.inputStatus !== 'available')) out.push('Подготовить и проверить отсутствующие снимки, чтобы расширить покрытие известных проблем.');
   if (completed.some((s) => s.timedOut)) out.push('Проверить лимит времени на этапах с timeout; сравнить с более высоким лимитом на том же кейсе.');
-  if (completed.some((s) => s.outcome === 'completed-with-findings')) out.push('Разобрать отчёты провалившихся кейсов; менять один параметр за сравнительный запуск.');
+  if (completed.some((s) => s.outcome === 'stage-failed')) out.push('Разобрать отчёты провалившихся кейсов; менять один параметр за сравнительный запуск.');
   if (completed.some((s) => s.seedCaught === false)) out.push('Для verify проверить обзор diff, передачу посева и инструкции reviewer; сверить находку с чистым контролем V00.');
   if (completed.length && completed.every((s) => s.semanticAssessment === 'not-assessed')) out.push('Смысловая оценка не выполнена: проверить артефакты по чеклистам кейсов перед выводом о качестве.');
   if (out.length === 0) out.push('Механических сигналов для настройки не найдено; оценить содержимое артефактов и сохранить результат как базовый замер.');
@@ -138,16 +99,18 @@ function markdown(r: DiagnosticReport): string {
     return sorted.length ? sorted[Math.floor(sorted.length / 2)]! : null;
   };
   const rows = r.cases.map((c) => {
-    const done = c.samples.filter((s) => s.outcome === 'completed' || s.outcome === 'completed-with-findings').length;
+    const done = c.samples.filter((s) => s.stageStarted).length;
     const caught = c.samples.filter((s) => s.seedCaught === true).length;
-    const failed = c.samples.filter((s) => s.outcome === 'completed-with-findings' || s.seedCaught === false).length;
+    const failed = c.samples.filter((s) => (s.problemCodes?.length ?? 0) > 0).length;
     const duration = median(c.samples.map((s) => s.durationMs).filter((v): v is number => v !== undefined));
     const tokens = median(c.samples.map((s) => s.tokens).filter((v): v is number => v !== undefined));
     const measured = `t=${duration === null ? '—' : `${Math.round(duration / 1000)}s`}, tokens=${tokens === null ? '—' : tokens}`;
-    return `| ${c.id} | ${c.task} / ${c.stage} | ${c.inputStatus} | ${done}/${r.repeats} | ${c.seed ? `${caught}/${done} caught` : `${failed} run findings`} | ${measured} | not assessed |`;
+    const status = c.samples.length ? [...new Set(c.samples.flatMap((s) => s.problemCodes ?? []))].join(', ') || 'completed'
+      : `${c.inputStatus}: ${c.inputReason}`;
+    return `| ${c.id} | ${c.task} / ${c.stage} | ${c.inputStatus} | ${done}/${r.repeats} | ${c.seed ? `${caught}/${done} caught` : `${failed} run findings`}; ${status.replaceAll('|', '\\|').replaceAll('\n', ' ')} | ${measured} | not assessed |`;
   });
   const coverage = r.problemCoverage.map((p) => `| ${p.problemId} | ${p.cases.join(', ') || '—'} | ${p.available}/${p.total} | ${p.status} |`);
-  return [`# Model diagnostics: ${r.model}`, '', `Generated: ${r.generatedAt}`, `Preflight exit code: ${r.preflight.exitCode ?? 'execution error'}`, `Source: ${r.fingerprint.sourceHash}`, `Config: ${r.fingerprint.configHash}`, '', '| Case | Task / stage | Input | Completed | Mechanical result | Median time / tokens | Semantic review |', '|---|---|---|---:|---|---:|---|', ...rows, '', '## Known problem coverage', '', '| Problem | Cases | Available inputs | Status |', '|---:|---|---:|---|', ...coverage, '', '## Suggestions', '', ...recommendations(r).map((x) => `- ${x}`), '', 'Semantic quality must be reviewed against each case rubric; completion and runtime gates do not establish correctness.', ''].join('\n');
+  return [`# Model diagnostics: ${r.model}`, '', `Generated: ${r.generatedAt}`, `Preflight exit code: ${r.preflight.exitCode ?? 'execution error'}`, ...r.preflight.checks.filter((check) => !check.ok).map((check) => `Preflight problem (${check.env ? 'environment' : 'model'}): ${check.name}: ${check.detail}`), `Source: ${r.fingerprint.sourceHash}`, `Config: ${r.fingerprint.configHash}`, '', '| Case | Task / stage | Input | Started | Mechanical result | Median time / tokens | Semantic review |', '|---|---|---|---:|---|---:|---|', ...rows, '', '## Known problem coverage', '', '| Problem | Cases | Available inputs | Status |', '|---:|---|---:|---|', ...coverage, '', '## Suggestions', '', ...recommendations(r).map((x) => `- ${x}`), '', 'Semantic quality must be reviewed against each case rubric; completion and runtime gates do not establish correctness.', ''].join('\n');
 }
 
 function compare(current: DiagnosticReport, priorPath: string): string[] {
@@ -163,7 +126,7 @@ function compare(current: DiagnosticReport, priorPath: string): string[] {
     const afterSample = c.samples.find((s) => s.passport);
     const sameInput = beforeSample?.passport?.inputHash === afterSample?.passport?.inputHash;
     const sameRuntime = beforeSample?.passport?.sourceHash === afterSample?.passport?.sourceHash && beforeSample?.passport?.configHash === afterSample?.passport?.configHash;
-    const countMeasured = (samples: Sample[]): number => samples.filter((s) => s.outcome === 'completed' || s.outcome === 'completed-with-findings').length;
+    const countMeasured = (samples: Sample[]): number => samples.filter((s) => s.stageStarted === true).length;
     const before = countMeasured(prev.samples);
     const after = countMeasured(c.samples);
     const status = compatible && sameInput && sameRuntime ? 'сопоставимо' : 'условия различаются';
@@ -184,7 +147,9 @@ async function main(): Promise<number> {
     const input = checkInput(c);
     return { ...c, ...{ inputStatus: input.status, inputReason: input.reason, samples: [] } };
   });
-  const preflightCode = run(['--model', opts.model, '--preflight', '--quiet'], 15 * 60_000);
+  const preflight = await runPreflight(parseBenchArgs(['--model', opts.model, '--preflight', '--quiet']));
+  const preflightCode = preflightExitCode(preflight);
+  console.log(formatPreflight(preflight));
   const fingerprint = {
     gitHead,
     sourceHash: digest(['server/src', 'shared/src', 'bench/src', '.claude'].map((d) => `${d}:${existsSync(join(ROOT, d)) ? treeDigest(join(ROOT, d)) : 'absent'}`).join('\n')),
@@ -197,18 +162,17 @@ async function main(): Promise<number> {
       const input = checkInput(c);
       for (let i = 1; i <= opts.repeats; i++) {
         const slug = `diag-${opts.model.replace(/[^a-zA-Z0-9_-]/g, '-')}-${c.id.toLowerCase()}-${Date.now()}-${i}`;
-        const cliArgs = ['--model', opts.model, '--task', c.task, '--stage', c.stage, '--slug', slug,
-          '--stage-timeout', String(opts.timeout), '--run-timeout', String(opts.timeout), '--no-preflight', '--quiet'];
-        if (input.snapshot) cliArgs.push('--from-snapshot', input.snapshot);
-        if (c.seed) cliArgs.push('--seed', c.seed);
+        const cliArgs = diagnosticCliArgs({ model: opts.model, testCase: c, slug,
+          timeoutMinutes: opts.timeout, snapshot: input.snapshot,
+          local: modelDefinition.provider === 'ollama' || modelDefinition.provider === 'lmstudio' });
         const code = run(cliArgs, opts.timeout * 60_000 + 60_000);
-        c.samples.push(sample(slug, code));
+        c.samples.push(sample(slug, code, c.stage));
       }
     }
   }
   const report: DiagnosticReport = {
     version: 1, generatedAt: new Date().toISOString(), model: opts.model, repeats: opts.repeats,
-    preflight: { exitCode: preflightCode }, fingerprint, cases,
+    preflight: { exitCode: preflightCode, checks: preflight.checks }, fingerprint, cases,
     problemCoverage: Array.from({ length: 26 }, (_, i) => i + 1).map((problemId) => {
       const linked = cases.filter((c) => c.problemIds?.includes(problemId));
       const available = linked.filter((c) => c.inputStatus === 'available').length;
@@ -227,7 +191,9 @@ async function main(): Promise<number> {
   writeFileSync(join(RESULTS, `${slug}.report.md`), md, 'utf8');
   console.log(`Diagnostic report: ${jsonPath}`);
   console.log(md);
-  return preflightCode === 0 ? 0 : preflightCode ?? 2;
+  if (preflightCode !== 0) return preflightCode ?? 2;
+  if (cases.some((c) => c.inputStatus !== 'available')) return 2;
+  return cases.some((c) => c.samples.some((s) => (s.problemCodes?.length ?? 0) > 0)) ? 1 : 0;
 }
 
-main().then((code) => process.exit(code)).catch((error: unknown) => { console.error(error instanceof Error ? error.message : String(error)); process.exit(2); });
+main().then((code) => { process.exitCode = code; }).catch((error: unknown) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 2; });

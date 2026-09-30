@@ -397,6 +397,22 @@ export function parseRecordRows(
       }
       if (Object.keys(row).length > 0) return row;
     }
+    // A common local-model answer names only continuation columns:
+    // «- [edge] behaviour» followed by «  как проверить: command — expected».
+    // Keep that as one record; do not split the command's own dashes into cells.
+    const first = modelCols[0];
+    const firstLabel = FIELD_LINE_RE.exec(itemLines[0] ?? '');
+    const namedContinuation = itemLines.slice(1).map((line) => FIELD_LINE_RE.exec(line))
+      .filter((match): match is RegExpExecArray => match !== null);
+    if (first !== undefined && namedContinuation.length > 0 &&
+        (firstLabel === null || columnByKey(modelCols, firstLabel[1] ?? '') === null)) {
+      const row: Record<string, string> = { [first.id]: unwrapScalar(itemLines[0] ?? '') };
+      for (const match of namedContinuation) {
+        const key = columnByKey(modelCols, match[1] ?? '');
+        if (key !== null && key !== first.id) row[key] = unwrapScalar(match[2] ?? '');
+      }
+      if (Object.keys(row).length > 1) return row;
+    }
     // Форма 2: позиционно по «—»/«-» на первой (единственной значимой) строке. Ведущий id
     // (`**claim-1** — …`), который нумерует рантайм, снимается — он не значение колонки.
     const joinedRaw = itemLines.join(' ').trim();

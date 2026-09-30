@@ -138,6 +138,10 @@ export function extractHumanFacts(text: string): HumanFact[] {
       const question = (row[qi] ?? '').trim();
       const answer = (row[ai] ?? '').trim();
       if (question === '' || answer === '') continue;
+      // The runtime's empty-report sentinel records that nobody was asked. It is
+      // not a human answer and must not require a fictitious claim resolution.
+      if (/^[—–-]$/u.test((row[0] ?? '').trim()) && /^по существу пусто(?:\s|$)/iu.test(question)
+          && /^н\s*\/\s*п(?:\s|$)/iu.test(answer)) continue;
       if (PLACEHOLDER.test(question) || PLACEHOLDER.test(answer)) continue;
       if (answer.startsWith('(пропущено)')) continue;
       const changedRaw = ci < 0 ? '' : (row[ci] ?? '').trim();

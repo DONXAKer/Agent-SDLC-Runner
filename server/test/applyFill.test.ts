@@ -31,6 +31,13 @@ function нетЭталона(dir: string): string | false {
 }
 
 const roots: string[] = [];
+it('не принимает разорванные записи приёмки как заполненные критерии', () => {
+  const text = '## Приёмочный лист\n| id | Пункт | Как проверить |\n|---|---|---|\n| claim-1 | ‹пункт› | ‹процедура› |\n';
+  const bad = applyFill(text, 'приемочный лист', '- пункт: [edge] случай\n- как проверить: test/a.test.ts — результат', 'set', 'intent.template.md');
+  strictEqual(bad.ok, false);
+  const good = applyFill(text, 'приемочный лист', '- пункт: [edge] случай\n  как проверить: test/a.test.ts — результат', 'set', 'intent.template.md');
+  strictEqual(good.ok, true);
+});
 after(() => {
   for (const r of roots) rmSync(r, { recursive: true, force: true });
 });

@@ -302,6 +302,17 @@ export function applyFill(
       // Минимум листа приёмки (`CLAIMS_MINIMUM`) — сообщение об этом, не отказ: рантайм
       // не решает за рецензента этапа 1, он только называет факт, как fillField-описание.
       const min = field.min;
+      if (min !== undefined) {
+        const required = (field.columns ?? []).filter((column) => column.kind !== 'mechanical');
+        const incomplete = value.rows.findIndex((row) => required.some((column) => {
+          const cell = row[column.id]?.trim() ?? '';
+          return cell === '' || /^[—–-]$/u.test(cell);
+        }));
+        if (incomplete !== -1) return {
+          ok: false,
+          problem: `поле «${fieldId}»: запись ${incomplete + 1} не содержит все колонки (${required.map((column) => column.id).join(', ')}). Один пункт и его процедура должны находиться в одной записи; продолжения колонок пиши с отступом без нового дефиса.`,
+        };
+      }
       const short = min !== undefined && value.rows.length < min.rows;
       if (op === 'add') {
         // Дописывает к уже стоящим строкам, а не заменяет их (см. описание `op` у

@@ -77,9 +77,8 @@ describe('autofillVerificationReport', () => {
   it('механика шапки и вердикта: N, K, слаг, бюджет; sha и решения человека — нет', () => {
     const { text } = autofillVerificationReport(TEMPLATE, [], FACTS);
     match(text, /# Отчёт приёмки: bench-oversize, chunk 1, попытка 2/);
-    // Имя патча в шапке — инлайн-код: `placeholderRanges` его не видит по построению,
-    // и рантайм честно оставляет строку модели вместо разбора бэктиков вторым способом.
-    match(text, /chunk-‹N›-attempt-‹K›-diff\.patch/);
+    // The canonical diff filename is runtime-owned, even inside inline code.
+    match(text, /chunk-1-attempt-2-diff\.patch/);
     match(text, /\*\*Попытка:\*\* 2 из 3/);
     match(text, /‹base_sha›/);
     match(text, /\| ‹гейт› \| ‹причина› \| ‹имя› \|/);
@@ -92,10 +91,17 @@ describe('autofillVerificationReport', () => {
     );
     const { text, filled } = autofillVerificationReport(source, [], { ...FACTS, planApprovedOn: '2026-09-01' });
     ok(text.includes('· **План:** `plan.md`, одобрение от 2026-09-01'), text);
-    strictEqual(filled, 7);
+    strictEqual(filled, 8);
     const again = autofillVerificationReport(text, [], { ...FACTS, planApprovedOn: '2026-09-01' });
     strictEqual(again.filled, 0);
     strictEqual(again.text, text);
+  });
+  it('заполняет известные хэши свидетельств и не трогает кодовые примеры в других строках', () => {
+    const { text } = autofillVerificationReport(TEMPLATE + '\nПример: `chunk-‹N›-attempt-‹K›-diff.patch`', [], {
+      ...FACTS, baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40),
+    });
+    ok(text.includes(`база ${'a'.repeat(40)}, дерево ${'b'.repeat(40)}`));
+    ok(text.includes('Пример: `chunk-‹N›-attempt-‹K›-diff.patch`'));
   });
 
   it('leaves unknown approval dates and human decisions untouched', () => {

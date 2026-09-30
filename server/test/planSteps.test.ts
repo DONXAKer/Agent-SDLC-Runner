@@ -9,6 +9,13 @@ import { describe, it } from 'node:test';
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
 import { describeStep, explicitStepProblems, extractExplicitSteps, planSteps, stepsFromFilesToTouch } from '../src/artifacts/planSteps.ts';
 
+it('сохраняет продолжения действия, проверки и фактов человека', () => {
+  const [step] = extractExplicitSteps('### Шаг 1 — НДС\n- файл: src/vat.ts\n- действие: ставка 10% если все reduced, иначе\n  20%; поле vat не добавлять\n  при none\n- проверка: `node --test test/vat.test.ts` · ожидаемо:\n  зелёный\n- факты человека: расчёт от суммы\n  с округлением половина вверх\n');
+  strictEqual(step?.action, 'ставка 10% если все reduced, иначе 20%; поле vat не добавлять при none');
+  strictEqual(step?.expect, 'зелёный');
+  strictEqual(step?.facts, 'расчёт от суммы с округлением половина вверх');
+});
+
 const EXPLICIT = [
   '# План',
   '',
@@ -65,6 +72,10 @@ const OLD_FORM = [
 ].join('\n');
 
 describe('явная форма шага плана', () => {
+  it('отделяет имя символа от запятой и принимает явное отсутствие символа у документа', () => {
+    strictEqual(extractExplicitSteps(EXPLICIT.replace('- **символ:** priceFor', '- **символ:** priceFor, меняется тело'))[1]?.symbol, 'priceFor');
+    strictEqual(extractExplicitSteps(EXPLICIT.replace('- **символ:** priceFor', '- **символ:** н/п — документация'))[1]?.symbol, null);
+  });
   it('читает файл, символ, действие, пункты, проверку и факты; шаг без файла пропускает', () => {
     const steps = extractExplicitSteps(EXPLICIT);
     strictEqual(steps.length, 2);

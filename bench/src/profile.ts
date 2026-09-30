@@ -1,8 +1,7 @@
 /**
  * Маршруты прогона: что идёт по контролю, что под измерением.
  *
- * Правило рецензента здесь не пересчитывается — его считает `resolveAdHocProfile`, и
- * второго места, решающего «сильнее ли рецензент исполнителя», в проекте быть не должно.
+ * Все этапы полного цикла используют выбранную модель, если оператор явно не заменил маршрут.
  */
 
 import { readFileSync } from 'node:fs';
@@ -43,9 +42,7 @@ export function readControl(path: string): ControlFile {
 /** Этапы, которые в этом режиме идут под измеряемой моделью. */
 export function measuredStages(mode: BenchMode): readonly StageId[] {
   if (mode.kind === 'stage') return [mode.stage];
-  // verify исключён не из осторожности, а по правилу рецензента: одинаковый ранг у chunk и
-  // verify роняет старт витка, а понизить рецензента методология не разрешает.
-  return STAGE_ORDER.filter((s) => s !== 'verify');
+  return STAGE_ORDER;
 }
 
 export interface BuiltProfile {
@@ -69,10 +66,16 @@ export function buildProfile(args: {
   opts: BenchOptions;
 }): BuiltProfile {
   const { control, opts } = args;
-  const measured = opts.dryRun && opts.model === '' ? [] : measuredStages(opts.mode);
+  const measured = opts.dryRun && opts.model === '' ? [] : measuredStages(opts.mode).filter((stage) =>
+    opts.mode.kind === 'stage' || opts.controlOverrides[stage] === undefined || opts.controlOverrides[stage] === opts.model,
+  );
 
   const routes: Record<string, string> = { ...control.stages, ...opts.controlOverrides };
   for (const stage of measured) routes[stage] = opts.model;
+  const allLocal = Object.values(routes).every((id) => {
+    const model = args.models.models.find((entry) => entry.id === id);
+    return model !== undefined && ['ollama', 'lmstudio'].includes(model.provider);
+  });
 
   const project: ProjectConfig = {
     name: 'bench',
@@ -82,7 +85,7 @@ export function buildProfile(args: {
     // ограничителями остаются ходы и стенные часы. Здесь это только верхняя планка.
     maxBudgetUsd: opts.maxBudgetUsd,
     profiles: {
-      control: { label: control.label, stages: control.stages },
+      control: { label: allLocal ? 'Локальные маршруты Ollama / LM Studio' : control.label, stages: control.stages },
     },
   };
 

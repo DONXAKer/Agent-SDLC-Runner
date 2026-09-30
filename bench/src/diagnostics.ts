@@ -36,6 +36,7 @@ export interface DiagnosticPassport {
   snapshotName: string | null;
   stageTimeoutMs: number;
   runTimeoutMs: number;
+  localEndpoints?: Record<string, string>;
 }
 
 export function passport(args: {
@@ -48,6 +49,16 @@ export function passport(args: {
     const path = isAbsolute(dir) ? dir : join(args.repo, dir);
     return existsSync(path) ? `${dir}:${treeDigest(path)}` : `${dir}:absent`;
   }).join('\n'));
+  const localEndpoints: Record<string, string> = {};
+  for (const provider of ['OLLAMA', 'LMSTUDIO']) {
+    const value = process.env[`${provider}_BASE_URL`]?.trim();
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      url.username = ''; url.password = ''; url.search = ''; url.hash = '';
+      localEndpoints[provider.toLowerCase()] = url.toString();
+    } catch { localEndpoints[provider.toLowerCase()] = 'invalid-url'; }
+  }
   const metaPath = join(args.input, 'snapshot.json');
   const meta = existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, 'utf8')) as { authorModel?: string } : null;
   let snapshotAuthor = meta?.authorModel ?? null;
@@ -71,7 +82,8 @@ export function passport(args: {
     if (evidenceAuthors.size === 1) snapshotAuthor = [...evidenceAuthors][0]!;
   }
   return {
-    version: 1, gitHead, sourceHash, configHash: digest(JSON.stringify(args.config)),
+    version: 1, gitHead, sourceHash, configHash: digest(JSON.stringify({ config: args.config, localEndpoints })),
+    localEndpoints,
     inputHash: treeDigest(args.input), snapshotName: args.snapshotName,
     snapshotAuthor,
     stageTimeoutMs: args.stageTimeoutMs, runTimeoutMs: args.runTimeoutMs,

@@ -13,7 +13,7 @@ export type BenchMode =
   /** Измеряемая модель на одном этапе, остальные — контрольный маршрут. */
   | { kind: 'stage'; stage: StageId }
   /**
-   * Verify still runs on the configured control route; it is excluded from measured stages.
+   * Measure the full cycle, including verify, with optional explicit control overrides.
    */
   | { kind: 'all' };
 
@@ -219,7 +219,7 @@ export const USAGE = `
   --task <имя>          задача бенчмарка (умолчание oversize), по семействам фикстур:
 ${taskListForUsage()}
   --stage <этап>        измерять один этап: intent|explore|ask|plan|chunk|verify|handoff
-  --all                 measure all stages except verify; control verify still runs
+  --all                 measure all seven stages, including verify
   --slug <имя>          слаг витка (умолчание: bench-<модель>-<режим>)
   --control-<этап> <id> заменить контрольный маршрут этапа
   --stage-timeout <мин> потолок стенных часов на этап (умолчание 30)

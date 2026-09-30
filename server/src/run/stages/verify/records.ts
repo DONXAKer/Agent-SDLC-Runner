@@ -221,7 +221,12 @@ export function autofillVerification(host: StageHost, seeded: SeededArtifact[]):
   if (!report.exists || report.placeholders === 0) return;
 
   const gates = verify.lastGateResults.filter((g) => gateKey(g.name) !== gateKey(REVIEW_GATE));
+  let evidence: { base_sha?: string; head_sha?: string } = {};
+  try { evidence = JSON.parse(readArtifact(host.paths.chunkEvidence(host.chunk(), host.attempt())).text); }
+  catch { /* Missing evidence remains a separate red verification fact. */ }
   const { text, filled } = autofillVerificationReport(report.text, gates, {
+    baseSha: typeof evidence.base_sha === 'string' ? evidence.base_sha : null,
+    headSha: typeof evidence.head_sha === 'string' ? evidence.head_sha : null,
     planApprovedOn: approvedPlanDate(readArtifact(host.paths.plan).text),
     chunk: host.chunk(),
     attempt: host.attempt(),

@@ -325,11 +325,16 @@ export class ExploreExecutor implements StageExecutor {
       );
       if (answer !== null) {
         for (const p of parseNumberedAnswer(answer)) {
-          const r = ranked[p.n - 1];
+          let r = ranked[p.n - 1];
           if (r === undefined) continue;
           const head = p.parts[0] ?? '';
           if (NO.test(head)) continue;
-          if (!YES.test(head)) continue;
+          // Some local models replace «да» with the actual candidate path. Resolve that
+          // path against the supplied index, never against the guessed row number.
+          const named = ranked.find((candidate) => candidate.file.path === head.replace(/[`*]/g, '').trim());
+          if (named !== undefined) r = named;
+          else if (!YES.test(head)) continue;
+          if (mapRows.some((row) => row['файл'] === r.file.path)) continue;
           const now = p.parts[1] ?? '';
           // Последнее поле строки, а не третье строго: модель, добавившая в «что меняем»
           // собственный `|` (перечисление, уточнение), иначе теряла бы всё после второго

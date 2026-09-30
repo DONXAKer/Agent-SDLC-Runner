@@ -4,7 +4,7 @@ import type { StageContext } from './stages/types.ts';
 import { readArtifact, readField, hasNamedInvariants } from '../artifacts/artifact.ts';
 import { countClaims } from '../artifacts/claims.ts';
 import { configProblems, parseGates } from '../gates/gatesFile.ts';
-import { splitRow } from '../md/table.ts';
+import { h2SectionRanges, splitRow } from '../md/table.ts';
 import { hasOpenQuestions, intentPlaceholdersOutsideTouch, intentTamperedSections, isSmallContour } from './stages/preconditions.ts';
 import { CLAIMS_MINIMUM } from '../artifacts/claims.ts';
 
@@ -15,6 +15,21 @@ export interface ReadinessCheckResult {
 
 function filled(value: string | null): boolean {
   return value !== null && value.trim() !== '' && !/[‹›]/u.test(value);
+}
+
+export function hasRuntimeReadiness(text: string): boolean {
+  return text.includes('**Проверки:**') || /^\|\s*#\s*\|\s*Проверка\s*\|\s*Статус\s*\|/mu.test(text);
+}
+
+function fieldOrSection(text: string, label: string): string | null {
+  const field = readField(text, label);
+  if (field !== null) return field;
+  const section = h2SectionRanges(text, new RegExp(`^${label}$`, 'iu'))[0];
+  if (section === undefined) return null;
+  return text.slice(section.start, section.end)
+    .replace(/^##[^\n]*\n?/u, '')
+    .replace(/^_[\s\S]*?_\s*$/gmu, '')
+    .trim();
 }
 
 function claimRows(intent: string): string[] {
@@ -36,7 +51,7 @@ export function readinessRun1(c: StageContext): ReadinessCheckResult {
   const text = intent.exists ? intent.text : '';
   const gateProblems = gates.exists ? configProblems(parseGates(gates.text)) : ['файл гейтов отсутствует'];
   const gateOk = gateProblems.length === 0;
-  const scopeOk = filled(readField(text, 'Что делаем')) && filled(readField(text, 'Чего не делаем'));
+  const scopeOk = filled(fieldOrSection(text, 'Что делаем')) && filled(fieldOrSection(text, 'Чего не делаем'));
   const counts = countClaims(text);
   const small = isSmallContour(c);
   const claimsOk = counts.rows >= (small ? 1 : CLAIMS_MINIMUM.rows) && counts.edges >= (small ? 0 : CLAIMS_MINIMUM.edges);
@@ -62,7 +77,7 @@ export function readinessRun2(c: StageContext): ReadinessCheckResult {
   const exploration = readArtifact(c.paths.explorationReport);
   const text = intent.exists ? intent.text : '';
   const open = hasOpenQuestions(text) || (exploration.exists && hasOpenQuestions(exploration.text));
-  const touch = readField(text, 'Что придётся тронуть');
+  const touch = fieldOrSection(text, 'Что придётся тронуть');
   const touchOk = isSmallContour(c) || filled(touch);
   const counts = countClaims(text);
   const small = isSmallContour(c);

@@ -298,6 +298,10 @@ describe('чтение отчёта приёмки', () => {
     deepStrictEqual(facts.regressions, []);
     deepStrictEqual(facts.brokenInvariants, []);
   });
+  it('точный ответ «регрессии / нет» не превращается в находку, реальные отрицания сохраняются', () => {
+    deepStrictEqual(readReport('## 5. Регрессии\n- регрессии / нет').regressions, []);
+    deepStrictEqual(readReport('## 5. Регрессии\n- нет отката миграции').regressions, ['нет отката миграции']);
+  });
 
   it('сверка с деревом читается утверждением, а не по умолчанию', () => {
     strictEqual(facts.diffMatchesTree, true);

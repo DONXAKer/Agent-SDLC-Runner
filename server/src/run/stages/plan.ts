@@ -16,7 +16,7 @@ import {
   touchListEntries,
 } from '../../artifacts/planFiles.ts';
 import { explicitStepProblems, extractExplicitSteps, planSteps } from '../../artifacts/planSteps.ts';
-import { readRequirementsHash, resolvedRequirementsHash } from '../../artifacts/resolvedRequirements.ts';
+import { addRequirementsHash, readRequirementsHash, resolvedRequirementsHash } from '../../artifacts/resolvedRequirements.ts';
 import { clarificationResolutionBlock, clarificationResolutionProblem } from '../../artifacts/clarificationResolution.ts';
 import { claimIdOf } from '../../artifacts/claims.ts';
 import { applyAxisAnswers } from '../../artifacts/renderAxes.ts';
@@ -30,7 +30,7 @@ import { h2SectionRanges } from '../../md/table.ts';
 import { ProviderEnvError } from '../../provider/ChatProvider.ts';
 import { createProvider } from '../../provider/registry.ts';
 import { autofillPlan, autofillReadiness } from '../formAutofill.ts';
-import { readinessRun2 } from '../readinessChecks.ts';
+import { hasRuntimeReadiness, readinessRun2 } from '../readinessChecks.ts';
 import { fillPlanAxes } from '../planAxisFill.ts';
 import { fillPlanAxesStepwise } from '../planAxisStepwise.ts';
 import { explorationPathsExist } from './explore.ts';
@@ -579,9 +579,16 @@ export const planModule: StageModule = {
     // после ухода планировщика, а дописывать исход за него стало бы некому — кроме
     // самого исполнителя, которому решение человека не принадлежит.
     finishProblem: () => {
+      const draft = readArtifact(host.paths.plan);
+      if (draft.exists && readRequirementsHash(draft.text) === null) {
+        const intent = readArtifact(host.paths.intent);
+        const clarification = readArtifact(host.paths.clarificationReport);
+        const hash = resolvedRequirementsHash(intent.exists ? intent.text : '', clarification.exists ? clarification.text : '');
+        host.writeAutofilled(host.paths.plan, addRequirementsHash(draft.text, hash), []);
+      }
       const readinessResult = readinessRun2(host.ctx());
       const readiness = readArtifact(host.paths.readiness);
-      const runtimeChecklist = readiness.exists && readiness.text.includes('**Проверки:**');
+      const runtimeChecklist = readiness.exists && hasRuntimeReadiness(readiness.text);
       if (runtimeChecklist) {
         const date = new Date().toISOString().slice(0, 10);
         const updated = autofillReadiness(readiness.text, {

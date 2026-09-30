@@ -130,5 +130,15 @@ export function writeResult(path: string, result: BenchResult): void {
   // переписанный на месте результат, не перебирая сотни файлов на каждом опросе.
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(result, null, 2)}\n`);
-  renameSync(tmp, path);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(tmp, path);
+      break;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 5 || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '')) throw error;
+      // Windows readers can briefly hold the destination open; preserve atomic publication.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+    }
+  }
 }

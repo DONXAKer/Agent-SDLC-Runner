@@ -45,13 +45,14 @@ describe('autofillPlan', () => {
 
   it('закрывает название, вход и базу; решение человека, подход и таблицу осей не трогает', () => {
     const { text, filled } = autofillPlan(PLAN, facts);
-    strictEqual(filled, 5);
+    strictEqual(filled, 6);
     ok(text.includes('# План: demo'), text);
     ok(text.includes('отчёт разведки да · отчёт по вопросам шага не было'), text);
     ok(text.includes('- **База:** abc123'), text);
     ok(text.includes('- **Одобрение:** ‹имя› · ‹дата›'), 'решение человека обязано остаться нетронутым');
     ok(text.includes('‹подход›'));
     ok(text.includes('| ‹имя оси› | ‹да/нет› |'), '«да/нет» в таблице осей — выбор модели, не факт рантайма');
+    ok(text.includes(`**Требования (SHA-256):** ${facts.requirementsHash}`));
   });
 
   it('идемпотентно', () => {
@@ -61,6 +62,32 @@ describe('autofillPlan', () => {
 });
 
 describe('autofillReadiness', () => {
+  it('нормализует старую таблицу, сохраняет записанный ответ и пересчитывает итог после исправления', () => {
+    const legacy = [
+      '# Готовность задачи: ‹название витка›', '',
+      '## Прогон 1 — перед разведкой', '', '- **Дата:** ‹дата›', '',
+      '| # | Проверка | Статус | Где видно / что чинить |', '|---|---|---|---|',
+      '| 1 | Набор гейтов | ‹✅/❌› | ‹путь› |', '',
+      '- **Ответ человека (необходимое):** нужен налог 20%',
+      '- **Ответ человека (однозначное):** ‹ответ›',
+      '**Вердикт прогона 1:** ‹готова / не готова›', '',
+      '## Прогон 2 — перед планом', '', '- **Дата:** ‹дата›', '',
+      '| # | Проверка | Статус | Где видно / что чинить |', '|---|---|---|---|',
+      '| 1 | Блокирующие вопросы | ‹✅/❌› | ‹путь› |', '',
+      '**Вердикт прогона 2:** ‹готова / не готова›', '',
+    ].join('\n');
+    const seeded = autofillReadiness(legacy, { title: 'demo', date: '2026-09-30', run: 1 }).text;
+    ok(!seeded.includes('‹'), seeded);
+    ok(seeded.includes('нужен налог 20%'), seeded);
+    ok(seeded.includes('Ожидает этапа плана'), seeded);
+    const failed = autofillReadiness(seeded, { title: 'demo', date: '2026-09-30', run: 1,
+      checks: 'приёмка ❌', verdict: 'not' }).text;
+    const repaired = autofillReadiness(failed, { title: 'demo', date: '2026-09-30', run: 1,
+      checks: 'приёмка ✅', verdict: 'ready' }).text;
+    ok(repaired.includes('**Вердикт прогона 1:** готова'), repaired);
+    ok(repaired.includes('**Проверки:** приёмка ✅'), repaired);
+    ok(!repaired.includes('приёмка ❌'), repaired);
+  });
   const READINESS = [
     '# Готовность задачи: ‹название витка›',
     '',

@@ -441,6 +441,7 @@ export function readReport(report: string): ReportFacts {
     if (!t.startsWith('-') && !t.startsWith('*')) continue;
     const body = t.replace(/^[-*]\s*/, '');
     if (isEmptyValue(body)) continue;
+    if (/^(?:регрессии|регрессий)\s*\/\s*нет[.!]?$/iu.test(body.replace(/[`*_]/g, '').trim())) continue;
     if (/^_/.test(body)) continue; // курсивная подсказка формы
     // Строка, которая САМА себя объявляет зелёной и не содержит ни одного признака
     // отката, — это доказательство отсутствия регрессии, а не находка. Рецензенты

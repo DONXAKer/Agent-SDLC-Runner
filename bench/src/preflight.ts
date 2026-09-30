@@ -600,7 +600,7 @@ async function checkLayout(deps: PreflightDeps, config: LoadedConfig, opts: Benc
   const ms = Date.now() - started;
   return problem === null
     ? ok(name, false, 'ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима', ms)
-    : bad(name, false, problem.message, ms);
+    : bad(name, true, problem.message, ms);
 }
 
 /**
