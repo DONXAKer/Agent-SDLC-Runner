@@ -62,7 +62,7 @@ export function commitTargets(
     // Служебные файлы рантайма (вердикт попытки, лента, снимки, метрики) — состояние этой
     // машины, а не артефакты методологии: в репозиторий проекта они не коммитятся.
     const rest = p.slice(sdlcPrefix.length);
-    return !isRuntimeServicePath(rest);
+    return (ci ? rest.toLowerCase() : rest) === 'preparation.json' || !isRuntimeServicePath(rest);
   });
 }
 

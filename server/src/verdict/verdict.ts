@@ -108,6 +108,9 @@ function nonStatusReasons(i: VerdictInput): string[] {
   for (const p of i.plannedPathsUntouched) {
     out.push(`путь плана «${p}» помечен «не сделано»`);
   }
+  if ((i.unfilledReportFields ?? 0) > 0) {
+    out.push(`отчёт приёмки содержит ${i.unfilledReportFields} незаполненных содержательных полей`);
+  }
 
   // 7. Артефакт этапа 5 не соответствует рабочему дереву — проверять нечего, доказательство
   //    подделано или устарело.

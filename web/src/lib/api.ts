@@ -184,6 +184,7 @@ export const api = {
       artifact: string;
       label: string;
       granted: boolean;
+      preparationFingerprint?: string;
       note?: string;
       chunk?: number;
       attempt?: number;

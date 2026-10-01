@@ -7,6 +7,7 @@ import { configProblems, parseGates } from '../gates/gatesFile.ts';
 import { h2SectionRanges, splitRow } from '../md/table.ts';
 import { hasOpenQuestions, intentPlaceholdersOutsideTouch, intentTamperedSections, isSmallContour } from './stages/preconditions.ts';
 import { CLAIMS_MINIMUM } from '../artifacts/claims.ts';
+import { isPreparationV2, researchProblem, requirementProblem, blockingQuestions } from '../artifacts/preparation.ts';
 
 export interface ReadinessCheckResult {
   checks: string;
@@ -49,6 +50,10 @@ export function readinessRun1(c: StageContext): ReadinessCheckResult {
   const intent = readArtifact(c.paths.intent);
   const gates = readArtifact(c.paths.gates);
   const text = intent.exists ? intent.text : '';
+  if (isPreparationV2(c.paths)) {
+    const problem = researchProblem(text);
+    return { ready: problem === null, checks: problem ?? 'готова к исследованию: цель, результат и границы названы; приёмка уточняется до реализации' };
+  }
   const gateProblems = gates.exists ? configProblems(parseGates(gates.text)) : ['файл гейтов отсутствует'];
   const gateOk = gateProblems.length === 0;
   const scopeOk = filled(fieldOrSection(text, 'Что делаем')) && filled(fieldOrSection(text, 'Чего не делаем'));
@@ -76,6 +81,14 @@ export function readinessRun2(c: StageContext): ReadinessCheckResult {
   const intent = readArtifact(c.paths.intent);
   const exploration = readArtifact(c.paths.explorationReport);
   const text = intent.exists ? intent.text : '';
+  if (isPreparationV2(c.paths)) {
+    const problem = requirementProblem(text);
+    const questions = blockingQuestions(exploration.text);
+    const researched = exploration.exists && exploration.placeholders === 0;
+    return { ready: problem === null && !questions && researched,
+      checks: [problem ?? 'требования: основания, сценарии, проверки и контрпримеры заполнены',
+        researched ? 'исследование записано' : 'заверши исследование', questions ? 'закрой существенные вопросы разведки' : 'существенных вопросов разведки нет'].join('; ') };
+  }
   const open = hasOpenQuestions(text) || (exploration.exists && hasOpenQuestions(exploration.text));
   const touch = fieldOrSection(text, 'Что придётся тронуть');
   const touchOk = isSmallContour(c) || filled(touch);

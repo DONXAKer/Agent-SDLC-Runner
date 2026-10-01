@@ -15,6 +15,7 @@ import {
   readDecision,
 } from '../../artifacts/artifact.ts';
 import { CLAIMS_MINIMUM, countClaims } from '../../artifacts/claims.ts';
+import { isPreparationV2, researchProblem, preparation } from '../../artifacts/preparation.ts';
 import { checkIntentAgainstSnapshot } from '../../artifacts/intentSections.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import type { Precondition, StageContext } from './types.ts';
@@ -24,6 +25,7 @@ import type { Precondition, StageContext } from './types.ts';
  * `null` — снимка нет (виток начат до его появления или с середины) либо всё законно.
  */
 export function intentTamperedSections(c: StageContext): string[] | null {
+  if (isPreparationV2(c.paths) && preparation(c.paths)!.revisions.length === 0) return null;
   const intent = readArtifact(c.paths.intent);
   if (!intent.exists) return null;
   const check = checkIntentAgainstSnapshot(c.paths.intentSections, intent.text);
@@ -112,6 +114,7 @@ export function intentPlaceholdersOutsideTouch(text: string): number {
  * 2026-09-23): два ответа на вопрос «артефакт полон?» по одному артефакту.
  */
 export function intentPlaceholderCount(c: StageContext, text: string, afterExploration: boolean): number {
+  if (isPreparationV2(c.paths) && !afterExploration) return researchProblem(text) === null ? 0 : 1;
   const touchRequired = afterExploration && !isSmallContour(c);
   return touchRequired ? countPlaceholders(text) : intentPlaceholdersOutsideTouch(text);
 }
@@ -225,6 +228,7 @@ export function hasOpenQuestions(text: string): boolean {
 
 /** Мелкий контур: этапы 2 и 3 не запускаются, разведка точечная на этапе 5. */
 export function isSmallContour(c: StageContext): boolean {
+  if (isPreparationV2(c.paths)) return false;
   const intent = readArtifact(c.paths.intent);
   if (!intent.exists) return false;
   const m = /^.*\*\*Контур:\*\*(.*)$/m.exec(intent.text);
@@ -252,6 +256,7 @@ export function claimsMinimum(): Precondition {
     check: (c) => {
       const intent = readArtifact(c.paths.intent);
       if (!intent.exists) return `нет файла ${c.paths.intent}`;
+      if (isPreparationV2(c.paths)) return researchProblem(intent.text);
       // Подсчёт — общим `countClaims` (ячейка id канонически несёт и теги: `claim-1 [edge]`;
       // прежний локальный regex требовал голый `claim-N` и блокировал разведку на
       // полностью правильном intent.md).

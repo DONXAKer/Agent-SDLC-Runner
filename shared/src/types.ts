@@ -587,6 +587,8 @@ export interface VerdictInput {
   brokenInvariants: string[];
   regressions: string[];
   plannedPathsUntouched: string[];
+  /** Содержательные поля отчётов verify, оставшиеся пустыми после всех доборов. */
+  unfilledReportFields?: number;
   diffMatchesTree: boolean;
   /**
    * Свидетельства попытки не произведены инструментом либо не сошлись с файлами: текст

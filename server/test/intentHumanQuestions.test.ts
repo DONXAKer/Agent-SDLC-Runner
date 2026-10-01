@@ -37,7 +37,7 @@ describe('intent: ответы на открытые вопросы принад
 
     const asks: string[][] = [];
     const host = {
-      paths: { intent, clarificationReport: report },
+      paths: { dir: root, intent, clarificationReport: report },
       slug: 'demo',
       runner: () => ({ methodologyDir: root }),
       writeAutofilled: (path: string, text: string) => writeFileSync(path, text),

@@ -1,3 +1,4 @@
+import { fieldSystem } from './fieldPrompt.ts';
 /**
  * Флоу `loop`, этап 2 конвейером рантайма: рантайм ведёт разведку по карточкам, модель
  * отвечает на закрытые вопросы, отчёт пишет рантайм через гейт.
@@ -30,10 +31,8 @@
  *  - путь не из индекса и не помеченный новым в карту не попадает — модель не может
  *    «прочитать» файл, которого рантайм не показал; это цена режима, и она фиксируется в
  *    предупреждении и в «Границах разведки», которые пишет сама модель;
- *  - переспросов нет: строка не по форме — не разобрана, поле остаётся стражу
- *    (CR-Bench: дожимание слабой модели шумит, см. `reviewFill.ts`);
- *  - промпт этапа (`req.prompt`) уходит системным сообщением каждого вопроса вместе с
- *    индексом в `prompt.user` — оператор видит то, что видит модель, плюс карточки.
+ *  - непринятые строки карты получают один переспрос в пределах бюджета этапа;
+ *  - полевые запросы сохраняют входы этапа и карточки, но используют узкую инструкцию.
  *
  * ИМЕНОВАННОЕ ИСКЛЮЧЕНИЕ из правила «всё, что уйдёт в модель, собрано в buildPrompt»: как и у
  * `FormFillExecutor`/`StepExecutor`, вопросы несут свою обвязку (карточки, формат ответа) —
@@ -62,6 +61,7 @@ import { autofillExplorationReport, type ExplorationFacts } from '../run/explore
 import { ProviderEnvError, type ChatMessage, type ChatProvider } from '../provider/ChatProvider.ts';
 import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './contextBudget.ts';
 import { FormFillExecutor } from './FormFillExecutor.ts';
+import { parseExploreMap } from './exploreMap.ts';
 import { writeThroughGate } from './gateWrite.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import type { ToolContext } from './tools/index.ts';
@@ -247,7 +247,7 @@ export class ExploreExecutor implements StageExecutor {
       }
       calls++;
       const messages: ChatMessage[] = [
-        { role: 'system', content: req.prompt.system },
+        { role: 'system', content: fieldSystem(req) },
         { role: 'user', content: `${req.prompt.user}\n\n## Сейчас — ${title}\n\n${body}` },
       ];
       try {
@@ -299,6 +299,7 @@ export class ExploreExecutor implements StageExecutor {
     const ranked = this.o.built.ranked;
     const perCard = cardBudgetPerFile(this.o.cardBudgetBytes, ranked.length);
     const mapRows: Record<string, string>[] = [];
+    let mapProblem: string | null = null;
     if (ranked.length === 0) {
       notes.push('карта: индекс не дал ни одного кандидата — карту составить не по чему');
     } else {
@@ -317,34 +318,41 @@ export class ExploreExecutor implements StageExecutor {
           ),
           '',
           'Ответь по одной строке на КАЖДЫЙ номер, строго в форме:',
-          '`N. да | что там сейчас (классы/функции, одной фразой) | что меняем` — файл относится к задаче;',
+          '`N. путь: существующие классы/функции | конкретное изменение` — файл относится к задаче. Путь возьми из списка кандидатов, N замени числом.',
           '`N. нет` — не относится.',
           'Файл, которого ещё нет и который предстоит создать: `+ путь/от/корня | что создаём`.',
           'Только эти строки, без заголовков и пояснений. Файлы вне этого списка называть нельзя — их ты не читала.',
         ].join('\n'),
       );
       if (answer !== null) {
-        for (const p of parseNumberedAnswer(answer)) {
-          let r = ranked[p.n - 1];
-          if (r === undefined) continue;
-          const head = p.parts[0] ?? '';
-          if (NO.test(head)) continue;
-          // Some local models replace «да» with the actual candidate path. Resolve that
-          // path against the supplied index, never against the guessed row number.
-          const named = ranked.find((candidate) => candidate.file.path === head.replace(/[`*]/g, '').trim());
-          if (named !== undefined) r = named;
-          else if (!YES.test(head)) continue;
-          if (mapRows.some((row) => row['файл'] === r.file.path)) continue;
-          const now = p.parts[1] ?? '';
-          // Последнее поле строки, а не третье строго: модель, добавившая в «что меняем»
-          // собственный `|` (перечисление, уточнение), иначе теряла бы всё после второго
-          // разделителя молча — тот же приём, что уже применяют вопросы и опоры осей ниже
-          // (`p.parts.slice(1).join(' | ')`) (ревью code-review-all, 2026-09-11).
-          const change = p.parts.slice(2).join(' | ').trim();
-          if (now === '' && change === '') continue;
-          mapRows.push({ файл: r.file.path, 'что там сейчас': now || '—', 'что меняем': change || '—' });
+        const candidates = ranked.map((r) => r.file.path);
+        const parsed = parseExploreMap(answer, candidates);
+        if (parsed.missing.length || parsed.rejected.length) {
+          const correction = await ask('исправление карты кодовой базы', [
+            'Исправь только непринятые строки. Принятые строки повторять нельзя.',
+            ...parsed.rejected,
+            'Для каждого номера ниже реши, относится ли файл к задаче. Даже для не относящихся файлов нужен ответ «нет».',
+            'Формат: номер. да | существующие функции | конкретное изменение; либо номер. нет.',
+            'Вместо слова «номер» напиши число из списка. Не копируй названия полей: заполни их по исходникам.',
+            'Оставшиеся кандидаты (новая нумерация):',
+            ...parsed.missing.map((path, i) => `${i + 1}. ${path}`),
+            packCards(ranked.filter((r) => parsed.missing.includes(r.file.path)).map((r) => fileCard(r.file, perCard)), this.o.cardBudgetBytes),
+            parsed.missing.length ? `Верни ровно ${parsed.missing.length} строк с номерами ${parsed.missing.map((_, i) => i + 1).join(', ')}.` : 'Все кандидаты уже приняты; ответь: нет исправлений.',
+          ].join('\n'));
+          const retry = correction === null ? null : parseExploreMap(
+            parsed.missing.length === 0 && correction.trim() === 'нет исправлений' ? '' : correction,
+            parsed.missing,
+          );
+          if (retry) for (const [path, row] of retry.accepted) parsed.accepted.set(path, row);
+          if (retry) parsed.newFiles.push(...retry.newFiles);
+          if (!retry || retry.missing.length || retry.rejected.length) {
+            mapProblem = `карта не уточнена: ${retry ? [...retry.rejected, ...retry.missing.map((p) => `нет ответа: ${p}`)].join('; ') : 'исчерпан бюджет или запрос не состоялся'}`;
+          }
         }
-        for (const plus of parsePlusLines(answer)) {
+        for (const row of parsed.accepted.values()) {
+          if (row) mapRows.push({ файл: row.path, 'что там сейчас': row.now, 'что меняем': row.change });
+        }
+        for (const plus of parsed.newFiles) {
           const existing = this.fileByPath(plus.path);
           if (existing !== undefined) {
             if (!mapRows.some((row) => row['файл'] === existing.path)) {
@@ -414,6 +422,7 @@ export class ExploreExecutor implements StageExecutor {
     // нашлось», которое эта самая находка (2.2) должна была исключить (ревью
     // code-review-all, 2026-09-19).
     let reuseAnswered = 0;
+    const reuseProblems: string[] = [];
     // Без искусственного потолка в 6: `reuseCandidates` сама режет список по разумному
     // максимуму (умолчание 12, `explore/rank.ts`) — второй, меньший потолок здесь раньше
     // молча ронял кандидатов 7+ на проектах, где индекс даёт больше 6 (ревью
@@ -451,14 +460,45 @@ export class ExploreExecutor implements StageExecutor {
       const nonEmpty = answer.split('\n').map((l) => l.trim()).filter((l) => l !== '');
       const line =
         nonEmpty.find((l) => YES.test(l) || NO.test(l)) ?? nonEmpty.find((l) => l.includes('|')) ?? nonEmpty[0] ?? '';
-      const parts = line.split('|').map((p) => p.trim());
+      let parts = line.split('|').map((p) => p.trim());
       if (!YES.test(parts[0] ?? '')) continue;
+      const incomplete = (ps: string[]): boolean => {
+        const d = ps[1] ?? '';
+        const u = ps.slice(2).join(' | ').trim();
+        return !d || !u || d === 'что делает' || u === 'как используем';
+      };
+      if (incomplete(parts)) {
+        // Один переспрос на кандидата в пределах общего бюджета этапа: ответ «да» без
+        // описания — не отказ, а неполная строка; карточка символа уходит снова.
+        const fix = await ask(
+          `исправление переиспользования: ${c.path}:${c.symbol}`,
+          [
+            `Ты ответила «да» по \`${c.path}:${c.symbol}\`, но не назвала, что символ делает и как мы его используем.`,
+            ...(card === '' ? [] : [card]),
+            'Ответь одной строкой: `да | что делает (по коду выше) | как используем в этой задаче`, либо `нет | почему не подходит`.',
+            'Слова «что делает» и «как используем» — названия полей, не ответ: заполни их по исходнику.',
+          ].join('\n'),
+        );
+        if (fix !== null) {
+          const fl = fix.split('\n').map((l) => l.trim()).filter((l) => l !== '');
+          const fline = fl.find((l) => YES.test(l) || NO.test(l)) ?? fl.find((l) => l.includes('|')) ?? '';
+          const fparts = fline.split('|').map((p) => p.trim());
+          if (!YES.test(fparts[0] ?? '')) continue;
+          parts = fparts;
+        }
+      }
+      const does = parts[1] ?? '';
+      const use = parts.slice(2).join(' | ').trim();
+      if (incomplete(parts)) {
+        reuseProblems.push(`${c.path}:${c.symbol}: нужны описание функции и способ использования, вместо подсказки или пустого поля`);
+        continue;
+      }
       reuseRows.push({
         символ: c.symbol,
         где: `${c.path}:${c.symbol}`,
-        'что делает': parts[1] || c.signature,
+        'что делает': does,
         // Последнее поле — та же терпимость к лишнему `|`, что у карты кодовой базы.
-        'как используем': parts.slice(2).join(' | ').trim() || '—',
+        'как используем': use,
       });
     }
     // Строка-меню «Ничего подходящего не найдено: да / нет» — прямой разбор текста, не
@@ -724,6 +764,8 @@ export class ExploreExecutor implements StageExecutor {
     ].join('\n');
     hooks.onText(summary);
     const tail = { modelRequests: calls + nestedRequests, ...(envFailure === null ? {} : { envFailure }) };
+    if (mapProblem !== null) return { ok: false, finalText: summary, usage, note: mapProblem, ...tail };
+    if (reuseProblems.length) return { ok: false, finalText: summary, usage, note: `переиспользование не заполнено: ${reuseProblems.join('; ')}`, ...tail };
     if (complaint !== null) return { ok: false, finalText: summary, usage, note: complaint, ...tail };
     if (nestedFailed) return { ok: false, finalText: summary, usage, note: `дозаполнение свободных полей не завершено: ${nested.note}`, ...tail };
     return { ok: true, finalText: summary, usage, note: 'разведка проведена конвейером рантайма', ...tail };

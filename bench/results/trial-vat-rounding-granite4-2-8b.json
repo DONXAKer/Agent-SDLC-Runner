@@ -1,0 +1,297 @@
+{
+  "run": {
+    "slug": "trial-vat-rounding-granite4-2-8b",
+    "model": "ollama:granite4.2-8b-ctx32k-compactfill",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "explore": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "ask": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "plan": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "chunk": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "verify": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "handoff": "ollama:granite4.2-8b-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-01T05:00:07.119Z",
+    "finishedAt": "2026-10-01T05:02:04.472Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "приёмочный лист короче минимума этапа 1: пунктов 1 (нужно ≥ 3), с [edge] 0 (нужно ≥ 2) — верни недостающие пункты в intent.md (если задача принесла свой лист, из него ничего не выбрасывается без решения человека)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 13
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 33736,
+          "outputTokens": 3227,
+          "cacheReadTokens": 27542,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 184798
+        },
+        "durationMs": 116664,
+        "requestDurationsMs": [
+          2357,
+          2575,
+          3452,
+          7913,
+          12698,
+          22018,
+          20992,
+          22032,
+          52064,
+          594,
+          564,
+          10509,
+          27041
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 2,
+        "approvals": 2,
+        "waitMs": 17
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:6d61e87b-e48f-481b-a773-c122361b8254",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-granite4-2-8b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:7397c206-6748-43e6-a862-b8123ab433db",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-granite4-2-8b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Какое условие применяется для товара для определения льготной ставки налога? (Требуется конкретное правило: например, тип товара, метка в позиции и т.д., чтобы определить, к которым позициям применяется льготная ставка вместо стандартной 20%)"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "В какой форме должен выглядеть объект счёта для необлагаемого счета при `opts.vat = 'none'` (или по умолчанию)? То есть, должен ли `Invoice` содержать поле `vat` при `none` — ответ **нет**, но нужно уточнить, какие именно поля (`number`, `customer`, `lines`, `subtotal`, `total`) остаются без изменений, а `vat` не добавляется в объект, и как это совместимо с существующими тестами (которые сверяют счёт как литерал). Требуется точное формальное определение структуры объекта в этом случае."
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.vat"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10926,
+        "userChars": 4383,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-592b8c55-4536-4186-850d-444ca6cf9410-1",
+        "questionId": "intent-open-0",
+        "text": "Какое условие применяется для товара для определения льготной ставки налога? (Требуется конкретное правило: например, тип товара, метка в позиции и т.д., чтобы определить, к которым позициям применяется льготная ставка вместо стандартной 20%)"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-592b8c55-4536-4186-850d-444ca6cf9410-1",
+        "questionId": "intent-open-1",
+        "text": "В какой форме должен выглядеть объект счёта для необлагаемого счета при `opts.vat = 'none'` (или по умолчанию)? То есть, должен ли `Invoice` содержать поле `vat` при `none` — ответ **нет**, но нужно уточнить, какие именно поля (`number`, `customer`, `lines`, `subtotal`, `total`) остаются без изменений, а `vat` не добавляется в объект, и как это совместимо с существующими тестами (которые сверяют счёт как литерал). Требуется точное формальное определение структуры объекта в этом случае."
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "db659cb1f63dbceed12c6bee5f15c58cdcefc00958d81675ecba5c997807a4cf",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "373680c5ac1b158ee1d342ebc2ba68fc838fb9e0f38d2eded4029054df5574d0",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 900000,
+      "runTimeoutMs": 5400000
+    },
+    "workspaceHash": "586ba8f5e0712e5d9f75b0e7124c722eebde26396a85487f3119b0e444e9c6c5",
+    "state": "finished",
+    "capturedAt": "2026-10-01T05:02:04.493Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-01T05:02:04.462Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "55a7f8d560e604c9672fe7c473faa325f8d590c67d6408bfe9604ed0f4ccfdb1",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "cb6fc6a99d1bce500cc8900d0e2375e34b56ede638d19c5224598f60599e4139",
+        "placeholders": 6,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "c51923232644de3cbadaf5d0ffa67b39300baf1a4b5130120c88d619abb57941",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "3871c2eed0935881d1f650969ed0554afc12e3ef7593c4aca2de2908e9153d26",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -1,0 +1,260 @@
+{
+  "run": {
+    "slug": "diagnostic-impossible-without-data-reference",
+    "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+    "task": "impossible-without-data",
+    "fixtureDir": "fixtures/warehouse",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+      "handoff": "ollama:qwen3-8b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-09-30T16:47:07.722Z",
+    "finishedAt": "2026-09-30T16:47:48.302Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 12,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "мелкий контур: разведка точечная на этапе 5, отчёт не пишется",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "snapshot-point"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 70324,
+          "outputTokens": 1553,
+          "cacheReadTokens": 64319,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 80838
+        },
+        "durationMs": 39850,
+        "requestDurationsMs": [
+          2623,
+          2988,
+          4442,
+          6750,
+          10720,
+          14822,
+          5980,
+          12371,
+          12822,
+          3159,
+          3070,
+          1102
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:6df3980e-9ba0-43b0-ab76-8d239c4b3498",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diagnostic-impossible-without-data-reference\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Какой коэффициент упаковки использовать для расчёта объёмного веса с учётом упаковки?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.packing"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10986,
+        "userChars": 4516,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-e9ebfb4a-6edc-49dc-b56a-94ad20577170-1",
+        "questionId": "intent-open-0",
+        "text": "Какой коэффициент упаковки использовать для расчёта объёмного веса с учётом упаковки?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "c2de65f96f7cc9ccdf5b00c12f619b52389096c7fdde18b852cfe765b8521495",
+      "configHash": "9738b5fba150d1ebf15ad8a3a5b92a09aedfe6b4f2234818c7c128c39b5ea760",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "d9c7593c06e539cd1871816dda0e73d652eb81badd01f688f4b93cefc5614094",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 900000
+    },
+    "workspaceHash": "a57174831f055585ebb2605107da5ff80894f92ca76ea70c9f7004c84852b0d5",
+    "state": "finished",
+    "capturedAt": "2026-09-30T16:47:48.305Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-09-30T16:47:48.234Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "0dd8fb7997bc03f4cc124ad9ff59aed7a84a5d19b02c7250413c50865a4de0e1",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "45614365e9249be11c0ee33bcefd9f5eb143fdb256346679583e8dbfa0a0e60c",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "e4aff5145ba05e9b0e0e2beb21b69c6d695feba22347a92fef7929730cf54c22",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "037ef652be57bdb433c976b72779968483c66e9491a55bd61a86b77759253c9b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -1,0 +1,747 @@
+{
+  "run": {
+    "slug": "diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1",
+    "model": "ollama:gemma4-12b-compactfill",
+    "task": "oversize",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "stage",
+      "stage": "verify"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gemma4-12b-compactfill",
+      "explore": "ollama:gemma4-12b-compactfill",
+      "ask": "ollama:gemma4-12b-compactfill",
+      "plan": "ollama:gemma4-12b-compactfill",
+      "chunk": "ollama:gemma4-12b-compactfill",
+      "verify": "ollama:gemma4-12b-compactfill",
+      "handoff": "ollama:gemma4-12b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "verify"
+    ],
+    "startedAt": "2026-09-30T12:32:43.064Z",
+    "finishedAt": "2026-09-30T12:38:00.470Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "вызов инструмента обрезан лимитом длины, который выставил сам рантайм: история этапа не уместилась в окно, max_tokens садился на пол на 3 ходах — не исполняем незавершённый вызов — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 12, осталось на диске 1 полей модели; ответ на поле гейты ранних этапов отклонён: поле «гейты ранних этапов»: записей нет, а альтернативы «пусто» у него нет; ответ на поле гейты ранних этапов отклонён: поле «гейты ранних этапов»: записей нет, а альтернативы «пусто» у него нет",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 21,
+        "modelRequests": 14
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "гейт «Ревью независимым агентом» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+        "пункт приёмки claim-8 не проверяем (⚠)",
+        "регрессия — откат ранее работавшего поведения: нет` / нет",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "в отчёте нет строк по пунктам задачи: claim-8 — каждый считается ⚠",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 843977,
+          "outputTokens": 6008,
+          "cacheReadTokens": 771109,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 394137
+        },
+        "durationMs": 316470,
+        "requestDurationsMs": [
+          58995,
+          52726,
+          27264,
+          4251,
+          4219,
+          5532,
+          2304,
+          2578,
+          2255,
+          1846,
+          2655,
+          2111,
+          2068,
+          2068,
+          2057,
+          2235,
+          2073,
+          2204,
+          16578,
+          30324,
+          10695,
+          6979,
+          10051,
+          25496,
+          27350,
+          29204,
+          7885,
+          9522,
+          11253,
+          1884,
+          3538,
+          5253,
+          1489,
+          2956,
+          4516,
+          1752,
+          8000
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "gate",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 20,
+        "reminders": 1
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 165
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 315
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 296
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 450
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 1,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 309
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 149
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 69
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 68
+      }
+    ],
+    "human": [
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 21,
+        "waitMs": 99
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 7
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "гейт «Ревью независимым агентом» включён, но не запускался (⏭), и строки неприменимости с именем утвердившего нет",
+      "пункт приёмки claim-8 не проверяем (⚠)",
+      "регрессия — откат ранее работавшего поведения: нет` / нет",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "в отчёте нет строк по пунктам задачи: claim-8 — каждый считается ⚠",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "verify",
+        "requestId": "loop:95ecc88c-c754-44bd-bc92-39e7c1fc3b88",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-X0GV7W\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 10
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:e34b0cef-1eae-4faf-9404-40e197dfa3a2",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-X0GV7W\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:b28da293-bbf8-444c-a5d8-2f335318a0de",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-X0GV7W\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 9
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:7f10a3fd-fa5b-480a-825b-d385f9adcaf6",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-X0GV7W\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:54b29efc-a757-40c9-b19b-1bdeb15b8773",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-X0GV7W\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:d94d5a60-cf6b-461d-ab30-8f844df9a8d0",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-X0GV7W\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:ec29d8fc-1fc2-468b-8ada-53bfe7f825fd",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-X0GV7W\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:07bcd2d2-0ff2-4651-b322-c3dc9a1bee22",
+        "kind": "fill_field",
+        "toolName": "FillField",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-X0GV7W\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:08a4189a-17aa-45cc-80c1-20b2fe7682c0",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:4786d090-da31-4af5-baa2-bde0020e0edc",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:83e824e0-c5ba-488f-b8e6-105ef557a57e",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:5f48b385-6f6e-4c2f-ade2-9af6bf15393f",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:54882be5-81e0-4949-931d-d2aff888ae77",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:994443e0-af63-4a4b-b2b1-8808e38f568d",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:71815a89-13b8-4b93-b6e0-b70d128533a0",
+        "kind": "record_claim",
+        "toolName": "RecordClaim",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:9ea17a46-d69a-4670-9285-8ff159c7c4a3",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:1b3cad1c-177c-4471-9468-be420c7bc1f7",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:2b2fa2d0-4bad-4d0d-8cfd-ee15cec66352",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "verify",
+        "requestId": "loop:ac66772d-7c1a-470a-b60a-4f38f8f6450d",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          ".sdlc/diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1/verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-snap-X0GV7W\\.sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:d4db847f-74f2-439e-b523-d36e2f147733",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-gemma4-12b-compactfill-v01-1790771561100-1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "verify",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "verify",
+        "toolName": "FillField",
+        "kind": "fill_field"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "RecordClaim",
+        "kind": "record_claim"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "verify",
+        "systemChars": 11936,
+        "userChars": 37602,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": {
+    "seedId": "axis-config-blind",
+    "klass": "ось: настройки — значение из окружения без умолчания",
+    "expected": "review",
+    "caught": false,
+    "where": [],
+    "note": "посев «axis-config-blind» НЕ назван: `basePrice` начинает читать зональную надбавку из переменной окружения `TARIFF_ZONE_EXTRA`: умолчания в коде нет, значение не проверяется, и при `TARIFF_ZONE_EXTRA=abc` цена становится NaN. Тесты фикстуры переменную не задают — при пустом окружении надбавка равна нулю, и прогон остаётся зелёным",
+    "measured": true
+  },
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "c9c9c31bcfc0419627e6141bff73730f41775d8f",
+      "sourceHash": "2bf1996784a80933ab2f9448e13d97e77a00384f0104702c8c9bdb52495373f3",
+      "configHash": "5b39b4dc23e4d2e1256f2250f87242dd44a100f9dd34822fa1c7b9efdfe3fc93",
+      "localEndpoints": {
+        "ollama": "http://127.0.0.1:11435/v1"
+      },
+      "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+      "snapshotName": "oversize-axes3-diagnostic-v4",
+      "snapshotAuthor": "claude-sdk:sonnet",
+      "stageTimeoutMs": 360000,
+      "runTimeoutMs": 360000
+    },
+    "workspaceHash": "a269e3fcccc350d907c08dc10625f7889d7df704c35f14f19082db8cdb5544bc",
+    "state": "finished",
+    "capturedAt": "2026-09-30T12:38:00.507Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "verify",
+      "at": "2026-09-30T12:38:00.467Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/iterations.md",
+        "sha256": "c94f8ba3c9a648e7ac68eb699923f27e470adf712751b6758603d3c31655945a",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "7549443eeddfc6b01f5ed18dfedb7f6b5dcb6409094346598747bdf8e4a8554f",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "774a7fb94461411260bc75b9ae31c846c9052aa926bb64b53630c0c05e7b4bb2",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "c4ac8161a302b8095fbee180f657c45184b6a638ed9994f60a65e6741b12c1bc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "42addf5ddd88ac5252935e0bb1ecf605abbea007f01b497165aba73be8fa0274",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "6ba36be0e1e0e3af2987bb1260708943ab57efb90022cf7ab70430881bbe2ffb",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "fbdd1855e8205d399e0c0224b0217936bb9010592d7446f45cae001867fb2528",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "self-review-1-attempt-1.md",
+        "sha256": "b7d5b0adc9602d58a5f70169db4408cd92a76a40d2dcf45a4bfba07e7fe5a483",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "verification-report-1-attempt-1.md",
+        "sha256": "8bd79de0a9efc78731164d87dd92f428c01b2f7ca6dc3946efce992da6372c20",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

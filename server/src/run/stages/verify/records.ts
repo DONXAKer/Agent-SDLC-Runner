@@ -6,7 +6,7 @@
 import { localResultBytes } from '../../../config/limits.ts';
 import type { NormalizedCall } from '@sdlc-runner/shared';
 
-import { readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
+import { countPlaceholdersExceptDecisions, readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
 import type { ResolvedRoute } from '../../../config/schema.ts';
 import { gateKey } from '../../../gates/gatesFile.ts';
 import { ProviderEnvError } from '../../../provider/ChatProvider.ts';
@@ -47,6 +47,8 @@ export function verifyGaps(host: StageHost): string[] {
   const report = readArtifact(path);
   if (!report.exists) return [];
   const gaps = verifyReportGaps(report.text, [...host.intentClaimLines().keys()]);
+  const remaining = countPlaceholdersExceptDecisions(report.text);
+  if (remaining > 0) gaps.push(`${remaining} незаполненных полей`);
   return gaps.length === 0 ? [] : [`${path} (${gaps.join('; ')})`];
 }
 

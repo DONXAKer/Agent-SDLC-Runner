@@ -1,0 +1,602 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-30T12:09:32.555Z",
+  "model": "ollama:granite4.2-8b-ctx32k-compactfill",
+  "repeats": 1,
+  "preflight": {
+    "exitCode": 1,
+    "checks": [
+      {
+        "name": "задача: файлы фикстуры",
+        "ok": true,
+        "env": true,
+        "detail": "задача, банк ответов, эталон и скрытый тест на месте",
+        "durationMs": 1
+      },
+      {
+        "name": "задача: банк ответов человека",
+        "ok": true,
+        "env": true,
+        "detail": "правил ответа 2, шумовых тегов 6; вопрос мимо них уйдёт в fallback — число таких в отчёте",
+        "durationMs": 0
+      },
+      {
+        "name": "конфиг: контрольный маршрут",
+        "ok": true,
+        "env": true,
+        "detail": "маршрут «контроль на подписке Claude» собирается",
+        "durationMs": 6
+      },
+      {
+        "name": "фикстура: сборка",
+        "ok": true,
+        "env": true,
+        "detail": "build-check.mjs зелёный",
+        "durationMs": 158
+      },
+      {
+        "name": "фикстура: тесты",
+        "ok": true,
+        "env": true,
+        "detail": "нетронутая фикстура зелёная (2 файлов)",
+        "durationMs": 269
+      },
+      {
+        "name": "стенд: лимит ходов",
+        "ok": true,
+        "env": true,
+        "detail": "ходов на этап 40 — штатный лимит конфига, поэтапно: verify 60",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: промпт plan против окна",
+        "ok": true,
+        "env": true,
+        "detail": "системная часть plan ≈6218 токенов при окне 32768",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: окно контекста",
+        "ok": true,
+        "env": true,
+        "detail": "окна измеряемых маршрутов в порядке (или провайдер без управляемого окна)",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: прогрев движка",
+        "ok": true,
+        "env": true,
+        "detail": "движок ответил — веса подняты до замеряемых проб",
+        "durationMs": 17731
+      },
+      {
+        "name": "модель: раскладка после прогрева",
+        "ok": true,
+        "env": false,
+        "detail": "ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима",
+        "durationMs": 3
+      },
+      {
+        "name": "модель: вызов Write",
+        "ok": true,
+        "env": false,
+        "detail": "Write(notes/hello.md)",
+        "durationMs": 3542
+      },
+      {
+        "name": "модель: заполнение поля через Edit",
+        "ok": true,
+        "env": false,
+        "detail": "Edit с плейсхолдером в old_string (со 2-й попытки)",
+        "durationMs": 33781
+      },
+      {
+        "name": "модель: чтение → запись",
+        "ok": true,
+        "env": false,
+        "detail": "Read, затем Edit",
+        "durationMs": 11099
+      },
+      {
+        "name": "модель: точный Edit многострочного блока",
+        "ok": false,
+        "env": false,
+        "detail": "вызова нет, текст: «» (провал в 2/2 попыток)",
+        "durationMs": 141657
+      },
+      {
+        "name": "модель: честность путей",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строго по объявленному файлу src/a.ts",
+        "durationMs": 8085
+      },
+      {
+        "name": "модель: длинная запись без усечения",
+        "ok": true,
+        "env": false,
+        "detail": "Write с маркером 60-й строки — ответ не усечён",
+        "durationMs": 60101
+      },
+      {
+        "name": "модель: правка поля без перезаписи файла",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строки карты, поле решения человека не тронуто",
+        "durationMs": 31345
+      }
+    ]
+  },
+  "fingerprint": {
+    "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+    "sourceHash": "394b7978f9aab3e2a82722a80b0787a72200d8566e183194558b0a2ffff5b844",
+    "configHash": "8302275a5493c4617776ed4261aa1291e9e77aed5bc16766d165d14d0945389f",
+    "modelConfigHash": "e4d89eea99a1b5d1ff05ca17d3f4bcb58b76a57d7721d85a850823d0360a8ea0"
+  },
+  "cases": [
+    {
+      "id": "I01",
+      "task": "oversize",
+      "stage": "intent",
+      "snapshotAfter": null,
+      "problemIds": [
+        5,
+        7,
+        14
+      ],
+      "evaluation": "intent rubric: preserve scope, constraints, measurable acceptance criteria",
+      "inputStatus": "available",
+      "inputReason": "fixture input",
+      "samples": []
+    },
+    {
+      "id": "I02",
+      "task": "contradiction",
+      "stage": "intent",
+      "snapshotAfter": null,
+      "problemIds": [
+        7
+      ],
+      "evaluation": "contradiction rubric: detect conflict and ask before committing to either answer",
+      "inputStatus": "available",
+      "inputReason": "fixture input",
+      "samples": []
+    },
+    {
+      "id": "E01",
+      "task": "rename-field",
+      "stage": "explore",
+      "snapshotAfter": "intent",
+      "problemIds": [
+        4,
+        10
+      ],
+      "evaluation": "required files, symbols, dependency chain, and exploration completeness",
+      "inputStatus": "available",
+      "inputReason": "rename-field-intent-reference",
+      "samples": []
+    },
+    {
+      "id": "E02",
+      "task": "multi-file-cascade",
+      "stage": "explore",
+      "snapshotAfter": "intent",
+      "problemIds": [
+        4
+      ],
+      "evaluation": "dependency graph and all affected modules",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated multi-file-cascade snapshot after intent",
+      "samples": []
+    },
+    {
+      "id": "A01",
+      "task": "two-right-answers",
+      "stage": "ask",
+      "snapshotAfter": "explore",
+      "problemIds": [
+        9
+      ],
+      "evaluation": "ask when both choices are valid; record explicit selection",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated two-right-answers snapshot after explore",
+      "samples": []
+    },
+    {
+      "id": "A02",
+      "task": "impossible-without-data",
+      "stage": "ask",
+      "snapshotAfter": "explore",
+      "problemIds": [
+        9
+      ],
+      "evaluation": "ask for unavailable decision data instead of inventing it",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated impossible-without-data snapshot after explore",
+      "samples": []
+    },
+    {
+      "id": "P01",
+      "task": "config-default",
+      "stage": "plan",
+      "snapshotAfter": "ask",
+      "problemIds": [
+        6,
+        15
+      ],
+      "evaluation": "config default behavior, compatibility, and tests",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated config-default snapshot after ask",
+      "samples": []
+    },
+    {
+      "id": "P02",
+      "task": "migration-compat",
+      "stage": "plan",
+      "snapshotAfter": "ask",
+      "problemIds": [
+        6
+      ],
+      "evaluation": "migration sequencing, compatibility window, rollback",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated migration-compat snapshot after ask",
+      "samples": []
+    },
+    {
+      "id": "C01",
+      "task": "vat-rounding",
+      "stage": "chunk",
+      "snapshotAfter": "plan",
+      "snapshot": "vat-rounding-plan-diagnostic-v2",
+      "problemIds": [
+        1,
+        2,
+        3,
+        7,
+        8,
+        11,
+        12,
+        13,
+        26
+      ],
+      "evaluation": "correct rounding semantics, affected files, tests",
+      "inputStatus": "available",
+      "inputReason": "vat-rounding-plan-diagnostic-v2",
+      "samples": []
+    },
+    {
+      "id": "C02",
+      "task": "rename-field",
+      "stage": "chunk",
+      "snapshotAfter": "plan",
+      "snapshot": "rename-field-plan-diagnostic-v2",
+      "problemIds": [
+        1,
+        2,
+        3,
+        8,
+        11,
+        12,
+        13
+      ],
+      "evaluation": "complete rename, migration compatibility, tests",
+      "inputStatus": "available",
+      "inputReason": "rename-field-plan-diagnostic-v2",
+      "samples": []
+    },
+    {
+      "id": "V00",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "none",
+      "evaluation": "clean control: no unsupported findings, accurate gate report",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": []
+    },
+    {
+      "id": "V01",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "axis-config-blind",
+      "evaluation": "name the seeded configuration defect with evidence",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": []
+    },
+    {
+      "id": "V02",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "axis-secret-in-log",
+      "evaluation": "name the seeded secret exposure with evidence",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": []
+    },
+    {
+      "id": "H01",
+      "task": "oversize",
+      "stage": "handoff",
+      "snapshotAfter": "verify",
+      "snapshot": "oversize-verify-success",
+      "problemIds": [],
+      "evaluation": "successful verify input: complete and accurate handoff",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "oversize-verify-success: Error: ENOENT: no such file or directory, open 'D:\\Проекты\\Agent-SDLC-Runner\\bench\\snapshots\\oversize-verify-success\\snapshot.json'",
+      "samples": []
+    },
+    {
+      "id": "H02",
+      "task": "oversize",
+      "stage": "handoff",
+      "snapshotAfter": "verify",
+      "problemIds": [],
+      "evaluation": "incomplete verify input: stop safely and identify missing evidence",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated oversize snapshot after verify",
+      "samples": []
+    }
+  ],
+  "problemCoverage": [
+    {
+      "problemId": 1,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 2,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 3,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 4,
+      "cases": [
+        "E01",
+        "E02"
+      ],
+      "available": 1,
+      "total": 2,
+      "status": "partial or unavailable inputs"
+    },
+    {
+      "problemId": 5,
+      "cases": [
+        "I01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 6,
+      "cases": [
+        "P01",
+        "P02"
+      ],
+      "available": 0,
+      "total": 2,
+      "status": "partial or unavailable inputs"
+    },
+    {
+      "problemId": 7,
+      "cases": [
+        "I01",
+        "I02",
+        "C01"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 8,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 9,
+      "cases": [
+        "A01",
+        "A02"
+      ],
+      "available": 0,
+      "total": 2,
+      "status": "partial or unavailable inputs"
+    },
+    {
+      "problemId": 10,
+      "cases": [
+        "E01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 11,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 12,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 13,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 14,
+      "cases": [
+        "I01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 15,
+      "cases": [
+        "P01"
+      ],
+      "available": 0,
+      "total": 1,
+      "status": "partial or unavailable inputs"
+    },
+    {
+      "problemId": 16,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 17,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 18,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 19,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 20,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 21,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 22,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 23,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 24,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 25,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 26,
+      "cases": [
+        "C01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    }
+  ]
+}

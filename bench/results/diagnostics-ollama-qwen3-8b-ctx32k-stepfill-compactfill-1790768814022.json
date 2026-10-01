@@ -1,0 +1,822 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-30T11:46:54.019Z",
+  "model": "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+  "repeats": 1,
+  "preflight": {
+    "exitCode": 0,
+    "checks": [
+      {
+        "name": "задача: файлы фикстуры",
+        "ok": true,
+        "env": true,
+        "detail": "задача, банк ответов, эталон и скрытый тест на месте",
+        "durationMs": 1
+      },
+      {
+        "name": "задача: банк ответов человека",
+        "ok": true,
+        "env": true,
+        "detail": "правил ответа 2, шумовых тегов 6; вопрос мимо них уйдёт в fallback — число таких в отчёте",
+        "durationMs": 0
+      },
+      {
+        "name": "конфиг: контрольный маршрут",
+        "ok": true,
+        "env": true,
+        "detail": "маршрут «контроль на подписке Claude» собирается",
+        "durationMs": 8
+      },
+      {
+        "name": "фикстура: сборка",
+        "ok": true,
+        "env": true,
+        "detail": "build-check.mjs зелёный",
+        "durationMs": 181
+      },
+      {
+        "name": "фикстура: тесты",
+        "ok": true,
+        "env": true,
+        "detail": "нетронутая фикстура зелёная (2 файлов)",
+        "durationMs": 365
+      },
+      {
+        "name": "стенд: лимит ходов",
+        "ok": true,
+        "env": true,
+        "detail": "ходов на этап 40 — штатный лимит конфига, поэтапно: verify 60",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: промпт plan против окна",
+        "ok": true,
+        "env": true,
+        "detail": "системная часть plan ≈6218 токенов при окне 32768",
+        "durationMs": 2
+      },
+      {
+        "name": "модель: окно контекста",
+        "ok": true,
+        "env": true,
+        "detail": "окна измеряемых маршрутов в порядке (или провайдер без управляемого окна)",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: прогрев движка",
+        "ok": true,
+        "env": true,
+        "detail": "движок ответил — веса подняты до замеряемых проб",
+        "durationMs": 1492
+      },
+      {
+        "name": "модель: раскладка после прогрева",
+        "ok": true,
+        "env": false,
+        "detail": "ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима",
+        "durationMs": 16
+      },
+      {
+        "name": "модель: вызов Write",
+        "ok": true,
+        "env": false,
+        "detail": "Write(notes/hello.md)",
+        "durationMs": 870
+      },
+      {
+        "name": "модель: заполнение поля через Edit",
+        "ok": true,
+        "env": false,
+        "detail": "Edit с плейсхолдером в old_string",
+        "durationMs": 1673
+      },
+      {
+        "name": "модель: чтение → запись",
+        "ok": true,
+        "env": false,
+        "detail": "Read, затем Edit",
+        "durationMs": 2729
+      },
+      {
+        "name": "модель: точный Edit многострочного блока",
+        "ok": true,
+        "env": false,
+        "detail": "Edit с точным многострочным old_string",
+        "durationMs": 1200
+      },
+      {
+        "name": "модель: честность путей",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строго по объявленному файлу src/a.ts",
+        "durationMs": 962
+      },
+      {
+        "name": "модель: длинная запись без усечения",
+        "ok": true,
+        "env": false,
+        "detail": "Write с маркером 60-й строки — ответ не усечён",
+        "durationMs": 7545
+      },
+      {
+        "name": "модель: правка поля без перезаписи файла",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строки карты, поле решения человека не тронуто",
+        "durationMs": 1673
+      }
+    ]
+  },
+  "fingerprint": {
+    "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+    "sourceHash": "0ebe21653e66a2cc675ff6e3cb8b2470c04d6083dde4c06b0db71ca7dbcb155d",
+    "configHash": "2ce5118651ac67ceca16b1706cc8605ab439d63afe7cdd5b17f4c44d00956243",
+    "modelConfigHash": "f333fc94ab1b88dc46dd6d484ab80b8deb218618bd420ce7267f8a280d3d345f"
+  },
+  "cases": [
+    {
+      "id": "I01",
+      "task": "oversize",
+      "stage": "intent",
+      "snapshotAfter": null,
+      "problemIds": [
+        5,
+        7,
+        14
+      ],
+      "evaluation": "intent rubric: preserve scope, constraints, measurable acceptance criteria",
+      "inputStatus": "available",
+      "inputReason": "fixture input",
+      "samples": [
+        {
+          "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-i01-1790767484031-1",
+          "exitCode": 1,
+          "outcome": "incomplete",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "STAGE_FAILED"
+          ],
+          "durationMs": 29383,
+          "tokens": 67052,
+          "toolCalls": 3,
+          "friction": 0,
+          "reason": "проверки готовности прогона 1 не пройдены: гейты ✅; границы задачи ✅; приёмка ✅ (6 пунктов, 2 [edge]); процедуры проверки ❌; инварианты ✅; ответы на блокирующие вопросы ✅; плейсхолдеры ✅",
+          "passport": {
+            "version": 1,
+            "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+            "sourceHash": "607bdf6c9d727303951e491f84835d4200a4afdc95c2b11233197b69e6f8df04",
+            "configHash": "ee14aa16b1e47766729914842ecc0512013074ce208875d90e980f3b609cb41b",
+            "inputHash": "eae0c1be3a27e8ac0b57699635b2580cb2ed195ce14f730d1d266c25fa9d135e",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 600000,
+            "runTimeoutMs": 600000
+          },
+          "resultFile": "bench/results/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-i01-1790767484031-1.json"
+        }
+      ]
+    },
+    {
+      "id": "I02",
+      "task": "contradiction",
+      "stage": "intent",
+      "snapshotAfter": null,
+      "problemIds": [
+        7
+      ],
+      "evaluation": "contradiction rubric: detect conflict and ask before committing to either answer",
+      "inputStatus": "available",
+      "inputReason": "fixture input",
+      "samples": [
+        {
+          "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-i02-1790767516184-1",
+          "exitCode": 1,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "STAGE_FAILED"
+          ],
+          "durationMs": 43715,
+          "tokens": 71663,
+          "toolCalls": 1,
+          "friction": 0,
+          "reason": "в intent.md осталось незаполненных мест вне секции «Что придётся тронуть»: 2 — задача не готова. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.",
+          "passport": {
+            "version": 1,
+            "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+            "sourceHash": "607bdf6c9d727303951e491f84835d4200a4afdc95c2b11233197b69e6f8df04",
+            "configHash": "ee14aa16b1e47766729914842ecc0512013074ce208875d90e980f3b609cb41b",
+            "inputHash": "cbc2b357988533865881c0877d2ff53ba78b99489df888e9293fdea39311beb4",
+            "snapshotName": null,
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 600000,
+            "runTimeoutMs": 600000
+          },
+          "resultFile": "bench/results/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-i02-1790767516184-1.json"
+        }
+      ]
+    },
+    {
+      "id": "E01",
+      "task": "rename-field",
+      "stage": "explore",
+      "snapshotAfter": "intent",
+      "problemIds": [
+        4,
+        10
+      ],
+      "evaluation": "required files, symbols, dependency chain, and exploration completeness",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated rename-field snapshot after intent",
+      "samples": []
+    },
+    {
+      "id": "E02",
+      "task": "multi-file-cascade",
+      "stage": "explore",
+      "snapshotAfter": "intent",
+      "problemIds": [
+        4
+      ],
+      "evaluation": "dependency graph and all affected modules",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated multi-file-cascade snapshot after intent",
+      "samples": []
+    },
+    {
+      "id": "A01",
+      "task": "two-right-answers",
+      "stage": "ask",
+      "snapshotAfter": "explore",
+      "problemIds": [
+        9
+      ],
+      "evaluation": "ask when both choices are valid; record explicit selection",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated two-right-answers snapshot after explore",
+      "samples": []
+    },
+    {
+      "id": "A02",
+      "task": "impossible-without-data",
+      "stage": "ask",
+      "snapshotAfter": "explore",
+      "problemIds": [
+        9
+      ],
+      "evaluation": "ask for unavailable decision data instead of inventing it",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated impossible-without-data snapshot after explore",
+      "samples": []
+    },
+    {
+      "id": "P01",
+      "task": "config-default",
+      "stage": "plan",
+      "snapshotAfter": "ask",
+      "problemIds": [
+        6,
+        15
+      ],
+      "evaluation": "config default behavior, compatibility, and tests",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated config-default snapshot after ask",
+      "samples": []
+    },
+    {
+      "id": "P02",
+      "task": "migration-compat",
+      "stage": "plan",
+      "snapshotAfter": "ask",
+      "problemIds": [
+        6
+      ],
+      "evaluation": "migration sequencing, compatibility window, rollback",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated migration-compat snapshot after ask",
+      "samples": []
+    },
+    {
+      "id": "C01",
+      "task": "vat-rounding",
+      "stage": "chunk",
+      "snapshotAfter": "plan",
+      "snapshot": "vat-rounding-plan-diagnostic-v2",
+      "problemIds": [
+        1,
+        2,
+        3,
+        7,
+        8,
+        11,
+        12,
+        13,
+        26
+      ],
+      "evaluation": "correct rounding semantics, affected files, tests",
+      "inputStatus": "available",
+      "inputReason": "vat-rounding-plan-diagnostic-v2",
+      "samples": [
+        {
+          "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-c01-1790767562685-1",
+          "exitCode": 0,
+          "outcome": "completed",
+          "stageStarted": true,
+          "stageOk": true,
+          "timedOut": false,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 95871,
+          "tokens": 99692,
+          "toolCalls": 9,
+          "friction": 2,
+          "passport": {
+            "version": 1,
+            "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+            "sourceHash": "607bdf6c9d727303951e491f84835d4200a4afdc95c2b11233197b69e6f8df04",
+            "configHash": "ee14aa16b1e47766729914842ecc0512013074ce208875d90e980f3b609cb41b",
+            "inputHash": "99e8452e5e45b149ae0eecf736e9bcfe3b1ae6c64bd00627cb4d290a229b51d1",
+            "snapshotName": "vat-rounding-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 600000,
+            "runTimeoutMs": 600000
+          },
+          "resultFile": "bench/results/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-c01-1790767562685-1.json"
+        }
+      ]
+    },
+    {
+      "id": "C02",
+      "task": "rename-field",
+      "stage": "chunk",
+      "snapshotAfter": "plan",
+      "snapshot": "rename-field-plan-diagnostic-v2",
+      "problemIds": [
+        1,
+        2,
+        3,
+        8,
+        11,
+        12,
+        13
+      ],
+      "evaluation": "complete rename, migration compatibility, tests",
+      "inputStatus": "available",
+      "inputReason": "rename-field-plan-diagnostic-v2",
+      "samples": [
+        {
+          "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-c02-1790767660603-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT"
+          ],
+          "durationMs": 600992,
+          "tokens": 36314,
+          "toolCalls": 6,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+            "sourceHash": "9938ceee005b1d5afa001269f808e72e1a8684dd1e6747fb3866bac4c5ba5f59",
+            "configHash": "ee14aa16b1e47766729914842ecc0512013074ce208875d90e980f3b609cb41b",
+            "inputHash": "6e09f2cd9e31360cd396443ee126762b605736244d8a95063f3fa1010c458f6b",
+            "snapshotName": "rename-field-plan-diagnostic-v2",
+            "snapshotAuthor": null,
+            "stageTimeoutMs": 600000,
+            "runTimeoutMs": 600000
+          },
+          "resultFile": "bench/results/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-c02-1790767660603-1.json"
+        }
+      ]
+    },
+    {
+      "id": "V00",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v2",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "none",
+      "evaluation": "clean control: no unsupported findings, accurate gate report",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v2",
+      "samples": [
+        {
+          "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v00-1790768263706-1",
+          "exitCode": 2,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": true,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [],
+          "durationMs": 140077,
+          "tokens": 507799,
+          "toolCalls": 8,
+          "friction": 0,
+          "reason": "этап зациклился на правке «verification-report-1-attempt-1.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (26 → 26 → 26) — застряло: «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v00-1790768263706-1, chunk 1, попытка 1»: diff; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v00-1790768263706-1, chunk 1, попытка 1»: 2; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v00-1790768263706-1, chunk 1, попытка 1»: набор гейтов; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v00-1790768263706-1, chunk 1, попытка 1»: долг набора; «гейты»: статус; и ещё 15 мест — правки идут, но не закрывают нужные места — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 17, осталось на диске 0 полей модели; записано через гейт",
+          "passport": {
+            "version": 1,
+            "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+            "sourceHash": "503a78a1580788dc2d51eb825b2fde2267f088aa45b24aa8bb3675a57682a30d",
+            "configHash": "ee14aa16b1e47766729914842ecc0512013074ce208875d90e980f3b609cb41b",
+            "inputHash": "607debb0c2aa193f58aa0b9f035fb5d878b1882a3a648b95819145d9b5c35bf7",
+            "snapshotName": "oversize-axes3-diagnostic-v2",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 600000,
+            "runTimeoutMs": 600000
+          },
+          "resultFile": "bench/results/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v00-1790768263706-1.json"
+        }
+      ]
+    },
+    {
+      "id": "V01",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v2",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "axis-config-blind",
+      "evaluation": "name the seeded configuration defect with evidence",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v2",
+      "samples": [
+        {
+          "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790768405325-1",
+          "exitCode": 1,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "STAGE_FAILED",
+            "SEED_MISSED"
+          ],
+          "durationMs": 159224,
+          "tokens": 693040,
+          "toolCalls": 12,
+          "friction": 6,
+          "reason": "этап зациклился на правке «verification-report-1-attempt-1.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (26 → 26 → 26) — застряло: «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790768405325-1, chunk 1, попытка 1»: diff; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790768405325-1, chunk 1, попытка 1»: 2; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790768405325-1, chunk 1, попытка 1»: набор гейтов; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790768405325-1, chunk 1, попытка 1»: долг набора; «гейты»: статус; и ещё 15 мест — правки идут, но не закрывают нужные места — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 17, осталось на диске 0 полей модели; записано через гейт",
+          "passport": {
+            "version": 1,
+            "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+            "sourceHash": "4528564f8b2e0a656d5550fb359ec011dd22448b44bacf08823d4288b1bac9de",
+            "configHash": "3d4ce2c1863199fd427b4908d40e37b75324f8100bcc64e52ce7f2addae67754",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "607debb0c2aa193f58aa0b9f035fb5d878b1882a3a648b95819145d9b5c35bf7",
+            "snapshotName": "oversize-axes3-diagnostic-v2",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 600000,
+            "runTimeoutMs": 600000
+          },
+          "resultFile": "bench/results/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v01-1790768405325-1.json"
+        }
+      ]
+    },
+    {
+      "id": "V02",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v2",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "axis-secret-in-log",
+      "evaluation": "name the seeded secret exposure with evidence",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v2",
+      "samples": [
+        {
+          "slug": "diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v02-1790768566898-1",
+          "exitCode": 1,
+          "outcome": "stage-failed",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": false,
+          "seedCaught": false,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "STAGE_FAILED",
+            "SEED_MISSED"
+          ],
+          "durationMs": 245148,
+          "tokens": 800084,
+          "toolCalls": 13,
+          "friction": 6,
+          "reason": "этап зациклился на правке «verification-report-1-attempt-1.md» без прогресса: число незаполненных мест не убывает 3 отказов подряд (26 → 26 → 26) — застряло: «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v02-1790768566898-1, chunk 1, попытка 1»: diff; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v02-1790768566898-1, chunk 1, попытка 1»: 2; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v02-1790768566898-1, chunk 1, попытка 1»: набор гейтов; «отчет приемки: diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v02-1790768566898-1, chunk 1, попытка 1»: долг набора; «гейты»: статус; и ещё 15 мест — правки идут, но не закрывают нужные места — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 18, осталось на диске 0 полей модели; записано через гейт",
+          "passport": {
+            "version": 1,
+            "gitHead": "e31c73d245dd99958dbf70fa0fe7187db5ad6c83",
+            "sourceHash": "4528564f8b2e0a656d5550fb359ec011dd22448b44bacf08823d4288b1bac9de",
+            "configHash": "ceedd79d27b10867522d541d2e668466052beeb40eecdc049241810d3c6c60dd",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "607debb0c2aa193f58aa0b9f035fb5d878b1882a3a648b95819145d9b5c35bf7",
+            "snapshotName": "oversize-axes3-diagnostic-v2",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 600000,
+            "runTimeoutMs": 600000
+          },
+          "resultFile": "bench/results/diag-ollama-qwen3-8b-ctx32k-stepfill-compactfill-v02-1790768566898-1.json"
+        }
+      ]
+    },
+    {
+      "id": "H01",
+      "task": "oversize",
+      "stage": "handoff",
+      "snapshotAfter": "verify",
+      "snapshot": "oversize-verify-success",
+      "problemIds": [],
+      "evaluation": "successful verify input: complete and accurate handoff",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "oversize-verify-success: Error: ENOENT: no such file or directory, open 'D:\\Проекты\\Agent-SDLC-Runner\\bench\\snapshots\\oversize-verify-success\\snapshot.json'",
+      "samples": []
+    },
+    {
+      "id": "H02",
+      "task": "oversize",
+      "stage": "handoff",
+      "snapshotAfter": "verify",
+      "problemIds": [],
+      "evaluation": "incomplete verify input: stop safely and identify missing evidence",
+      "inputStatus": "missing-snapshot",
+      "inputReason": "no validated oversize snapshot after verify",
+      "samples": []
+    }
+  ],
+  "problemCoverage": [
+    {
+      "problemId": 1,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 2,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 3,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 4,
+      "cases": [
+        "E01",
+        "E02"
+      ],
+      "available": 0,
+      "total": 2,
+      "status": "partial or unavailable inputs"
+    },
+    {
+      "problemId": 5,
+      "cases": [
+        "I01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 6,
+      "cases": [
+        "P01",
+        "P02"
+      ],
+      "available": 0,
+      "total": 2,
+      "status": "partial or unavailable inputs"
+    },
+    {
+      "problemId": 7,
+      "cases": [
+        "I01",
+        "I02",
+        "C01"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 8,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 9,
+      "cases": [
+        "A01",
+        "A02"
+      ],
+      "available": 0,
+      "total": 2,
+      "status": "partial or unavailable inputs"
+    },
+    {
+      "problemId": 10,
+      "cases": [
+        "E01"
+      ],
+      "available": 0,
+      "total": 1,
+      "status": "partial or unavailable inputs"
+    },
+    {
+      "problemId": 11,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 12,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 13,
+      "cases": [
+        "C01",
+        "C02"
+      ],
+      "available": 2,
+      "total": 2,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 14,
+      "cases": [
+        "I01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 15,
+      "cases": [
+        "P01"
+      ],
+      "available": 0,
+      "total": 1,
+      "status": "partial or unavailable inputs"
+    },
+    {
+      "problemId": 16,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 17,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 18,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 19,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 20,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 21,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 22,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 23,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 24,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 25,
+      "cases": [
+        "V00",
+        "V01",
+        "V02"
+      ],
+      "available": 3,
+      "total": 3,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 26,
+      "cases": [
+        "C01"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    }
+  ]
+}

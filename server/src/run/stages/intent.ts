@@ -1,6 +1,7 @@
 /** Этап 1 — цель витка: определение этапа и его проверки. */
 
 import { existsSync } from 'node:fs';
+import { initializePreparation, isPreparationV2 } from '../../artifacts/preparation.ts';
 
 import type { Question, StageId } from '@sdlc-runner/shared';
 
@@ -165,6 +166,7 @@ export const intentStage: StageDef = {
 
 export const intentModule: StageModule = {
   def: intentStage,
+  initialize: (host, opts) => initializePreparation(host.paths, opts.requirement, opts.preparationVersion),
   runtimeFacts: [{ id: 'git-branch', purpose: 'текущая ветка рабочего дерева для поля ветки задачи', freshness: 'live' }],
   formFillExecutor: true,
   leanDocTools: true,
@@ -189,6 +191,7 @@ export const intentModule: StageModule = {
     autofill: (seeded) => autofillBranchField(host, seeded),
 
     afterTurn: async (_prompt, signal) => {
+      if (isPreparationV2(host.paths)) return;
       if (signal.aborted) return;
       const intent = readArtifact(host.paths.intent);
       if (!intent.exists) return;
@@ -232,6 +235,7 @@ export const intentModule: StageModule = {
     // Снимок секций задачи — по факту готовности (прогон 1 сказал «готова»): дальше
     // intent.md правится только тремя законными правками, и этапы 4 и 6 сверяют с ним.
     evidence: async () => {
+      if (isPreparationV2(host.paths)) return;
       ensureIntentSnapshot(host, 'intent');
     },
 

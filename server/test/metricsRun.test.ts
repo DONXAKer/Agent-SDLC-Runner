@@ -492,7 +492,7 @@ describe('сквозной: runStage пишет metrics.json и metrics.md', () 
         providerDef: { flow: 'loop', kind: 'openai-compat', baseUrl: `http://127.0.0.1:${port}` },
       });
 
-      const outcome = await run.runStage('intent');
+      const outcome = await run.runStage('intent', { preparationVersion: 1 });
       // Модель-заглушка не заполнила бланк — этап честно падает; это ожидаемо.
       strictEqual(outcome.ok, false);
 

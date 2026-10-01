@@ -10,6 +10,7 @@
 import type { StageId } from '@sdlc-runner/shared';
 
 import { readArtifact } from '../../artifacts/artifact.ts';
+import { approvedPreparationProblem } from '../../artifacts/preparation.ts';
 import { extractFilesToTouch } from '../../artifacts/planFiles.ts';
 import { builtinFor } from '../../gates/builtin/index.ts';
 import { configProblems, unimplementedGates } from '../../gates/gatesFile.ts';
@@ -66,6 +67,10 @@ export function entryProblems(
   const by = (blamed: StageId | null) => (text: string): EntryProblem => ({ text, blamed });
 
   if (PLAN_SCOPED_STAGES.includes(stage)) {
+    if (!abortHandoff) {
+      const problem = approvedPreparationProblem(ctx.paths);
+      if (problem !== null) problems.push({ text: problem, blamed: withBlame ? 'plan' : null });
+    }
     const files = planFilesOnDisk(ctx, stage);
     if (files !== null && files.length === 0) {
       problems.push(

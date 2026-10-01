@@ -195,6 +195,27 @@ describe('parseRecordRows', () => {
       { пункт: '[edge] Проверка лимита', 'как проверить': 'node --test test/limit.test.ts — резерв отклонён' },
     ]);
   });
+
+  it('строка с inline pipe не теряет проверку и критерий из дополнительных ячеек', () => {
+    const columns = [
+      { id: 'пункт', header: 'Пункт', kind: 'scalar' },
+      { id: 'как проверить', header: 'Как проверить', kind: 'scalar' },
+    ];
+    deepStrictEqual(parseRecordRows('- Форма Quote сохраняется | Проверка: вызвать priceFor() | критерий: surcharge отсутствует', columns), [
+      { пункт: 'Форма Quote сохраняется', 'как проверить': 'Проверка: вызвать priceFor() | критерий: surcharge отсутствует' },
+    ]);
+  });
+  it('inline pipe распределяет известные колонки и сохраняет остаток в последней', () => {
+    const columns = [
+      { id: 'claim', header: 'Номер пункта', kind: 'mechanical' },
+      { id: 'пункт', header: 'Пункт', kind: 'scalar' },
+      { id: 'как проверить', header: 'Как проверить', kind: 'scalar' },
+      { id: 'ожидаемо', header: 'Ожидаемо', kind: 'scalar' },
+    ];
+    deepStrictEqual(parseRecordRows('- **claim-2** | VAT для reduced | вызвать calculateVat() | итог округлён до копеек', columns), [
+      { пункт: 'VAT для reduced', 'как проверить': 'вызвать calculateVat()', ожидаемо: 'итог округлён до копеек' },
+    ]);
+  });
   const columns = [
     { id: 'путь', header: 'path/to/file', kind: 'scalar' },
     { id: 'что здесь меняем', header: 'что здесь меняем', kind: 'scalar' },

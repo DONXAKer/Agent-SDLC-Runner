@@ -1,6 +1,7 @@
 /** Этап 3 — вопросы: определение условного этапа. */
 
 import type { Question } from '@sdlc-runner/shared';
+import { isPreparationV2, blockingQuestions } from '../../artifacts/preparation.ts';
 
 import { artifactExists, countPlaceholdersExceptDecisions, readArtifact } from '../../artifacts/artifact.ts';
 import {
@@ -55,6 +56,7 @@ export function emptyClarificationReport(text: string, note: string): string {
  * повторном входе в этап.
  */
 async function askOpenQuestions(host: StageHost): Promise<void> {
+  if (isPreparationV2(host.paths)) return; // модель сначала проверяет добываемость факта и предлагает варианты
   const intent = readArtifact(host.paths.intent);
   const expl = readArtifact(host.paths.explorationReport);
   const all = openQuestions(intent.exists ? intent.text : '', expl.exists ? expl.text : '');
@@ -124,12 +126,15 @@ function blockingOfHeader(header: string): boolean | null {
  * человек, возможно, не видел (тот же довод, что в `askOpenQuestions`). Вопрос, уже
  * несущий строку, не дублируется.
  */
-function recordModelAnswers(
+export function recordModelAnswers(
   host: StageHost,
   questions: readonly Question[],
   answers: Readonly<Record<string, string[]>>,
 ): string | null {
   if (host.signal().aborted) return null;
+  if (isPreparationV2(host.paths) && !artifactExists(host.paths.clarificationReport)) {
+    seedArtifacts([host.paths.clarificationReport], host.runner().methodologyDir);
+  }
   const report = readArtifact(host.paths.clarificationReport);
   if (!report.exists) return null;
   const answered = questions
@@ -138,7 +143,10 @@ function recordModelAnswers(
   if (answered.length === 0) return null;
   const asOpen = answered.map((a) => ({ question: a.q.question, blocking: false, source: 'intent' as const }));
   const fresh = new Set(unaskedQuestions(asOpen, report.text).map((q) => q.question));
-  const toWrite = answered.filter((a) => fresh.has(a.q.question));
+  const previous = extractHumanFacts(report.text);
+  const toWrite = answered.filter((a) => isPreparationV2(host.paths)
+    ? !previous.some((fact) => fact.question === a.q.question && fact.answer === a.raw)
+    : fresh.has(a.q.question));
   if (toWrite.length === 0) return null;
 
   const startN = askedQuestionCount(report.text);
@@ -195,14 +203,15 @@ export const askStage: StageDef = {
     },
     explorationPathsExist(),
   ],
-  protectedArtifacts: RUNTIME_PROTECTED,
+  protectedArtifacts: (c) => isPreparationV2(c.paths) ? RUNTIME_PROTECTED(c).filter((p) => !p.endsWith('/intent.md')) : RUNTIME_PROTECTED(c),
   humanGate: null,
   // Условный шаг: нет развилок — нет шага и артефакта.
   skipIf: (c) => {
     if (isSmallContour(c)) return 'мелкий контур: этап не запускается';
     const intent = readArtifact(c.paths.intent);
     const expl = readArtifact(c.paths.explorationReport);
-    const open = hasOpenQuestions(intent.text) || hasOpenQuestions(expl.text);
+    const hasQuestions = isPreparationV2(c.paths) ? blockingQuestions : hasOpenQuestions;
+    const open = hasQuestions(intent.text) || hasQuestions(expl.text);
     return open ? null : 'открытых вопросов нет — этап условный, артефакт не создаётся';
   },
 };

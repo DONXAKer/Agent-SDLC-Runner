@@ -535,7 +535,7 @@ const CHUNK_REPLIES = (): Reply[] => [
 ];
 
 async function toChunkDone(run: Run, results: Record<string, unknown>): Promise<void> {
-  for (const stage of ['intent', 'explore', 'ask', 'plan'] as const) results[stage] = await run.runStage(stage);
+  for (const stage of ['intent', 'explore', 'ask', 'plan'] as const) results[stage] = await run.runStage(stage, { preparationVersion: 1 });
   decide(run, results, 'plan', 'Одобрение');
   results['chunk:1'] = await run.runStage('chunk');
   decide(run, results, 'journal', 'Подтвердил');
@@ -617,7 +617,7 @@ describe('runStage: эталон поведения витка', () => {
         ],
       },
       async (run, results) => {
-        for (const stage of ['intent', 'explore', 'ask'] as const) results[stage] = await run.runStage(stage);
+        for (const stage of ['intent', 'explore', 'ask'] as const) results[stage] = await run.runStage(stage, { preparationVersion: 1 });
       },
     );
   });
@@ -627,7 +627,7 @@ describe('runStage: эталон поведения витка', () => {
       'explore-fill',
       { intent: INTENT_FULL() },
       async (run, results) => {
-        results['intent'] = await run.runStage('intent');
+        results['intent'] = await run.runStage('intent', { preparationVersion: 1 });
         results['explore'] = await run.runStage('explore');
       },
       GATES,

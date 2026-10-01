@@ -6,6 +6,7 @@ import { basename, join } from 'node:path';
 import {
   DECISION,
   artifactExists,
+  countPlaceholdersExceptDecisions,
   decisionFieldLines,
   decisionLineIndexes,
   decisionStateAt,
@@ -420,6 +421,12 @@ export const handoffModule: StageModule = {
   ],
   checksBranchOnEntry: true,
   begin: (host, _route, opts) => ({
+    extraNotDone: () => {
+      const handoff = readArtifact(host.paths.handoff);
+      if (!handoff.exists) return [];
+      const remaining = countPlaceholdersExceptDecisions(handoff.text);
+      return remaining > 0 ? [`${host.paths.handoff}: осталось ${remaining} незаполненных полей`] : [];
+    },
     // Новый виток той же задачи — новая секция «## Виток K — дата» в существующем handoff:
     // до раскладки форм, чтобы автозаполнение заполнило её номер и дату вместе с шапкой.
     beforeSeed: async () => {
@@ -506,5 +513,11 @@ export const handoffModule: StageModule = {
           `дефекте — вопрос не был задан или остался без ответа`,
       });
     },
+    formFinish: () => ({
+      path: host.paths.handoff,
+      forced: false,
+      extraBlock: 'Заполняй только названное содержательное поле handoff.md. Решение «Приёмка» заполняет человек. Если записей о дефектах нет, укажи «н/п — дефектов не было» в полях необязательного образца; не придумывай дефекты и решения человека.',
+      requireCodeChange: false,
+    }),
   }),
 };

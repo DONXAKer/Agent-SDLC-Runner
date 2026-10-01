@@ -14,6 +14,8 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
+import { isPreparationV2, preparationContext } from '../artifacts/preparation.ts';
+import { preparationInstructions } from './preparation.ts';
 import { capBytes } from './bytes.ts';
 import { INDEX_BLOCK_BYTES, renderIndexBlock } from '../explore/render.ts';
 import { BYTES_PER_TOKEN_ESTIMATE } from '../exec/contextBudget.ts';
@@ -76,6 +78,7 @@ export interface BuildPromptInput {
   tools?: readonly ToolName[];
   /** Формулировка задачи от человека — только на этапе 1, где артефакта ещё нет. */
   requirement?: string;
+  preparationV2?: boolean;
   /** `retry_instruction` и `carry_forward` при возврате с этапа 6, и подобное. */
   extra?: string;
   /**
@@ -467,7 +470,7 @@ function adapterBlock(i: BuildPromptInput): string {
     // Без этой строки модель честно пытается исполнить инструкцию скилла, получает отказ
     // `Edit` и застревает в цикле «правка → отказ → „начать план?“» — измеренный #9
     // (`docs/model-runs.md`, 25 ходов на одном витке).
-    ...(i.stage.id === 'ask'
+    ...(i.stage.id === 'ask' && !isPreparationV2(i.ctx.paths)
       ? [
           '- `intent.md` защищён от записи на этом этапе — не пытайся закрывать чек-бокс ' +
             '«Открытые вопросы» задачи инструментом `Edit`, попытка отклонится. Как только ' +
@@ -908,7 +911,9 @@ function userMessage(i: BuildPromptInput, systemBytes = 0): string {
 }
 
 export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
-  const skillBody = readSkillBody(i.runner.skillsDir, i.stage.skill);
+  const v2 = i.preparationV2 ?? isPreparationV2(i.ctx.paths);
+  const preparing = ['intent', 'explore', 'ask', 'plan'].includes(i.stage.id);
+  const skillBody = v2 && preparing ? preparationInstructions(i.runner.methodologyDir, i.stage.id) : readSkillBody(i.runner.skillsDir, i.stage.skill);
   const system = `${skillBody}\n\n---\n\n${adapterBlock(i)}`;
 
   const specs = specsFor(i.tools ?? i.stage.tools);
@@ -935,7 +940,7 @@ export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
           'не показан — всё остальное, что уйдёт в модель, видно ниже.'
         : null,
     system,
-    user: userMessage(i, Buffer.byteLength(system, 'utf8')),
+    user: [userMessage(i, Buffer.byteLength(system, 'utf8')), ...(v2 ? [preparationContext(i.ctx.paths), ...(!preparing ? [preparationInstructions(i.runner.methodologyDir, i.stage.id)] : [])] : [])].filter(Boolean).join('\n\n'),
     tools,
     editedByOperator: false,
   };

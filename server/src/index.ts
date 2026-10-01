@@ -7,6 +7,7 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { preparationSummary } from './artifacts/preparation.ts';
 
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
@@ -557,6 +558,7 @@ app.get('/api/runs/:id', async (req, reply) => {
 
   const { run, currentStage } = live;
   const detail: RunDetail = {
+    preparation: preparationSummary(run.paths),
     runId: run.id,
     serverNow: Date.now(),
     slug: run.slug,
@@ -616,6 +618,7 @@ app.post('/api/runs/:id/decision', async (req, reply) => {
     artifact?: string;
     label?: string;
     granted?: boolean;
+    preparationFingerprint?: string;
     note?: string;
     chunk?: number;
     attempt?: number;
@@ -634,6 +637,7 @@ app.post('/api/runs/:id/decision', async (req, reply) => {
       artifact: body.artifact,
       label: body.label,
       granted: body.granted,
+      ...(typeof body.preparationFingerprint === 'string' ? { preparationFingerprint: body.preparationFingerprint } : {}),
       ...(typeof body.note === 'string' ? { note: body.note } : {}),
       ...(typeof body.chunk === 'number' ? { chunk: body.chunk } : {}),
       ...(typeof body.attempt === 'number' ? { attempt: body.attempt } : {}),
@@ -652,7 +656,10 @@ app.post('/api/runs/:id/stages/:stage/prompt', async (req, reply) => {
   const live = liveRun(id);
   if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
 
-  const body = (req.body ?? {}) as { requirement?: string; extra?: string };
+  const body = (req.body ?? {}) as { requirement?: string; extra?: string; preparationVersion?: 1 | 2 };
+  if (body.preparationVersion !== undefined && body.preparationVersion !== 1 && body.preparationVersion !== 2) {
+    return reply.code(400).send({ error: 'preparationVersion должна быть 1 или 2' });
+  }
   try {
     const response: PromptResponse = {
       prompt: live.run.preparePrompt(stage, body),
@@ -677,11 +684,15 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
   const body = (req.body ?? {}) as {
     prompt?: { system?: unknown; user?: unknown };
     requirement?: string;
+    preparationVersion?: 1 | 2;
     extra?: string;
     abortHandoff?: boolean;
   };
 
   let editedPrompt: { system: string; user: string } | null = null;
+  if (body.preparationVersion !== undefined && body.preparationVersion !== 1 && body.preparationVersion !== 2) {
+    return reply.code(400).send({ error: 'preparationVersion должна быть 1 или 2' });
+  }
   if (body.prompt !== undefined) {
     if (typeof body.prompt.system !== 'string' || typeof body.prompt.user !== 'string') {
       return reply.code(400).send({ error: 'prompt.system и prompt.user должны быть строками' });
@@ -702,6 +713,7 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
   void live.run
     .runStage(stage, {
       ...(body.requirement === undefined ? {} : { requirement: body.requirement }),
+      ...(body.preparationVersion === undefined ? {} : { preparationVersion: body.preparationVersion }),
       ...(body.extra === undefined ? {} : { extra: body.extra }),
       ...(body.abortHandoff === true ? { abortHandoff: true } : {}),
       ...(editedPrompt === null

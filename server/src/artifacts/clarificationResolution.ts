@@ -8,13 +8,15 @@ function cleanCell(value: string): string {
 }
 
 /** Runtime-provided evidence; the agent refers to facts by ID instead of copying them. */
-export function clarificationResolutionBlock(reportText: string): string | null {
+export function clarificationResolutionBlock(reportText: string, preparationV2 = false): string | null {
   const facts = extractHumanFacts(reportText);
   if (facts.length === 0) return null;
   const lines = [
     '## Источники ответов человека (не копировать в план)',
     '',
-    'Ниже — неизменяемые факты рантайма. В таблице плана перечисли каждый ID ровно один раз, укажи исходный claim-N и решение. Не переписывай вопрос и ответ: рантайм хранит их здесь и проверяет ссылку по ID. Если противоречие не разрешено, не выдавай план на одобрение — вернись к вопросу человеку.',
+    'Ниже — неизменяемые факты рантайма. В таблице плана перечисли каждый ID ровно один раз, укажи ' +
+      (preparationV2 ? 'исходный claim-N либо «границы», «подход», «инварианты»' : 'исходный claim-N') +
+      ' и решение. Не переписывай вопрос и ответ: рантайм хранит их здесь и проверяет ссылку по ID. Если противоречие не разрешено, не выдавай план на одобрение — вернись к вопросу человеку.',
     '',
     '| ID ответа | Вопрос | Ответ человека |',
     '|---|---|---|',
@@ -28,6 +30,7 @@ export function clarificationResolutionProblem(
   planText: string,
   reportText: string,
   acceptedClaimIds?: ReadonlySet<string>,
+  preparationV2 = false,
 ): string | null {
   const facts = extractHumanFacts(reportText);
   if (facts.length === 0) return null;
@@ -73,12 +76,16 @@ export function clarificationResolutionProblem(
     const sourceClaimId = /^claim-\d+\b/i.exec(sourceClaim)?.[0]?.toLowerCase();
     const resolution = cleanCell(row[resolutionCol] ?? '');
     const resolvedClaim = /^(?:подтверждает|уточняет|заменяет)\s+(claim-\d+)\b/i.exec(resolution)?.[1]?.toLowerCase();
+    if (preparationV2 && /^(?:границы|подход|инварианты)$/iu.test(sourceClaim)) {
+      if (resolution.length < 12 || /[‹›]/u.test(resolution)) problems.push(id + ': явно запиши принятое решение');
+      continue;
+    }
     if (!/^claim-\d+\b/i.test(sourceClaim) || resolvedClaim === undefined) {
       problems.push(id + ': назови исходный claim-N и решение «подтверждает claim-N …» либо «уточняет/заменяет claim-N: новая формулировка»');
     } else if (sourceClaim.match(/^claim-\d+/i)?.[0]?.toLowerCase() !== resolvedClaim) {
+      problems.push(id + ': решение относится к другому claim-N');
     } else if (acceptedClaimIds !== undefined && sourceClaimId !== undefined && !acceptedClaimIds.has(sourceClaimId)) {
       problems.push(id + ': \u043d\u0435\u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044e\u0449\u0438\u0439 claim-N \u0432 intent.md');
-      problems.push(id + ': решение относится к другому claim-N');
     } else if (/^(?:уточняет|заменяет)\b/i.test(resolution) && !/:\s*\S.{2,}/u.test(resolution)) {
       problems.push(id + ': для изменения claim-N запиши новую формулировку после двоеточия');
     }

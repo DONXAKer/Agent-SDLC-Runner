@@ -65,6 +65,46 @@ export function pickStepFailure(failures: readonly StepCheck[], file: string): S
   return own ?? failures[0] ?? null;
 }
 
+/** Defer an import check only when the failing module is an explicitly later plan step. */
+export function plannedDependencyBlocker(
+  failures: readonly StepCheck[], currentFile: string, laterFiles: readonly string[],
+): string | null {
+  for (const failure of failures) {
+    if (failure.status !== 'failed' || !/(?:Cannot find module|ERR_MODULE_NOT_FOUND)/i.test(failure.problem)) continue;
+    if (!mentionsFile(failure.problem, currentFile)) continue;
+    const dependency = laterFiles.find((file) => mentionsFile(failure.problem, file));
+    if (dependency) return dependency;
+  }
+  return null;
+}
+
+/** A test failure against a file with another declared step is checked after that follow-up. */
+export function plannedSameFileFollowup(
+  failures: readonly StepCheck[], currentFile: string, laterFiles: readonly string[],
+): boolean {
+  const normalize = (value: string): string => value.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+  if (!laterFiles.some((file) => normalize(file) === normalize(currentFile))) return false;
+  return failures.some((failure) => failure.status === 'failed'
+    && /гейт «Тесты»|(?:node|npm).*test/i.test(failure.problem)
+    && mentionsFile(failure.problem, currentFile));
+}
+
+/** Defer intermediate test regressions whose stack points to a file assigned to a later step. */
+export function plannedTestFollowup(
+  failures: readonly StepCheck[], currentFile: string, laterFiles: readonly string[],
+): string | null {
+  const sameFile = plannedSameFileFollowup(failures, currentFile, laterFiles);
+  if (sameFile) return currentFile;
+  for (const failure of failures) {
+    if (failure.status !== 'failed' || !/(?:гейт «Тесты»|node|npm).*test/i.test(failure.problem)) continue;
+    if (!mentionsFile(failure.problem, currentFile)) {
+      const future = laterFiles.find((file) => mentionsFile(failure.problem, file));
+      if (future) return future;
+    }
+  }
+  return null;
+}
+
 export function gatesForStep(gates: GatesFile | null): GateRow[] {
   const rows: GateRow[] = [];
   const build = gates?.rows.find((r) => gateKey(r.name) === gateKey('Сборка') && r.enabled);
@@ -199,6 +239,17 @@ export function stepFillExecutor(host: StageHost, route: ResolvedRoute): StepExe
                   continue;
                 }
               }
+              const laterFiles = steps.filter((candidate) => candidate.n > step.n).map((candidate) => candidate.file);
+              const deferred = plannedDependencyBlocker(failures, step.file, laterFiles);
+              const testFollowup = plannedTestFollowup(failures, step.file, laterFiles);
+              if (testFollowup !== null) return {
+                status: 'skipped',
+                note: `проверка изменила тесты для ${testFollowup}, у которого есть следующий шаг плана; повторная проверка после него`,
+              };
+              if (deferred !== null) return {
+                status: 'skipped',
+                note: `импорт ${deferred} явно создаётся следующим шагом плана; повторная проверка после его выполнения`,
+              };
               const picked = pickStepFailure(failures, step.file);
               if (picked !== null) return picked;
               return unavailable === null ? { status: 'ok' } : { status: 'skipped', note: unavailable.note };

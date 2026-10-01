@@ -60,6 +60,7 @@ export function isRuntimeServiceName(name: string): boolean {
 export function isRuntimeServicePath(rest: string): boolean {
   // Без учёта регистра: на NTFS `.Runner/metrics.json` — тот же файл, что `.runner/…`.
   const norm = rest.replace(/\\/g, '/').toLowerCase();
+  if (norm === 'preparation.json') return true; // историю требований пишет только рантайм
   if (norm.startsWith(`${RUNNER_DIR}/`) || norm === RUNNER_DIR) return true;
   // Снимок секций задачи (`.intent-sections.json`) — артефакт методологии, а не этой машины:
   // его пишет и `intent-sections.py`, и он обязан пережить клон (виток продолжается в

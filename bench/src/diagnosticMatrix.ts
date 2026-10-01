@@ -3,6 +3,9 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkDiagnosticInput, type DiagnosticCase } from './diagnosticInputs.ts';
+import { ensureBenchStateDir } from './stateDir.ts';
+
+ensureBenchStateDir();
 
 const benchDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const casesFile = join(benchDir, 'diagnostics', 'cases.json');

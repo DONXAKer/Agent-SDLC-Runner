@@ -1,0 +1,381 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-30T21:59:07.601Z",
+  "model": "ollama:granite4.2-8b-ctx32k-compactfill",
+  "repeats": 1,
+  "preflight": {
+    "exitCode": 0,
+    "checks": [
+      {
+        "name": "задача: файлы фикстуры",
+        "ok": true,
+        "env": true,
+        "detail": "задача, банк ответов, эталон и скрытый тест на месте",
+        "durationMs": 1
+      },
+      {
+        "name": "задача: банк ответов человека",
+        "ok": true,
+        "env": true,
+        "detail": "правил ответа 2, шумовых тегов 6; вопрос мимо них уйдёт в fallback — число таких в отчёте",
+        "durationMs": 1
+      },
+      {
+        "name": "конфиг: контрольный маршрут",
+        "ok": true,
+        "env": true,
+        "detail": "маршрут «контроль на подписке Claude» собирается",
+        "durationMs": 11
+      },
+      {
+        "name": "фикстура: сборка",
+        "ok": true,
+        "env": true,
+        "detail": "build-check.mjs зелёный",
+        "durationMs": 140
+      },
+      {
+        "name": "фикстура: тесты",
+        "ok": true,
+        "env": true,
+        "detail": "нетронутая фикстура зелёная (2 файлов)",
+        "durationMs": 258
+      },
+      {
+        "name": "стенд: лимит ходов",
+        "ok": true,
+        "env": true,
+        "detail": "ходов на этап 40 — штатный лимит конфига, поэтапно: verify 60",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: промпт plan против окна",
+        "ok": true,
+        "env": true,
+        "detail": "системная часть plan ≈6218 токенов при окне 32768",
+        "durationMs": 2
+      },
+      {
+        "name": "модель: окно контекста",
+        "ok": true,
+        "env": true,
+        "detail": "окна измеряемых маршрутов в порядке (или провайдер без управляемого окна)",
+        "durationMs": 0
+      },
+      {
+        "name": "модель: прогрев движка",
+        "ok": true,
+        "env": true,
+        "detail": "движок ответил — веса подняты до замеряемых проб",
+        "durationMs": 17017
+      },
+      {
+        "name": "модель: раскладка после прогрева",
+        "ok": true,
+        "env": false,
+        "detail": "ollama ps: раскладка в порядке (модель целиком в видеопамяти) или сама проверка неприменима",
+        "durationMs": 3
+      },
+      {
+        "name": "модель: вызов Write",
+        "ok": true,
+        "env": false,
+        "detail": "Write(notes/hello.md)",
+        "durationMs": 1422
+      },
+      {
+        "name": "модель: заполнение поля через Edit",
+        "ok": true,
+        "env": false,
+        "detail": "Edit с плейсхолдером в old_string",
+        "durationMs": 2374
+      },
+      {
+        "name": "модель: чтение → запись",
+        "ok": true,
+        "env": false,
+        "detail": "Read, затем Edit",
+        "durationMs": 2649
+      },
+      {
+        "name": "модель: точный Edit многострочного блока",
+        "ok": true,
+        "env": false,
+        "detail": "Edit с точным многострочным old_string",
+        "durationMs": 1755
+      },
+      {
+        "name": "модель: честность путей",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строго по объявленному файлу src/a.ts",
+        "durationMs": 1447
+      },
+      {
+        "name": "модель: длинная запись без усечения",
+        "ok": true,
+        "env": false,
+        "detail": "Write с маркером 60-й строки — ответ не усечён",
+        "durationMs": 7182
+      },
+      {
+        "name": "модель: правка поля без перезаписи файла",
+        "ok": true,
+        "env": false,
+        "detail": "Edit строки карты, поле решения человека не тронуто",
+        "durationMs": 2669
+      }
+    ]
+  },
+  "fingerprint": {
+    "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+    "sourceHash": "e60a07bf54017fcf3ac069e6ba78efe1439f08681b3192db91396d5b09d183da",
+    "configHash": "2ef53b224030cfe1ab92a2d04da6284933043f3f432a390a9da2bf7b48c15fb2",
+    "modelConfigHash": "79d54a89995a15f32b355f7e6133b338be1841c0f4ea17549d1935f82e5b85d5"
+  },
+  "cases": [
+    {
+      "id": "V00",
+      "task": "oversize",
+      "stage": "verify",
+      "snapshotAfter": "chunk",
+      "snapshot": "oversize-axes3-diagnostic-v4",
+      "problemIds": [
+        21,
+        22,
+        25
+      ],
+      "seed": "none",
+      "evaluation": "clean control: no unsupported findings, accurate gate report",
+      "inputStatus": "available",
+      "inputReason": "oversize-axes3-diagnostic-v4",
+      "samples": [
+        {
+          "slug": "diag-ollama-granite4-2-8b-ctx32k-compactfill-v00-1790805065315-1",
+          "exitCode": 2,
+          "outcome": "timeout",
+          "stageStarted": true,
+          "stageOk": false,
+          "timedOut": true,
+          "seedCaught": null,
+          "semanticAssessment": "not-assessed",
+          "problemCodes": [
+            "TIMEOUT",
+            "UNFILLED",
+            "HANDOFF_INPUT_INCOMPLETE"
+          ],
+          "durationMs": 480894,
+          "tokens": 361449,
+          "toolCalls": 2,
+          "friction": 0,
+          "reason": "этап отменён оператором",
+          "passport": {
+            "version": 1,
+            "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+            "sourceHash": "db659cb1f63dbceed12c6bee5f15c58cdcefc00958d81675ecba5c997807a4cf",
+            "configHash": "467a064eade5314b379aed5630b2a69cd9f1cecfc984d213a19681e714def619",
+            "localEndpoints": {
+              "ollama": "http://127.0.0.1:11435/v1"
+            },
+            "inputHash": "7a45b7f2eb0a20d2f2509571d080ac3e3fd3a6ab9d63adf838eb578a4cc51116",
+            "snapshotName": "oversize-axes3-diagnostic-v4",
+            "snapshotAuthor": "claude-sdk:sonnet",
+            "stageTimeoutMs": 480000,
+            "runTimeoutMs": 480000
+          },
+          "resultFile": "bench/results/diag-ollama-granite4-2-8b-ctx32k-compactfill-v00-1790805065315-1.json"
+        }
+      ]
+    }
+  ],
+  "problemCoverage": [
+    {
+      "problemId": 1,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 2,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 3,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 4,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 5,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 6,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 7,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 8,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 9,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 10,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 11,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 12,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 13,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 14,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 15,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    },
+    {
+      "problemId": 16,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 17,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 18,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 19,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 20,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 21,
+      "cases": [
+        "V00"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 22,
+      "cases": [
+        "V00"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 23,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 24,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "outside model diagnosis"
+    },
+    {
+      "problemId": 25,
+      "cases": [
+        "V00"
+      ],
+      "available": 1,
+      "total": 1,
+      "status": "inputs available"
+    },
+    {
+      "problemId": 26,
+      "cases": [],
+      "available": 0,
+      "total": 0,
+      "status": "unmapped"
+    }
+  ]
+}

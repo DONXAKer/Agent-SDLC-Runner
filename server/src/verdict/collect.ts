@@ -17,7 +17,7 @@ import type { ClaimStatus, GateRunResult, GateStatus, VerdictInput } from '@sdlc
 // означала бы, что вердикт и гейты могут разойтись в том, что считать зелёным.
 import { worstClaimStatus, worstGateStatus } from '@sdlc-runner/shared';
 
-import { hasPlaceholder, nameOnlyProblem } from '../artifacts/artifact.ts';
+import { countPlaceholdersExceptDecisions, hasPlaceholder, nameOnlyProblem } from '../artifacts/artifact.ts';
 import { columnIndex, parseTables } from '../md/table.ts';
 import type { GatesFile } from '../gates/gatesFile.ts';
 import { gateKey, gatesExpectedInReport, openDebt } from '../gates/gatesFile.ts';
@@ -662,6 +662,7 @@ export function manualClaimIds(intentText: string): string[] {
 
 export function collectVerdictInput(i: CollectInput): CollectResult {
   const facts = mergeFacts(i.reports.map(readReport));
+  const unfilledReportFields = i.reports.reduce((n, report) => n + countPlaceholdersExceptDecisions(report), 0);
   // Заявка рецензента на `manual` подтверждается тегом в задаче. Не подтверждена —
   // становится `⚠`: «доказательство держится на непройденной проверке», что и есть правда.
   const manual = new Set(i.manualClaims ?? []);
@@ -801,6 +802,7 @@ export function collectVerdictInput(i: CollectInput): CollectResult {
       brokenInvariants: facts.brokenInvariants,
       regressions: facts.regressions,
       plannedPathsUntouched: facts.plannedPathsUntouched,
+      ...(unfilledReportFields > 0 ? { unfilledReportFields } : {}),
       // Факт рантайма побеждает прозу отчёта в ОБЕ стороны: он получен той же командой,
       // которой снимался патч, и спорить с ним рецензенту нечем.
       diffMatchesTree: i.diffMatchesTreeFact ?? facts.diffMatchesTree,

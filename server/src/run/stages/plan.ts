@@ -2,6 +2,8 @@
 
 import { existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
+import { isPreparationV2, requirementProblem, preparationReviewProblem } from '../../artifacts/preparation.ts';
+import { reviewPreparation } from '../preparationReview.ts';
 
 import type { NormalizedCall } from '@sdlc-runner/shared';
 
@@ -201,7 +203,7 @@ export function planClarificationProblem(c: StageContext, planText?: string): st
       .map(claimIdOf)
       .filter((claimId): claimId is string => claimId !== null),
   );
-  return clarificationResolutionProblem(plan, report.exists ? report.text : '', acceptedClaimIds);
+  return clarificationResolutionProblem(plan, report.exists ? report.text : '', acceptedClaimIds, isPreparationV2(c.paths));
 }
 
 /** Require a per-callsite disposition for every indexed caller of a changed contract. */
@@ -462,7 +464,7 @@ export const planStage: StageDef = {
   // «База»» утверждал обратное — найдено ревью `stage-review-2026-09-18.md`, S7.)
   tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact', 'FillField'],
   subagents: [],
-  produces: (c) => [c.paths.plan, c.paths.readiness],
+  produces: (c) => [c.paths.plan, c.paths.readiness, ...(isPreparationV2(c.paths) ? [c.paths.intent] : [])],
   requires: [
     {
       describe: 'отчёт разведки на месте (или мелкий контур)',
@@ -476,7 +478,7 @@ export const planStage: StageDef = {
     // Та же функция полноты, что у стража этапа 1 и входа в разведку (`intentFilled`): на
     // мелком контуре секцию «Что придётся тронуть» не заполняет никто, и требовать её здесь
     // значило бы блокировать план по файлу, который этап 1 честно закрыл.
-    intentFilled('задача заполнена без плейсхолдеров', true),
+    { ...intentFilled('задача заполнена без плейсхолдеров', true), check: (c) => intentFilled('задача заполнена', !isPreparationV2(c.paths)).check(c) },
     explorationPathsExist(),
     // И здесь тоже, не только на explore: мелкий контур пропускает разведку целиком
     // (`explore.skipIf`), и без этой строки его ветка `small ? 1 : 3` внутри проверки
@@ -484,10 +486,10 @@ export const planStage: StageDef = {
     claimsMinimum(),
     // Восьмое условие вердикта проверяется и на входе этапа 4: переписанная задача не
     // должна доехать до плана, а «уточнено с одобрения» — единственный законный путь.
-    intentSectionsIntact('задача не переписана внутри витка (снимок секций intent.md)'),
+    { ...intentSectionsIntact('задача не переписана внутри витка (снимок секций intent.md)'), check: (c) => isPreparationV2(c.paths) ? null : intentSectionsIntact('версия задачи').check(c) },
   ],
   // План здесь и создаётся, поэтому защищены только задача и набор гейтов.
-  protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, relOf(c, c.paths.intent)],
+  protectedArtifacts: (c) => [`${SDLC_DIR}/gates.md`, ...(isPreparationV2(c.paths) ? [] : [relOf(c, c.paths.intent)])],
   humanGate: { artifact: 'plan', label: DECISION.approval },
   skipIf: null,
 };
@@ -533,13 +535,14 @@ export const planModule: StageModule = {
       const ctx = host.ctx();
       const callers = callersBlock(ctx);
       const clarification = readArtifact(ctx.paths.clarificationReport);
-      const resolutions = clarificationResolutionBlock(clarification.exists ? clarification.text : '');
+      const resolutions = clarificationResolutionBlock(clarification.exists ? clarification.text : '', isPreparationV2(host.paths));
       return [callers, resolutions].filter((fact): fact is string => fact !== null);
     },
     // Снимка секций задачи может не быть (виток начат до его появления или с середины по
     // снимку артефактов) — тогда он снимается здесь, с предупреждением: с этого момента
     // задача под сверкой, а что было до — не проверено.
     afterStart: async () => {
+      if (isPreparationV2(host.paths)) return;
       ensureIntentSnapshot(host, 'plan');
     },
 
@@ -569,16 +572,34 @@ export const planModule: StageModule = {
     // шагов» ничего не сказала, добираются узкими вопросами рантайма. До стража завершения
     // этапа — он увидит меньше проблем, если топ-ап уже закрыл часть строк.
     afterTurn: async (stagePrompt, signal) => {
-      if (route.flow === 'loop' && route.planAxisFill !== false && !signal.aborted) {
+      if (route.flow === 'loop' && route.planAxisFill !== false && !signal.aborted && !isPreparationV2(host.paths)) {
         await topUpAxes(host, route, stagePrompt.system);
       }
     },
+    afterForm: async (_prompt, _def, _agents, hooks) => {
+      if (isPreparationV2(host.paths) && !host.signal().aborted && readinessRun2(host.ctx()).ready &&
+          filesToTouchProblem(host.ctx()) === null && planRequirementsProblem(host.ctx()) === null &&
+          planClarificationProblem(host.ctx()) === null && planMapProblem(host.ctx()) === null && axisProblems(host).length === 0) {
+        await reviewPreparation(host, hooks);
+      }
+    },
+    outcomeProblem: () => isPreparationV2(host.paths) ? preparationReviewProblem(host.paths) : null,
 
     // Разбор последствий — тем же приёмом и по той же причине, что карта разведки:
     // находка нужна модели в её собственном ходу. Предусловием этапа 5 она пришла бы
     // после ухода планировщика, а дописывать исход за него стало бы некому — кроме
     // самого исполнителя, которому решение человека не принадлежит.
     finishProblem: () => {
+      if (isPreparationV2(host.paths)) {
+        const problem = requirementProblem(readArtifact(host.paths.intent).text);
+        if (problem !== null) return problem;
+        const plan = readArtifact(host.paths.plan);
+        const hash = resolvedRequirementsHash(readArtifact(host.paths.intent).text, readArtifact(host.paths.clarificationReport).text);
+        if (plan.exists && readRequirementsHash(plan.text) !== hash) {
+          const without = plan.text.replace(/^- \*\*Требования \(SHA-256\):\*\*[^\n]*(?:\n|$)/gmu, '');
+          host.writeAutofilled(host.paths.plan, addRequirementsHash(without, hash), []);
+        }
+      }
       const draft = readArtifact(host.paths.plan);
       if (draft.exists && readRequirementsHash(draft.text) === null) {
         const intent = readArtifact(host.paths.intent);

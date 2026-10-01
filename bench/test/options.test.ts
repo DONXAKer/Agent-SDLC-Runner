@@ -11,6 +11,13 @@ import { describe, it } from 'node:test';
 import { OptionsError, parseArgs, rawLogWanted, resolveTurnLimits } from '../src/options.ts';
 import { measuredStages } from '../src/profile.ts';
 
+it('версия проработки задаётся явно; историческое умолчание не меняется', () => {
+  strictEqual(parseArgs(['--model', 'x', '--all']).preparationVersion, undefined);
+  strictEqual(parseArgs(['--model', 'x', '--all', '--preparation-version', '1']).preparationVersion, 1);
+  strictEqual(parseArgs(['--model', 'x', '--all', '--preparation-version=2', '--stop-after-stage', 'plan']).preparationVersion, 2);
+  throws(() => parseArgs(['--model', 'x', '--all', '--preparation-version', '3']), /ожидается 1 или 2/);
+});
+
 describe('лимиты ходов (resolveTurnLimits)', () => {
   const prod = { maxIterationsPerStage: 55, maxIterationsByStage: { verify: 70 } };
 

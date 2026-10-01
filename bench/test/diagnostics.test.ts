@@ -8,11 +8,14 @@ import type { Run } from '../../server/src/run/Run.ts';
 import { observeArtifacts, passport, treeDigest } from '../src/diagnostics.ts';
 import { parseArgs } from '../src/options.ts';
 import { runBench } from '../src/driver.ts';
+import { randomUUID } from 'node:crypto';
+import { WitokPaths } from '../../server/src/artifacts/paths.ts';
 
 describe('stage diagnostics', () => {
   it('captures a successful stage input after its human approval is recorded', async () => {
     const order: string[] = [];
     const run = { chunk: 1, attempt: 1, lastVerdict: null, blockerDetails: () => [],
+      paths: new WitokPaths(tmpdir(), `bench-diagnostics-${randomUUID()}`),
       runStage: async () => { order.push('run'); return { ok: true, usage: emptyUsage(), finalText: 'filled', note: '' }; },
       recordDecision: () => { order.push('approval'); },
     } as unknown as Run;

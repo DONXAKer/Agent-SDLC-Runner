@@ -6,6 +6,7 @@ import { declaredAsNew } from '../../artifacts/planFiles.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
 import { TOUCH_SECTION, claimsMinimum, exists, intentFilled, isSmallContour, readinessReady, relOf } from './preconditions.ts';
+import { isPreparationV2 } from '../../artifacts/preparation.ts';
 import type { Precondition, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 import { autofillTitle } from '../formAutofill.ts';
 import { edgeExampleLines } from '../../artifacts/edgeExample.ts';
@@ -461,7 +462,7 @@ export const exploreModule: StageModule = {
     // Слепой вывод листа (агент 2 этапа 2) — шаг РАНТАЙМА до создания исполнителя: конвейер
     // `exploreFill` забирает его итог из `exploreState.claims` при конструировании.
     beforeExecutor: async () => {
-      if (usesExploreFill(route)) await runClaimsBlind(host, route, host.ecosystemFor('explore'));
+      if (usesExploreFill(route) && !isPreparationV2(host.paths)) await runClaimsBlind(host, route, host.ecosystemFor('explore'));
     },
 
     // Разведка дозаполняется по полям — с 2026-09-04. Раньше её здесь не было потому, что

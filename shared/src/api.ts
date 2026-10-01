@@ -350,7 +350,19 @@ export interface IterationSummary {
   at: string;
 }
 
+export interface PreparationSummary {
+  version: 2;
+  fingerprint: string;
+  revision: number;
+  confirmed: boolean;
+  readyToApprove: boolean;
+  issues: string[];
+  requirements: string;
+  changes: { section: string; before: string; after: string }[];
+}
+
 export interface RunDetail extends RunSummary {
+  preparation?: PreparationSummary | null;
   projectRoot: string;
   /**
    * Часы сервера в момент ответа (epoch ms). Возраст ожидания решений считается от

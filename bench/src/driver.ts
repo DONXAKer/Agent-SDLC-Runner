@@ -13,6 +13,7 @@ import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { StageId, Verdict } from '@sdlc-runner/shared';
 
 import { DecisionFormError } from '../../server/src/artifacts/artifact.ts';
+import { isPreparationV2, preparationFingerprint } from '../../server/src/artifacts/preparation.ts';
 import type { Run, RunStageOptions } from '../../server/src/run/Run.ts';
 import { stageById } from '../../server/src/run/stages.ts';
 import type { StageResult } from '../../server/src/exec/StageExecutor.ts';
@@ -91,6 +92,7 @@ export interface DriverResult {
 }
 
 export interface DriverArgs {
+  preparationVersion?: 1 | 2;
   /** Diagnostic boundary; unlike a snapshot, also stops on failed/incomplete stages. */
   measurementEnd?: StageId;
   signal?: AbortSignal;
@@ -311,7 +313,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     const { result, timedOut } = await runStageWithTimeout(
       run,
       stage,
-      stage === 'intent' && args.requirement !== undefined ? { requirement: args.requirement } : {},
+      stage === 'intent' ? { preparationVersion: args.preparationVersion ?? 1, ...(args.requirement === undefined ? {} : { requirement: args.requirement }) } : {},
       stageTimeoutMs,
     );
     // `runStage` возвращает пропуск этапа тем же `StageResult`, что и настоящий прогон —
@@ -411,7 +413,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     // `DecisionFormError` не по вине модели, а по устройству пропуска — живой пример:
     // 3 из 5 прогонов `qwen3-8b-stepfill-compactfill` (серия test21) шли в `blocked`
     // ровно так, хотя мелкий контур — легитимный, не имеющий отношения к модели пропуск.
-    if (def.humanGate !== null && !skipped) {
+    if (def.humanGate !== null && !skipped && !(stage === 'explore' && isPreparationV2(run.paths))) {
       // Испорченное моделью поле решения — провал ЭТАПА, а не крах бенчмарка: пока
       // исключение летело наружу, прогон падал без result.json и отчёта (живой прогон —
       // модель заполнила «Подтвердил» за человека, и настоящему решению стало некуда лечь).
@@ -420,6 +422,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
           artifact: def.humanGate.artifact,
           label: def.humanGate.label,
           granted: true,
+          ...(isPreparationV2(run.paths) ? { preparationFingerprint: preparationFingerprint(run.paths) } : {}),
           chunk: run.chunk,
           attempt: run.attempt,
         });
@@ -440,9 +443,11 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       }
     }
 
-    if (!skipped) {
+    // Пропущенный условный этап тоже оставляет валидное состояние для следующего: вход
+    // «после него» нужен диагностике, когда развилки закрыл более ранний этап.
+    {
       const completed = stages.at(-1);
-      if (completed?.ok) args.onStageCompleted?.(completed);
+      if (completed?.ok && completed.stage === stage) args.onStageCompleted?.(completed);
     }
     if (stage === args.measurementEnd) {
       return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'stage-measured' };

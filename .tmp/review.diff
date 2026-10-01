@@ -1,0 +1,934 @@
+diff --git a/docs/model-tuning.md b/docs/model-tuning.md
+index d0b9dd1..863a10a 100644
+--- a/docs/model-tuning.md
++++ b/docs/model-tuning.md
+@@ -56,6 +56,19 @@ npm run bench -- --stage chunk --model ollama:qwen3:8b-ctx16k \
+   --from-snapshot oversize-plan --keep-workspace --slug trace-check
+ ```
+ 
++После серии проверенный корпус собирается отдельной командой:
++
++```bash
++npm run bench:corpus -- --raw=bench/rawlogs --results=bench/results --out=bench/corpus/train.jsonl
++```
++
++Сборщик принимает только пары с соседней меткой `*.label.json`, где механический оракул
++поставил `accepted: true`. Для `stepFill` такую метку пишет проверка после шага; ответы без
++проверки, не применившиеся правки и красные проверки остаются за бортом. Итог всего витка
++не подменяет метку отдельного ответа. `oversize` всегда исключается как held-out задача.
++Команда печатает число принятых пар и причины отсева; ноль — законный сигнал, что данных для
++обучения ещё нет, а не повод ослабить фильтр.
++
+ Каталог растёт быстро: во флоу `loop` каждый ход везёт всю историю заново (замеренные
+ максимумы — 367–392 тыс. входных токенов за этап). `bench/traces/` в `.gitignore`.
+ 
+diff --git a/package.json b/package.json
+index 0fd262e..5aebcf0 100644
+--- a/package.json
++++ b/package.json
+@@ -16,6 +16,7 @@
+     "test": "npm run test --workspace server && npm run test --workspace web && npm run bench:test",
+     "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace web && npm run bench:typecheck",
+     "bench": "node bench/src/cli.ts",
++    "bench:corpus": "node bench/src/corpus.ts",
+     "bench:archive": "node bench/src/archive.ts",
+     "bench:test": "node --import ./server/test/setup-state.ts --test \"bench/test/**/*.test.ts\"",
+     "bench:typecheck": "tsc -p bench/tsconfig.json --noEmit"
+diff --git a/server/src/exec/FormFillExecutor.ts b/server/src/exec/FormFillExecutor.ts
+index cf99179..0802893 100644
+--- a/server/src/exec/FormFillExecutor.ts
++++ b/server/src/exec/FormFillExecutor.ts
+@@ -72,6 +72,7 @@ import {
+   type ChatMessage,
+   type ChatProvider,
+ } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { budgetParams, ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from './contextBudget.ts';
+ import { writeThroughGate } from './gateWrite.ts';
+ import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+@@ -1414,6 +1415,10 @@ export class FormFillExecutor implements StageExecutor {
+               continue;
+             }
+             resetRejectionStreak();
++            // Мишень T2 корпуса (`docs/model-tuning.md`): путь дампа ЭТОГО ответа — метка
++            // приклеивается к нему, а не к какому-то другому обмену пачки. `?? null` —
++            // дамп выключен или обмен не сохранился (см. `ChatTurn.rawLogPath`).
++            const rawLogPath = a.value.rawLogPath ?? null;
+             let filled = cleanFieldAnswer(a.value.text);
+             if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
+             const isFilesToTouchRow = range.kind === 'row' && FILES_TO_TOUCH_HEADER.test(range.header);
+@@ -1444,7 +1449,15 @@ export class FormFillExecutor implements StageExecutor {
+             }
+             // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
+             // как был, и его честно назовут страж и предусловие следующего этапа.
+-            if (filled === '' || filled.includes('‹')) continue;
++            if (filled === '' || filled.includes('‹')) {
++              annotateExchange(rawLogPath, {
++                accepted: false,
++                oracle: 'form-field-checks',
++                target: 'form-field',
++                reason: 'empty-or-placeholder',
++              });
++              continue;
++            }
+             // Чужая письменность — тот же класс: не значение поля, а сбой генерации
+             // (`sheet.ts::foreignScript`; компактный путь отказывает в `parseFieldValue`).
+             // Причина называется вслух, в отличие от двух отказов выше: поле, пропущенное
+@@ -1456,6 +1469,12 @@ export class FormFillExecutor implements StageExecutor {
+               const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: чужая письменность («${foreign}»)`;
+               notes.push(rejection);
+               fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
++              annotateExchange(rawLogPath, {
++                accepted: false,
++                oracle: 'form-field-checks',
++                target: 'form-field',
++                reason: 'foreign-script',
++              });
+               continue;
+             }
+             // Модель спутала «ответить на карточку» с «вызвать инструмент» и вернула JSON-
+@@ -1467,6 +1486,12 @@ export class FormFillExecutor implements StageExecutor {
+               const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: JSON-конверт вызова инструмента вместо значения`;
+               notes.push(rejection);
+               fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
++              annotateExchange(rawLogPath, {
++                accepted: false,
++                oracle: 'form-field-checks',
++                target: 'form-field',
++                reason: 'tool-call-echo',
++              });
+               continue;
+             }
+             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому
+@@ -1537,6 +1562,23 @@ export class FormFillExecutor implements StageExecutor {
+                 );
+               }
+             }
++            // Метка корпуса на принятый ответ — здесь, а не раньше: пункты приёмки могли
++            // пройти через добор выше и всё равно остаться короче минимума методологии —
++            // это тоже отказ оракула, даже когда строка всё же уходит в артефакт (страж
++            // этапа 3 честно найдёт нехватку сам). Пересчёт `countClaims` независим от
++            // `stillShort` внутри блока добора: тот объявлен в его собственной области
++            // видимости и сюда не достаёт, а вызов чистый и второго знания не заводит.
++            const claimsRow = range.kind === 'row' && /claim-/.test(range.text);
++            const claimsShort = claimsRow ? countClaims(filled) : null;
++            const belowClaimsMinimum =
++              claimsShort !== null &&
++              (claimsShort.rows < CLAIMS_MINIMUM.rows || claimsShort.edges < CLAIMS_MINIMUM.edges);
++            annotateExchange(rawLogPath, {
++              accepted: !belowClaimsMinimum,
++              oracle: claimsRow ? 'claims-minimum' : 'form-field-checks',
++              target: 'form-field',
++              reason: belowClaimsMinimum ? 'claims-below-minimum' : 'accepted',
++            });
+             // Ячейка таблицы, спрошенная по одной (владение ячейкой «Ответ человека»): ответ
+             // ложится внутрь строки, и перевод строки или голая `|` в нём разорвали бы таблицу.
+             if (range.kind === 'cell' && lineAt(text, range.start).trimStart().startsWith('|')) {
+diff --git a/server/src/exec/LoopExecutor.ts b/server/src/exec/LoopExecutor.ts
+index 3d544e6..9e5ea5d 100644
+--- a/server/src/exec/LoopExecutor.ts
++++ b/server/src/exec/LoopExecutor.ts
+@@ -26,10 +26,12 @@ import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
+ import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
+ 
+ import type { ChatMessage, ChatProvider, ChatToolCall } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { normalize } from './normalize.ts';
+ import type {
+   ExecHooks,
+   ExecRequest,
++  FrictionKind,
+   StageExecutor,
+   StageResult,
+   SubagentDef,
+@@ -220,6 +222,16 @@ export class LoopExecutor implements StageExecutor {
+     return { ...result, turns: meter.turns };
+   }
+ 
++  /**
++   * Трение цикла — рантайм-хук для метрик (`hooks.onFriction`) плюс метка на сыром дампе
++   * для корпуса (`docs/model-tuning.md`), одним вызовом: два места, знающие о трении хода,
++   * расходились бы при первой же новой причине.
++   */
++  private friction(hooks: ExecHooks, kind: FrictionKind, rawLogPath: string | null): void {
++    hooks.onFriction(kind);
++    annotateExchange(rawLogPath, { friction: kind });
++  }
++
+   private async runTurns(req: ExecRequest, hooks: ExecHooks, meter: { turns: number }): Promise<StageResult> {
+     const toolCtx: ToolContext = {
+       projectRoot: req.cwd,
+@@ -251,6 +263,13 @@ export class LoopExecutor implements StageExecutor {
+ 
+     let usage: Usage = emptyUsage();
+     let finalText = '';
++    /**
++     * Путь сырого дампа (`provider/rawLog.ts`) ПОСЛЕДНЕГО запроса к модели — не только
++     * этого хода: `friction()` ниже размечает по нему трение, случившееся уже ПОСЛЕ
++     * ответа (серия чтений, повтор вызова внутри `handleCall`), а точного второго
++     * запроса к этому моменту ещё не было. `null` — дампа не было вовсе либо он выключен.
++     */
++    let lastRawLogPath: string | null = null;
+     /**
+      * Сколько ходов рантайм САМ сжал `max_tokens` до пола и не смог уместить историю в
+      * бюджет. Нужно исходу этапа: обрыв по длине после такого сжатия — предел окна, а не
+@@ -383,7 +402,7 @@ export class LoopExecutor implements StageExecutor {
+         req.progressSignal() === 0
+       ) {
+         noProgressNudged = true;
+-        hooks.onFriction('reminder');
++        this.friction(hooks, 'reminder', lastRawLogPath);
+         pushUserNote(
+           messages,
+           `Пройдено ${turnsDone} ходов из ${req.maxTurns}, а прогресса этапа всё ещё нет. ` +
+@@ -423,6 +442,7 @@ export class LoopExecutor implements StageExecutor {
+         }),
+       });
+ 
++      lastRawLogPath = answer.rawLogPath ?? null;
+       usage = addUsage(usage, answer.usage);
+       // `0` входных токенов от сервера — признак того, что сервер вовсе не прислал usage
+       // (`OpenAiCompatProvider.ts` подставляет 0 по умолчанию), а не что окно опустело:
+@@ -503,7 +523,7 @@ export class LoopExecutor implements StageExecutor {
+ 
+           if (complaint !== null && reminders < FINISH_REMINDERS) {
+             reminders++;
+-            hooks.onFriction('reminder');
++            this.friction(hooks, 'reminder', lastRawLogPath);
+             hooks.onWarn(`${complaint} (напоминание ${reminders} из ${FINISH_REMINDERS})`);
+             messages.push({ role: 'assistant', content: answer.text, toolCalls: [] });
+             messages.push({ role: 'user', content: complaint });
+@@ -618,7 +638,7 @@ export class LoopExecutor implements StageExecutor {
+         repeats = isNewTurnFingerprint ? 0 : repeats + 1;
+         lastFingerprint = turnFingerprint;
+         if (isNewTurnFingerprint) noProgressWarnedForTurn = null;
+-        if (repeats > 0) hooks.onFriction('repeat');
++        if (repeats > 0) this.friction(hooks, 'repeat', lastRawLogPath);
+ 
+         if (repeats + 1 >= REPEAT_LIMIT) {
+           const doneAnyway = finishedByDisk();
+@@ -648,7 +668,16 @@ export class LoopExecutor implements StageExecutor {
+         const spentNow = (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0);
+         const results = await Promise.all(
+           answer.toolCalls.map((call) =>
+-            this.handleCall(call, normalize(call.name, call.arguments ?? {}), 0, req, hooks, toolCtx, spentNow),
++            this.handleCall(
++              call,
++              normalize(call.name, call.arguments ?? {}),
++              0,
++              req,
++              hooks,
++              toolCtx,
++              spentNow,
++              lastRawLogPath,
++            ),
+           ),
+         );
+         answer.toolCalls.forEach((call, idx) => {
+@@ -677,7 +706,7 @@ export class LoopExecutor implements StageExecutor {
+         const firstOfStreak = repeats === 0;
+         if (firstOfStreak) noProgressWarnedFor = null;
+ 
+-        if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
++        if (repeats > 0 && !isPolling(call.name, req)) this.friction(hooks, 'repeat', lastRawLogPath);
+ 
+         if (repeats + 1 >= REPEAT_LIMIT && !isPolling(call.name, req)) {
+           const doneAnyway = finishedByDisk();
+@@ -752,6 +781,7 @@ export class LoopExecutor implements StageExecutor {
+           hooks,
+           toolCtx,
+           (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0),
++          lastRawLogPath,
+         );
+         messages.push({
+           role: 'tool',
+@@ -837,7 +867,7 @@ export class LoopExecutor implements StageExecutor {
+         const streak = readStreak;
+         readNudges++;
+         readStreak = 0;
+-        hooks.onFriction('reminder');
++        this.friction(hooks, 'reminder', lastRawLogPath);
+         pushUserNote(
+           messages,
+           `Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
+@@ -856,7 +886,7 @@ export class LoopExecutor implements StageExecutor {
+         const streak = bashStreak;
+         bashNudges++;
+         bashStreak = 0;
+-        hooks.onFriction('reminder');
++        this.friction(hooks, 'reminder', lastRawLogPath);
+         pushUserNote(
+           messages,
+           `Последние ${streak} вызовов — только Bash. Этап делается правками файлов ` +
+@@ -880,7 +910,7 @@ export class LoopExecutor implements StageExecutor {
+           if (!readyNudged && readyNudges < READY_NUDGES_PER_STAGE) {
+             readyNudged = true;
+             readyNudges++;
+-            hooks.onFriction('reminder');
++            this.friction(hooks, 'reminder', lastRawLogPath);
+             pushUserNote(
+               messages,
+               'Артефакт этапа уже готов к финализации — дальнейшие правки не нужны. Вызови ' +
+@@ -986,6 +1016,8 @@ export class LoopExecutor implements StageExecutor {
+     toolCtx: ToolContext,
+     /** Уже потрачено на витке к моменту вызова — передаётся вложенному прогону субагента. */
+     spentUsd: number,
++    /** Путь дампа хода, которому принадлежит этот вызов — см. `lastRawLogPath` в `runTurns`. */
++    rawLogPath: string | null,
+   ): Promise<string> {
+     const started = Date.now();
+     const requestId = `loop:${randomUUID()}`;
+@@ -994,7 +1026,7 @@ export class LoopExecutor implements StageExecutor {
+       // Не падаем: говорим, что именно не разобралось. Модель, которой сказали «ошибка»
+       // без подробностей, повторяет ту же строку.
+       const text = `аргументы не разобрались как JSON: ${call.rawArguments.slice(0, 300)}`;
+-      hooks.onFriction('badJson');
++      this.friction(hooks, 'badJson', rawLogPath);
+       hooks.onToolResult({ requestId, ok: false, summary: text, durationMs: 0 });
+       return text;
+     }
+@@ -1020,7 +1052,7 @@ export class LoopExecutor implements StageExecutor {
+       ...(req.callerAgent === undefined ? {} : { caller: req.callerAgent }),
+     });
+     if (!decision.allowed) {
+-      hooks.onFriction('denied');
++      this.friction(hooks, 'denied', rawLogPath);
+       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
+       return `вызов отклонён: ${decision.reason}`;
+     }
+@@ -1055,7 +1087,7 @@ export class LoopExecutor implements StageExecutor {
+ 
+     // Метка обрезки ставится в `cap` — единственном месте, которое знает лимит. Ловим её
+     // по ней же: считать длину второй раз значило бы завести второе знание о потолке.
+-    if (text.includes('[рантайм обрезал:')) hooks.onFriction('truncated');
++    if (text.includes('[рантайм обрезал:')) this.friction(hooks, 'truncated', rawLogPath);
+ 
+     // Исход — фактический, а не «инструмент вернул строку»: упавший `Edit`, `Bash` с
+     // ненулевым кодом и отказ `FinalizeArtifact` прежде уходили `ok: true`, и рантайм
+diff --git a/server/src/exec/StepExecutor.ts b/server/src/exec/StepExecutor.ts
+index 5a3fa6a..2fd714e 100644
+--- a/server/src/exec/StepExecutor.ts
++++ b/server/src/exec/StepExecutor.ts
+@@ -63,6 +63,7 @@ import { symlinkEscape } from '../approval/symlink.ts';
+ import { git } from '../gates/git.ts';
+ import { isAbsolute, relativizeWithin, resolveUserPath, toPosix } from '../policy/paths.ts';
+ import type { ChatMessage, ChatProvider, FinishReason } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { normalize } from './normalize.ts';
+ import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+ import { cap, executeTool, type ToolContext } from './tools/index.ts';
+@@ -528,7 +529,9 @@ export class StepExecutor implements StageExecutor {
+       return null;
+     };
+ 
+-    const chat = async (messages: ChatMessage[]): Promise<{ text: string; finishReason: FinishReason }> => {
++    const chat = async (
++      messages: ChatMessage[],
++    ): Promise<{ text: string; finishReason: FinishReason; rawLogPath: string | null }> => {
+       const startedAt = Date.now();
+       const answer = await this.o.provider.chat({
+         model: req.model,
+@@ -545,7 +548,7 @@ export class StepExecutor implements StageExecutor {
+       // сразу за обменом: печать хода прогона закрывает им блок этого запроса.
+       hooks.onExchange?.({ question: messages.at(-1)?.content ?? '', answer: answer.text });
+       hooks.onUsage(answer.usage, Date.now() - startedAt);
+-      return { text: answer.text, finishReason: answer.finishReason };
++      return { text: answer.text, finishReason: answer.finishReason, rawLogPath: answer.rawLogPath ?? null };
+     };
+ 
+     // Модель, потратившая весь выходной бюджет на рассуждение, не «не поняла формат» —
+@@ -773,10 +776,12 @@ export class StepExecutor implements StageExecutor {
+ 
+         let answer: string;
+         let finishReason: FinishReason;
++        let rawLogPath: string | null;
+         try {
+           const result = await chat(messages);
+           answer = result.text;
+           finishReason = result.finishReason;
++          rawLogPath = result.rawLogPath;
+         } catch (e) {
+           if (req.signal.aborted) return stop('этап отменён');
+           throw e;
+@@ -788,6 +793,12 @@ export class StepExecutor implements StageExecutor {
+         // достигает: третий раунд с тем же ответом стоил бы ещё один полный файл в контексте
+         // и ту же проверку. Шаг закрывается сразу — как красный, с названной причиной.
+         if (round > 0 && answer === lastAnswer) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'repeated-answer',
++          });
+           hooks.onFriction('repeat');
+           status = '❌';
+           note = `ремонт остановлен: ответ повторён дословно — ${note}`;
+@@ -798,16 +809,34 @@ export class StepExecutor implements StageExecutor {
+         const applied = await apply(step, current, answer, finishReason);
+ 
+         if (applied.noChange !== null) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'no-change',
++          });
+           status = '⏭';
+           note = `без правок: ${applied.noChange}`;
+           break;
+         }
+         if (applied.denied) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'policy-denied',
++          });
+           status = '❌';
+           note = applied.text;
+           break;
+         }
+         if (!applied.ok) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'patch-not-applied',
++          });
+           applyProblem = applied.text;
+           note = applied.text.split('\n')[0] ?? applied.text;
+           continue;
+@@ -836,11 +865,23 @@ export class StepExecutor implements StageExecutor {
+         // Добавляется явно, отдельным хвостом, во всех трёх исходах ниже.
+         const partialSuffix = applied.partialNote === '' ? '' : `; ${applied.partialNote}`;
+         if (check.status === 'ok') {
++          annotateExchange(rawLogPath, {
++            accepted: this.o.check !== null,
++            oracle: this.o.check === null ? 'no-step-check' : `gate:${checkName ?? 'unnamed'}`,
++            target: 'plan-step',
++            reason: this.o.check === null ? 'no-mechanical-oracle' : 'check-passed',
++          });
+           status = '✅';
+           note = (applied.text.split('\n')[0] ?? 'применено') + partialSuffix;
+           break;
+         }
+         if (check.status === 'skipped') {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'check-skipped',
++          });
+           status = '✅';
+           note = `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; проверка после шага не состоялась: ${check.note}`;
+           break;
+@@ -850,6 +891,12 @@ export class StepExecutor implements StageExecutor {
+         // Ремонт здесь подталкивал бы убрать верный импорт. Проверят следующие шаги и
+         // прогон тестов после этапа.
+         if (!mentionsFile(check.problem, step.file)) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'check-not-attributable-to-step',
++          });
+           status = '✅';
+           note =
+             `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; гейт «${checkName ?? ''}» красный вне этого файла: ` +
+@@ -857,6 +904,12 @@ export class StepExecutor implements StageExecutor {
+           hooks.onWarn(`шаг ${step.n}: ${note}`);
+           break;
+         }
++        annotateExchange(rawLogPath, {
++          accepted: false,
++          oracle: `gate:${checkName ?? 'unnamed'}`,
++          target: 'plan-step',
++          reason: 'check-failed',
++        });
+         checkProblem = check.problem;
+         note = `после правки проверка красная: ${check.problem.split('\n')[0] ?? check.problem}`;
+       }
+diff --git a/server/src/provider/ChatProvider.ts b/server/src/provider/ChatProvider.ts
+index c229ddc..e6f9657 100644
+--- a/server/src/provider/ChatProvider.ts
++++ b/server/src/provider/ChatProvider.ts
+@@ -39,6 +39,16 @@ export interface ChatTurn {
+   toolCalls: ChatToolCall[];
+   finishReason: FinishReason;
+   usage: Usage;
++  /**
++   * Путь файла сырого дампа этого обмена (`provider/rawLog.ts::dumpExchange`), если дамп
++   * включён и запись удалась. Отсутствует или `null` — дамп выключен, обмен без метки
++   * трассы или запись не прошла: потребитель размечает пару только когда путь известен,
++   * второго способа её найти нет намеренно (без сводного указателя, см. `rawLog.ts`).
++   * Опционально, а не обязательно: подставные провайдеры в тестах строят `ChatTurn`
++   * литералом без этого поля, и заводить его в каждом значило бы менять полтора десятка
++   * файлов ради поля, которое им не нужно.
++   */
++  rawLogPath?: string | null;
+ }
+ 
+ export interface ChatRequest {
+diff --git a/server/src/provider/OpenAiCompatProvider.ts b/server/src/provider/OpenAiCompatProvider.ts
+index a158195..ef76d6b 100644
+--- a/server/src/provider/OpenAiCompatProvider.ts
++++ b/server/src/provider/OpenAiCompatProvider.ts
+@@ -536,16 +536,20 @@ export class OpenAiCompatProvider implements ChatProvider {
+ 
+     // Дамп до проверки статуса: неудачный ответ для корпуса ценнее молчания — по нему
+     // видно, чем именно кончился ход (обрыв по длине, отказ сервера на схемах инструментов).
+-    if (this.o.trace !== undefined) {
+-      dumpExchange(this.o.trace, {
+-        provider: this.name,
+-        model: req.model,
+-        request: body,
+-        response: text,
+-        status,
+-        durationMs: Date.now() - started,
+-      });
+-    }
++    // Путь несём дальше в `ChatTurn.rawLogPath`: потребители, узнающие исход хода ПОСЛЕ
++    // `chat()` (трение цикла, гейт после шага, разбор поля бланка), размечают именно этот
++    // файл — второго способа найти его нет намеренно (`rawLog.ts`, без сводного указателя).
++    const rawLogPath =
++      this.o.trace === undefined
++        ? null
++        : dumpExchange(this.o.trace, {
++            provider: this.name,
++            model: req.model,
++            request: body,
++            response: text,
++            status,
++            durationMs: Date.now() - started,
++          });
+ 
+     if (status < 200 || status >= 300) {
+       const message = `${this.name}: HTTP ${status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`;
+@@ -646,6 +650,7 @@ export class OpenAiCompatProvider implements ChatProvider {
+       toolCalls,
+       finishReason: mapFinish(choice?.finish_reason, toolCalls.length > 0, callsFromText),
+       usage,
++      rawLogPath,
+     };
+   }
+ }
+diff --git a/server/src/provider/rawLog.ts b/server/src/provider/rawLog.ts
+index cea21de..8bf460b 100644
+--- a/server/src/provider/rawLog.ts
++++ b/server/src/provider/rawLog.ts
+@@ -166,3 +166,29 @@ export function resetRawLogForTests(): void {
+   resetRawLog();
+   seq = 0;
+ }
++
++/**
++ * Разметить уже записанную пару исходом хода — известным ТОЛЬКО потребителю (трение
++ * цикла, гейт после шага плана, разбор значения поля бланка), не самому дампу.
++ *
++ * Пишет файл `<путь пары>.label.json` РЯДОМ с парой, а не в неё: дописывание существующего
++ * файла было бы второй операцией записи над тем же путём и второй точкой отказа на тех же
++ * средах, где уже один раз стреляло (`dumpExchange` — комментарий про `EBADF` сетевой шары
++ * и решение не вести сводный указатель). Разбирающий корпус читает файл пары и файл метки
++ * по общему имени, если она есть; парные `seq` не гарантируются — потребитель размечает
++ * ПОСЛЕДНИЙ известный ему путь, а между дампом и разметкой мог случиться ещё один запрос
++ * того же исполнителя (например, добор `files_to_touch` в `FormFillExecutor`).
++ *
++ * Отказ записи метки не отличается от отказа записи самой пары: та же нота через
++ * `noteFailure`, тот же порог `MAX_FAILURES` на процесс — размётка не ценнее пары, ради
++ * которой дамп и заведён.
++ */
++export function annotateExchange(path: string | null, label: Record<string, unknown>): void {
++  if (path === null) return;
++  try {
++    writeFileSync(`${path}.label.json`, `${JSON.stringify(label, null, 1)}\n`, 'utf8');
++    failures = 0;
++  } catch (e) {
++    noteFailure(e);
++  }
++}
+diff --git a/server/test/formFill.test.ts b/server/test/formFill.test.ts
+index 5f8ce3e..6e86a0f 100644
+--- a/server/test/formFill.test.ts
++++ b/server/test/formFill.test.ts
+@@ -780,6 +780,58 @@ describe('заполнение бланка по полям', () => {
+   });
+ });
+ 
++describe('метка корпуса T2 (`docs/model-tuning.md`): исход ответа на поле разметчик пишет рядом с сырым дампом', () => {
++  it('принятый ответ поля помечается accepted: true', async () => {
++    const { root, artifact } = setup();
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-with-raw-log',
++      async chat() {
++        return {
++          text: 'Демо работает',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    };
++    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
++    ok(result.ok, result.note);
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: true, oracle: 'form-field-checks', target: 'form-field', reason: 'accepted' });
++  });
++
++  it('пустой ответ помечается accepted: false, полем не считается', async () => {
++    const { root, artifact } = setup();
++    const rawPath = join(root, 'exchange-empty.json');
++    const provider: ChatProvider = {
++      name: 'stub-empty',
++      async chat() {
++        return {
++          text: '',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    };
++    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
++    strictEqual(result.ok, false);
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: false, oracle: 'form-field-checks', target: 'form-field', reason: 'empty-or-placeholder' });
++  });
++
++  it('без rawLogPath (дамп выключен) исполнение поля не падает и метки не появляется', async () => {
++    const { root, artifact } = setup();
++    const result = await exec(
++      fieldProvider({ 'что должно стать правдой': 'Демо работает', 'почему сейчас': 'Нужно к релизу' }),
++    ).run(request(root, artifact), hooks({ writes: [] }, true));
++    strictEqual(result.ok, true, result.note);
++  });
++});
++
+ describe('cleanFieldAnswer', () => {
+   it('снимает fenced-блок и внешние кавычки, содержимое не редактирует', () => {
+     strictEqual(cleanFieldAnswer('```markdown\n- **Итог:** готово\n```'), '- **Итог:** готово');
+diff --git a/server/test/stepExecutor.test.ts b/server/test/stepExecutor.test.ts
+index 984f14c..3971ac1 100644
+--- a/server/test/stepExecutor.test.ts
++++ b/server/test/stepExecutor.test.ts
+@@ -290,6 +290,37 @@ describe('исполнение по шагам', () => {
+     ok(readFileSync(join(root, 'src/a.ts'), 'utf8').includes('return 0;'));
+   });
+ 
++  it('пишет положительную метку корпуса только после механической проверки шага', async () => {
++    const root = setup();
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-with-raw-log',
++      async chat() {
++        return {
++          text: SR('  return a + b;', '  return a + b + 1;'),
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn',
++          rawLogPath: rawPath,
++        };
++      },
++    };
++    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
++    const result = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({ status: 'ok' })).run(
++      request(root),
++      hooks(seen),
++    );
++
++    ok(result.ok, result.note);
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, {
++      accepted: true,
++      oracle: 'gate:Сборка',
++      target: 'plan-step',
++      reason: 'check-passed',
++    });
++  });
++
+   it('новый файл с красной проверкой чинится блоками замены, а не файлом целиком', async () => {
+     const root = setup();
+     const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+=== NEW FILE: bench/src/corpus.ts ===
+/**
+ * Сборка проверенного SFT-корпуса из сырых обменов провайдера.
+ *
+ * В корпус попадает только обмен с явной положительной sidecar-меткой. Итог этапа или
+ * всего витка намеренно не используется как метка отдельного ответа: один зелёный этап
+ * может содержать несколько неудачных ремонтов до успешного, а красный — верную правку,
+ * после которой упал независимый гейт.
+ */
+
+import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const TRAINABLE_MODES = new Set(['step', 'formFill', 'claimFill', 'reviewFill', 'planAxisFill']);
+const HELD_OUT_TASKS = new Set(['oversize']);
+
+interface RawExchange {
+  slug: string;
+  stage: string;
+  mode: string;
+  provider: string;
+  model: string;
+  status: number;
+  request: { messages?: unknown; tools?: unknown };
+  response: string;
+}
+
+interface ExchangeLabel {
+  accepted?: unknown;
+  oracle?: unknown;
+  target?: unknown;
+}
+
+export interface CorpusExample {
+  messages: unknown[];
+  tools?: unknown;
+  metadata: {
+    slug: string;
+    task: string;
+    stage: string;
+    mode: string;
+    provider: string;
+    model: string;
+    oracle: string;
+    target: string;
+    source: string;
+  };
+}
+
+export interface CorpusReport {
+  scanned: number;
+  accepted: number;
+  rejected: Record<string, number>;
+  tasks: Record<string, number>;
+  modes: Record<string, number>;
+}
+
+function bump(map: Record<string, number>, key: string): void {
+  map[key] = (map[key] ?? 0) + 1;
+}
+
+function readJson(path: string): unknown {
+  return JSON.parse(readFileSync(path, 'utf8')) as unknown;
+}
+
+function resultTasks(resultsDir: string): Map<string, string> {
+  const found = new Map<string, string>();
+  for (const name of readdirSync(resultsDir)) {
+    if (!name.endsWith('.json')) continue;
+    try {
+      const value = readJson(join(resultsDir, name)) as { run?: { slug?: unknown; task?: unknown } };
+      if (typeof value.run?.slug === 'string' && typeof value.run.task === 'string') {
+        found.set(value.run.slug, value.run.task);
+      }
+    } catch {
+      // Повреждённый result будет назван причиной `result-not-found` у его обменов.
+    }
+  }
+  return found;
+}
+
+function assistantMessage(raw: RawExchange): unknown | null {
+  try {
+    const response = JSON.parse(raw.response) as { choices?: Array<{ message?: unknown }> };
+    return response.choices?.[0]?.message ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildCorpus(args: {
+  rawDir: string;
+  resultsDir: string;
+  heldOutTasks?: ReadonlySet<string>;
+}): { examples: CorpusExample[]; report: CorpusReport } {
+  const taskBySlug = resultTasks(args.resultsDir);
+  const heldOut = args.heldOutTasks ?? HELD_OUT_TASKS;
+  const examples: CorpusExample[] = [];
+  const report: CorpusReport = { scanned: 0, accepted: 0, rejected: {}, tasks: {}, modes: {} };
+
+  for (const runName of readdirSync(args.rawDir, { withFileTypes: true })) {
+    if (!runName.isDirectory()) continue;
+    const runDir = join(args.rawDir, runName.name);
+    for (const name of readdirSync(runDir)) {
+      if (!name.endsWith('.json') || name.endsWith('.label.json')) continue;
+      report.scanned++;
+      const reject = (reason: string): void => bump(report.rejected, reason);
+      let raw: RawExchange;
+      let label: ExchangeLabel;
+      try {
+        raw = readJson(join(runDir, name)) as RawExchange;
+      } catch {
+        reject('invalid-exchange');
+        continue;
+      }
+      try {
+        label = readJson(join(runDir, `${name}.label.json`)) as ExchangeLabel;
+      } catch {
+        reject('missing-label');
+        continue;
+      }
+      const task = taskBySlug.get(raw.slug);
+      if (task === undefined) {
+        reject('result-not-found');
+        continue;
+      }
+      if (heldOut.has(task)) {
+        reject('held-out-task');
+        continue;
+      }
+      if (label.accepted !== true) {
+        reject('oracle-rejected');
+        continue;
+      }
+      if (!TRAINABLE_MODES.has(raw.mode)) {
+        reject('unsupported-mode');
+        continue;
+      }
+      if (!Number.isInteger(raw.status) || raw.status < 200 || raw.status >= 300) {
+        reject('provider-error');
+        continue;
+      }
+      if (!Array.isArray(raw.request?.messages)) {
+        reject('invalid-request');
+        continue;
+      }
+      const assistant = assistantMessage(raw);
+      if (assistant === null) {
+        reject('invalid-response');
+        continue;
+      }
+      const source = `${runName.name}/${name}`;
+      examples.push({
+        messages: [...raw.request.messages, assistant],
+        ...(raw.request.tools === undefined ? {} : { tools: raw.request.tools }),
+        metadata: {
+          slug: raw.slug,
+          task,
+          stage: raw.stage,
+          mode: raw.mode,
+          provider: raw.provider,
+          model: raw.model,
+          oracle: typeof label.oracle === 'string' ? label.oracle : 'unspecified',
+          target: typeof label.target === 'string' ? label.target : raw.mode,
+          source,
+        },
+      });
+      report.accepted++;
+      bump(report.tasks, task);
+      bump(report.modes, raw.mode);
+    }
+  }
+  return { examples, report };
+}
+
+export function writeCorpus(path: string, examples: readonly CorpusExample[]): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temp = `${path}.tmp`;
+  writeFileSync(temp, examples.map((x) => JSON.stringify(x)).join('\n') + (examples.length === 0 ? '' : '\n'), 'utf8');
+  renameSync(temp, path);
+}
+
+function arg(name: string, fallback: string): string {
+  const prefix = `--${name}=`;
+  const value = process.argv.slice(2).find((x) => x.startsWith(prefix));
+  return value === undefined ? fallback : resolve(value.slice(prefix.length));
+}
+
+const here = dirname(fileURLToPath(import.meta.url));
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const benchDir = resolve(here, '..');
+  const rawDir = arg('raw', join(benchDir, 'rawlogs'));
+  const resultsDir = arg('results', join(benchDir, 'results'));
+  const out = arg('out', join(benchDir, 'corpus', 'train.jsonl'));
+  const built = buildCorpus({ rawDir, resultsDir });
+  writeCorpus(out, built.examples);
+  process.stdout.write(`${JSON.stringify({ output: out, ...built.report }, null, 2)}\n`);
+}
+=== NEW FILE: bench/test/corpus.test.ts ===
+import { deepStrictEqual, strictEqual } from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+
+import { buildCorpus, writeCorpus } from '../src/corpus.ts';
+
+function json(path: string, value: unknown): void {
+  writeFileSync(path, `${JSON.stringify(value)}\n`, 'utf8');
+}
+
+describe('корпус дообучения', () => {
+  it('берёт только подтверждённые пары и не пропускает held-out задачу', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-corpus-'));
+    const raw = join(root, 'raw');
+    const results = join(root, 'results');
+    mkdirSync(join(raw, 'train-run'), { recursive: true });
+    mkdirSync(join(raw, 'test-run'), { recursive: true });
+    mkdirSync(results);
+    try {
+      json(join(results, 'train.json'), { run: { slug: 'train-run', task: 'freeship' } });
+      json(join(results, 'test.json'), { run: { slug: 'test-run', task: 'oversize' } });
+      const exchange = (slug: string) => ({
+        slug,
+        stage: 'chunk',
+        mode: 'step',
+        provider: 'ollama',
+        model: 'qwen',
+        status: 200,
+        request: { messages: [{ role: 'user', content: 'исправь' }], tools: [] },
+        response: JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'готово' } }] }),
+      });
+      json(join(raw, 'train-run', '00001-chunk-step.json'), exchange('train-run'));
+      json(join(raw, 'train-run', '00001-chunk-step.json.label.json'), {
+        accepted: true,
+        oracle: 'step-check',
+        target: 'plan-step',
+      });
+      json(join(raw, 'train-run', '00002-chunk-step.json'), exchange('train-run'));
+      json(join(raw, 'train-run', '00002-chunk-step.json.label.json'), { accepted: false, oracle: 'step-check' });
+      json(join(raw, 'test-run', '00003-chunk-step.json'), exchange('test-run'));
+      json(join(raw, 'test-run', '00003-chunk-step.json.label.json'), { accepted: true, oracle: 'step-check' });
+
+      const built = buildCorpus({ rawDir: raw, resultsDir: results });
+      strictEqual(built.examples.length, 1);
+      deepStrictEqual(built.examples[0]?.messages, [
+        { role: 'user', content: 'исправь' },
+        { role: 'assistant', content: 'готово' },
+      ]);
+      deepStrictEqual(built.report.rejected, { 'oracle-rejected': 1, 'held-out-task': 1 });
+      deepStrictEqual(built.report.tasks, { freeship: 1 });
+
+      const out = join(root, 'out', 'train.jsonl');
+      writeCorpus(out, built.examples);
+      strictEqual(readFileSync(out, 'utf8').trim().split('\n').length, 1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('не угадывает качество по результату витка без sidecar-метки', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-corpus-unlabelled-'));
+    const raw = join(root, 'raw', 'run');
+    const results = join(root, 'results');
+    mkdirSync(raw, { recursive: true });
+    mkdirSync(results);
+    try {
+      json(join(results, 'run.json'), { run: { slug: 'run', task: 'freeship' }, finalVerdict: { passed: true } });
+      json(join(raw, '00001-plan-formFill.json'), {
+        slug: 'run', stage: 'plan', mode: 'formFill', provider: 'ollama', model: 'm', status: 200,
+        request: { messages: [] }, response: JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'x' } }] }),
+      });
+      const built = buildCorpus({ rawDir: join(root, 'raw'), resultsDir: results });
+      strictEqual(built.examples.length, 0);
+      deepStrictEqual(built.report.rejected, { 'missing-label': 1 });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

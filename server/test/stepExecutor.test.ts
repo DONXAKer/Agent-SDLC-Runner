@@ -233,6 +233,8 @@ describe('исполнение по шагам', () => {
     deepStrictEqual(seen.calls.map((c) => c.kind), ['write', 'edit']);
     ok(r.finalText.includes('✅ 1) src/k.ts'), r.finalText);
     ok(provider.asked[0]!.includes('ставка 90 %'));
+    ok(provider.asked[0]!.includes('После этого шага будут изменены: `src/a.ts`'));
+    ok(provider.asked[0]!.includes('не отказывайся из-за того, что будущий файл ещё не изменён'));
     ok(provider.asked[1]!.includes('<<<<<<< SEARCH'));
   });
 

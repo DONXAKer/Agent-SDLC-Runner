@@ -1,0 +1,2669 @@
+diff --git a/package.json b/package.json
+index 0fd262e..5aebcf0 100644
+--- a/package.json
++++ b/package.json
+@@ -16,6 +16,7 @@
+     "test": "npm run test --workspace server && npm run test --workspace web && npm run bench:test",
+     "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace web && npm run bench:typecheck",
+     "bench": "node bench/src/cli.ts",
++    "bench:corpus": "node bench/src/corpus.ts",
+     "bench:archive": "node bench/src/archive.ts",
+     "bench:test": "node --import ./server/test/setup-state.ts --test \"bench/test/**/*.test.ts\"",
+     "bench:typecheck": "tsc -p bench/tsconfig.json --noEmit"
+diff --git a/server/src/exec/FormFillExecutor.ts b/server/src/exec/FormFillExecutor.ts
+index cf99179..a59930f 100644
+--- a/server/src/exec/FormFillExecutor.ts
++++ b/server/src/exec/FormFillExecutor.ts
+@@ -72,6 +72,7 @@ import {
+   type ChatMessage,
+   type ChatProvider,
+ } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { budgetParams, ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from './contextBudget.ts';
+ import { writeThroughGate } from './gateWrite.ts';
+ import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+@@ -1191,6 +1192,15 @@ export class FormFillExecutor implements StageExecutor {
+           resetRejectionStreak();
+ 
+           let answerText = a.value.text;
++          // Мишень T2 корпуса — ИМЕННО этот путь (`docs/model-tuning.md`: «карточка поля →
++          // значение (`FormFillExecutor`, `compactForms`)»), а до этой правки он не размечал
++          // ни одного обмена: серия с `compactForms: 'fill'/'all'` давала 0 пар корпуса
++          // независимо от качества ответов (code-review-all, 2026-09-27). Оракул честнее,
++          // чем у режима диапазонов: не имитация проверок, а настоящий `applyFill` ниже.
++          let finalRawLogPath = a.value.rawLogPath ?? null;
++          const rejectFieldCompact = (reason: string, oracle = 'form-field-checks'): void => {
++            annotateExchange(finalRawLogPath, { accepted: false, oracle, target: 'form-field', reason });
++          };
+ 
+           // Прямая проверка сбоя генерации ДО applyFill — тем же порядком, что range-режим
+           // (строки ниже, `foreignScript`/`looksLikeToolCallEcho` на `filled`), а не разбор
+@@ -1202,12 +1212,14 @@ export class FormFillExecutor implements StageExecutor {
+             const rejection = `ответ на поле ${field.id} отклонён: чужая письменность («${foreign}»)`;
+             notes.push(rejection);
+             fieldRejectionMemo.set(compactFieldKey(field), rejection);
++            rejectFieldCompact('foreign-script');
+             continue;
+           }
+           if (looksLikeToolCallEcho(answerText)) {
+             const rejection = `ответ на поле ${field.id} отклонён: JSON-конверт вызова инструмента вместо значения`;
+             notes.push(rejection);
+             fieldRejectionMemo.set(compactFieldKey(field), rejection);
++            rejectFieldCompact('tool-call-echo');
+             continue;
+           }
+ 
+@@ -1216,13 +1228,22 @@ export class FormFillExecutor implements StageExecutor {
+           // новым. До этого фикса компактный режим (`compactForms: 'fill'`) эту проверку не
+           // исполнял вовсе.
+           const inventedCompact = filesToTouchInventedPathsCompact(field, answerText, req.cwd);
++          // Держит состояние «путь так и остался выдуманным» до самой финальной метки —
++          // успешный топ-ап сбрасывает флаг НЕ пересчётом (тот же принцип, что у режима
++          // диапазонов: см. комментарий у `filesToTouchInventedPaths`, «ответ добора
++          // принимается как есть, без повторной проверки», иначе легитимный новый файл без
++          // пометки «новый» наказывался бы дважды).
++          let filesToTouchInvalid = inventedCompact.length > 0;
+           if (inventedCompact.length > 0 && callsSpent < requestBudget) {
++            rejectFieldCompact('invented-path', 'files-to-touch-paths');
+             callsSpent++;
+             try {
+               const more = await askFilesToTouchTopUpCompact(field, answerText, inventedCompact);
+               usage = addUsage(usage, more.usage);
+               if (more.text.trim() !== '' && !more.text.includes('‹')) {
+                 answerText = more.text;
++                finalRawLogPath = more.rawLogPath ?? null;
++                filesToTouchInvalid = false;
+                 notes.push(
+                   `добор ${field.id}: похоже на путь, но не найдено на диске (${inventedCompact.join(', ')}) — переспрошено`,
+                 );
+@@ -1240,6 +1261,9 @@ export class FormFillExecutor implements StageExecutor {
+           // задаётся один раз, оба текста склеиваются, и только тогда — единственный
+           // applyFill. Дубли верхнего уровня из повторного ответа модели отсекаются по
+           // нормализованному содержимому строки, тем же приёмом, что у legacy-добора.
++          // `recordsInvalid` — тем же правилом, что `filesToTouchInvalid` выше: держит
++          // «дефицит листа» до финальной метки, а не только до заметки в отчёте.
++          let recordsInvalid = false;
+           if (field.kind === 'records' && field.min !== undefined && callsSpent < requestBudget) {
+             const min = field.min;
+             // Тот же класс бага, что у legacy-добора (askClaimsTopUp): один выстрел без
+@@ -1255,10 +1279,14 @@ export class FormFillExecutor implements StageExecutor {
+             };
+             for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < requestBudget; attempt++) {
+               if (shortfall(answerText) === null) break;
++              // Обмен, который дал ТЕКУЩИЙ дефицитный `answerText`, размечается отказом до
++              // следующей попытки — тем же приёмом, что у режима диапазонов.
++              rejectFieldCompact('records-below-minimum', 'records-minimum');
+               callsSpent++;
+               try {
+                 const more = await askTopUpCompact(field, answerText, attempt > 0);
+                 usage = addUsage(usage, more.usage);
++                finalRawLogPath = more.rawLogPath ?? null;
+                 const seen = new Set(
+                   answerText
+                     .split('\n')
+@@ -1279,6 +1307,7 @@ export class FormFillExecutor implements StageExecutor {
+               }
+             }
+             const stillShort = shortfall(answerText);
++            recordsInvalid = stillShort !== null;
+             if (stillShort !== null) {
+               notes.push(
+                 `добор поля ${field.id} не закрыл минимум за ${CLAIMS_TOPUP_ATTEMPTS} попытки: ` +
+@@ -1300,11 +1329,28 @@ export class FormFillExecutor implements StageExecutor {
+                 ? `поле ${field.id} не найдено в бланке: ${applied.problem}`
+                 : `ответ на поле ${field.id} отклонён: ${applied.problem}`,
+             );
++            // `applyFill` внутри зовёт `parseFieldValue` (`sheet.ts`) — настоящий
++            // механический оракул T2, честнее имитации проверок режима диапазонов.
++            rejectFieldCompact('apply-fill-rejected', 'apply-fill');
+             // Классы «сбой генерации» (чужая письменность, JSON-конверт) отсечены раньше,
+             // прямой проверкой ответа выше — сюда доходят только отказы `applyFill` по
+             // другим причинам (поле не найдено, формат значения), для которых памяти нет.
+             continue;
+           }
++          // Метка корпуса на итоговый обмен: `applyFill` разобрал ответ по-настоящему
++          // (оракул T2), а `filesToTouchInvalid`/`recordsInvalid` держат случаи, где топ-ап
++          // не спас дефицит (тем же правилом, что у режима диапазонов).
++          annotateExchange(finalRawLogPath, {
++            accepted: !filesToTouchInvalid && !recordsInvalid,
++            oracle: recordsInvalid ? 'records-minimum' : filesToTouchInvalid ? 'files-to-touch-paths' : 'apply-fill',
++            target: 'form-field',
++            reason:
++              recordsInvalid || filesToTouchInvalid
++                ? recordsInvalid
++                  ? 'records-below-minimum'
++                  : 'invented-path'
++                : 'accepted',
++          });
+           text = applied.text;
+           filledFields.add(field);
+           fieldsFilled++;
+@@ -1414,25 +1460,55 @@ export class FormFillExecutor implements StageExecutor {
+               continue;
+             }
+             resetRejectionStreak();
++            // Мишень T2 корпуса (`docs/model-tuning.md`): путь дампа обмена, который
++            // РЕАЛЬНО дал текущее содержимое поля. `?? null` — дамп выключен или обмен не
++            // сохранился (см. `ChatTurn.rawLogPath`). `finalRawLogPath` — а не константа:
++            // топ-ап (files_to_touch, claim-лист) переспрашивает поле ДОПОЛНИТЕЛЬНЫМ
++            // обменом, и метка обязана указывать на обмен, который дал итоговый ответ, а не
++            // на первый — иначе провальный первый обмен метится принятым, а обмен топ-апа,
++            // реально решивший поле, остаётся без метки вовсе (code-review-all, 2026-09-27).
++            let finalRawLogPath = a.value.rawLogPath ?? null;
++            // Отказ по механическому оракулу поля — на обмен, что дал ТЕКУЩЕЕ `filled`
++            // (см. `finalRawLogPath` выше). Один хелпер вместо повторяющегося литерала на
++            // каждой reject-ветке: те же четыре поля, разница только в `reason`/`oracle`
++            // (code-review-all, 2026-09-27).
++            const rejectField = (reason: string, oracle = 'form-field-checks'): void => {
++              annotateExchange(finalRawLogPath, { accepted: false, oracle, target: 'form-field', reason });
++            };
+             let filled = cleanFieldAnswer(a.value.text);
+             if (range.kind === 'row') filled = cleanRowAnswer(filled, range.header);
+             const isFilesToTouchRow = range.kind === 'row' && FILES_TO_TOUCH_HEADER.test(range.header);
+             const empty = filled === '' || filled.includes('‹');
+-            const invented =
++            let invented =
+               !empty && isFilesToTouchRow ? filesToTouchInventedPaths(filled, req.cwd) : [];
+             if ((empty || invented.length > 0) && isFilesToTouchRow && range.kind === 'row' && callsSpent < requestBudget) {
++              // Исходный обмен уже провалил оракул путей (пуст или выдуманный путь) — метка
++              // на НЕГО ставится здесь, пока `finalRawLogPath` ещё указывает на него: ниже
++              // он смещается на обмен топ-апа, и путь исходного больше нигде не всплывёт.
++              rejectField(empty ? 'empty-or-placeholder' : 'invented-path', 'files-to-touch-paths');
+               callsSpent++;
+               try {
+                 const more = await askFilesToTouchTopUp(path, text, range, invented);
+                 usage = addUsage(usage, more.usage);
+                 const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
+                 if (extra !== '' && !extra.includes('‹')) {
+-                  filled = extra;
+                   notes.push(
+                     invented.length > 0
+                       ? `добор files_to_touch: похоже на путь, но не найдено на диске (${invented.join(', ')}) — переспрошено`
+                       : `добор files_to_touch: список был пуст, добавлено ${extra.split('\n').length} строк`,
+                   );
++                  filled = extra;
++                  finalRawLogPath = more.rawLogPath ?? null;
++                  // `invented` СБРАСЫВАЕТСЯ (заметка выше уже сказана по СТАРОМУ значению), а
++                  // не пересчитывается по новому ответу: комментарий у
++                  // `filesToTouchInventedPaths` выше по файлу называет это решение прямо —
++                  // «ложное срабатывание… стоит один лишний запрос, а не потерю данных:
++                  // ответ добора принимается как есть, без повторной проверки». Повторная
++                  // проверка здесь наказала бы легитимный новый файл, который модель снова
++                  // не пометила словом «новый», ровно тем сбоем, от которого страхуется тот
++                  // комментарий — метка корпуса обязана доверять топ-апу СТРОГО так же, как
++                  // доверяет ему запись в артефакт (структурный успех: не пусто, без ‹›).
++                  invented = [];
+                 } else {
+                   notes.push('добор files_to_touch не удался: список снова пуст');
+                 }
+@@ -1444,7 +1520,10 @@ export class FormFillExecutor implements StageExecutor {
+             }
+             // Пустой ответ и ответ с плейсхолдером полем не считаются: диапазон остаётся
+             // как был, и его честно назовут страж и предусловие следующего этапа.
+-            if (filled === '' || filled.includes('‹')) continue;
++            if (filled === '' || filled.includes('‹')) {
++              rejectField('empty-or-placeholder');
++              continue;
++            }
+             // Чужая письменность — тот же класс: не значение поля, а сбой генерации
+             // (`sheet.ts::foreignScript`; компактный путь отказывает в `parseFieldValue`).
+             // Причина называется вслух, в отличие от двух отказов выше: поле, пропущенное
+@@ -1456,6 +1535,7 @@ export class FormFillExecutor implements StageExecutor {
+               const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: чужая письменность («${foreign}»)`;
+               notes.push(rejection);
+               fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
++              rejectField('foreign-script');
+               continue;
+             }
+             // Модель спутала «ответить на карточку» с «вызвать инструмент» и вернула JSON-
+@@ -1467,6 +1547,7 @@ export class FormFillExecutor implements StageExecutor {
+               const rejection = `ответ на поле ${where.slice(0, 60)} отклонён: JSON-конверт вызова инструмента вместо значения`;
+               notes.push(rejection);
+               fieldRejectionMemo.set(rangeFieldKey(path, text, range), rejection);
++              rejectField('tool-call-echo');
+               continue;
+             }
+             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому
+@@ -1481,10 +1562,15 @@ export class FormFillExecutor implements StageExecutor {
+               for (let attempt = 0; attempt < CLAIMS_TOPUP_ATTEMPTS && callsSpent < requestBudget; attempt++) {
+                 const have = countClaims(filled);
+                 if (have.rows >= CLAIMS_MINIMUM.rows && have.edges >= CLAIMS_MINIMUM.edges) break;
++                // Обмен, который дал ТЕКУЩИЙ (ещё дефицитный) `filled`, размечается отказом
++                // ДО следующей попытки — иначе после успешного добора эта метка была бы
++                // невосстановима (тот же класс дефекта, что у files_to_touch выше).
++                rejectField('claims-below-minimum', 'claims-minimum');
+                 callsSpent++;
+                 try {
+                   const more = await askClaimsTopUp(path, text, range, filled, attempt > 0);
+                   usage = addUsage(usage, more.usage);
++                  finalRawLogPath = more.rawLogPath ?? null;
+                     const extra = cleanRowAnswer(cleanFieldAnswer(more.text), range.header);
+                   // Модели на добор часто возвращают ВЕСЬ лист заново с теми же id —
+                   // фильтр «дубль id → в мусор» выбрасывал и новые пункты (r17e, лист
+@@ -1537,6 +1623,32 @@ export class FormFillExecutor implements StageExecutor {
+                 );
+               }
+             }
++            // Метка корпуса на итоговый обмен (`finalRawLogPath` — исходный, если топ-апа
++            // не было, иначе последний топ-ап) — здесь, а не раньше: пункты приёмки могли
++            // пройти через добор выше и всё равно остаться короче минимума методологии —
++            // это тоже отказ оракула, даже когда строка всё же уходит в артефакт (страж
++            // этапа 3 честно найдёт нехватку сам). Пересчёт `countClaims` независим от
++            // `stillShort` внутри блока добора: тот объявлен в его собственной области
++            // видимости и сюда не достаёт, а вызов чистый и второго знания не заводит.
++            // Строка `files_to_touch` — тем же правилом, но `invented` тут значим ТОЛЬКО
++            // когда топ-ап не спасло: `filled` уже прошёл проверки «пусто»/чужая
++            // письменность/эхо выше, а успешный топ-ап сбрасывает `invented` в `[]` (см.
++            // комментарий у `filesToTouchInventedPaths` про доверие ответу добора без
++            // повторной проверки) — здесь остаётся только случай «выдуманный путь дожил до
++            // конца», не тронутый ни одной из этих веток (code-review-all, 2026-09-27).
++            const claimsRow = range.kind === 'row' && /claim-/.test(range.text);
++            const claimsShort = claimsRow ? countClaims(filled) : null;
++            const belowClaimsMinimum =
++              claimsShort !== null &&
++              (claimsShort.rows < CLAIMS_MINIMUM.rows || claimsShort.edges < CLAIMS_MINIMUM.edges);
++            const filesToTouchStillInvalid = isFilesToTouchRow && invented.length > 0;
++            const rejected = belowClaimsMinimum || filesToTouchStillInvalid;
++            annotateExchange(finalRawLogPath, {
++              accepted: !rejected,
++              oracle: claimsRow ? 'claims-minimum' : isFilesToTouchRow ? 'files-to-touch-paths' : 'form-field-checks',
++              target: 'form-field',
++              reason: rejected ? (belowClaimsMinimum ? 'claims-below-minimum' : 'invented-path') : 'accepted',
++            });
+             // Ячейка таблицы, спрошенная по одной (владение ячейкой «Ответ человека»): ответ
+             // ложится внутрь строки, и перевод строки или голая `|` в нём разорвали бы таблицу.
+             if (range.kind === 'cell' && lineAt(text, range.start).trimStart().startsWith('|')) {
+diff --git a/server/src/exec/LoopExecutor.ts b/server/src/exec/LoopExecutor.ts
+index 3d544e6..f61b878 100644
+--- a/server/src/exec/LoopExecutor.ts
++++ b/server/src/exec/LoopExecutor.ts
+@@ -26,10 +26,12 @@ import type { NormalizedCall, ToolName, Usage } from '@sdlc-runner/shared';
+ import { addUsage, emptyUsage, money } from '@sdlc-runner/shared';
+ 
+ import type { ChatMessage, ChatProvider, ChatToolCall } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { normalize } from './normalize.ts';
+ import type {
+   ExecHooks,
+   ExecRequest,
++  FrictionKind,
+   StageExecutor,
+   StageResult,
+   SubagentDef,
+@@ -220,6 +222,24 @@ export class LoopExecutor implements StageExecutor {
+     return { ...result, turns: meter.turns };
+   }
+ 
++  /**
++   * Трение цикла — рантайм-хук для метрик (`hooks.onFriction`) плюс метка на сыром дампе
++   * для корпуса (`docs/model-tuning.md`), одним вызовом: два места, знающие о трении хода,
++   * расходились бы при первой же новой причине.
++   *
++   * `frictions` — МАССИВ, не скаляр: `rawLogPath` — путь ПОСЛЕДНЕГО запроса к модели, а не
++   * этого конкретного вызова инструмента, и несколько вызовов одного хода (пакет
++   * `Promise.all` параллельных субагентов, серия вызовов одного хода) делят один и тот же
++   * обмен. `annotateExchange` мержит массивы между вызовами — без этого вторая разметка
++   * того же пути стирала бы первую причину трения молча (code-review-all, 2026-09-27).
++   * `loop` не входит в `TRAINABLE_MODES` корпуса — метка здесь чисто диагностическая, не
++   * влияет на выборку обучающих пар.
++   */
++  private friction(hooks: ExecHooks, kind: FrictionKind, rawLogPath: string | null): void {
++    hooks.onFriction(kind);
++    annotateExchange(rawLogPath, { frictions: [kind] });
++  }
++
+   private async runTurns(req: ExecRequest, hooks: ExecHooks, meter: { turns: number }): Promise<StageResult> {
+     const toolCtx: ToolContext = {
+       projectRoot: req.cwd,
+@@ -251,6 +271,13 @@ export class LoopExecutor implements StageExecutor {
+ 
+     let usage: Usage = emptyUsage();
+     let finalText = '';
++    /**
++     * Путь сырого дампа (`provider/rawLog.ts`) ПОСЛЕДНЕГО запроса к модели — не только
++     * этого хода: `friction()` ниже размечает по нему трение, случившееся уже ПОСЛЕ
++     * ответа (серия чтений, повтор вызова внутри `handleCall`), а точного второго
++     * запроса к этому моменту ещё не было. `null` — дампа не было вовсе либо он выключен.
++     */
++    let lastRawLogPath: string | null = null;
+     /**
+      * Сколько ходов рантайм САМ сжал `max_tokens` до пола и не смог уместить историю в
+      * бюджет. Нужно исходу этапа: обрыв по длине после такого сжатия — предел окна, а не
+@@ -383,7 +410,7 @@ export class LoopExecutor implements StageExecutor {
+         req.progressSignal() === 0
+       ) {
+         noProgressNudged = true;
+-        hooks.onFriction('reminder');
++        this.friction(hooks, 'reminder', lastRawLogPath);
+         pushUserNote(
+           messages,
+           `Пройдено ${turnsDone} ходов из ${req.maxTurns}, а прогресса этапа всё ещё нет. ` +
+@@ -423,6 +450,7 @@ export class LoopExecutor implements StageExecutor {
+         }),
+       });
+ 
++      lastRawLogPath = answer.rawLogPath ?? null;
+       usage = addUsage(usage, answer.usage);
+       // `0` входных токенов от сервера — признак того, что сервер вовсе не прислал usage
+       // (`OpenAiCompatProvider.ts` подставляет 0 по умолчанию), а не что окно опустело:
+@@ -503,7 +531,7 @@ export class LoopExecutor implements StageExecutor {
+ 
+           if (complaint !== null && reminders < FINISH_REMINDERS) {
+             reminders++;
+-            hooks.onFriction('reminder');
++            this.friction(hooks, 'reminder', lastRawLogPath);
+             hooks.onWarn(`${complaint} (напоминание ${reminders} из ${FINISH_REMINDERS})`);
+             messages.push({ role: 'assistant', content: answer.text, toolCalls: [] });
+             messages.push({ role: 'user', content: complaint });
+@@ -618,7 +646,7 @@ export class LoopExecutor implements StageExecutor {
+         repeats = isNewTurnFingerprint ? 0 : repeats + 1;
+         lastFingerprint = turnFingerprint;
+         if (isNewTurnFingerprint) noProgressWarnedForTurn = null;
+-        if (repeats > 0) hooks.onFriction('repeat');
++        if (repeats > 0) this.friction(hooks, 'repeat', lastRawLogPath);
+ 
+         if (repeats + 1 >= REPEAT_LIMIT) {
+           const doneAnyway = finishedByDisk();
+@@ -648,7 +676,16 @@ export class LoopExecutor implements StageExecutor {
+         const spentNow = (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0);
+         const results = await Promise.all(
+           answer.toolCalls.map((call) =>
+-            this.handleCall(call, normalize(call.name, call.arguments ?? {}), 0, req, hooks, toolCtx, spentNow),
++            this.handleCall(
++              call,
++              normalize(call.name, call.arguments ?? {}),
++              0,
++              req,
++              hooks,
++              toolCtx,
++              spentNow,
++              lastRawLogPath,
++            ),
+           ),
+         );
+         answer.toolCalls.forEach((call, idx) => {
+@@ -677,7 +714,7 @@ export class LoopExecutor implements StageExecutor {
+         const firstOfStreak = repeats === 0;
+         if (firstOfStreak) noProgressWarnedFor = null;
+ 
+-        if (repeats > 0 && !isPolling(call.name, req)) hooks.onFriction('repeat');
++        if (repeats > 0 && !isPolling(call.name, req)) this.friction(hooks, 'repeat', lastRawLogPath);
+ 
+         if (repeats + 1 >= REPEAT_LIMIT && !isPolling(call.name, req)) {
+           const doneAnyway = finishedByDisk();
+@@ -752,6 +789,7 @@ export class LoopExecutor implements StageExecutor {
+           hooks,
+           toolCtx,
+           (usage.costUsd ?? 0) + (req.spentUsdBefore ?? 0),
++          lastRawLogPath,
+         );
+         messages.push({
+           role: 'tool',
+@@ -837,7 +875,7 @@ export class LoopExecutor implements StageExecutor {
+         const streak = readStreak;
+         readNudges++;
+         readStreak = 0;
+-        hooks.onFriction('reminder');
++        this.friction(hooks, 'reminder', lastRawLogPath);
+         pushUserNote(
+           messages,
+           `Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
+@@ -856,7 +894,7 @@ export class LoopExecutor implements StageExecutor {
+         const streak = bashStreak;
+         bashNudges++;
+         bashStreak = 0;
+-        hooks.onFriction('reminder');
++        this.friction(hooks, 'reminder', lastRawLogPath);
+         pushUserNote(
+           messages,
+           `Последние ${streak} вызовов — только Bash. Этап делается правками файлов ` +
+@@ -880,7 +918,7 @@ export class LoopExecutor implements StageExecutor {
+           if (!readyNudged && readyNudges < READY_NUDGES_PER_STAGE) {
+             readyNudged = true;
+             readyNudges++;
+-            hooks.onFriction('reminder');
++            this.friction(hooks, 'reminder', lastRawLogPath);
+             pushUserNote(
+               messages,
+               'Артефакт этапа уже готов к финализации — дальнейшие правки не нужны. Вызови ' +
+@@ -986,6 +1024,8 @@ export class LoopExecutor implements StageExecutor {
+     toolCtx: ToolContext,
+     /** Уже потрачено на витке к моменту вызова — передаётся вложенному прогону субагента. */
+     spentUsd: number,
++    /** Путь дампа хода, которому принадлежит этот вызов — см. `lastRawLogPath` в `runTurns`. */
++    rawLogPath: string | null,
+   ): Promise<string> {
+     const started = Date.now();
+     const requestId = `loop:${randomUUID()}`;
+@@ -994,7 +1034,7 @@ export class LoopExecutor implements StageExecutor {
+       // Не падаем: говорим, что именно не разобралось. Модель, которой сказали «ошибка»
+       // без подробностей, повторяет ту же строку.
+       const text = `аргументы не разобрались как JSON: ${call.rawArguments.slice(0, 300)}`;
+-      hooks.onFriction('badJson');
++      this.friction(hooks, 'badJson', rawLogPath);
+       hooks.onToolResult({ requestId, ok: false, summary: text, durationMs: 0 });
+       return text;
+     }
+@@ -1020,7 +1060,7 @@ export class LoopExecutor implements StageExecutor {
+       ...(req.callerAgent === undefined ? {} : { caller: req.callerAgent }),
+     });
+     if (!decision.allowed) {
+-      hooks.onFriction('denied');
++      this.friction(hooks, 'denied', rawLogPath);
+       hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
+       return `вызов отклонён: ${decision.reason}`;
+     }
+@@ -1055,7 +1095,7 @@ export class LoopExecutor implements StageExecutor {
+ 
+     // Метка обрезки ставится в `cap` — единственном месте, которое знает лимит. Ловим её
+     // по ней же: считать длину второй раз значило бы завести второе знание о потолке.
+-    if (text.includes('[рантайм обрезал:')) hooks.onFriction('truncated');
++    if (text.includes('[рантайм обрезал:')) this.friction(hooks, 'truncated', rawLogPath);
+ 
+     // Исход — фактический, а не «инструмент вернул строку»: упавший `Edit`, `Bash` с
+     // ненулевым кодом и отказ `FinalizeArtifact` прежде уходили `ok: true`, и рантайм
+diff --git a/server/src/exec/StepExecutor.ts b/server/src/exec/StepExecutor.ts
+index 5a3fa6a..a7ecc44 100644
+--- a/server/src/exec/StepExecutor.ts
++++ b/server/src/exec/StepExecutor.ts
+@@ -63,10 +63,12 @@ import { symlinkEscape } from '../approval/symlink.ts';
+ import { git } from '../gates/git.ts';
+ import { isAbsolute, relativizeWithin, resolveUserPath, toPosix } from '../policy/paths.ts';
+ import type { ChatMessage, ChatProvider, FinishReason } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { normalize } from './normalize.ts';
+ import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
+ import { cap, executeTool, type ToolContext } from './tools/index.ts';
+ import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './contextBudget.ts';
++import { buildStepContext } from './stepContext.ts';
+ 
+ /**
+  * Исход проверки после шага. `skipped` — проверка не состоялась (строки гейта нет, среда
+@@ -149,19 +151,27 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
+     // `<<<<<<< SEARCH SEARCH: src/oversize.ts` и подобные — маркер построен верно, но
+     // с лишним текстом на той же строке; семь подряд одинаковых спецсимволов на строке
+     // практически не встречаются в реальном коде случайно, риск ложного совпадения низкий.
++    if (/^<{7}\s*SEARCH\b/.test(t)) {
++      // A nested opener means the outer block is malformed. Restarting here salvages a
++      // later well-formed block without ever writing protocol markers into source code.
++      state = 'search';
++      search = [];
++      replace = [];
++      continue;
++    }
+     if (state === 'idle') {
+-      if (/^<{7}\s*SEARCH\b/.test(t)) {
+-        state = 'search';
+-        search = [];
+-        replace = [];
+-      }
+       continue;
+     }
+     if (state === 'search') {
+       if (/^={7}(\s|$)/.test(t)) state = 'replace';
++      else if (/^>{7}\s*REPLACE\b/.test(t)) state = 'idle';
+       else search.push(line);
+       continue;
+     }
++    if (/^={7}(\s|$)/.test(t)) {
++      state = 'idle';
++      continue;
++    }
+     if (/^>{7}\s*REPLACE\b/.test(t)) {
+       const oldStr = search.join('\n');
+       if (oldStr.trim() !== '') out.push({ oldStr, newStr: replace.join('\n') }); // пустой SEARCH совпал бы с чем угодно
+@@ -170,6 +180,18 @@ export function parseSearchReplace(answer: string): { oldStr: string; newStr: st
+     }
+     replace.push(line);
+   }
++  if (out.length > 0) return out;
++
++  // Weak models also use an unambiguous fenced variant. Accept only complete multiline
++  // pairs; inline `SEARCH: x` and prose remain rejected because their boundaries are not safe.
++  const fenced = /(?:^|\n)\s*SEARCH:\s*\n```[^\n]*\n([\s\S]*?)\n```\s*\n+\s*REPLACE:\s*\n```[^\n]*\n([\s\S]*?)\n```/g;
++  for (const match of answer.matchAll(fenced)) {
++    const oldStr = match[1] ?? '';
++    const newStr = match[2] ?? '';
++    if (oldStr.trim() === '') continue;
++    if (/^(?:<{7}\s*SEARCH|={7}(?:\s|$)|>{7}\s*REPLACE)/m.test(`${oldStr}\n${newStr}`)) continue;
++    out.push({ oldStr, newStr });
++  }
+   return out;
+ }
+ 
+@@ -347,6 +369,48 @@ export function mentionsFile(problem: string, file: string): boolean {
+   return matches.some((m) => m[1] === undefined || toPosix(m[1]) === ownDir);
+ }
+ 
++/** Converts frequent compiler failures into a narrow instruction for the next repair round. */
++export function repairGuidance(problem: string, current: string | null): string[] {
++  const guidance: string[] = [];
++  const duplicate = /Identifier ['"]([^'"]+)['"] has already been declared/i.exec(problem);
++  if (duplicate !== null) {
++    const name = duplicate[1] ?? '';
++    const declaration = new RegExp(`\\b(?:const|let|var|function|class|interface|type)\\s+${escapeRegExp(name)}\\b`);
++    const locations = (current ?? '')
++      .split(/\r?\n/)
++      .map((line, index) => ({ line, n: index + 1 }))
++      .filter(({ line }) => declaration.test(line))
++      .map(({ line, n }) => `${n}: ${line.trim()}`);
++    guidance.push(
++      `Идентификатор \`${name}\` объявлен повторно. Удали или переиспользуй одно из существующих объявлений; не добавляй ещё одно.` +
++        (locations.length === 0 ? '' : `\nТекущие объявления:\n${locations.join('\n')}`),
++    );
++  }
++  if (/import declarations may only appear at top level|Unexpected token.*import|Cannot use import statement/i.test(problem)) {
++    guidance.push('Статический `import` разрешён только в начале модуля. Добавь его рядом с существующими импортами, не внутри функции.');
++  }
++  const missingExport = /does not provide an export named ['"]([^'"]+)['"]/i.exec(problem);
++  if (missingExport !== null) {
++    guidance.push(`Модуль не экспортирует \`${missingExport[1] ?? ''}\`. Используй только экспорты из контекста проекта или исправь имя импорта.`);
++  }
++  if (/require is not defined|Cannot find name ['"]require['"]/i.test(problem)) {
++    guidance.push('Проект использует ESM: замени `require(...)` статическим импортом в начале файла.');
++  }
++  const syntaxLine = /(?:file:\/\/\/[^\s:]+|(?:[A-Za-z]:)?[^\s:]+):(\d+)(?::\d+)?[\s\S]*?SyntaxError/i.exec(problem);
++  if (syntaxLine !== null && current !== null) {
++    const n = Number.parseInt(syntaxLine[1] ?? '', 10);
++    if (Number.isFinite(n) && n > 0) {
++      const lines = current.split(/\r?\n/);
++      const excerpt = lines
++        .slice(Math.max(0, n - 3), Math.min(lines.length, n + 2))
++        .map((line, index) => `${Math.max(0, n - 3) + index + 1}: ${line}`)
++        .join('\n');
++      guidance.push(`Синтаксическая ошибка указана около строки ${n}. Исправь структуру именно в этом месте:\n${excerpt}`);
++    }
++  }
++  return guidance;
++}
++
+ /**
+  * Файл с CRLF получает правки в CRLF: модель отдаёт LF, а `Edit` сверяет побайтно.
+  * Нормализация СНАЧАЛА схлопывает уже стоящие `\r\n` в `\n` и только потом расставляет их
+@@ -528,7 +592,9 @@ export class StepExecutor implements StageExecutor {
+       return null;
+     };
+ 
+-    const chat = async (messages: ChatMessage[]): Promise<{ text: string; finishReason: FinishReason }> => {
++    const chat = async (
++      messages: ChatMessage[],
++    ): Promise<{ text: string; finishReason: FinishReason; rawLogPath: string | null }> => {
+       const startedAt = Date.now();
+       const answer = await this.o.provider.chat({
+         model: req.model,
+@@ -545,7 +611,7 @@ export class StepExecutor implements StageExecutor {
+       // сразу за обменом: печать хода прогона закрывает им блок этого запроса.
+       hooks.onExchange?.({ question: messages.at(-1)?.content ?? '', answer: answer.text });
+       hooks.onUsage(answer.usage, Date.now() - startedAt);
+-      return { text: answer.text, finishReason: answer.finishReason };
++      return { text: answer.text, finishReason: answer.finishReason, rawLogPath: answer.rawLogPath ?? null };
+     };
+ 
+     // Модель, потратившая весь выходной бюджет на рассуждение, не «не поняла формат» —
+@@ -662,7 +728,13 @@ export class StepExecutor implements StageExecutor {
+         callerTools: req.allowedTools,
+       });
+       if (!decision.allowed) {
+-        hooks.onFriction('denied');
++        // `hooks.onFriction('denied')` НЕ зовётся здесь: `apply()` не знает `rawLogPath`
++        // текущего раунда (он в области видимости внешнего цикла попыток, не этой функции),
++        // а метрика трения и метка корпуса обязаны идти ОДНИМ вызовом — тем же приёмом, что
++        // `LoopExecutor.friction()` (см. её докстринг). Вызывающий код (ветка
++        // `applied.denied` ниже) зовёт `hooks.onFriction('denied')` сам, рядом со своим
++        // `annotateExchange(...policy-denied...)` — два места, знающие об одном трении, не
++        // должны жить в разных функциях (code-review-all, 2026-09-27).
+         hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
+         return { ok: false, denied: true, noChange: null, partialNote: '', text: `запись отклонена: ${decision.reason}` };
+       }
+@@ -690,12 +762,13 @@ export class StepExecutor implements StageExecutor {
+       }
+ 
+       const before = readInsideRoot(req.cwd, step.file);
++      const stepContext = await buildStepContext(req.cwd, step, req.signal);
+       const messages: ChatMessage[] = [
+         { role: 'system', content: SYSTEM },
+         // Номер — `step.n` из плана, не позиция в отфильтрованном списке: сам план
+         // (приложенный ниже целиком) ссылается на шаги под их настоящими номерами, и
+         // расхождение двух нумераций в одном промпте путает модель.
+-        { role: 'user', content: this.stepMessage(step, step.n, total, planBlock, factsBlock, briefBlock, before) },
++        { role: 'user', content: this.stepMessage(step, step.n, total, planBlock, factsBlock, briefBlock, stepContext, before) },
+       ];
+ 
+       let calls = 0;
+@@ -743,6 +816,10 @@ export class StepExecutor implements StageExecutor {
+               ...(applyProblem === null
+                 ? []
+                 : ['## Твоя правка не применилась', '', '```', cap(applyProblem, this.o.maxResultBytes), '```', '']),
++              ...repairGuidance(
++                [checkProblem, applyProblem].filter((value): value is string => value !== null).join('\n'),
++                current,
++              ).flatMap((hint) => ['## Точное ограничение ремонта', '', hint, '']),
+               'Ошибки в ДРУГИХ файлах не чини — они закрываются другими шагами.',
+               '',
+               ...(current === null
+@@ -773,10 +850,12 @@ export class StepExecutor implements StageExecutor {
+ 
+         let answer: string;
+         let finishReason: FinishReason;
++        let rawLogPath: string | null;
+         try {
+           const result = await chat(messages);
+           answer = result.text;
+           finishReason = result.finishReason;
++          rawLogPath = result.rawLogPath;
+         } catch (e) {
+           if (req.signal.aborted) return stop('этап отменён');
+           throw e;
+@@ -788,6 +867,12 @@ export class StepExecutor implements StageExecutor {
+         // достигает: третий раунд с тем же ответом стоил бы ещё один полный файл в контексте
+         // и ту же проверку. Шаг закрывается сразу — как красный, с названной причиной.
+         if (round > 0 && answer === lastAnswer) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'repeated-answer',
++          });
+           hooks.onFriction('repeat');
+           status = '❌';
+           note = `ремонт остановлен: ответ повторён дословно — ${note}`;
+@@ -798,16 +883,37 @@ export class StepExecutor implements StageExecutor {
+         const applied = await apply(step, current, answer, finishReason);
+ 
+         if (applied.noChange !== null) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'no-change',
++          });
+           status = '⏭';
+           note = `без правок: ${applied.noChange}`;
+           break;
+         }
+         if (applied.denied) {
++          // Метрика трения и метка корпуса — рядом, одним местом: см. комментарий у
++          // `hooks.onFriction('denied')`, которого больше НЕТ внутри `apply()`.
++          hooks.onFriction('denied');
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'policy-denied',
++          });
+           status = '❌';
+           note = applied.text;
+           break;
+         }
+         if (!applied.ok) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'patch-not-applied',
++          });
+           applyProblem = applied.text;
+           note = applied.text.split('\n')[0] ?? applied.text;
+           continue;
+@@ -836,11 +942,23 @@ export class StepExecutor implements StageExecutor {
+         // Добавляется явно, отдельным хвостом, во всех трёх исходах ниже.
+         const partialSuffix = applied.partialNote === '' ? '' : `; ${applied.partialNote}`;
+         if (check.status === 'ok') {
++          annotateExchange(rawLogPath, {
++            accepted: this.o.check !== null,
++            oracle: this.o.check === null ? 'no-step-check' : `gate:${checkName ?? 'unnamed'}`,
++            target: 'plan-step',
++            reason: this.o.check === null ? 'no-mechanical-oracle' : 'check-passed',
++          });
+           status = '✅';
+           note = (applied.text.split('\n')[0] ?? 'применено') + partialSuffix;
+           break;
+         }
+         if (check.status === 'skipped') {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'check-skipped',
++          });
+           status = '✅';
+           note = `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; проверка после шага не состоялась: ${check.note}`;
+           break;
+@@ -850,6 +968,12 @@ export class StepExecutor implements StageExecutor {
+         // Ремонт здесь подталкивал бы убрать верный импорт. Проверят следующие шаги и
+         // прогон тестов после этапа.
+         if (!mentionsFile(check.problem, step.file)) {
++          annotateExchange(rawLogPath, {
++            accepted: false,
++            oracle: 'step-check',
++            target: 'plan-step',
++            reason: 'check-not-attributable-to-step',
++          });
+           status = '✅';
+           note =
+             `${applied.text.split('\n')[0] ?? 'применено'}${partialSuffix}; гейт «${checkName ?? ''}» красный вне этого файла: ` +
+@@ -857,6 +981,12 @@ export class StepExecutor implements StageExecutor {
+           hooks.onWarn(`шаг ${step.n}: ${note}`);
+           break;
+         }
++        annotateExchange(rawLogPath, {
++          accepted: false,
++          oracle: `gate:${checkName ?? 'unnamed'}`,
++          target: 'plan-step',
++          reason: 'check-failed',
++        });
+         checkProblem = check.problem;
+         note = `после правки проверка красная: ${check.problem.split('\n')[0] ?? check.problem}`;
+       }
+@@ -893,6 +1023,7 @@ export class StepExecutor implements StageExecutor {
+     planBlock: string,
+     factsBlock: string,
+     briefBlock: string,
++    stepContext: string,
+     content: string | null,
+   ): string {
+     const card = [
+@@ -917,6 +1048,7 @@ export class StepExecutor implements StageExecutor {
+     ];
+     if (factsBlock !== '') parts.push('', factsBlock);
+     if (briefBlock !== '') parts.push('', briefBlock);
++    if (stepContext !== '') parts.push('', stepContext);
+     if (content !== null) {
+       const truncated = Buffer.byteLength(content, 'utf8') > this.o.maxResultBytes;
+       parts.push('', `## Текущее содержимое \`${step.file}\``, '', '```', cap(content, this.o.maxResultBytes), '```');
+diff --git a/server/src/provider/ChatProvider.ts b/server/src/provider/ChatProvider.ts
+index c229ddc..e6f9657 100644
+--- a/server/src/provider/ChatProvider.ts
++++ b/server/src/provider/ChatProvider.ts
+@@ -39,6 +39,16 @@ export interface ChatTurn {
+   toolCalls: ChatToolCall[];
+   finishReason: FinishReason;
+   usage: Usage;
++  /**
++   * Путь файла сырого дампа этого обмена (`provider/rawLog.ts::dumpExchange`), если дамп
++   * включён и запись удалась. Отсутствует или `null` — дамп выключен, обмен без метки
++   * трассы или запись не прошла: потребитель размечает пару только когда путь известен,
++   * второго способа её найти нет намеренно (без сводного указателя, см. `rawLog.ts`).
++   * Опционально, а не обязательно: подставные провайдеры в тестах строят `ChatTurn`
++   * литералом без этого поля, и заводить его в каждом значило бы менять полтора десятка
++   * файлов ради поля, которое им не нужно.
++   */
++  rawLogPath?: string | null;
+ }
+ 
+ export interface ChatRequest {
+diff --git a/server/src/provider/OpenAiCompatProvider.ts b/server/src/provider/OpenAiCompatProvider.ts
+index a158195..ef76d6b 100644
+--- a/server/src/provider/OpenAiCompatProvider.ts
++++ b/server/src/provider/OpenAiCompatProvider.ts
+@@ -536,16 +536,20 @@ export class OpenAiCompatProvider implements ChatProvider {
+ 
+     // Дамп до проверки статуса: неудачный ответ для корпуса ценнее молчания — по нему
+     // видно, чем именно кончился ход (обрыв по длине, отказ сервера на схемах инструментов).
+-    if (this.o.trace !== undefined) {
+-      dumpExchange(this.o.trace, {
+-        provider: this.name,
+-        model: req.model,
+-        request: body,
+-        response: text,
+-        status,
+-        durationMs: Date.now() - started,
+-      });
+-    }
++    // Путь несём дальше в `ChatTurn.rawLogPath`: потребители, узнающие исход хода ПОСЛЕ
++    // `chat()` (трение цикла, гейт после шага, разбор поля бланка), размечают именно этот
++    // файл — второго способа найти его нет намеренно (`rawLog.ts`, без сводного указателя).
++    const rawLogPath =
++      this.o.trace === undefined
++        ? null
++        : dumpExchange(this.o.trace, {
++            provider: this.name,
++            model: req.model,
++            request: body,
++            response: text,
++            status,
++            durationMs: Date.now() - started,
++          });
+ 
+     if (status < 200 || status >= 300) {
+       const message = `${this.name}: HTTP ${status} от ${this.o.baseUrl} — ${text.slice(0, 500)}`;
+@@ -646,6 +650,7 @@ export class OpenAiCompatProvider implements ChatProvider {
+       toolCalls,
+       finishReason: mapFinish(choice?.finish_reason, toolCalls.length > 0, callsFromText),
+       usage,
++      rawLogPath,
+     };
+   }
+ }
+diff --git a/server/src/provider/rawLog.ts b/server/src/provider/rawLog.ts
+index cea21de..efd2cb5 100644
+--- a/server/src/provider/rawLog.ts
++++ b/server/src/provider/rawLog.ts
+@@ -17,9 +17,11 @@
+  * просили. Прогон при этом ведёт себя ровно как раньше — дамп ничего не меняет во входе.
+  */
+ 
+-import { mkdirSync, writeFileSync } from 'node:fs';
++import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+ import { join } from 'node:path';
+ 
++import type { ExchangeLabel } from '@sdlc-runner/shared';
++
+ /**
+  * Кто спрашивает. Метка ставится на ПРОВАЙДЕР, а не на запрос: экземпляр провайдера
+  * создаётся под конкретный этап и режим (`Run.executorFor`, `topUpClaims`, `narrowRoute`),
+@@ -64,12 +66,28 @@ function targetDir(): string | null {
+   return dir;
+ }
+ 
+-/** Подряд идущие отказы записи. Успех обнуляет счётчик. */
+-let failures = 0;
+ const MAX_FAILURES = 3;
++
++/** Подряд идущие отказы записи ПАРЫ (`dumpExchange`). Успех обнуляет счётчик. */
++let failures = 0;
+ /** Почему дамп выключен отказами записи; `null` — не выключался. */
+ let disabledReason: string | null = null;
+ 
++/**
++ * Подряд идущие отказы записи МЕТКИ (`annotateExchange`) — СВОЙ счётчик, не общий с парой.
++ *
++ * До этой правки обе функции делили один `failures`/`dir`: три подряд неудачные записи
++ * ИМЕННО `.label.json` (например, путь `<путь пары>.label.json` на несколько символов
++ * длиннее самой пары и на Windows упирается в `MAX_PATH` там, где путь пары ещё укладывался)
++ * гасили `dumpExchange` вместе с разметкой — отказ третьесортной по цене операции убивал
++ * первосортный по цене дамп (code-review-all, 2026-09-27). Разметка выключается СВОЕЙ
++ * переменной (`labelDisabled`), путь дампа (`dir`) остаётся как был.
++ */
++let labelFailures = 0;
++let labelDisabled = false;
++/** Почему разметка выключена отказами записи; `null` — не выключалась. */
++let labelBlockedReason: string | null = null;
++
+ /**
+  * Отказ дампа не роняет оплаченный прогон — но и не молчит, и не выключает корпус с
+  * первого чиха.
+@@ -92,6 +110,19 @@ function noteFailure(e: unknown): void {
+   process.emitWarning(`SDLC_RAW_LOG_DIR: пара не записана (${failures} из ${MAX_FAILURES}) — ${reason}`);
+ }
+ 
++/** Тот же приём, что `noteFailure`, но выключает только разметку (`labelDisabled`), не дамп. */
++function noteLabelFailure(e: unknown): void {
++  labelFailures += 1;
++  const reason = e instanceof Error ? e.message : String(e);
++  if (labelFailures >= MAX_FAILURES) {
++    process.emitWarning(`SDLC_RAW_LOG_DIR: разметка обменов выключена после ${MAX_FAILURES} отказов подряд — ${reason}`);
++    labelDisabled = true;
++    labelBlockedReason = `выключена после ${MAX_FAILURES} отказов записи подряд — ${reason}`;
++    return;
++  }
++  process.emitWarning(`SDLC_RAW_LOG_DIR: метка не записана (${labelFailures} из ${MAX_FAILURES}) — ${reason}`);
++}
++
+ /**
+  * Записать пару «запрос → ответ». Возвращает путь файла либо `null`, если дамп выключен.
+  *
+@@ -154,6 +185,9 @@ export function resetRawLog(): void {
+   dir = undefined;
+   failures = 0;
+   disabledReason = null;
++  labelFailures = 0;
++  labelDisabled = false;
++  labelBlockedReason = null;
+ }
+ 
+ /** Почему дамп выключен отказами записи с последнего `resetRawLog`; `null` — не выключался. */
+@@ -161,8 +195,83 @@ export function rawLogDisabledReason(): string | null {
+   return disabledReason;
+ }
+ 
++/** Почему разметка выключена отказами записи с последнего `resetRawLog`; `null` — не выключалась. */
++export function labelDisabledReason(): string | null {
++  return labelBlockedReason;
++}
++
+ /** Только для тестов: забыть решение о каталоге и обнулить счётчик. */
+ export function resetRawLogForTests(): void {
+   resetRawLog();
+   seq = 0;
+ }
++
++/**
++ * Слить новую метку со старой (если файл уже существовал) для ОДНОГО обмена.
++ *
++ * Скалярные поля (`accepted`/`oracle`/`target`/`reason`) новая метка перекрывает — она
++ * описывает более позднее, точнее известное состояние того же обмена (например, «пуст»
++ * при первом взгляде → «принят» после успешного топ-апа). Массивы (`frictions`)
++ * НАКАПЛИВАЮТСЯ: несколько вызовов инструментов одного хода `LoopExecutor` делят ОДИН
++ * обмен модели, и вторая разметка не должна стирать трение, найденное первой
++ * (code-review-all, 2026-09-27) — без этого правила `writeFileSync` тем же путём просто
++ * заменял бы файл целиком, как было до этой правки.
++ */
++function mergeLabel(prior: ExchangeLabel, next: ExchangeLabel): ExchangeLabel {
++  const merged: ExchangeLabel = { ...prior };
++  for (const [key, value] of Object.entries(next) as [keyof ExchangeLabel, unknown][]) {
++    const before = (merged as Record<string, unknown>)[key];
++    (merged as Record<string, unknown>)[key] = Array.isArray(before) && Array.isArray(value) ? [...before, ...value] : value;
++  }
++  return merged;
++}
++
++/**
++ * Разметить уже записанную пару исходом хода — известным ТОЛЬКО потребителю (трение
++ * цикла, гейт после шага плана, разбор значения поля бланка), не самому дампу.
++ *
++ * Пишет файл `<путь пары>.label.json` РЯДОМ с парой, а не в неё: второй файл, а не
++ * дописывание существующего — на сетевой шаре `appendFileSync` падает `EBADF` там, где
++ * `writeFileSync` работает, и живой прогон уже гасил этим весь дамп (см. докстринг
++ * `dumpExchange`). Тот же метод (читаем целиком, пишем целиком через `writeFileSync`)
++ * используется здесь и для СЛИЯНИЯ повторной разметки (`mergeLabel`) — это не то же самое,
++ * что дописывание байт в конец файла, и второй точки отказа не заводит. Разбирающий
++ * корпус читает файл пары и файл метки по общему имени, если она есть; парные `seq` не
++ * гарантируются — потребитель размечает ПОСЛЕДНИЙ известный ему путь, а между дампом и
++ * разметкой мог случиться ещё один запрос того же исполнителя (например, добор
++ * `files_to_touch` в `FormFillExecutor`).
++ *
++ * Отказ записи метки НЕ гасит дамп пар (`dumpExchange`) — у него свой счётчик отказов
++ * (`noteLabelFailure`/`labelDisabled`), не общий с `failures`/`dir`: до этой правки три
++ * подряд отказа именно записи `.label.json` (например, превышение `MAX_PATH` на Windows у
++ * более длинного пути метки) выключали ВЕСЬ дамп процесса, а не только разметку
++ * (code-review-all, 2026-09-27).
++ *
++ * Синхронная (не `fs.promises`) пара `readFileSync`/`writeFileSync` — сознательно, а не по
++ * инерции с `dumpExchange`: вызывающие (`LoopExecutor.friction`, цикл полей
++ * `FormFillExecutor`) зовут эту функцию в потенциально горячих местах (несколько раз за
++ * ход/пачку), и синхронный I/O там платится реальной ценой на медленной ФС. Но переход на
++ * асинхронные `fs.promises.readFile`/`writeFile` без единой блокировки открыл бы окно
++ * между чтением и записью, где ДВА параллельных вызова (пачка `Promise.allSettled` в
++ * `FormFillExecutor`, параллельные субагенты в `LoopExecutor`) читают одно и то же старое
++ * содержимое и один перезаписывает слияние другого — ровно та гонка, ради устранения
++ * которой заведён `mergeLabel`. Дёшево и безопасно одновременно здесь не вышло: остаётся
++ * блокирующий, но корректный синхронный путь (code-review-all, 2026-09-27).
++ */
++export function annotateExchange(path: string | null, label: ExchangeLabel): void {
++  if (path === null || labelDisabled) return;
++  const file = `${path}.label.json`;
++  try {
++    let toWrite = label;
++    try {
++      const prior = JSON.parse(readFileSync(file, 'utf8')) as ExchangeLabel;
++      toWrite = mergeLabel(prior, label);
++    } catch {
++      // Файла нет (первая метка этого обмена) либо он битый — пишем новую метку как есть.
++    }
++    writeFileSync(file, `${JSON.stringify(toWrite, null, 1)}\n`, 'utf8');
++    labelFailures = 0;
++  } catch (e) {
++    noteLabelFailure(e);
++  }
++}
+diff --git a/server/src/run/claimFill.ts b/server/src/run/claimFill.ts
+index c3898d4..97f4e30 100644
+--- a/server/src/run/claimFill.ts
++++ b/server/src/run/claimFill.ts
+@@ -22,6 +22,7 @@ import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
+ 
+ import { normalize } from '../exec/normalize.ts';
+ import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { packForClaim, splitHunks } from './claimEvidence.ts';
+ 
+ export interface ClaimAsk {
+@@ -206,6 +207,18 @@ export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
+     i.onUsage?.(response.usage);
+     const { answeredIdx, calls } = parseClaimsCombinedAnswer(group, response.text);
+     out.push(...calls);
++    // Мишень корпуса `claimFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
++    // `bench/src/corpus.ts`) — до этой правки трасса писалась (`host.trace('verify',
++    // 'claimFill')`), а метку не ставил никто: три из пяти заявленных обучаемых режимов
++    // были структурно недостижимы (code-review-all, 2026-09-27). Оракул — тот же контракт
++    // формы, что у `reviewFill` по осям: «ровно N строк, в том же порядке», и `answeredIdx`
++    // считает попадание в форму независимо от статуса самого пункта.
++    annotateExchange(response.rawLogPath ?? null, {
++      accepted: answeredIdx.size === group.length,
++      oracle: 'record-claim-parse',
++      target: 'claim-fill',
++      reason: answeredIdx.size === group.length ? 'accepted' : `answered-${answeredIdx.size}-of-${group.length}`,
++    });
+     if (answeredIdx.size < group.length) {
+       i.onProgress?.(`ответ по группе пунктов неполон: разобрано ${answeredIdx.size} из ${group.length}`);
+     }
+diff --git a/server/src/run/planAxisFill.ts b/server/src/run/planAxisFill.ts
+index 84b98a2..7f9e309 100644
+--- a/server/src/run/planAxisFill.ts
++++ b/server/src/run/planAxisFill.ts
+@@ -25,6 +25,7 @@ import type { Usage } from '@sdlc-runner/shared';
+ import { AFFIRMATIVE_HEAD, AXIS_HINTS, axisHint } from './reviewFill.ts';
+ import { axisOutcomePromptOptions, matchAxisOutcome } from './axisOutcomes.ts';
+ import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { axisRowOf, axisRowProblems, type AxisContext, type AxisName } from '../artifacts/planAxes.ts';
+ import type { AxisFillAnswer } from '../artifacts/renderAxes.ts';
+ 
+@@ -96,7 +97,7 @@ export function planAxisContext(i: PlanAxisFillInput): AxisContext {
+ }
+ 
+ /** Исход одного вопроса добора; `env` — сбой среды, добор прекращается целиком. */
+-export type PlanAxisReply = { text: string } | { env: string } | { failed: string };
++export type PlanAxisReply = { text: string; rawLogPath: string | null } | { env: string } | { failed: string };
+ 
+ /**
+  * Один вопрос добора без истории: `system` этапа + вопрос. Общий для обеих форм добора —
+@@ -122,7 +123,7 @@ export async function askPlanAxes(i: PlanAxisFillInput, user: string): Promise<P
+     return { failed: e instanceof Error ? e.message : String(e) };
+   }
+   i.onUsage?.(response.usage);
+-  return { text: response.text };
++  return { text: response.text, rawLogPath: response.rawLogPath ?? null };
+ }
+ 
+ function planAxisQuestion(i: PlanAxisFillInput): string {
+@@ -406,6 +407,17 @@ export async function fillPlanAxes(i: PlanAxisFillInput): Promise<PlanAxisFillRe
+     return { answers: [], envFailure: 'env' in reply ? reply.env : null };
+   }
+   const { answeredIdx, answers } = parsePlanAxesCombinedAnswer(i.axes, reply.text, planAxisContext(i));
++  // Мишень корпуса `planAxisFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
++  // `bench/src/corpus.ts`) — до этой правки трасса писалась (`host.trace('plan',
++  // 'planAxisFill')`), а метку не ставил никто: три из пяти заявленных обучаемых режимов
++  // были структурно недостижимы (code-review-all, 2026-09-27). Оракул — тот же контракт
++  // формы «ровно N строк», что у `reviewFill`/`claimFill`.
++  annotateExchange(reply.rawLogPath, {
++    accepted: answeredIdx.size === i.axes.length,
++    oracle: 'plan-axis-parse',
++    target: 'plan-axis-fill',
++    reason: answeredIdx.size === i.axes.length ? 'accepted' : `answered-${answeredIdx.size}-of-${i.axes.length}`,
++  });
+   if (answeredIdx.size < i.axes.length) {
+     i.onProgress?.(`ответ по осям плана неполон: разобрано ${answeredIdx.size} из ${i.axes.length}`);
+   }
+diff --git a/server/src/run/planAxisStepwise.ts b/server/src/run/planAxisStepwise.ts
+index c8ece2f..200cd60 100644
+--- a/server/src/run/planAxisStepwise.ts
++++ b/server/src/run/planAxisStepwise.ts
+@@ -42,6 +42,7 @@ import {
+   type PlanAxisFillInput,
+   type PlanAxisFillResult,
+ } from './planAxisFill.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { axisRowOf, axisRowProblems, type AxisName } from '../artifacts/planAxes.ts';
+ import type { AxisFillAnswer } from '../artifacts/renderAxes.ts';
+ 
+@@ -298,6 +299,19 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+   // Отмена этапа: провайдер бросает обычную ошибку, и без этой проверки добор спрашивал
+   // бы дальше, а вызывающий — просил бы одобрить запись уже после отмены.
+   const cancelled = (): PlanAxisFillResult | null => (i.signal.aborted ? { answers: [], envFailure: null } : null);
++  // Мишень корпуса `planAxisFill` (`docs/model-tuning.md`) — та же, что у комбинированного
++  // добора (`planAxisFill.ts::fillPlanAxes`), но здесь на КАЖДЫЙ из пяти шагов свой обмен:
++  // до этой правки ни один из них не размечался (code-review-all, 2026-09-27). Оракул тот
++  // же контракт «ровно N строк», отдельное имя — чтобы не путать со сплошным разбором
++  // комбинированной формы при анализе корпуса.
++  const labelStep = (rawLogPath: string | null, accepted: boolean, reason: string): void => {
++    annotateExchange(rawLogPath, {
++      accepted,
++      oracle: 'plan-axis-parse-step',
++      target: 'plan-axis-fill',
++      reason: accepted ? 'accepted' : reason,
++    });
++  };
+ 
+   // Шаг 1: затронута?
+   const r1 = await askOnce(i, affectedQuestion(i));
+@@ -309,6 +323,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+     return { answers, envFailure: null };
+   }
+   const affected = parseAffected(i.axes.length, r1.text);
++  labelStep(r1.rawLogPath, affected.size === i.axes.length, `affected-answered-${affected.size}-of-${i.axes.length}`);
+   if (affected.size < i.axes.length) note(`шаг «затронута?»: разобрано ${affected.size} из ${i.axes.length}`);
+   const yes = i.axes.filter((_, idx) => affected.get(idx) === true);
+   const no = i.axes.filter((_, idx) => affected.get(idx) === false);
+@@ -322,6 +337,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+     if ('failed' in r2) note(`шаг «почему не затронута»: ${r2.failed}`);
+     else {
+       const reasons = parseNumberedLines(no.length, r2.text);
++      labelStep(r2.rawLogPath, reasons.size === no.length, `reasons-answered-${reasons.size}-of-${no.length}`);
+       for (const [idx, reason] of reasons) {
+         const axis = no[idx]!;
+         accept({ axis, affectedText: 'нет', what: `— / ${reason}`, outcome: `н/п — ${reason}` });
+@@ -342,6 +358,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+     return { answers, envFailure: null };
+   }
+   const whats = parseNumberedLines(yes.length, r3.text);
++  labelStep(r3.rawLogPath, whats.size === yes.length, `what-answered-${whats.size}-of-${yes.length}`);
+   if (whats.size < yes.length) note(`шаг «что именно в шагах»: разобрано ${whats.size} из ${yes.length}`);
+ 
+   // Шаг 4: исход — по одной оси, одним ключом из конкретных адресатов.
+@@ -358,6 +375,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+       continue;
+     }
+     const choice = parseOutcomeChoice(r4.text, options);
++    labelStep(r4.rawLogPath, choice !== null, 'outcome-not-in-list');
+     if (choice === null) {
+       note(`исход оси «${axis}» не из списка адресатов: «${r4.text.trim().split('\n')[0] ?? ''}»`);
+       continue;
+@@ -376,6 +394,7 @@ export async function fillPlanAxesStepwise(i: PlanAxisFillInput): Promise<PlanAx
+       continue;
+     }
+     const risk = parseRiskFields(r5.text);
++    labelStep(r5.rawLogPath, risk !== null, 'risk-fields-incomplete');
+     if (risk === null) {
+       note(`риск по оси «${axis}»: три поля не разобраны`);
+       continue;
+diff --git a/server/src/run/reviewFill.ts b/server/src/run/reviewFill.ts
+index 967f9fd..29cb9d0 100644
+--- a/server/src/run/reviewFill.ts
++++ b/server/src/run/reviewFill.ts
+@@ -34,6 +34,7 @@ import type { NormalizedCall, Usage } from '@sdlc-runner/shared';
+ import type { AxisName } from '../artifacts/planAxes.ts';
+ import { normalize } from '../exec/normalize.ts';
+ import type { ChatProvider } from '../provider/ChatProvider.ts';
++import { annotateExchange } from '../provider/rawLog.ts';
+ import { packForClaim, splitHunks, topFileForClaim, type Hunk } from './claimEvidence.ts';
+ 
+ /** Строка осей плана, как её видит конвейер: имя, затронута ли по плану, исход как есть. */
+@@ -427,7 +428,12 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
+   let hunksAnswered = 0;
+   let axesAnswered = 0;
+ 
+-  const ask = async (user: string): Promise<string | null> => {
++  // Мишень корпуса `reviewFill` (`docs/model-tuning.md`, `TRAINABLE_MODES` в
++  // `bench/src/corpus.ts`): до этой правки трасса писалась (`host.trace('verify',
++  // 'reviewFill')`), а метку не ставил никто — три из пяти заявленных обучаемых режимов
++  // были структурно недостижимы (code-review-all, 2026-09-27). Возвращает путь дампа вместе
++  // с текстом — вызывающий размечает его САМ, зная свой оракул (по хунку или по осям).
++  const ask = async (user: string): Promise<{ text: string; rawLogPath: string | null } | null> => {
+     try {
+       const r = await i.provider.chat({
+         model: i.model,
+@@ -441,7 +447,7 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
+         params: i.params,
+       });
+       i.onUsage?.(r.usage);
+-      return r.text;
++      return { text: r.text, rawLogPath: r.rawLogPath ?? null };
+     } catch (e) {
+       i.onProgress?.(`вопрос не отвечен: ${(e as Error).message}`);
+       return null;
+@@ -464,7 +470,18 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
+       const answer = a.status === 'fulfilled' ? a.value : null;
+       if (answer === null) continue;
+       hunksAnswered++;
+-      findings.push(...parseFindingAnswer(answer, h.file));
++      const parsed = parseFindingAnswer(answer.text, h.file);
++      // Оракул — механический: «нет» в закрытой форме или хотя бы одна разобравшаяся
++      // находка. Непустой ответ без единой распознанной строки — класс «оформитель»
++      // (докстринг модуля), а не пропущенный дефект: нормализатор его не примет, но и
++      // отличать от «дефектов нет» корпусу нужно.
++      annotateExchange(answer.rawLogPath, {
++        accepted: isNoAnswer(answer.text) || parsed.length > 0,
++        oracle: 'record-finding-parse',
++        target: 'review-fill-hunk',
++        reason: isNoAnswer(answer.text) ? 'accepted' : parsed.length > 0 ? 'accepted' : 'unparsed',
++      });
++      findings.push(...parsed);
+     }
+   }
+ 
+@@ -479,13 +496,23 @@ export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResul
+     i.onProgress?.(`оси одним запросом: ${i.axes.map((a) => a.name).join(', ')}`);
+     const answer = await ask(axesCombinedQuestion(i.axes, packs));
+     if (answer !== null) {
+-      const { answeredIdx, findings: axisFindings } = parseAxesCombinedAnswer(i.axes, answer, fallbackFiles);
++      const { answeredIdx, findings: axisFindings } = parseAxesCombinedAnswer(i.axes, answer.text, fallbackFiles);
+       // Успешный ОТВЕТ (запрос не упал) засчитывает конвейеру ВСЕ оси — контракт
+       // `axesAnswered`/`axesAsked` про «рантайм провёл обмен», а не «модель ответила
+       // по форме на каждую строку»; см. докстринг `ReviewFillInput.onUsage` — тот же
+       // принцип уже действует для `hunksAnswered` (падение самого запроса, не разбора).
+       axesAnswered = i.axes.length;
+       findings.push(...axisFindings);
++      // Метка корпуса — по строгому контракту формы («ровно N строк, в том же порядке»,
++      // см. `axesCombinedQuestion`): каждая ось обязана попасть в `answeredIdx` независимо
++      // от да/нет содержимого строки. Неполный разбор — тот же класс «оформитель», что и у
++      // хунков выше, просто на всю пачку осей одним обменом.
++      annotateExchange(answer.rawLogPath, {
++        accepted: answeredIdx.size === i.axes.length,
++        oracle: 'record-finding-parse',
++        target: 'review-fill-axes',
++        reason: answeredIdx.size === i.axes.length ? 'accepted' : `answered-${answeredIdx.size}-of-${i.axes.length}`,
++      });
+       if (answeredIdx.size < i.axes.length) {
+         i.onProgress?.(`ответ по осям неполон: разобрано ${answeredIdx.size} из ${i.axes.length} строк`);
+       }
+diff --git a/server/test/claimFill.test.ts b/server/test/claimFill.test.ts
+index 46ede8c..eb3bd72 100644
+--- a/server/test/claimFill.test.ts
++++ b/server/test/claimFill.test.ts
+@@ -8,12 +8,20 @@
+  */
+ 
+ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+-import { describe, it } from 'node:test';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { after, describe, it } from 'node:test';
+ 
+ import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
+ import { packForClaim, splitHunks, topFileForClaim } from '../src/run/claimEvidence.ts';
+ import { fillClaims, parseClaimAnswer, parseClaimsCombinedAnswer } from '../src/run/claimFill.ts';
+ 
++const roots: string[] = [];
++after(() => {
++  for (const r of roots) rmSync(r, { recursive: true, force: true });
++});
++
+ const DIFF = [
+   'diff --git a/src/tariffs.ts b/src/tariffs.ts',
+   '--- a/src/tariffs.ts',
+@@ -226,6 +234,74 @@ describe('добор группами (трек «сумма латентнос
+     strictEqual(envFailure, 'ollama: ECONNREFUSED');
+   });
+ 
++  it('метка корпуса `claimFill`: полностью разобранная группа — accepted: true (code-review-all, 2026-09-27)', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-claimfill-'));
++    roots.push(root);
++    const rawPath = join(root, 'exchange.json');
++    const provider = {
++      name: 'stub',
++      async chat() {
++        return {
++          text: combinedAnswer([1, 2]),
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    } as unknown as ChatProvider;
++    await fillClaims({
++      provider,
++      model: 'stub',
++      params: null,
++      system: 'ты рецензент',
++      claims: claims.slice(0, 2),
++      diff: DIFF,
++      tests: '',
++      evidenceBudgetBytes: 10_000,
++      signal: new AbortController().signal,
++    });
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: true, oracle: 'record-claim-parse', target: 'claim-fill', reason: 'accepted' });
++  });
++
++  it('метка корпуса `claimFill`: неполный разбор группы — accepted: false с числом разобранных строк', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-claimfill-'));
++    roots.push(root);
++    const rawPath = join(root, 'exchange.json');
++    const provider = {
++      name: 'stub',
++      async chat() {
++        // Отвечен только пункт 1 из двух запрошенных — вторая строка отсутствует вовсе.
++        return {
++          text: '1. ✅ | src/tariffs.ts:priceFor | н/п',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    } as unknown as ChatProvider;
++    await fillClaims({
++      provider,
++      model: 'stub',
++      params: null,
++      system: 'ты рецензент',
++      claims: claims.slice(0, 2),
++      diff: DIFF,
++      tests: '',
++      evidenceBudgetBytes: 10_000,
++      signal: new AbortController().signal,
++    });
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, {
++      accepted: false,
++      oracle: 'record-claim-parse',
++      target: 'claim-fill',
++      reason: 'answered-1-of-2',
++    });
++  });
++
+   it('отмена останавливает добор перед следующей группой, не откатывая пришедший ответ текущей', async () => {
+     const ctl = new AbortController();
+     const provider = {
+diff --git a/server/test/formFill.test.ts b/server/test/formFill.test.ts
+index 5f8ce3e..1b1a969 100644
+--- a/server/test/formFill.test.ts
++++ b/server/test/formFill.test.ts
+@@ -44,6 +44,29 @@ function fieldProvider(answers: Record<string, string>): ChatProvider {
+   } as unknown as ChatProvider;
+ }
+ 
++/**
++ * Провайдер: тот же поиск по подстроке, что у `fieldProvider`, но каждый ответ несёт СВОЙ
++ * `rawLogPath` — только так тест может отличить метку исходного обмена от метки топ-апа
++ * (до этого стаб всегда возвращал один путь на все ответы пачки, и тест не мог поймать
++ * находку «метка приклеена к обмену до топ-апа, а не после», code-review-all, 2026-09-27).
++ */
++function fieldProviderTraced(answers: Record<string, { text: string; rawLogPath: string | null }>): ChatProvider {
++  return {
++    name: 'stub-traced',
++    async chat(req: ChatRequest) {
++      const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
++      const found = Object.entries(answers).find(([needle]) => user.includes(needle));
++      return {
++        text: found?.[1].text ?? '',
++        toolCalls: [],
++        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++        finishReason: 'end_turn' as const,
++        rawLogPath: found?.[1].rawLogPath ?? null,
++      };
++    },
++  } as unknown as ChatProvider;
++}
++
+ function hooks(seen: { writes: NormalizedCall[] }, allow: boolean): ExecHooks {
+   return {
+     onText: () => {},
+@@ -780,6 +803,152 @@ describe('заполнение бланка по полям', () => {
+   });
+ });
+ 
++describe('метка корпуса T2 (`docs/model-tuning.md`): исход ответа на поле разметчик пишет рядом с сырым дампом', () => {
++  it('принятый ответ поля помечается accepted: true', async () => {
++    const { root, artifact } = setup();
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-with-raw-log',
++      async chat() {
++        return {
++          text: 'Демо работает',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    };
++    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
++    ok(result.ok, result.note);
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: true, oracle: 'form-field-checks', target: 'form-field', reason: 'accepted' });
++  });
++
++  it('пустой ответ помечается accepted: false, полем не считается', async () => {
++    const { root, artifact } = setup();
++    const rawPath = join(root, 'exchange-empty.json');
++    const provider: ChatProvider = {
++      name: 'stub-empty',
++      async chat() {
++        return {
++          text: '',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    };
++    const result = await exec(provider).run(request(root, artifact), hooks({ writes: [] }, true));
++    strictEqual(result.ok, false);
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: false, oracle: 'form-field-checks', target: 'form-field', reason: 'empty-or-placeholder' });
++  });
++
++  it('без rawLogPath (дамп выключен) исполнение поля не падает и метки не появляется', async () => {
++    const { root, artifact } = setup();
++    const result = await exec(
++      fieldProvider({ 'что должно стать правдой': 'Демо работает', 'почему сейчас': 'Нужно к релизу' }),
++    ).run(request(root, artifact), hooks({ writes: [] }, true));
++    strictEqual(result.ok, true, result.note);
++  });
++
++  it('files_to_touch: топ-ап переезжает на СВОЙ обмен — исходный дефицитный отмечен отказом, топ-ап принят', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
++    roots.push(root);
++    const artifact = join(root, 'plan.md');
++    writeFileSync(
++      artifact,
++      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
++    );
++    const originalPath = join(root, 'original.json');
++    const topupPath = join(root, 'topup.json');
++    const result = await exec(
++      fieldProviderTraced({
++        'Добор files_to_touch': { text: '| `src/real.ts` | добавить проверку |', rawLogPath: topupPath },
++        'ОБРАЗЕЦ': { text: '| `src/does-not-exist.ts` | поправить валидацию |', rawLogPath: originalPath },
++      }),
++    ).run(request(root, artifact), hooks({ writes: [] }, true));
++
++    strictEqual(result.ok, true, result.note);
++    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(originalLabel, {
++      accepted: false,
++      oracle: 'files-to-touch-paths',
++      target: 'form-field',
++      reason: 'invented-path',
++    });
++    const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(topupLabel, { accepted: true, oracle: 'files-to-touch-paths', target: 'form-field', reason: 'accepted' });
++  });
++
++  it('files_to_touch: топ-ап реально провалился (пуст) — метка остаётся отказом, а не «принят» (code-review-all, 2026-09-27)', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
++    roots.push(root);
++    const artifact = join(root, 'plan.md');
++    writeFileSync(
++      artifact,
++      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
++    );
++    const originalPath = join(root, 'original.json');
++    const result = await exec(
++      fieldProviderTraced({
++        'Добор files_to_touch': { text: '', rawLogPath: join(root, 'topup.json') },
++        'ОБРАЗЕЦ': { text: '| `src/does-not-exist.ts` | поправить валидацию |', rawLogPath: originalPath },
++      }),
++    ).run(request(root, artifact), hooks({ writes: [] }, true));
++
++    // Провалившийся добор не мешает записи артефакта: невалидный путь всё равно уходит в
++    // текст как есть (`pathScope` политики на chunk — вот кто на самом деле его отклонит),
++    // и это НЕ регрессия фикса. Регрессией было бы то, что до фикса `accepted: true` шло на
++    // этот же обмен, потому что итоговая метка вообще не знала о `files_to_touch`.
++    strictEqual(result.ok, true, result.note);
++    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(originalLabel, {
++      accepted: false,
++      oracle: 'files-to-touch-paths',
++      target: 'form-field',
++      reason: 'invented-path',
++    });
++  });
++
++  it('приёмочный лист: добор закрыл минимум — исходный обмен и незакрывшая попытка отмечены отказом, последний топ-ап принят', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-'));
++    roots.push(root);
++    const artifact = join(root, 'intent.md');
++    writeFileSync(
++      artifact,
++      ['## Приёмочный лист', '', '| id | что проверяем |', '|---|---|', '| ‹claim-N› | ‹проверка› |', ''].join('\n'),
++    );
++    const originalPath = join(root, 'original.json');
++    const topupPath = join(root, 'topup.json');
++    const result = await exec(
++      fieldProviderTraced({
++        'Добор приёмочного листа': {
++          text: '| `claim-3 [edge]` | ещё случай |\n| `claim-4 [edge]` | четвёртый |',
++          rawLogPath: topupPath,
++        },
++        'ОБРАЗЕЦ': {
++          text: '| `claim-1 [edge]` | базовый случай |\n| `claim-2` | ещё один |',
++          rawLogPath: originalPath,
++        },
++      }),
++    ).run(request(root, artifact), hooks({ writes: [] }, true));
++
++    strictEqual(result.ok, true, result.note);
++    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(originalLabel, {
++      accepted: false,
++      oracle: 'claims-minimum',
++      target: 'form-field',
++      reason: 'claims-below-minimum',
++    });
++    const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(topupLabel, { accepted: true, oracle: 'claims-minimum', target: 'form-field', reason: 'accepted' });
++  });
++});
++
+ describe('cleanFieldAnswer', () => {
+   it('снимает fenced-блок и внешние кавычки, содержимое не редактирует', () => {
+     strictEqual(cleanFieldAnswer('```markdown\n- **Итог:** готово\n```'), '- **Итог:** готово');
+@@ -1082,4 +1251,80 @@ describe('режим compact: поля из схемы, ответ рисует
+     ok(text.includes('src/real.ts'), text);
+     ok(!text.includes('does-not-exist'), 'выдуманный путь не должен остаться в артефакте');
+   });
++
++  it('compact: метка корпуса T2 появляется у обычного поля (accepted: true, оракул apply-fill) — до фикса этот путь не размечал ничего (code-review-all, 2026-09-27)', async () => {
++    const { root, artifact } = setupCompact();
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-compact-traced',
++      async chat(req: ChatRequest) {
++        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
++        return {
++          text: user.includes('`ветка витка`') ? 'sdlc/oversize' : '',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++          rawLogPath: user.includes('`ветка витка`') ? rawPath : null,
++        };
++      },
++    } as unknown as ChatProvider;
++
++    await execCompact(provider).run(request(root, artifact), hooks({ writes: [] }, true));
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: true, oracle: 'apply-fill', target: 'form-field', reason: 'accepted' });
++  });
++
++  it('compact: files_to_touch — метка переезжает на обмен топ-апа, исходный дефицитный отмечен отказом', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-compact-'));
++    roots.push(root);
++    const artifact = join(root, 'plan.md');
++    writeFileSync(
++      artifact,
++      ['## files_to_touch', '', '| Путь | Что делаем |', '|---|---|', '| ‹path/to/file› | ‹что делаем› |', ''].join('\n'),
++    );
++    const originalPath = join(root, 'original.json');
++    const topupPath = join(root, 'topup.json');
++    const provider: ChatProvider = {
++      name: 'invented-then-fix-traced',
++      async chat(req: ChatRequest) {
++        const user = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
++        if (user.includes('Добор поля')) {
++          return {
++            text: '| `src/real.ts` | добавить проверку |',
++            toolCalls: [],
++            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++            finishReason: 'end_turn' as const,
++            rawLogPath: topupPath,
++          };
++        }
++        if (user.includes('`filestotouch`')) {
++          return {
++            text: '| `src/does-not-exist.ts` | поправить валидацию |',
++            toolCalls: [],
++            usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++            finishReason: 'end_turn' as const,
++            rawLogPath: originalPath,
++          };
++        }
++        return {
++          text: '',
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn' as const,
++        };
++      },
++    } as unknown as ChatProvider;
++
++    await execCompact(provider, 'plan').run(request(root, artifact, { maxTurns: 20 }), hooks({ writes: [] }, true));
++
++    const originalLabel = JSON.parse(readFileSync(`${originalPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(originalLabel, {
++      accepted: false,
++      oracle: 'files-to-touch-paths',
++      target: 'form-field',
++      reason: 'invented-path',
++    });
++    const topupLabel = JSON.parse(readFileSync(`${topupPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(topupLabel, { accepted: true, oracle: 'apply-fill', target: 'form-field', reason: 'accepted' });
++  });
+ });
+diff --git a/server/test/planAxisFill.test.ts b/server/test/planAxisFill.test.ts
+index 62f392e..9d29e90 100644
+--- a/server/test/planAxisFill.test.ts
++++ b/server/test/planAxisFill.test.ts
+@@ -5,7 +5,10 @@
+  */
+ 
+ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+-import { describe, it } from 'node:test';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { after, describe, it } from 'node:test';
+ 
+ import { ProviderEnvError, type ChatProvider } from '../src/provider/ChatProvider.ts';
+ import { fillPlanAxes, parsePlanAxesCombinedAnswer } from '../src/run/planAxisFill.ts';
+@@ -574,6 +577,60 @@ describe('fillPlanAxes: вопрос только по проблемным ос
+   });
+ });
+ 
++const roots: string[] = [];
++after(() => {
++  for (const r of roots) rmSync(r, { recursive: true, force: true });
++});
++
++describe('fillPlanAxes: метка корпуса (code-review-all, 2026-09-27)', () => {
++  it('полный разбор всех осей — accepted: true', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-planaxisfill-'));
++    roots.push(root);
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-traced',
++      async chat() {
++        return {
++          text: '1. да | шаг 1 | claim-1\n2. нет | н/п | н/п — п',
++          toolCalls: [],
++          usage: USAGE,
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    } as unknown as ChatProvider;
++    await fillPlanAxes(baseInput({ provider }));
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, { accepted: true, oracle: 'plan-axis-parse', target: 'plan-axis-fill', reason: 'accepted' });
++  });
++
++  it('разобрана только одна ось из двух — accepted: false', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-planaxisfill-'));
++    roots.push(root);
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-traced',
++      async chat() {
++        return {
++          text: '1. да | шаг 1 | claim-1',
++          toolCalls: [],
++          usage: USAGE,
++          finishReason: 'end_turn' as const,
++          rawLogPath: rawPath,
++        };
++      },
++    } as unknown as ChatProvider;
++    await fillPlanAxes(baseInput({ provider }));
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, {
++      accepted: false,
++      oracle: 'plan-axis-parse',
++      target: 'plan-axis-fill',
++      reason: 'answered-1-of-2',
++    });
++  });
++});
++
+ describe('fillPlanAxes: usage и ошибки среды', () => {
+   it('usage успешного запроса уходит в onUsage', async () => {
+     const usages: unknown[] = [];
+diff --git a/server/test/rawLog.test.ts b/server/test/rawLog.test.ts
+index fdf8913..253b1c8 100644
+--- a/server/test/rawLog.test.ts
++++ b/server/test/rawLog.test.ts
+@@ -8,7 +8,7 @@
+  */
+ 
+ import { deepStrictEqual, strictEqual } from 'node:assert/strict';
+-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
++import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+ import { createServer } from 'node:http';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+@@ -16,7 +16,7 @@ import { describe, it } from 'node:test';
+ 
+ import type { ProviderDef } from '../src/config/schema.ts';
+ import { createProvider } from '../src/provider/registry.ts';
+-import { resetRawLogForTests } from '../src/provider/rawLog.ts';
++import { annotateExchange, labelDisabledReason, rawLogDisabledReason, resetRawLogForTests } from '../src/provider/rawLog.ts';
+ import { withEnvAsync } from './testUtils.ts';
+ 
+ const ANSWER = { choices: [{ message: { content: 'ответ' }, finish_reason: 'stop' }] };
+@@ -199,3 +199,78 @@ describe('сырой дамп запросов к модели', () => {
+     }
+   });
+ });
++
++describe('annotateExchange: слияние меток и изолированный счётчик отказов (code-review-all, 2026-09-27)', () => {
++  // Ниже вызываем `annotateExchange` напрямую, не через сетевую заглушку: в отличие от
++  // `dumpExchange` (проверяется описанием модуля выше — тот тест доказывает, что в файле
++  // легли байты, реально ушедшие в модель), `annotateExchange` — чисто файловый сайдкар без
++  // сети, и мерить его собственную логику (слияние, изоляция отказов) напрямую — не тот же
++  // самый обход, от которого предостерегает докстринг файла.
++
++  it('вторая разметка того же пути СЛИВАЕТСЯ с первой: массивы накапливаются, скаляры перекрываются', () => {
++    const dir = mkdtempSync(join(tmpdir(), 'sdlc-annotate-merge-'));
++    try {
++      const path = join(dir, 'exchange.json');
++      annotateExchange(path, { frictions: ['denied'] });
++      annotateExchange(path, { frictions: ['truncated'], accepted: false });
++      annotateExchange(path, { accepted: true, oracle: 'step-check', target: 'plan-step', reason: 'accepted' });
++      const label = JSON.parse(readFileSync(`${path}.label.json`, 'utf8')) as Record<string, unknown>;
++      // `frictions` — массив, накопивший ОБА трения; `accepted` — последнее известное
++      // значение (третий вызов), не перезаписанное молча вторым.
++      deepStrictEqual(label, {
++        frictions: ['denied', 'truncated'],
++        accepted: true,
++        oracle: 'step-check',
++        target: 'plan-step',
++        reason: 'accepted',
++      });
++    } finally {
++      rmSync(dir, { recursive: true, force: true });
++    }
++  });
++
++  it('путь без разметки вовсе — annotateExchange(null, …) не создаёт файлов', () => {
++    const dir = mkdtempSync(join(tmpdir(), 'sdlc-annotate-null-'));
++    try {
++      annotateExchange(null, { accepted: true });
++      deepStrictEqual(readdirSync(dir), []);
++    } finally {
++      rmSync(dir, { recursive: true, force: true });
++    }
++  });
++
++  it('три подряд отказа записи МЕТКИ выключают только разметку — дамп пар (dumpExchange) продолжает работать', async () => {
++    resetRawLogForTests();
++    const dir = mkdtempSync(join(tmpdir(), 'sdlc-annotate-failisolation-'));
++    try {
++      // Путь метки занят каталогом — `writeFileSync` даёт EISDIR на каждую попытку;
++      // сам дамп пар пишется совершенно в другое место и этой помехи не видит.
++      const busyExchange = join(dir, 'busy-exchange.json');
++      mkdirSync(`${busyExchange}.label.json`, { recursive: true });
++
++      for (let i = 0; i < 3; i++) annotateExchange(busyExchange, { accepted: true });
++
++      strictEqual(labelDisabledReason() !== null, true, 'разметка обязана быть выключена после 3 отказов');
++      strictEqual(rawLogDisabledReason(), null, 'дамп пар не должен гаситься отказами МЕТКИ');
++
++      await withStub(async (baseUrl, bodies) => {
++        await withEnvAsync('SDLC_RAW_LOG_DIR', dir, async () => {
++          const turn = (await ask(baseUrl, { slug: 'витокД', stage: 'chunk', mode: 'step' })) as { text: string };
++          strictEqual(turn.text, 'ответ', 'ход прошёл штатно — отказы разметки на него не влияют');
++        });
++        strictEqual(bodies.length, 1);
++        // Дамп пары РЕАЛЬНО записан — отказы записи МЕТКИ не погасили `dumpExchange`.
++        deepStrictEqual(readdirSync(join(dir, 'витокД')), ['00001-chunk-step.json']);
++      });
++
++      // Разметка ДРУГОГО (не занятого) пути после отключения всё равно не пишется —
++      // выключение затрагивает всю разметку процесса, не только занятый путь.
++      const freePath = join(dir, 'free-exchange.json');
++      annotateExchange(freePath, { accepted: true });
++      strictEqual(existsSync(`${freePath}.label.json`), false);
++    } finally {
++      rmSync(dir, { recursive: true, force: true });
++      resetRawLogForTests();
++    }
++  });
++});
+diff --git a/server/test/reviewFill.test.ts b/server/test/reviewFill.test.ts
+index 96c267f..39c1b7c 100644
+--- a/server/test/reviewFill.test.ts
++++ b/server/test/reviewFill.test.ts
+@@ -9,7 +9,10 @@
+  */
+ 
+ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+-import { describe, it } from 'node:test';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { after, describe, it } from 'node:test';
+ 
+ import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
+ import {
+@@ -58,6 +61,29 @@ function scripted(answers: string[]): ChatProvider & { asked: string[] } {
+   } as unknown as ChatProvider & { asked: string[] };
+ }
+ 
++const roots: string[] = [];
++after(() => {
++  for (const r of roots) rmSync(r, { recursive: true, force: true });
++});
++
++/** Тот же `scripted`, но каждый ответ несёт СВОЙ путь дампа — по порядку, тем же индексом. */
++function scriptedTraced(answers: { text: string; rawLogPath: string }[]): ChatProvider {
++  const queue = [...answers];
++  return {
++    name: 'stub-traced',
++    async chat() {
++      const next = queue.shift() ?? { text: 'нет', rawLogPath: null };
++      return {
++        text: next.text,
++        toolCalls: [],
++        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++        finishReason: 'end_turn' as const,
++        rawLogPath: next.rawLogPath,
++      };
++    },
++  } as unknown as ChatProvider;
++}
++
+ describe('разбор ответа по фрагменту', () => {
+   it('строка «секция | текст | место» становится записью record_finding', () => {
+     const calls = parseFindingAnswer('review | чтение TARIFF_ZONE_EXTRA без умолчания | src/tariffs.ts:11', 'src/tariffs.ts');
+@@ -234,6 +260,45 @@ describe('конвейер', () => {
+     ok(r.text.includes('фрагментов проверено 2 из 2'));
+   });
+ 
++  it('метка корпуса `reviewFill`: хунк с находкой и хунк без — оба принятые обмены; неполный ответ по осям отклонён (code-review-all, 2026-09-27)', async () => {
++    const root = mkdtempSync(join(tmpdir(), 'sdlc-reviewfill-'));
++    roots.push(root);
++    const hunkFoundPath = join(root, 'hunk-found.json');
++    const hunkCleanPath = join(root, 'hunk-clean.json');
++    const axesPath = join(root, 'axes.json');
++    const provider = scriptedTraced([
++      { text: 'review | чтение TARIFF_ZONE_EXTRA без умолчания | src/tariffs.ts:11', rawLogPath: hunkFoundPath },
++      { text: 'нет', rawLogPath: hunkCleanPath },
++      // Отвечена только ось 1 из двух запрошенных — форма «ровно N строк» не выдержана.
++      { text: '1. нет', rawLogPath: axesPath },
++    ]);
++    await reviewByHunks({
++      provider,
++      model: 'stub',
++      params: null,
++      taskContext: '',
++      diff: DIFF,
++      axes: [
++        { name: 'Настройки', affected: false, outcomeRaw: '' },
++        { name: 'Наблюдаемость', affected: false, outcomeRaw: '' },
++      ],
++      hunkBudgetBytes: 12_000,
++      signal: new AbortController().signal,
++    });
++
++    const foundLabel = JSON.parse(readFileSync(`${hunkFoundPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(foundLabel, { accepted: true, oracle: 'record-finding-parse', target: 'review-fill-hunk', reason: 'accepted' });
++    const cleanLabel = JSON.parse(readFileSync(`${hunkCleanPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(cleanLabel, { accepted: true, oracle: 'record-finding-parse', target: 'review-fill-hunk', reason: 'accepted' });
++    const axesLabel = JSON.parse(readFileSync(`${axesPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(axesLabel, {
++      accepted: false,
++      oracle: 'record-finding-parse',
++      target: 'review-fill-axes',
++      reason: 'answered-1-of-2',
++    });
++  });
++
+   it('оси задаются ОДНИМ запросом независимо от их числа — цена размышления платится один раз, не N раз', async () => {
+     // Замер 2026-09-09: latency запроса локальной модели без ручки reasoning_effort почти
+     // не зависит от размера содержимого (~130 с что на тривиальном вопросе, что на
+diff --git a/server/test/stepExecutor.test.ts b/server/test/stepExecutor.test.ts
+index 984f14c..dbeb1ab 100644
+--- a/server/test/stepExecutor.test.ts
++++ b/server/test/stepExecutor.test.ts
+@@ -7,7 +7,7 @@
+  * считается по шагам, а не по числу запросов; лимит ходов этапа действует.
+  */
+ 
+-import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
++import { deepStrictEqual, match, ok, strictEqual } from 'node:assert/strict';
+ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+@@ -23,6 +23,7 @@ import {
+   noChangeReason,
+   parseFileContent,
+   parseSearchReplace,
++  repairGuidance,
+ } from '../src/exec/StepExecutor.ts';
+ import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
+ import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
+@@ -181,6 +182,28 @@ describe('разбор ответов шага', () => {
+     const text = 'SEARCH: `  return a + b;`\nREPLACE: `  return a + b + 1;`\n\nПояснение вокруг.';
+     deepStrictEqual(parseSearchReplace(text), []);
+   });
++
++  it('вложенные и незакрытые маркеры никогда не попадают в содержимое замены', () => {
++    const nested = [
++      '<<<<<<< SEARCH',
++      'outer old',
++      '=======',
++      'outer new',
++      '<<<<<<< SEARCH',
++      'inner old',
++      '=======',
++      'inner new',
++      '>>>>>>> REPLACE',
++    ].join('\n');
++    deepStrictEqual(parseSearchReplace(nested), [{ oldStr: 'inner old', newStr: 'inner new' }]);
++    deepStrictEqual(parseSearchReplace('<<<<<<< SEARCH\nold\n=======\nnew'), []);
++  });
++
++  it('принимает только полный многострочный fenced-вариант SEARCH/REPLACE', () => {
++    const answer = ['SEARCH:', '```ts', 'const old = 1;', '```', '', 'REPLACE:', '```ts', 'const next = 2;', '```'].join('\n');
++    deepStrictEqual(parseSearchReplace(answer), [{ oldStr: 'const old = 1;', newStr: 'const next = 2;' }]);
++    deepStrictEqual(parseSearchReplace('SEARCH: `const old = 1;`\nREPLACE: `const next = 2;`'), []);
++  });
+ });
+ 
+ describe('исполнение по шагам', () => {
+@@ -290,6 +313,37 @@ describe('исполнение по шагам', () => {
+     ok(readFileSync(join(root, 'src/a.ts'), 'utf8').includes('return 0;'));
+   });
+ 
++  it('пишет положительную метку корпуса только после механической проверки шага', async () => {
++    const root = setup();
++    const rawPath = join(root, 'exchange.json');
++    const provider: ChatProvider = {
++      name: 'stub-with-raw-log',
++      async chat() {
++        return {
++          text: SR('  return a + b;', '  return a + b + 1;'),
++          toolCalls: [],
++          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
++          finishReason: 'end_turn',
++          rawLogPath: rawPath,
++        };
++      },
++    };
++    const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
++    const result = await exec(provider, [step({ file: 'src/a.ts' })], async () => ({ status: 'ok' })).run(
++      request(root),
++      hooks(seen),
++    );
++
++    ok(result.ok, result.note);
++    const label = JSON.parse(readFileSync(`${rawPath}.label.json`, 'utf8')) as Record<string, unknown>;
++    deepStrictEqual(label, {
++      accepted: true,
++      oracle: 'gate:Сборка',
++      target: 'plan-step',
++      reason: 'check-passed',
++    });
++  });
++
+   it('новый файл с красной проверкой чинится блоками замены, а не файлом целиком', async () => {
+     const root = setup();
+     const seen = { calls: [] as NormalizedCall[], warns: [] as string[] };
+@@ -551,3 +605,33 @@ describe('mentionsFile', () => {
+     ok(mentionsFile('index.ts(5,1): ошибка', 'server/src/exec/index.ts'));
+   });
+ });
++
++describe('repairGuidance', () => {
++  it('показывает все текущие объявления повторённого идентификатора', () => {
++    const hints = repairGuidance(
++      "SyntaxError: Identifier 'sub' has already been declared",
++      'const sub = subtotal(lines);\nconst invoice = {};\nconst sub = subtotal(lines);\n',
++    );
++    strictEqual(hints.length, 1);
++    match(hints[0]!, /не добавляй ещё одно/);
++    match(hints[0]!, /1: const sub/);
++    match(hints[0]!, /3: const sub/);
++  });
++
++  it('даёт отдельные ограничения для ESM и отсутствующего экспорта', () => {
++    const hints = repairGuidance(
++      "require is not defined; module does not provide an export named 'Money'",
++      null,
++    );
++    ok(hints.some((hint) => hint.includes('ESM')));
++    ok(hints.some((hint) => hint.includes('Money')));
++  });
++
++  it('показывает строки вокруг позиции синтаксической ошибки', () => {
++    const hints = repairGuidance(
++      'file:///C:/work/src/a.ts:3\nSyntaxError: Expression expected',
++      'export function a() {\n  return 1;\n}\n}\n',
++    );
++    ok(hints.some((hint) => hint.includes('строки 3') && hint.includes('4: }')));
++  });
++});
+diff --git a/shared/src/index.ts b/shared/src/index.ts
+index faef2c7..8a2cb1f 100644
+--- a/shared/src/index.ts
++++ b/shared/src/index.ts
+@@ -2,3 +2,4 @@ export * from './types.ts';
+ export * from './describeCall.ts';
+ export * from './api.ts';
+ export * from './markdownTable.ts';
++export * from './exchangeLabel.ts';
+=== NEW FILE: server/src/exec/stepContext.ts ===
+import { readFileSync, realpathSync } from 'node:fs';
+import { dirname, extname, posix } from 'node:path';
+
+import type { PlanStep } from '../artifacts/planSteps.ts';
+import { symlinkEscape } from '../approval/symlink.ts';
+import { listSourceFiles } from '../gates/builtin/index.ts';
+import { relativizeWithin, resolveUserPath } from '../policy/paths.ts';
+import { cap } from './tools/index.ts';
+
+const SOURCE_LIMIT = 1_000;
+const FILE_EXCERPT_BYTES = 2_000;
+const API_MAP_BYTES = 1_800;
+export const STEP_CONTEXT_BYTES = 6_000;
+const TEST_RE = /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[^.]+$/i;
+const IMPORT_RE = /(?:import|export)\s+(?:[^'";]+?\s+from\s+)?['"]([^'"]+)['"]|require\(\s*['"]([^'"]+)['"]\s*\)/g;
+const DECL_RE = /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const|let|var)\b/;
+const IMPORT_LINE_RE = /^\s*(?:import|export)\b.*\bfrom\s+['"]|^\s*import\s+['"]|require\(/;
+
+function read(root: string, file: string): string | null {
+  try {
+    const resolved = resolveUserPath(root, file);
+    if (relativizeWithin(root, resolved) === null || symlinkEscape(root, file, []) !== null) return null;
+    return readFileSync(realpathSync(resolved), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function words(step: PlanStep): string[] {
+  const raw = `${step.title} ${step.action} ${step.symbol ?? ''} ${step.file}`.toLowerCase();
+  return [...new Set(raw.match(/[\p{L}\p{N}_-]{3,}/gu) ?? [])].filter(
+    (word) => !['src', 'test', 'tests', 'file', 'новый', 'файл', 'добавить', 'изменить'].includes(word),
+  );
+}
+
+function resolveImport(from: string, specifier: string, files: ReadonlySet<string>): string | null {
+  if (!specifier.startsWith('.')) return null;
+  const base = posix.normalize(posix.join(posix.dirname(from), specifier));
+  const candidates = extname(base) === ''
+    ? [`${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.jsx`, `${base}/index.ts`, `${base}/index.tsx`]
+    : [base, base.replace(/\.js$/i, '.ts'), base.replace(/\.jsx$/i, '.tsx')];
+  return candidates.find((candidate) => files.has(candidate)) ?? null;
+}
+
+function directDependencies(target: string, content: string | null, files: ReadonlySet<string>): string[] {
+  if (content === null) return [];
+  const out: string[] = [];
+  for (const match of content.matchAll(IMPORT_RE)) {
+    const resolved = resolveImport(target, match[1] ?? match[2] ?? '', files);
+    if (resolved !== null && resolved !== target && !out.includes(resolved)) out.push(resolved);
+  }
+  return out;
+}
+
+function scoreFile(file: string, content: string, terms: readonly string[], target: string): number {
+  if (file === target) return -1;
+  let score = dirname(file) === dirname(target) ? 4 : 0;
+  const haystack = `${file}\n${content.slice(0, 12_000)}`.toLowerCase();
+  for (const term of terms) if (haystack.includes(term)) score += file.toLowerCase().includes(term) ? 5 : 1;
+  return score;
+}
+
+function declarationExcerpt(content: string, terms: readonly string[]): string {
+  const lines = content.split(/\r?\n/);
+  const chosen = new Set<number>();
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    const relevant = DECL_RE.test(line) || IMPORT_LINE_RE.test(line) || terms.some((term) => line.toLowerCase().includes(term));
+    if (!relevant) continue;
+    for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 3); j++) chosen.add(j);
+  }
+  if (chosen.size === 0) return cap(content, FILE_EXCERPT_BYTES);
+  const rendered = [...chosen].sort((a, b) => a - b).map((i) => `${i + 1}: ${lines[i] ?? ''}`).join('\n');
+  return cap(rendered, FILE_EXCERPT_BYTES);
+}
+
+function projectApiMap(files: readonly string[], contents: ReadonlyMap<string, string>, target: string): string {
+  const lines: string[] = [];
+  for (const file of files) {
+    if (file === target || TEST_RE.test(file)) continue;
+    const declarations = (contents.get(file) ?? '')
+      .split(/\r?\n/)
+      .filter((line) => /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const)\b/.test(line))
+      .slice(0, 8);
+    if (declarations.length > 0) lines.push(`${file}:`, ...declarations.map((line) => `  ${line.trim()}`));
+  }
+  return cap(lines.join('\n'), API_MAP_BYTES);
+}
+
+function importConvention(target: string, files: readonly string[], contents: ReadonlyMap<string, string>): string | null {
+  const nearby = files.filter((file) => dirname(file) === dirname(target));
+  const imports = nearby.flatMap((file) =>
+    (contents.get(file) ?? '').split(/\r?\n/).filter((line) => IMPORT_LINE_RE.test(line) && /['"]\.\.?\//.test(line)),
+  );
+  if (imports.length === 0) return null;
+  const ts = imports.filter((line) => /from\s+['"][^'"]+\.ts['"]|import\s+['"][^'"]+\.ts['"]/.test(line)).length;
+  return ts * 2 >= imports.length
+    ? 'Локальные импорты в соседних файлах обычно содержат расширение `.ts`.'
+    : 'Локальные импорты в соседних файлах обычно пишутся без расширения `.ts`.';
+}
+
+/** Builds small, attributable project context for one plan step. No model or vector store is involved. */
+export async function buildStepContext(root: string, step: PlanStep, signal?: AbortSignal): Promise<string> {
+  const listed = await listSourceFiles(root, SOURCE_LIMIT, signal, { includeDotDirs: false });
+  if (signal?.aborted === true) return '';
+  const files = listed.files.map((file) => file.replace(/\\/g, '/'));
+  const contents = new Map<string, string>();
+  for (const file of files) {
+    const content = read(root, file);
+    if (content !== null) contents.set(file, content);
+  }
+  const target = step.file.replace(/\\/g, '/');
+  const terms = words(step);
+  const fileSet = new Set(files);
+  const dependencies = directDependencies(target, contents.get(target) ?? null, fileSet);
+  const ranked = files
+    .filter((file) => !TEST_RE.test(file))
+    .map((file) => ({ file, score: scoreFile(file, contents.get(file) ?? '', terms, target) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
+  const related = [...dependencies, ...ranked.map(({ file }) => file)].filter(
+    (file, index, all) => all.indexOf(file) === index,
+  ).slice(0, 2);
+
+  const testExample = TEST_RE.test(target)
+    ? files
+        .filter((file) => file !== target && TEST_RE.test(file))
+        .map((file) => ({ file, score: (dirname(file) === dirname(target) ? 10 : 0) + scoreFile(file, contents.get(file) ?? '', terms, target) }))
+        .sort((a, b) => b.score - a.score || a.file.localeCompare(b.file))[0]?.file ?? null
+    : null;
+
+  const sections: string[] = [];
+  const convention = importConvention(target, files, contents);
+  if (convention !== null) sections.push(`- ${convention}`);
+  if (listed.truncated) sections.push(`- Карта проекта ограничена первыми ${SOURCE_LIMIT} исходниками.`);
+  const apiMap = projectApiMap(files, contents, target);
+  if (apiMap !== '') {
+    sections.push(`### Доступные API проекта\n\nИспользуй эти реальные имена и сигнатуры; не выдумывай экспорты.\n\n\`\`\`\n${apiMap}\n\`\`\``);
+  }
+  for (const file of related) {
+    const content = contents.get(file);
+    if (content !== undefined) sections.push(`### Связанный исходник: \`${file}\`\n\n\`\`\`\n${declarationExcerpt(content, terms)}\n\`\`\``);
+  }
+  if (testExample !== null) {
+    const content = contents.get(testExample);
+    if (content !== undefined) sections.push(`### Пример существующего теста: \`${testExample}\`\n\n\`\`\`\n${cap(content, FILE_EXCERPT_BYTES)}\n\`\`\``);
+  }
+  if (sections.length === 0) return '';
+  // `cap` adds a human-readable truncation marker, so reserve room for that marker.
+  return cap(`## Контекст проекта для этого шага\n\n${sections.join('\n\n')}`, STEP_CONTEXT_BYTES - 256);
+}
+=== NEW FILE: server/test/stepContext.test.ts ===
+import { match, ok, strictEqual } from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
+
+import type { PlanStep } from '../src/artifacts/planSteps.ts';
+import { buildStepContext, STEP_CONTEXT_BYTES } from '../src/exec/stepContext.ts';
+
+const roots: string[] = [];
+after(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true })));
+
+function root(): string {
+  const value = mkdtempSync(join(tmpdir(), 'sdlc-context-'));
+  roots.push(value);
+  mkdirSync(join(value, 'src'), { recursive: true });
+  mkdirSync(join(value, 'test'), { recursive: true });
+  return value;
+}
+
+function step(overrides: Partial<PlanStep>): PlanStep {
+  return {
+    n: 1,
+    title: 'Рассчитать НДС',
+    file: 'src/vat.ts',
+    isNew: true,
+    symbol: 'calculateVat',
+    action: 'Добавить расчёт НДС для денежных строк',
+    claims: [],
+    check: null,
+    expect: null,
+    facts: null,
+    explicit: true,
+    ...overrides,
+  };
+}
+
+describe('контекст шага', () => {
+  it('подбирает связанные объявления и определяет стиль импортов', async () => {
+    const project = root();
+    writeFileSync(join(project, 'src/money.ts'), "export type Money = { cents: number };\nexport function roundMoney(value: number): Money {\n  return { cents: Math.round(value) };\n}\n");
+    writeFileSync(join(project, 'src/lines.ts'), "import type { Money } from './money.ts';\nexport interface Line { net: Money; vatRate: number }\n");
+
+    const context = await buildStepContext(project, step({}));
+
+    match(context, /Контекст проекта/);
+    match(context, /src\/money\.ts|src\/lines\.ts/);
+    match(context, /Money|Line/);
+    match(context, /Доступные API проекта/);
+    match(context, /roundMoney/);
+    match(context, /расширение `\.ts`/);
+  });
+
+  it('для тестового шага добавляет один близкий тест и не читает служебные каталоги', async () => {
+    const project = root();
+    writeFileSync(join(project, 'src/vat.ts'), 'export const calculateVat = (n: number) => n;\n');
+    writeFileSync(join(project, 'test/money.test.ts'), "import test from 'node:test';\nimport { strictEqual } from 'node:assert';\ntest('money', () => strictEqual(1, 1));\n");
+    mkdirSync(join(project, '.sdlc'), { recursive: true });
+    writeFileSync(join(project, '.sdlc/hidden.test.ts'), 'DO_NOT_LEAK\n');
+
+    const context = await buildStepContext(project, step({ file: 'test/vat.test.ts', title: 'Тест НДС' }));
+
+    match(context, /Пример существующего теста: `test\/money\.test\.ts`/);
+    match(context, /node:test/);
+    strictEqual(context.includes('DO_NOT_LEAK'), false);
+  });
+
+  it('соблюдает общий лимит контекста', async () => {
+    const project = root();
+    for (let i = 0; i < 8; i++) writeFileSync(join(project, `src/vat-${i}.ts`), `export const vat${i} = '${'x'.repeat(4_000)}';\n`);
+    const context = await buildStepContext(project, step({}));
+    ok(Buffer.byteLength(context, 'utf8') <= STEP_CONTEXT_BYTES);
+  });
+
+  it('не читает исходник по символической ссылке за пределами проекта', async () => {
+    const project = root();
+    const outside = mkdtempSync(join(tmpdir(), 'sdlc-context-outside-'));
+    roots.push(outside);
+    writeFileSync(join(outside, 'vat.ts'), 'export const DO_NOT_LEAK = true;\n');
+    try {
+      symlinkSync(join(outside, 'vat.ts'), join(project, 'src/vat-secret.ts'));
+    } catch {
+      return;
+    }
+
+    const context = await buildStepContext(project, step({}));
+    strictEqual(context.includes('DO_NOT_LEAK'), false);
+  });
+});
+=== NEW FILE: shared/src/exchangeLabel.ts ===
+/**
+ * Метка исхода ОДНОГО обмена «промпт → ответ модели» для корпуса дообучения
+ * (`docs/model-tuning.md`) — пишется рантаймом (`server/src/provider/rawLog.ts::
+ * annotateExchange`) рядом с сырым дампом (`<путь дампа>.label.json`), читается сборщиком
+ * корпуса (`bench/src/corpus.ts`).
+ *
+ * Общий тип, а не по `Record<string, unknown>` на каждой стороне, — единственная защита
+ * от того, чтобы писатель (шесть мест: `LoopExecutor`, `StepExecutor`, `FormFillExecutor`
+ * — оба пути, `claimFill`, `reviewFill`, `planAxisFill`/`planAxisStepwise`) и читатель
+ * молча разошлись в имени поля: переименование в одном месте без общего типа проходило
+ * бы `tsc --noEmit` без единой ошибки (code-review-all, 2026-09-27). Живёт в `shared`, а
+ * не в `server`: `bench` не тянет `server` как зависимость, а `@sdlc-runner/shared` уже
+ * используют обе стороны.
+ */
+export interface ExchangeLabel {
+  /** Принят ли обмен механическим оракулом — единственное поле, которое проверяет сборщик корпуса. */
+  accepted?: boolean;
+  /** Имя оракула, вынесшего вердикт (`step-check`, `claims-minimum`, `apply-fill`, …). */
+  oracle?: string;
+  /** Мишень корпуса, которой соответствует обмен (`form-field`, `plan-step`, `claim-fill`, …). */
+  target?: string;
+  /** Причина исхода — machine-readable ключ (`accepted`, `empty-or-placeholder`, …). */
+  reason?: string;
+  /**
+   * Причины трения хода (`LoopExecutor.friction`) — НАКАПЛИВАЮТСЯ при повторной разметке
+   * того же обмена (несколько вызовов инструментов одного хода делят один обмен модели),
+   * а не заменяют друг друга: `annotateExchange` мержит массивы этого поля между вызовами
+   * (см. её докстринг) — иначе трение второго вызова хода стирало бы трение первого молча
+   * (code-review-all, 2026-09-27). У режима `loop` `accepted` не пишется вовсе: он не входит
+   * в обучаемые режимы корпуса (`bench/src/corpus.ts::TRAINABLE_MODES`), метка здесь
+   * исключительно диагностическая.
+   */
+  frictions?: string[];
+}
+=== NEW FILE: bench/src/corpus.ts ===
+/**
+ * Сборка проверенного SFT-корпуса из сырых обменов провайдера.
+ *
+ * В корпус попадает только обмен с явной положительной sidecar-меткой. Итог этапа или
+ * всего витка намеренно не используется как метка отдельного ответа: один зелёный этап
+ * может содержать несколько неудачных ремонтов до успешного, а красный — верную правку,
+ * после которой упал независимый гейт.
+ *
+ * Этот файл инвариант НЕ ПРОВЕРЯЕТ — он держится только тем, что все шесть текущих
+ * писателей меток (`LoopExecutor`, `StepExecutor`, `FormFillExecutor` — оба пути,
+ * `claimFill`, `reviewFill`, `planAxisFill`/`planAxisStepwise`) берут `accepted` из
+ * ЛОКАЛЬНОГО механического оракула конкретного обмена (`applyFill`, `parseFieldValue`,
+ * контракт «ровно N строк», гейт после шага), а не из `finalVerdict`/итога прогона.
+ * `buildCorpus` не читает `result.json` дальше `run.slug`/`run.task` (см. `resultTasks`) —
+ * если будущий аннотатор (например, для этапа `handoff`) положит в `.label.json`
+ * `accepted`, пересказанное из итогового вердикта витка, ничто здесь этого не поймает
+ * (code-review-all, 2026-09-27). Проверка (`corpus.test.ts`, «не угадывает качество по
+ * результату витка без sidecar-метки») покрывает симметричный случай — отсутствие
+ * фолбэка на вердикт при ОТСУТСТВИИ метки, — но не подмену метки исходом витка ПРИ ЕЁ
+ * наличии: это открытый риск, а не решённая проверка.
+ */
+
+import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import type { ExchangeLabel } from '@sdlc-runner/shared';
+
+const TRAINABLE_MODES = new Set(['step', 'formFill', 'claimFill', 'reviewFill', 'planAxisFill']);
+const HELD_OUT_TASKS = new Set(['oversize']);
+
+interface RawExchange {
+  slug: string;
+  stage: string;
+  mode: string;
+  provider: string;
+  model: string;
+  status: number;
+  request: { messages?: unknown; tools?: unknown };
+  response: string;
+}
+
+// `ExchangeLabel` (`@sdlc-runner/shared`) — тот же тип, что пишет `server/src/provider/
+// rawLog.ts::annotateExchange`; читается здесь как `unknown`-safe JSON, поэтому проверки
+// `typeof label.oracle === 'string'` ниже остаются: файл на диске мог быть написан старой
+// версией писателя или битым процессом, и типу доверять на этапе выполнения нельзя, только
+// на этапе компиляции (переименование поля в писателе теперь ловится ЗДЕСЬ же — та самая
+// защита, которой раньше не было, code-review-all, 2026-09-27).
+
+export interface CorpusExample {
+  messages: unknown[];
+  tools?: unknown;
+  metadata: {
+    slug: string;
+    task: string;
+    stage: string;
+    mode: string;
+    provider: string;
+    model: string;
+    oracle: string;
+    target: string;
+    source: string;
+  };
+}
+
+export interface CorpusReport {
+  scanned: number;
+  accepted: number;
+  rejected: Record<string, number>;
+  tasks: Record<string, number>;
+  modes: Record<string, number>;
+  /**
+   * Слаги, встретившиеся в `resultsDir` больше одного раза с РАЗНОЙ задачей (архивный
+   * результат + новый прогон с тем же слагом, например). Атрибуция задачи для такого
+   * слага решается по времени изменения файла (новее — побеждает), а не порядком
+   * `readdirSync`, но сам факт коллизии называется здесь, а не тонет молча
+   * (code-review-all, 2026-09-27): порча атрибуции задачи для ВСЕХ обменов этого слага
+   * иначе была бы не видна ни в чём, кроме самого корпуса.
+   */
+  slugTaskConflicts: string[];
+}
+
+function bump(map: Record<string, number>, key: string): void {
+  map[key] = (map[key] ?? 0) + 1;
+}
+
+function readJson(path: string): unknown {
+  return JSON.parse(readFileSync(path, 'utf8')) as unknown;
+}
+
+/**
+ * Слаг → задача. Коллизия (один слаг в двух файлах результата с РАЗНОЙ задачей) решается
+ * по mtime файла — новее побеждает, тот же признак, что уже используют `bench/src/archive.ts`
+ * (там `busy`) и дашборд для «какой прогон свежий» — не порядком `readdirSync`, который
+ * не гарантирован даже стабильным между запусками ОС. Коллизии возвращаются отдельно, а
+ * не тонут молча в `Map.set` (code-review-all, 2026-09-27, находка про недетерминизм).
+ */
+function resultTasks(resultsDir: string): { found: Map<string, string>; conflicts: string[] } {
+  const found = new Map<string, string>();
+  const wonAt = new Map<string, number>();
+  const conflicts = new Set<string>();
+  for (const name of readdirSync(resultsDir)) {
+    if (!name.endsWith('.json')) continue;
+    try {
+      const value = readJson(join(resultsDir, name)) as { run?: { slug?: unknown; task?: unknown } };
+      if (typeof value.run?.slug !== 'string' || typeof value.run.task !== 'string') continue;
+      const { slug, task } = value.run;
+      const mtime = statSync(join(resultsDir, name)).mtimeMs;
+      const prevTask = found.get(slug);
+      if (prevTask !== undefined && prevTask !== task) conflicts.add(slug);
+      if (prevTask === undefined || mtime > (wonAt.get(slug) ?? -Infinity)) {
+        found.set(slug, task);
+        wonAt.set(slug, mtime);
+      }
+    } catch {
+      // Повреждённый result будет назван причиной `result-not-found` у его обменов.
+    }
+  }
+  return { found, conflicts: [...conflicts] };
+}
+
+function assistantMessage(raw: RawExchange): unknown | null {
+  try {
+    const response = JSON.parse(raw.response) as { choices?: Array<{ message?: unknown }> };
+    return response.choices?.[0]?.message ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildCorpus(args: {
+  rawDir: string;
+  resultsDir: string;
+  heldOutTasks?: ReadonlySet<string>;
+}): { examples: CorpusExample[]; report: CorpusReport } {
+  const { found: taskBySlug, conflicts: slugTaskConflicts } = resultTasks(args.resultsDir);
+  const heldOut = args.heldOutTasks ?? HELD_OUT_TASKS;
+  const examples: CorpusExample[] = [];
+  const report: CorpusReport = { scanned: 0, accepted: 0, rejected: {}, tasks: {}, modes: {}, slugTaskConflicts };
+
+  for (const runName of readdirSync(args.rawDir, { withFileTypes: true })) {
+    if (!runName.isDirectory()) continue;
+    const runDir = join(args.rawDir, runName.name);
+    for (const name of readdirSync(runDir)) {
+      if (!name.endsWith('.json') || name.endsWith('.label.json')) continue;
+      report.scanned++;
+      const reject = (reason: string): void => bump(report.rejected, reason);
+      let raw: RawExchange;
+      let label: ExchangeLabel;
+      try {
+        raw = readJson(join(runDir, name)) as RawExchange;
+      } catch {
+        reject('invalid-exchange');
+        continue;
+      }
+      // ДО чтения метки: обмен с плохим HTTP-статусом дампится (`OpenAiCompatProvider`
+      // пишет дамп раньше проверки статуса), но `chat()` после этого бросает исключение —
+      // ни один из трёх писателей меток (`FormFillExecutor`/`StepExecutor`/`claimFill`/
+      // `reviewFill`/`planAxisFill`) не получает шанс вызвать `annotateExchange` для НЕГО.
+      // Значит `.label.json` для такого обмена никогда не появится, и проверка статуса
+      // ПОСЛЕ чтения метки была бы мёртвым кодом — `missing-label` перехватывал бы раньше
+      // (code-review-all, 2026-09-27).
+      if (!Number.isInteger(raw.status) || raw.status < 200 || raw.status >= 300) {
+        reject('provider-error');
+        continue;
+      }
+      try {
+        label = readJson(join(runDir, `${name}.label.json`)) as ExchangeLabel;
+      } catch {
+        reject('missing-label');
+        continue;
+      }
+      const task = taskBySlug.get(raw.slug);
+      if (task === undefined) {
+        reject('result-not-found');
+        continue;
+      }
+      if (heldOut.has(task)) {
+        reject('held-out-task');
+        continue;
+      }
+      if (label.accepted !== true) {
+        reject('oracle-rejected');
+        continue;
+      }
+      if (!TRAINABLE_MODES.has(raw.mode)) {
+        reject('unsupported-mode');
+        continue;
+      }
+      if (!Array.isArray(raw.request?.messages)) {
+        reject('invalid-request');
+        continue;
+      }
+      const assistant = assistantMessage(raw);
+      if (assistant === null) {
+        reject('invalid-response');
+        continue;
+      }
+      const source = `${runName.name}/${name}`;
+      examples.push({
+        messages: [...raw.request.messages, assistant],
+        ...(raw.request.tools === undefined ? {} : { tools: raw.request.tools }),
+        metadata: {
+          slug: raw.slug,
+          task,
+          stage: raw.stage,
+          mode: raw.mode,
+          provider: raw.provider,
+          model: raw.model,
+          oracle: typeof label.oracle === 'string' ? label.oracle : 'unspecified',
+          target: typeof label.target === 'string' ? label.target : raw.mode,
+          source,
+        },
+      });
+      report.accepted++;
+      bump(report.tasks, task);
+      bump(report.modes, raw.mode);
+    }
+  }
+  return { examples, report };
+}
+
+export function writeCorpus(path: string, examples: readonly CorpusExample[]): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temp = `${path}.tmp`;
+  writeFileSync(temp, examples.map((x) => JSON.stringify(x)).join('\n') + (examples.length === 0 ? '' : '\n'), 'utf8');
+  renameSync(temp, path);
+}
+
+function arg(name: string, fallback: string): string {
+  const prefix = `--${name}=`;
+  const value = process.argv.slice(2).find((x) => x.startsWith(prefix));
+  return value === undefined ? fallback : resolve(value.slice(prefix.length));
+}
+
+const here = dirname(fileURLToPath(import.meta.url));
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const benchDir = resolve(here, '..');
+  const rawDir = arg('raw', join(benchDir, 'rawlogs'));
+  const resultsDir = arg('results', join(benchDir, 'results'));
+  const out = arg('out', join(benchDir, 'corpus', 'train.jsonl'));
+  const built = buildCorpus({ rawDir, resultsDir });
+  writeCorpus(out, built.examples);
+  process.stdout.write(`${JSON.stringify({ output: out, ...built.report }, null, 2)}\n`);
+}
+=== NEW FILE: bench/test/corpus.test.ts ===
+import { deepStrictEqual, strictEqual } from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+
+import { buildCorpus, writeCorpus } from '../src/corpus.ts';
+
+function json(path: string, value: unknown): void {
+  writeFileSync(path, `${JSON.stringify(value)}\n`, 'utf8');
+}
+
+describe('корпус дообучения', () => {
+  it('берёт только подтверждённые пары и не пропускает held-out задачу', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-corpus-'));
+    const raw = join(root, 'raw');
+    const results = join(root, 'results');
+    mkdirSync(join(raw, 'train-run'), { recursive: true });
+    mkdirSync(join(raw, 'test-run'), { recursive: true });
+    mkdirSync(results);
+    try {
+      json(join(results, 'train.json'), { run: { slug: 'train-run', task: 'freeship' } });
+      json(join(results, 'test.json'), { run: { slug: 'test-run', task: 'oversize' } });
+      const exchange = (slug: string) => ({
+        slug,
+        stage: 'chunk',
+        mode: 'step',
+        provider: 'ollama',
+        model: 'qwen',
+        status: 200,
+        request: { messages: [{ role: 'user', content: 'исправь' }], tools: [] },
+        response: JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'готово' } }] }),
+      });
+      json(join(raw, 'train-run', '00001-chunk-step.json'), exchange('train-run'));
+      json(join(raw, 'train-run', '00001-chunk-step.json.label.json'), {
+        accepted: true,
+        oracle: 'step-check',
+        target: 'plan-step',
+      });
+      json(join(raw, 'train-run', '00002-chunk-step.json'), exchange('train-run'));
+      json(join(raw, 'train-run', '00002-chunk-step.json.label.json'), { accepted: false, oracle: 'step-check' });
+      json(join(raw, 'test-run', '00003-chunk-step.json'), exchange('test-run'));
+      json(join(raw, 'test-run', '00003-chunk-step.json.label.json'), { accepted: true, oracle: 'step-check' });
+
+      const built = buildCorpus({ rawDir: raw, resultsDir: results });
+      strictEqual(built.examples.length, 1);
+      deepStrictEqual(built.examples[0]?.messages, [
+        { role: 'user', content: 'исправь' },
+        { role: 'assistant', content: 'готово' },
+      ]);
+      deepStrictEqual(built.report.rejected, { 'oracle-rejected': 1, 'held-out-task': 1 });
+      deepStrictEqual(built.report.tasks, { freeship: 1 });
+
+      const out = join(root, 'out', 'train.jsonl');
+      writeCorpus(out, built.examples);
+      strictEqual(readFileSync(out, 'utf8').trim().split('\n').length, 1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('не угадывает качество по результату витка без sidecar-метки', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-corpus-unlabelled-'));
+    const raw = join(root, 'raw', 'run');
+    const results = join(root, 'results');
+    mkdirSync(raw, { recursive: true });
+    mkdirSync(results);
+    try {
+      json(join(results, 'run.json'), { run: { slug: 'run', task: 'freeship' }, finalVerdict: { passed: true } });
+      json(join(raw, '00001-plan-formFill.json'), {
+        slug: 'run', stage: 'plan', mode: 'formFill', provider: 'ollama', model: 'm', status: 200,
+        request: { messages: [] }, response: JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'x' } }] }),
+      });
+      const built = buildCorpus({ rawDir: join(root, 'raw'), resultsDir: results });
+      strictEqual(built.examples.length, 0);
+      deepStrictEqual(built.report.rejected, { 'missing-label': 1 });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('обмен с плохим HTTP-статусом отклоняется как provider-error, а не missing-label (code-review-all, 2026-09-27)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-corpus-providererror-'));
+    const raw = join(root, 'raw', 'run');
+    const results = join(root, 'results');
+    mkdirSync(raw, { recursive: true });
+    mkdirSync(results);
+    try {
+      json(join(results, 'run.json'), { run: { slug: 'run', task: 'freeship' } });
+      // Статус вне 200-299 и НЕТ .label.json — ровно то, что оставляет `OpenAiCompatProvider`
+      // за собой, когда `chat()` бросает исключение после дампа неудачного ответа: разметить
+      // такой обмен некому, у вызывающего никогда не было ChatTurn для него.
+      json(join(raw, '00001-plan-formFill.json'), {
+        slug: 'run',
+        stage: 'plan',
+        mode: 'formFill',
+        provider: 'ollama',
+        model: 'm',
+        status: 503,
+        request: { messages: [] },
+        response: '{"error":"upstream unavailable"}',
+      });
+      const built = buildCorpus({ rawDir: join(root, 'raw'), resultsDir: results });
+      strictEqual(built.examples.length, 0);
+      deepStrictEqual(built.report.rejected, { 'provider-error': 1 });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('коллизия слага между двумя файлами результата — свежий по mtime побеждает, конфликт назван в отчёте', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-corpus-slugconflict-'));
+    const raw = join(root, 'raw', 'run');
+    const results = join(root, 'results');
+    mkdirSync(raw, { recursive: true });
+    mkdirSync(results);
+    try {
+      // Архивный результат того же слага — другая задача, старее по mtime.
+      json(join(results, 'old.json'), { run: { slug: 'run', task: 'oversize' } });
+      json(join(results, 'new.json'), { run: { slug: 'run', task: 'freeship' } });
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(join(results, 'old.json'), old, old);
+      const exchange = {
+        slug: 'run',
+        stage: 'chunk',
+        mode: 'step',
+        provider: 'ollama',
+        model: 'm',
+        status: 200,
+        request: { messages: [{ role: 'user', content: 'исправь' }] },
+        response: JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'готово' } }] }),
+      };
+      json(join(raw, '00001-chunk-step.json'), exchange);
+      json(join(raw, '00001-chunk-step.json.label.json'), { accepted: true, oracle: 'step-check' });
+
+      const built = buildCorpus({ rawDir: join(root, 'raw'), resultsDir: results });
+      // Свежий (freeship, не held-out) результат победил — обмен принят.
+      strictEqual(built.examples.length, 1);
+      strictEqual(built.examples[0]?.metadata.task, 'freeship');
+      deepStrictEqual(built.report.slugTaskConflicts, ['run']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -11,6 +11,11 @@
 
 import { deepStrictEqual, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { WitokPaths } from '../../server/src/artifacts/paths.ts';
+
+const legacyPaths = new WitokPaths(tmpdir(), `bench-driver-${randomUUID()}`);
 
 import { emptyUsage } from '@sdlc-runner/shared';
 import type { Verdict } from '@sdlc-runner/shared';
@@ -148,6 +153,7 @@ describe('runBench: пропуск этапа (skipIf) не зовёт recordDec
   it('обычный (не пропущенный) успешный explore по-прежнему зовёт recordDecision', async () => {
     let recordDecisionCalls = 0;
     const fakeRun = {
+      paths: legacyPaths,
       chunk: 1,
       attempt: 1,
       lastVerdict: null,
@@ -273,6 +279,7 @@ describe('runBench: stage-timeout не теряет прогресс, если �
   it('артефакт закрыт до разрыва по часам (FormFillExecutor успел дописать поля) — виток продолжает, не stage-timeout', async () => {
     let cancelled = false;
     const fakeRun = {
+      paths: legacyPaths,
       chunk: 1,
       attempt: 1,
       lastVerdict: null,
@@ -424,6 +431,7 @@ describe('runBench: stage-env-repeat не теряет прогресс, есл�
   it('движок падал дважды подряд, но артефакт уже закрывает вход в explore — виток продолжает, не stage-env-repeat', async () => {
     let calls = 0;
     const fakeRun = {
+      paths: legacyPaths,
       chunk: 1,
       attempt: 1,
       lastVerdict: null,

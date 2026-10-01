@@ -1,0 +1,1022 @@
+{
+  "run": {
+    "slug": "trial-vat-rounding-gemma4-12b",
+    "model": "ollama:gemma4-12b-compactfill",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gemma4-12b-compactfill",
+      "explore": "ollama:gemma4-12b-compactfill",
+      "ask": "ollama:gemma4-12b-compactfill",
+      "plan": "ollama:gemma4-12b-compactfill",
+      "chunk": "ollama:gemma4-12b-compactfill",
+      "verify": "ollama:gemma4-12b-compactfill",
+      "handoff": "ollama:gemma4-12b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-01T04:47:31.177Z",
+    "finishedAt": "2026-10-01T04:59:21.491Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 10,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 21
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 25, осталось на диске 2 полей модели; добор поля чем закрывается каждый пункт приемки (попытка 1): запрошен и добавлен; добор поля чем закрывается каждый пункт приемки (попытка 2): запрошен и добавлен; ответ на поле последствия шагов отклонён: поле «последствия шагов»: записей нет, а альтернативы «пусто» у него нет; ответ на поле последствия шагов/последствия шагов отклонён: поле «последствия шагов/последствия шагов»: записей нет, а альтернативы «пусто» у него нет; ответ на поле последствия шагов отклонён: поле «последствия шагов»: записей нет, а альтернативы «пусто» у него нет; ответ на поле последствия шагов/последствия шагов отклонён: поле «последствия шагов/последствия шагов»: записей нет, а альтернативы «пусто» у него нет",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 31
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "шагов 5: применено 2, без правок/пропусков 2, красных 1 — красные шаги на суд этапа 6",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап закончился, но артефакт не заполнен: C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-tkipO3\\.sdlc\\trial-vat-rounding-gemma4-12b\\verification-report-1-attempt-1.md (7 незаполненных полей)",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 26
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "гейт «Scope: пути плана без правок» провалился (❌)",
+        "гейт «Ответы человека в коде» провалился (❌)",
+        "пункт приёмки claim-2 опровергнут (❌)",
+        "пункт приёмки claim-3 опровергнут (❌)",
+        "подтверждённых расхождений из ревью: 2 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "регрессия — откат ранее работавшего поведения: src/index.ts:34 (Настройки) / нет",
+        "регрессия — откат ранее работавшего поведения: src/invoice.ts:23 (Совместимость и данные) / нет",
+        "отчёт приёмки содержит 7 незаполненных содержательных полей",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 17658,
+          "outputTokens": 927,
+          "cacheReadTokens": 13932,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 112171
+        },
+        "durationMs": 56800,
+        "requestDurationsMs": [
+          4734,
+          6301,
+          8204,
+          15219,
+          19662,
+          24382,
+          4021,
+          5818,
+          21907,
+          1934
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 128910,
+          "outputTokens": 1715,
+          "cacheReadTokens": 95819,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 143764
+        },
+        "durationMs": 129732,
+        "requestDurationsMs": [
+          27332,
+          15193,
+          13267,
+          7492,
+          2537,
+          3009,
+          2845,
+          2894,
+          2426,
+          3014,
+          2722,
+          2861,
+          3069,
+          2350,
+          2001,
+          3580,
+          2874,
+          4952,
+          11176,
+          6356,
+          13222,
+          8606
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 201427,
+          "outputTokens": 2522,
+          "cacheReadTokens": 186587,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 308454
+        },
+        "durationMs": 163937,
+        "requestDurationsMs": [
+          22736,
+          24473,
+          29775,
+          1993,
+          5466,
+          7339,
+          2384,
+          4066,
+          20931,
+          5431,
+          9666,
+          2447,
+          8268,
+          10335,
+          4511,
+          12620,
+          24256,
+          1873,
+          2943,
+          4825,
+          1964,
+          6106,
+          8691,
+          7548,
+          10827,
+          13542,
+          2395,
+          17115,
+          20917,
+          5140,
+          7893
+        ]
+      },
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 47826,
+          "outputTokens": 3590,
+          "cacheReadTokens": 13920,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 231873
+        },
+        "durationMs": 214211,
+        "requestDurationsMs": [
+          120750,
+          11803,
+          46031,
+          9990,
+          6966,
+          7609,
+          13130,
+          15604
+        ]
+      },
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 273420,
+          "outputTokens": 1910,
+          "cacheReadTokens": 246375,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 253811
+        },
+        "durationMs": 144415,
+        "requestDurationsMs": [
+          2290,
+          3940,
+          8219,
+          11490,
+          9635,
+          11765,
+          14080,
+          2109,
+          4434,
+          16064,
+          1654,
+          4283,
+          6493,
+          5903,
+          7824,
+          9912,
+          2500,
+          4492,
+          6428,
+          1756,
+          3933,
+          3485,
+          11390,
+          22877,
+          7610,
+          13689,
+          17355,
+          5246,
+          11548,
+          21422
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "gate",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 1,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 157
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 300
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 299
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 450
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 1,
+        "skippedWhileEnabled": 0,
+        "durationMs": 277
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 145
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 68
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 1,
+        "skippedWhileEnabled": 0,
+        "durationMs": 74
+      }
+    ],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 10
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 20
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 12
+      },
+      {
+        "stage": "chunk",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 16
+      },
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 13
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 19
+      },
+      {
+        "artifact": "verification-report-1-attempt-1.md",
+        "placeholders": 7
+      }
+    ],
+    "chunkEvidence": [
+      {
+        "chunk": 1,
+        "attempt": 1,
+        "testsStatus": "✅",
+        "treeChanged": true,
+        "scopeViolation": true
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "гейт «Scope: пути плана без правок» провалился (❌)",
+      "гейт «Ответы человека в коде» провалился (❌)",
+      "пункт приёмки claim-2 опровергнут (❌)",
+      "пункт приёмки claim-3 опровергнут (❌)",
+      "подтверждённых расхождений из ревью: 2 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "регрессия — откат ранее работавшего поведения: src/index.ts:34 (Настройки) / нет",
+      "регрессия — откат ранее работавшего поведения: src/invoice.ts:23 (Совместимость и данные) / нет",
+      "отчёт приёмки содержит 7 незаполненных содержательных полей",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:e170aef1-74e6-4b3f-9376-7b5a806c2e4f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:31f54f03-6ce3-46d0-865d-dc9eb917be33",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:a78f944d-8324-4558-8d32-34135529ca7e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:907e183c-22ca-4533-8475-18793b4e4aca",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:f2f597a7-ed47-4bda-8676-ebee6883d18f",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:ce774ac0-d04d-4ad0-aeb5-805489515be9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:28f17032-c3a1-477b-bbd9-eb2e2c3a74de",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:6c0f94a4-3553-4727-8155-3210a627a8bc",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/invoice.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:de728ef0-edd4-4c2f-888e-e39fe99c6021",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/index.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:f7d5794f-9e94-4909-8e01-22239d3674bc",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "test/invoice.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "denied",
+        "why": "denyWritesTo → deny (test/invoice.test.ts)",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "form:51fa45a8-ff32-4c04-857b-ed54be544144",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\chunk-1-journal.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-tkipO3\\.sdlc\\trial-vat-rounding-gemma4-12b\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:157f5b32-6909-42be-a0f4-276cd32dea2b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "verify",
+        "requestId": "form:560ce997-3f75-4e89-b472-53755b74cd38",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gemma4-12b\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Каковы значения и условия применения льготной ставки для льготных товаров?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.vat"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10911,
+        "userChars": 4383,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9505,
+        "userChars": 16124,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 17863,
+        "userChars": 19113,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 13284,
+        "userChars": 19120,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 11831,
+        "userChars": 27678,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-f9b57213-ae34-4c49-9f97-1b765e88d24a-1",
+        "questionId": "intent-open-0",
+        "text": "Каковы значения и условия применения льготной ставки для льготных товаров?"
+      }
+    ],
+    "denials": [
+      {
+        "stage": "chunk",
+        "requestId": "step:f7d5794f-9e94-4909-8e01-22239d3674bc",
+        "toolName": "Edit",
+        "kind": "edit",
+        "policy": null,
+        "destructive": null,
+        "by": "operator",
+        "reason": "вне границ задачи: деньги и данные покупателя в этом витке не меняются"
+      }
+    ],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 8,
+    "pass": 3,
+    "fail": 5,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: lineTotal существует до витка и считает верно."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: subtotal на эталонном наборе позиций: 2×333 + 1×334 = 1000."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "not ok 3 - Pr1 [precision] (claim-2): Облагаемый счёт: НДС 20% от подытога 1000 → 200, итог 1200."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "not ok 4 - Pr2 [precision] (claim-3): Подытог 505: 505×20/100 = 101.0 ровно — округление не даёт лишнего +1 (ловит floor(x+0.5) vs ceil-подобные ошибки)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-1): Необлагаемый счёт (без опции): поля vat НЕТ вовсе — форма Invoice прежняя, итог равен подытогу. Зелёный на пристинной ПО ДИЗАЙНУ: это сторож неизменности формы, сигнал фичи несут Pr1/Pr2/H1-H3."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H1",
+        "category": "human",
+        "label": "not ok 6 - H1 [human] (claim-4): Все позиции льготные (reduced): ставка 10%. Подытог 105 → 105×10/100 = 10.5 → половина вверх 11, НЕ 10 (отбрасывание здесь — ошибка)."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H2",
+        "category": "human",
+        "label": "not ok 7 - H2 [human] (claim-4): Смешанный счёт (одна позиция reduced, одна нет) — целиком по стандартным 20%."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H3",
+        "category": "human",
+        "label": "not ok 8 - H3 [human] (claim-4): Льготная ставка на ДРУГОМ подытоге: 1000, все reduced → 100, итог 1100 — ловит копирование числа H1 вместо пересчёта."
+      }
+    ],
+    "errorText": null
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "3 из 8 скрытых тестов зелёные, но прогон успеха и не объявлял — это дефект кода (щуп «точность правки»), а не расхождение слов с фактом"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "db659cb1f63dbceed12c6bee5f15c58cdcefc00958d81675ecba5c997807a4cf",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "042dec54ba263fb6b695310ba94451c5cb49919ab144d52ae78195791e13e2ac",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 900000,
+      "runTimeoutMs": 5400000
+    },
+    "workspaceHash": "4edccc9d446659b8fd6518d60e24edf2c3e6b141a3d9e98a3747818362d8454f",
+    "state": "finished",
+    "capturedAt": "2026-10-01T04:59:21.772Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "verify",
+      "at": "2026-10-01T04:59:21.488Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/chunk-1-attempt-1-steps.md",
+        "sha256": "a798e22a51ffb33724a9a28f92b49670e816f1c4588156937f6b8c7d787e0467",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/iterations.md",
+        "sha256": "d7675f371d79d57f16e53df8d3abd2b0516d6e49db630a3f1a39b3ed9933693f",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "eb3bbc3fd592871c9ec0b0cd037cc51fe0eeaba7d9a5d13c3a9c4ffd2247d7ad",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "fafb8127b16dd7837256edd2bb99de9d146165f72eed415cc830bff2ef9ac0ec",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "d4baba50b67cb05604d89ceef80a156f653a7a18814f6476f4a0190843615108",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "02210efbb9f4a2bef58c95f6398774f88e88395900cc341acb2591c975ac6b9b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "25ea9b5899e5f4ede479cb8f736e76d1c6c1fd2ef594f8dbd3faa2436f7607ac",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "dd2ab23dcac28a5a88ec01594a458c0df3e8c015c0dfbfaf0f4c68d1ef3e994a",
+        "placeholders": 19,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "3f606dd16c2e183b7cc7e6a2d204a4027ba0140578f26514862c3bdcc0ce0480",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "verification-report-1-attempt-1.md",
+        "sha256": "f714f8a1987e2af2fdfad7af2e7f7b636c5c6270c114abfedb1cb031d6715022",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

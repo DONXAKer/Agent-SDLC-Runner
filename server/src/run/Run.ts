@@ -7,6 +7,9 @@
  */
 
 import { localResultBytes } from '../config/limits.ts';
+import { isPreparationV2, approvePreparation, preparationReviewProblem, preparationFingerprint } from '../artifacts/preparation.ts';
+import { seedPreparationForms } from './preparationForms.ts';
+import { recordModelAnswers } from './stages/ask.ts';
 import { randomUUID } from 'node:crypto';
 
 import type {
@@ -134,7 +137,7 @@ import {
 import { ChunkState } from './stages/chunk/index.ts';
 import { stepFillExecutor } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты и прежние импорты берут выбор гейтов шага отсюда. */
-export { gatesForStep, pickStepFailure } from './stages/chunk/steps.ts';
+export { gatesForStep, pickStepFailure, plannedDependencyBlocker, plannedSameFileFollowup, plannedTestFollowup } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты берут блок рецензента для входа этапа 6 отсюда. */
 export { reviewerBlock } from './stages/verify/reviewer.ts';
 import { compareAttemptDiffs, readBaseline, runNamedGate } from './stages/chunk/evidence.ts';
@@ -191,6 +194,8 @@ export interface RunOptions {
 export interface RunStageOptions {
   prompt?: PreparedPrompt;
   requirement?: string;
+  /** Только для нового витка: v2 по умолчанию, v1 — прежний режим с заполнением полей. */
+  preparationVersion?: 1 | 2;
   extra?: string;
   /** Оператор объявил обрыв витка — handoff оформляется без зелёного вердикта. */
   abortHandoff?: boolean;
@@ -960,6 +965,7 @@ export class Run {
     label: string;
     /** `false` — решение отрицательное: методология требует записывать и отказ. */
     granted: boolean;
+    preparationFingerprint?: string;
     /** Что именно решил человек. Дописывается к подписи, а не вместо неё. */
     note?: string;
     /** Chunk и попытка, к которым относится решение: клиент называет их явно. */
@@ -981,6 +987,11 @@ export class Run {
     // Порча/отсутствие формы — типизированно: вызывающие (bench-драйвер) отличают её от
     // программных поломок раннера классом, а не регуляркой по тексту сообщения.
     if (!current.exists) throw new DecisionFormError(`нет артефакта ${path} — решение записывать некуда`);
+    if (o.artifact === 'plan' && o.label === DECISION.approval && o.granted && isPreparationV2(this.paths)) {
+      if (o.preparationFingerprint !== preparationFingerprint(this.paths)) throw new DecisionFormError('редакция проработки изменилась или не указана; перечитай требования и план перед подтверждением');
+      const problem = preparationReviewProblem(this.paths);
+      if (problem !== null) throw new DecisionFormError(problem);
+    }
 
     const signature = decisionValue(this.config.runner.operator, new Date());
     const note = (o.note ?? '').trim();
@@ -996,6 +1007,9 @@ export class Run {
     // «Раскладка артефактов»): первая «Приёмка» файла — прошлого витка той же задачи.
     const next = o.artifact === 'handoff' ? setLastDecision(current.text, o.label, value) : setDecision(current.text, o.label, value);
     writeArtifact(path, next);
+    if (o.artifact === 'plan' && o.label === DECISION.approval && o.granted) {
+      approvePreparation(this.paths, this.config.runner.operator, new Date());
+    }
     // Одобрение плана снимает снимок секций задачи заново (`SDLC.md` → «Вердикт», восьмое
     // условие): дополнение листа по находке гейта этапа 4 к этому моменту сделано человеком,
     // и с этого момента задача снова неизменяема до конца витка.
@@ -1650,7 +1664,7 @@ export class Run {
    * модели выдавались, вызов доходил до политики и отклонялся ею — «читающие вызовы MCP не
    * разрешены на этапе», потому что права не выдавал никто.
    */
-  private toolsFor(stage: StageId): readonly ToolName[] {
+  private toolsFor(stage: StageId, preparationV2 = isPreparationV2(this.paths)): readonly ToolName[] {
     const all = stageById(stage).tools;
     // Урезанный набор для модели с `leanTools` — только на этапах-документах. Это
     // ГИПОТЕЗА журнала, а не замер: «сокращение числа инструментов» стоит в списке
@@ -1660,13 +1674,13 @@ export class Run {
     // На chunk/verify набор не трогаем: там Write/Bash нужны по делу.
     const route = this.profile.routes[stage];
     const leaned =
-      route.leanTools && stageModule(stage).leanDocTools
+      route.leanTools && stageModule(stage).leanDocTools && !preparationV2
         ? all.filter((t) => LEAN_TOOLS.has(t))
         : all;
     // FillField выдаётся ТОЛЬКО при включённой ручке (compactForms 'fill'|'all') — иначе
     // замер этой ручки перестал бы быть замером «одной ручки»: право появлялось бы у всех
     // моделей стадии сразу, без записи в config/models.json, которую и сравнивает журнал.
-    const fillFieldOn = route.compactForms === 'fill' || route.compactForms === 'all';
+    const fillFieldOn = !preparationV2 && (route.compactForms === 'fill' || route.compactForms === 'all');
     const base = fillFieldOn ? leaned : leaned.filter((t) => t !== 'FillField');
     const rules = rulesForStage(this.mcpSetup, stage);
     if (rules.length === 0) return base;
@@ -1831,6 +1845,7 @@ export class Run {
    * это кончается (`BuildPromptInput.formFill`).
    */
   private usesFormFill(stage: StageId, route: ResolvedRoute): boolean {
+    if (isPreparationV2(this.paths)) return false;
     return route.formFill && stageModule(stage).formFillExecutor;
   }
 
@@ -1879,7 +1894,7 @@ export class Run {
     // Этап 2 конвейером рантайма (`ModelDef.exploreFill`): индекс, карточки, закрытые
     // вопросы, запись через гейт — `exec/ExploreExecutor.ts`. Слепой лист уже посчитан в
     // `runStage` (`runClaimsBlind`, хук модуля explore) и лежит в `exploreState.claims`.
-    if (stage === 'explore' && usesExploreFill(route)) return exploreFillExecutor(this.host, route);
+    if (stage === 'explore' && usesExploreFill(route) && !isPreparationV2(this.paths)) return exploreFillExecutor(this.host, route);
 
     // Режим заполнения по полям — только там, где этап и есть заполнение бланка.
     // Explore сюда не входит: его отчёт пишется по результатам разведки субагентами,
@@ -1911,7 +1926,7 @@ export class Run {
     // один шаг без tool-use. Только chunk — на других этапах шагов плана нет. Карта шагов
     // показывается оператору ДО старта: это замена подтверждению места правки человеком
     // (Phase 2 методологии), которого в режиме без `AskHuman` нет.
-    if (stage === 'chunk' && route.stepFill) return stepFillExecutor(this.host, route);
+    if (stage === 'chunk' && route.stepFill && !isPreparationV2(this.paths)) return stepFillExecutor(this.host, route);
 
     return new LoopExecutor({
       provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'loop')),
@@ -1952,7 +1967,7 @@ export class Run {
    * Готовит промпт этапа, не запуская его. Отдельный шаг, потому что оператор вправе
    * отредактировать промпт до отправки — а значит, он должен увидеть его раньше.
    */
-  preparePrompt(stage: StageId, opts: { requirement?: string; extra?: string } = {}): PreparedPrompt {
+  preparePrompt(stage: StageId, opts: { requirement?: string; extra?: string; preparationVersion?: 1 | 2 } = {}): PreparedPrompt {
     // Диагноз прошлой попытки попадает уже в собранный промпт, а не подклеивается позже:
     // промпт уходит в шину и редактируется оператором, и всё, что уйдёт в модель, должно
     // быть видно ему до запуска. Проверка на вхождение — от второго экземпляра, когда
@@ -1974,20 +1989,22 @@ export class Run {
     // Один разбор plan.md на сборку промпта: и для describeBuild, и для prefetch ниже.
     const chunkPlanFiles = stage === 'chunk' ? (this.planFilesFor(stage) ?? []) : [];
     const ecosystem = this.ecosystemFor(stage);
+    const preparationV2 = isPreparationV2(this.paths) || (stage === 'intent' && opts.preparationVersion !== 1 && !readArtifact(this.paths.intent).exists && !readArtifact(this.paths.plan).exists && !readArtifact(this.paths.explorationReport).exists);
     const prompt = buildPrompt({
       runner: this.config.runner,
       stage: def,
       ctx: this.ctx,
       flow: route.flow,
       slug: this.slug,
-      compactForms: route.compactForms,
+      preparationV2,
+      compactForms: preparationV2 ? 'off' : route.compactForms,
       // Тем же условием, каким выбирается исполнитель: промпт обязан знать, что
       // инструментов в запросах этого этапа не будет.
-      formFill: this.usesFormFill(stage, route) || (stage === 'explore' && usesExploreFill(route)),
+      formFill: !preparationV2 && (this.usesFormFill(stage, route) || (stage === 'explore' && usesExploreFill(route))),
       // Эффективный набор, а не `stage.tools`: урезание `leanTools` обязано быть видно
       // в промпте — панель показывает ровно тот список, с которым уйдёт запрос.
       // MCP-права здесь не нужны: у внешних инструментов своя строка в adapter-блоке.
-      tools: this.toolsFor(stage).filter((t) => t !== 'McpRead' && t !== 'McpWrite'),
+      tools: this.toolsFor(stage, preparationV2).filter((t) => t !== 'McpRead' && t !== 'McpWrite'),
       now: new Date(),
       ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
       ...(opts.extra === undefined ? {} : { extra: opts.extra }),
@@ -2265,6 +2282,7 @@ export class Run {
     this.currentAbortHandoff = opts.abortHandoff === true;
     this.cancelRequested = false;
     const mod = stageModule(stage);
+    mod.initialize?.(this.host, opts);
     const inv = mod.begin?.(this.host, route, abortOpts) ?? {};
 
     // Сброс состояния этапа на входе — ДО блокеров: устаревший кэш прошлого прохода
@@ -2416,6 +2434,7 @@ export class Run {
       const produced = def.produces(this.ctx);
       const missingBefore = missingNow(produced);
       const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
+      seedPreparationForms(this.paths, seeded);
       this.seeded = seeded.map((s) => s.path);
 
       // Версия формы (`<!-- sdlc-template: X vN -->`): артефакт, снятый другой версией
@@ -2689,7 +2708,7 @@ export class Run {
         },
 
         afterAskHuman: (call, answers) =>
-          call.kind === 'ask_human' ? (inv.afterAskHuman?.(call.questions, answers) ?? null) : null,
+          call.kind === 'ask_human' ? (isPreparationV2(this.paths) ? recordModelAnswers(this.host, call.questions, answers) : (inv.afterAskHuman?.(call.questions, answers) ?? null)) : null,
 
         // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
         // одним `Write` после хода, обычным путём через политику и гейт.
@@ -2843,7 +2862,7 @@ export class Run {
       if (
         finish !== null &&
         route.flow === 'loop' &&
-        (route.formFill || finish.forced) &&
+        (route.formFill || finish.forced) && !isPreparationV2(this.paths) &&
         !this.aborter.signal.aborted
       ) {
         result = await this.finishFormArtifact(

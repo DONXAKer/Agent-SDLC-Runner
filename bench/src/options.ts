@@ -27,6 +27,8 @@ export const TASKS: readonly TaskId[] = TASK_DEFS.map((t) => t.id);
 export type Task = TaskId;
 
 export interface BenchOptions {
+  /** Формат проработки; стенд по умолчанию сохраняет исторический v1. */
+  preparationVersion?: 1 | 2;
   /** Stop the measurement at this stage, without executing downstream routes. */
   stopAfterStage?: StageId;
   mode: BenchMode;
@@ -231,6 +233,7 @@ ${taskListForUsage()}
                         ключ снимает и поэтапные потолки конфига, включая verify
   --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
+  --preparation-version <1|2>  версия проработки новых задач (стенд: 1; Runner: 2)
   --repeat <n>          серия из n одинаковых прогонов (слаги <slug>-s1…-sn, сводка с медианой)
   --no-raw-log          живой прогон без сырого дампа запросов в bench/traces/raw
   --keep-workspace      не удалять рабочую копию в tmp
@@ -267,6 +270,7 @@ function positiveNumber(raw: string, what: string): number {
 }
 
 export function parseArgs(argv: readonly string[]): BenchOptions {
+  let preparationVersion: 1 | 2 | undefined;
   let mode: BenchMode | null = null;
   let model: string | null = null;
   let task: Task = 'oversize';
@@ -432,6 +436,13 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         i++;
         break;
       }
+      case '--preparation-version': {
+        const value = next(i, key);
+        if (value !== '1' && value !== '2') throw new OptionsError('--preparation-version: ожидается 1 или 2');
+        preparationVersion = value === '1' ? 1 : 2;
+        i++;
+        break;
+      }
       case '--capture-inputs':
         captureInputs = true;
         break;
@@ -522,6 +533,7 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     ...(captureInputs ? { captureInputs } : {}),
     ...(stopAfterStage === undefined ? {} : { stopAfterStage }),
     mode: resolvedMode,
+    ...(preparationVersion === undefined ? {} : { preparationVersion }),
     model: resolvedModel,
     task,
     slug: slug ?? `bench-${task}-${(resolvedModel || 'dry').replace(/[^\w.-]+/g, '-')}-${modeTag}`,

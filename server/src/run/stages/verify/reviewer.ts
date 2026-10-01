@@ -22,6 +22,8 @@ import type { AxisAsk } from '../../reviewFill.ts';
 import type { StageHost } from '../types.ts';
 import { REVIEW_GATE } from './gates.ts';
 import { acceptRecord } from './records.ts';
+import { readBaseline } from '../chunk/evidence.ts';
+import { reviewBaselineContext } from '../../reviewBaseline.ts';
 
 /**
  * Все шесть осей канона — свободному ходу рецензента, тем же приёмом и по той же причине,
@@ -140,7 +142,8 @@ export async function runReviewFill(host: StageHost, route: ResolvedRoute): Prom
   const plan = readArtifact(host.paths.plan);
   const axes = reviewAxes(plan.exists ? plan.text : null).map((r) => ({ name: r.name, affected: r.affected, outcomeRaw: r.outcomeRaw }));
   const intent = readArtifact(host.paths.intent);
-  const taskContext = intent.exists ? [...host.intentClaimLines(intent.text).values()].join('\n') : '';
+  const taskContext = [intent.exists ? [...host.intentClaimLines(intent.text).values()].join('\n') : '',
+    reviewBaselineContext(host.paths.projectRoot, diff.text, readBaseline(host))].filter(Boolean).join('\n\n');
   const limits = host.limits();
 
   const result = await reviewByHunks({

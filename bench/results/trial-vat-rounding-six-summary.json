@@ -1,0 +1,64 @@
+﻿{
+    "date":  "2026-10-01",
+    "task":  "vat-rounding",
+    "mode":  "--all (intent→handoff)",
+    "provider":  "Ollama local",
+    "configuredEndpoint":  "http://localhost:11434/v1",
+    "limits":  {
+                   "stageMinutes":  15,
+                   "runMinutesPerModel":  90
+               },
+    "sourceHash":  "db659cb1f63dbceed12c6bee5f15c58cdcefc00958d81675ecba5c997807a4cf",
+    "configHash":  "f575cd65a93795efeff882bb7caf132baa210b244c0f6219d68452d98028c51",
+    "semanticReview":  "not performed; this is a pilot, not readiness certification",
+    "models":  [
+                   {
+                       "model":  "ollama:qwen3-8b-ctx32k-stepfill-compactfill",
+                       "slug":  "trial-vat-rounding-qwen3-8b",
+                       "outcome":  "blocked at intent",
+                       "detail":  "1 required placeholder remained",
+                       "result":  "bench/results/trial-vat-rounding-qwen3-8b.json"
+                   },
+                   {
+                       "model":  "ollama:gemma4-12b-compactfill",
+                       "slug":  "trial-vat-rounding-gemma4-12b",
+                       "outcome":  "reached verify; rejected",
+                       "detail":  "hidden tests 3/8; failed precision and human-response cases; verification report had 7 placeholders",
+                       "result":  "bench/results/trial-vat-rounding-gemma4-12b.json"
+                   },
+                   {
+                       "model":  "ollama:granite4.2-8b-ctx32k-compactfill",
+                       "slug":  "trial-vat-rounding-granite4-2-8b",
+                       "outcome":  "blocked at intent",
+                       "detail":  "acceptance list had 1 item, minimum 3 including 2 edge cases",
+                       "result":  "bench/results/trial-vat-rounding-granite4-2-8b.json"
+                   },
+                   {
+                       "model":  "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+                       "slug":  "trial-vat-rounding-qwen3-coder-30b",
+                       "outcome":  "preflight blocked by environment",
+                       "detail":  "23.5% CPU offload; no task stages run",
+                       "result":  null
+                   },
+                   {
+                       "model":  "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+                       "slug":  "trial-vat-rounding-ministral3-14b",
+                       "outcome":  "preflight blocked by model behavior",
+                       "detail":  "used Write instead of Edit on both point-edit probes; no task stages run",
+                       "result":  null
+                   },
+                   {
+                       "model":  "ollama:gpt-oss-20b-compactfill",
+                       "slug":  "trial-vat-rounding-gpt-oss-20b",
+                       "outcome":  "blocked at plan",
+                       "detail":  "plan failed readiness gate with 25 artifact placeholders; intent/explore also incomplete",
+                       "result":  "bench/results/trial-vat-rounding-gpt-oss-20b.json"
+                   }
+               ],
+    "replacementAttempt":  {
+                               "model":  "ollama:qwen3.8-27b-iq4-ctx16k",
+                               "slug":  "trial-vat-rounding-qwen3-8-iq4-27b",
+                               "outcome":  "preflight blocked by environment",
+                               "detail":  "12.7% CPU offload; no task stages run"
+                           }
+}

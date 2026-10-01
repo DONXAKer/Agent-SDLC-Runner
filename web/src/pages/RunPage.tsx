@@ -386,6 +386,7 @@ export function RunPage({
         artifact: d.artifact,
         label: d.label,
         granted,
+        ...(detail.preparation == null ? {} : { preparationFingerprint: detail.preparation.fingerprint }),
         ...(decisionNote.trim() === '' ? {} : { note: decisionNote.trim() }),
         // Chunk и попытка — те, что человек сейчас видит: между чтением артефакта и
         // нажатием кнопки виток мог уйти на следующую попытку.
@@ -559,6 +560,7 @@ export function RunPage({
                 asks={asks}
                 approvals={approvals}
                 decision={decision}
+                preparation={detail?.preparation ?? null}
                 decisionNote={decisionNote}
                 clockOffsetMs={clockOffsetMs.current}
                 onNoteChange={setDecisionNote}

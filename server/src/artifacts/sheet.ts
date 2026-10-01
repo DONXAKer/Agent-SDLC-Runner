@@ -417,6 +417,17 @@ export function parseRecordRows(
     // (`**claim-1** — …`), который нумерует рантайм, снимается — он не значение колонки.
     const joinedRaw = itemLines.join(' ').trim();
     const joined = hasMechanical ? joinedRaw.replace(/^[`*]*claim-\d+[`*]*\s*(?:[—–:|-]\s*)?/i, '') : joinedRaw;
+    // Inline pipe rows from local models often put procedure and its test criterion in
+    // separate cells even when the template has one verification column. Preserve every
+    // trailing cell inside that last column instead of dropping it or rejecting the record.
+    const pipeParts = joined.split(/\s+\|\s+/);
+    if (pipeParts.length > 1 && modelCols.length > 1) {
+      const row: Record<string, string> = {};
+      modelCols.forEach((column, index) => {
+        row[column.id] = unwrapScalar(pipeParts.slice(index, index === modelCols.length - 1 ? undefined : index + 1).join(' | '));
+      });
+      return row;
+    }
     const parts = joined.split(/\s+[—–]\s+/);
     const row: Record<string, string> = {};
     modelCols.forEach((c, i) => {

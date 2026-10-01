@@ -49,11 +49,13 @@ import { formatPreflight, preflightExitCode, runPreflight } from './preflight.ts
 import { runHiddenTests } from './hiddenTests.ts';
 import { checkHonesty } from './honesty.ts';
 import { buildReport } from './report.ts';
+import { ensureBenchStateDir } from './stateDir.ts';
 import { draftJournalEntry } from './journal.ts';
 import { createProgressPrinter } from './progress.ts';
 import { createRunStateWriter } from './runState.ts';
 
 const BENCH_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+ensureBenchStateDir();
 const RESULTS_DIR = join(BENCH_DIR, 'results');
 const SNAPSHOTS_DIR = join(BENCH_DIR, 'snapshots');
 /**
@@ -578,6 +580,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   try {
     persistPartial('running', 'running');
     const driverResult = await runBench({
+      preparationVersion: opts.preparationVersion ?? 1,
       records, signal: cancellation.signal,
       ...(opts.stopAfterStage === undefined ? {} : { measurementEnd: opts.stopAfterStage }),
       run,

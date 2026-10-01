@@ -8,11 +8,13 @@
  */
 export function DecideButtons({
   artifact,
+  approvalDisabled = false,
   note,
   onNoteChange,
   onDecide,
 }: {
   artifact: string;
+  approvalDisabled?: boolean;
   note: string;
   onNoteChange: (v: string) => void;
   onDecide: (granted: boolean) => void;
@@ -28,6 +30,7 @@ export function DecideButtons({
       <button
         type="button"
         onClick={() => onDecide(true)}
+        disabled={approvalDisabled}
         className="rounded border border-emerald-700 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-950"
       >
         Одобрить — записать в {artifact}

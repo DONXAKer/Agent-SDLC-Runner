@@ -1,3 +1,4 @@
+import { fieldSystem } from './fieldPrompt.ts';
 /**
  * Флоу `loop`, режим «заполнение бланка по полям» — для этапов-документов (intent/ask/plan).
  *
@@ -993,7 +994,7 @@ export class FormFillExecutor implements StageExecutor {
       const codeMapText = needsCodeMap ? await codeMapGrounding() : '';
       const priorRejection = fieldRejectionMemo.get(rangeFieldKey(path, text, range));
       const messages: ChatMessage[] = [
-          { role: 'system', content: req.prompt.system },
+          { role: 'system', content: fieldSystem(req) },
           {
             role: 'user',
             content: [
@@ -1072,7 +1073,7 @@ export class FormFillExecutor implements StageExecutor {
       retry: boolean,
     ): ReturnType<ChatProvider['chat']> => {
       const messages: ChatMessage[] = [
-          { role: 'system', content: req.prompt.system },
+          { role: 'system', content: fieldSystem(req) },
           {
             role: 'user',
             content: [
@@ -1134,7 +1135,7 @@ export class FormFillExecutor implements StageExecutor {
             '«запись только в план» отключится молча. Верни ТОЛЬКО строки таблицы того ' +
             'же формата — хотя бы один путь, который реально будет затронут.';
       const messages: ChatMessage[] = [
-          { role: 'system', content: req.prompt.system },
+          { role: 'system', content: fieldSystem(req) },
           {
             role: 'user',
             content: [
@@ -1243,7 +1244,7 @@ export class FormFillExecutor implements StageExecutor {
       ].join('\n');
 
       const messages: ChatMessage[] = [
-          { role: 'system', content: req.prompt.system },
+          { role: 'system', content: fieldSystem(req) },
           { role: 'user', content: [req.prompt.user, '', card].join('\n') },
         ];
       if (field.kind === 'scalar' || field.kind === 'choice') {
@@ -1267,7 +1268,7 @@ export class FormFillExecutor implements StageExecutor {
         ...(field.options === undefined ? [] : [`- допустимые варианты: ${field.options.map((o) => o.key).join(' / ')}`]),
       ].join('\n'));
       const messages: ChatMessage[] = [
-        { role: 'system', content: req.prompt.system },
+        { role: 'system', content: fieldSystem(req) },
         {
           role: 'user',
           content: [
@@ -1288,7 +1289,7 @@ export class FormFillExecutor implements StageExecutor {
       retry: boolean,
     ): ReturnType<ChatProvider['chat']> => {
       const messages: ChatMessage[] = [
-          { role: 'system', content: req.prompt.system },
+          { role: 'system', content: fieldSystem(req) },
           {
             role: 'user',
             content: [
@@ -1330,7 +1331,7 @@ export class FormFillExecutor implements StageExecutor {
         'Укажи реальный путь к затрагиваемому файлу либо явно пометь строку как новый файл ' +
         '(слово «новый»/«создать» в описании).';
       const messages: ChatMessage[] = [
-          { role: 'system', content: req.prompt.system },
+          { role: 'system', content: fieldSystem(req) },
           {
             role: 'user',
             content: [

@@ -373,6 +373,15 @@ describe('набор гейтов', () => {
 describe('сборка входа вердикта', () => {
   const gates = parseGates(GATES);
 
+  it('пустое содержательное поле отчёта не допускает passed=true', () => {
+    const { input } = collectVerdictInput({ gates, gateResults: [], reports: [REPORT + '\n- Итог: ‹не заполнено›\n'],
+      attempt: 1, attemptBudget: 3, noProgress: false });
+    ok((input.unfilledReportFields ?? 0) > 0);
+    const verdict = computeVerdict(green({ unfilledReportFields: input.unfilledReportFields ?? 0 }));
+    strictEqual(verdict.passed, false);
+    ok(verdict.reasons.some((reason) => reason.includes('незаполненных содержательных полей')));
+  });
+
   it('гейты «этап 7» и «вне витка» в отчёте не требуются', () => {
     const { input } = collectVerdictInput({
       gates,

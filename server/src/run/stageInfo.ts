@@ -10,6 +10,7 @@
 import type { StageId, StageInfo } from '@sdlc-runner/shared';
 
 import { readArtifact, readDecision, readLastDecision } from '../artifacts/artifact.ts';
+import { isPreparationV2, approvedPreparationProblem, preparationReviewProblem } from '../artifacts/preparation.ts';
 import { artifactPathOf } from '../artifacts/paths.ts';
 import { STAGES, STAGE_MODULES } from './stages/index.ts';
 import { stageOutputContracts } from './stages/inputs.ts';
@@ -25,6 +26,7 @@ import type { StageContext, StageDef } from './stages/types.ts';
  * же счётчиком, что у стража завершения.
  */
 export function artifactProduced(paths: readonly string[], ctx: StageContext, stageId: StageId): boolean {
+  if (stageId === 'plan' && isPreparationV2(ctx.paths) && preparationReviewProblem(ctx.paths) !== null) return false;
   return (
     paths.length > 0 &&
     paths.every((p) => {
@@ -36,6 +38,7 @@ export function artifactProduced(paths: readonly string[], ctx: StageContext, st
 
 /** Путь артефакта со слотом решения человека этапа; `null` — слота нет. */
 export function decisionArtifactPath(def: StageDef, ctx: StageContext): string | null {
+  if (def.id === 'explore' && isPreparationV2(ctx.paths)) return null;
   return def.humanGate === null ? null : artifactPathOf(ctx.paths, def.humanGate.artifact, ctx.chunk, ctx.attempt);
 }
 
@@ -51,6 +54,7 @@ export function decisionState(def: StageDef, ctx: StageContext): 'granted' | 'de
   if (!a.exists) return null;
   const read = def.humanGate.artifact === 'handoff' ? readLastDecision : readDecision;
   const d = read(a.text, def.humanGate.label).state;
+  if (def.id === 'plan' && d === 'granted' && approvedPreparationProblem(ctx.paths) !== null) return 'pending';
   return d === 'granted' ? 'granted' : d === 'declined' ? 'declined' : 'pending';
 }
 
@@ -98,7 +102,7 @@ export function stageInfos(ctx: StageContext, deps: StageInfoDeps): StageInfo[] 
       // артефакта у него не будет никогда, и без этого признака интерфейс вечно
       // предлагал бы его как следующий шаг.
       skipped: s.skipIf !== null && s.skipIf(ctx) !== null,
-      decision: s.humanGate,
+      decision: s.id === 'explore' && isPreparationV2(ctx.paths) ? null : s.humanGate,
       decisionRecorded: decisionRecorded(s, ctx),
     };
   });

@@ -17,7 +17,7 @@ import { describe, it } from 'node:test';
 
 import type { StepCheck } from '../src/exec/StepExecutor.ts';
 import { parseGates } from '../src/gates/gatesFile.ts';
-import { gatesForStep, pickStepFailure } from '../src/run/Run.ts';
+import { gatesForStep, pickStepFailure, plannedDependencyBlocker, plannedSameFileFollowup, plannedTestFollowup } from '../src/run/Run.ts';
 
 const BOTH_ENABLED = [
   '## Набор',
@@ -110,5 +110,38 @@ describe('pickStepFailure', () => {
     const a = failure('src/other.ts(3,1): нет экспорта');
     const b = failure('src/third.ts(1,1): нет экспорта');
     deepStrictEqual(pickStepFailure([a, b], 'test/vat.test.ts'), a);
+  });
+});
+
+describe('plannedDependencyBlocker', () => {
+  const failure = (problem: string): StepCheck => ({ status: 'failed', problem });
+  it('откладывает только реальную ошибку импорта из файла, который создаст следующий шаг', () => {
+    const problem = "Cannot find module 'file:///ws/src/lines.ts' imported from 'file:///ws/src/vat.ts'\nERR_MODULE_NOT_FOUND";
+    deepStrictEqual(plannedDependencyBlocker([failure(problem)], 'src/vat.ts', ['src/lines.ts']), 'src/lines.ts');
+  });
+  it('не маскирует собственную ошибку файла, несвязанную ошибку или отсутствие будущего шага', () => {
+    deepStrictEqual(plannedDependencyBlocker([failure("Cannot find module './missing.ts' imported from './src/vat.ts'")], 'src/vat.ts', ['src/lines.ts']), null);
+    deepStrictEqual(plannedDependencyBlocker([failure("Cannot find module './lines.ts' imported from './src/other.ts'")], 'src/vat.ts', ['src/lines.ts']), null);
+    deepStrictEqual(plannedDependencyBlocker([failure("Cannot find module './lines.ts' imported from './src/vat.ts'")], 'src/vat.ts', []), null);
+  });
+});
+
+describe('plannedSameFileFollowup', () => {
+  const failure = (problem: string): StepCheck => ({ status: 'failed', problem });
+  it('откладывает красные тесты только до следующего шага того же файла', () => {
+    deepStrictEqual(plannedSameFileFollowup([failure('гейт «Тесты» (node --test): file:///ws/src/store.ts:8 assertion failed')], 'src/store.ts', ['src/store.ts']), true);
+    deepStrictEqual(plannedSameFileFollowup([failure('гейт «Сборка»: src/store.ts syntax error')], 'src/store.ts', ['src/store.ts']), false);
+    deepStrictEqual(plannedSameFileFollowup([failure('гейт «Тесты»: src/store.ts failed')], 'src/store.ts', []), false);
+    deepStrictEqual(plannedSameFileFollowup([failure('гейт «Тесты»: src/other.ts failed')], 'src/store.ts', ['src/store.ts']), false);
+  });
+});
+
+describe('plannedTestFollowup', () => {
+  const failure = (problem: string): StepCheck => ({ status: 'failed', problem });
+  it('откладывает только красный тест со стеком в файле следующего шага', () => {
+    deepStrictEqual(plannedTestFollowup([failure('гейт «Тесты» (node --test): ReferenceError at src/index.ts:35')], 'src/invoice.ts', ['src/index.ts']), 'src/index.ts');
+    deepStrictEqual(plannedTestFollowup([failure('гейт «Тесты» (node --test): AssertionError at test/store.test.ts:35')], 'src/store.ts', ['src/store.ts']), null);
+    deepStrictEqual(plannedTestFollowup([failure('гейт «Сборка»: SyntaxError at src/index.ts:35')], 'src/invoice.ts', ['src/index.ts']), null);
+    deepStrictEqual(plannedTestFollowup([failure('гейт «Тесты»: ReferenceError at src/index.ts:35')], 'src/invoice.ts', []), null);
   });
 });

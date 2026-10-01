@@ -209,6 +209,8 @@ export interface StageModule {
   missingSubagentsNote?: string;
   /** Закрывать ли этап, как только артефакт готов (`ExecRequest.closeOnFinalizeReady`); умолчание — да. */
   closeOnFinalizeReady?: boolean;
+  /** Инициализация формата нового витка до проверки входа. */
+  initialize?(host: StageHost, opts: { requirement?: string; preparationVersion?: 1 | 2 }): void;
   /** Хуки одного прохода этапа; локальное состояние прохода — в замыкании. */
   begin?(host: StageHost, route: ResolvedRoute, opts?: { abortHandoff?: boolean }): StageInvocation;
 }

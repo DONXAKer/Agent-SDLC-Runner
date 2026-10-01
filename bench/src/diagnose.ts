@@ -8,6 +8,9 @@ import { assessDiagnosticSample, type DiagnosticSample } from './diagnosticSampl
 import { parseArgs as parseBenchArgs } from './options.ts';
 import { formatPreflight, preflightExitCode, runPreflight, type PreflightCheck } from './preflight.ts';
 import { checkDiagnosticInput, diagnosticCliArgs, type DiagnosticCase } from './diagnosticInputs.ts';
+import { ensureBenchStateDir } from './stateDir.ts';
+
+ensureBenchStateDir();
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const BENCH = join(ROOT, 'bench');
@@ -66,13 +69,13 @@ function run(args: string[], timeoutMs: number): number | null {
   return proc.status;
 }
 
-function sample(slug: string, exitCode: number | null, stage: string, expectedBlocked = false): Sample {
+function sample(slug: string, exitCode: number | null, stage: string, expectedBlocked = false, expectedSkipped = false): Sample {
   const file = join(RESULTS, `${slug}.json`);
   if (!existsSync(file)) return { slug, exitCode, outcome: exitCode === null ? 'execution-error' : 'no-result', semanticAssessment: 'not-assessed', problemCodes: [exitCode === null ? 'EXECUTION_ERROR' : 'NO_RESULT'] };
   try {
     const r = JSON.parse(readFileSync(file, 'utf8')) as Record<string, any>;
     return {
-      ...assessDiagnosticSample(r, slug, exitCode, stage, expectedBlocked),
+      ...assessDiagnosticSample(r, slug, exitCode, stage, expectedBlocked, expectedSkipped),
       resultFile: relative(ROOT, file).replaceAll('\\', '/'),
     };
   } catch (e) {
@@ -168,7 +171,7 @@ async function main(): Promise<number> {
           timeoutMinutes: opts.timeout, snapshot: input.snapshot,
           local: modelDefinition.provider === 'ollama' || modelDefinition.provider === 'lmstudio' });
         const code = run(cliArgs, opts.timeout * 60_000 + 60_000);
-        c.samples.push(sample(slug, code, c.stage, c.expectedBlocked));
+        c.samples.push(sample(slug, code, c.stage, c.expectedBlocked, c.expectedSkipped));
       }
     }
   }

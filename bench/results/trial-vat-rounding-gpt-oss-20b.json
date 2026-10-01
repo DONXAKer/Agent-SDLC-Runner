@@ -1,0 +1,545 @@
+{
+  "run": {
+    "slug": "trial-vat-rounding-gpt-oss-20b",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "vat-rounding",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-01T05:05:06.227Z",
+    "finishedAt": "2026-10-01T05:28:28.951Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 11,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "разведка проведена конвейером рантайма",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 27
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "проверки готовности прогона 2 не пройдены: блокирующие вопросы ✅; плейсхолдеры ❌ (2); разведка заполнила файлы ✅; критерии изменялись нет; пересчёт не нужен; структура и [edge] ✅",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 33
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 27029,
+          "outputTokens": 11437,
+          "cacheReadTokens": 23152,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 448694
+        },
+        "durationMs": 263562,
+        "requestDurationsMs": [
+          8918,
+          13714,
+          20505,
+          26860,
+          48546,
+          54698,
+          23924,
+          63594,
+          131712,
+          49515,
+          6721
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 183352,
+          "outputTokens": 21876,
+          "cacheReadTokens": 149805,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 633580
+        },
+        "durationMs": 524803,
+        "requestDurationsMs": [
+          59402,
+          71351,
+          22235,
+          7276,
+          9565,
+          6853,
+          13114,
+          10431,
+          4973,
+          6650,
+          4804,
+          8270,
+          8985,
+          10927,
+          7972,
+          16946,
+          6926,
+          6117,
+          8034,
+          14386,
+          22236,
+          34326,
+          49098,
+          63989,
+          10691,
+          103443,
+          14829,
+          29775
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 364500,
+          "outputTokens": 25225,
+          "cacheReadTokens": 342359,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1451326
+        },
+        "durationMs": 613041,
+        "requestDurationsMs": [
+          18592,
+          38869,
+          61731,
+          37321,
+          44919,
+          49734,
+          21986,
+          32317,
+          37119,
+          45127,
+          55997,
+          60775,
+          51069,
+          73612,
+          88685,
+          9337,
+          14101,
+          18851,
+          17526,
+          22256,
+          37271,
+          12354,
+          17098,
+          21836,
+          16413,
+          55726,
+          70696,
+          85068,
+          108245,
+          128348,
+          28003,
+          32786,
+          37602
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 13
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 21
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 12
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 25
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:e974be9b-0fd0-4df9-81da-145873f17909",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gpt-oss-20b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 9
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:cf465e83-9863-4386-8d32-2b6a92980698",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gpt-oss-20b\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:0bf79e33-20f4-456e-842c-b846bad6251b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gpt-oss-20b\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:e3d4bb68-b38c-4615-911e-ca3619d60f02",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gpt-oss-20b\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:0976c270-ff3e-451f-a7fd-fb6eb8dd936b",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gpt-oss-20b\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:f0a7d55b-a5a5-48b6-80bf-d3c4a63a5387",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\trial-vat-rounding-gpt-oss-20b\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Как определяется льготный товар и какая ставка применяется к нему в расчёте налога?"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.vat"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 10916,
+        "userChars": 4383,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9509,
+        "userChars": 16480,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 17867,
+        "userChars": 19847,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-6c595831-ee77-4b45-b1c2-3bd7732c058f-1",
+        "questionId": "intent-open-0",
+        "text": "Как определяется льготный товар и какая ставка применяется к нему в расчёте налога?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "7b2fec2385b0cbdb8f58f7fbf3a4c08c45e2bb3e",
+      "sourceHash": "db659cb1f63dbceed12c6bee5f15c58cdcefc00958d81675ecba5c997807a4cf",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "c54d5e7d53cd780a5aa76fdab196d469de63c33f6100140013c801e7f85ed210",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 900000,
+      "runTimeoutMs": 5400000
+    },
+    "workspaceHash": "640748549a1c6405452b1458d7d23791a6d1d6710675353976ff39a418374e50",
+    "state": "finished",
+    "capturedAt": "2026-10-01T05:28:28.979Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-01T05:28:28.947Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "7f3cfac8e3b8b7f780abc790bd40cd2ab90f3957cf4a70d74ee8cee77b25de13",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "584c4939f1d49025c169c18bb102c5d80f04fbd8345d9794c3834b4a431dc31c",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "00f3676be6081b241c171c2b0d08b8cd7575b67c03d70e349d000f82139dc75a",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "e35d6dcd58bb86ddd9165cb19381370b7fdb51f4dbe3b921b6f012e81366c2b3",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "a8d22f3b1d8f012b9a33c4a91b6d9361f4b03f7d8dccc9eb21565a17abadd2df",
+        "placeholders": 25,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "0cb593b204cd231ef3dd57ad6e63a716a74da04c6b973f986e959a62c638f17f",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}
