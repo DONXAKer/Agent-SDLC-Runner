@@ -7,7 +7,7 @@ import { configProblems, parseGates } from '../gates/gatesFile.ts';
 import { h2SectionRanges, splitRow } from '../md/table.ts';
 import { hasOpenQuestions, intentPlaceholdersOutsideTouch, intentTamperedSections, isSmallContour } from './stages/preconditions.ts';
 import { CLAIMS_MINIMUM } from '../artifacts/claims.ts';
-import { isPreparationV2, researchProblem, requirementProblem, blockingQuestions } from '../artifacts/preparation.ts';
+import { isPreparationV2, preparation, researchProblem, requirementProblem, blockingQuestions } from '../artifacts/preparation.ts';
 
 export interface ReadinessCheckResult {
   checks: string;
@@ -82,7 +82,8 @@ export function readinessRun2(c: StageContext): ReadinessCheckResult {
   const exploration = readArtifact(c.paths.explorationReport);
   const text = intent.exists ? intent.text : '';
   if (isPreparationV2(c.paths)) {
-    const problem = requirementProblem(text);
+    const state = preparation(c.paths);
+    const problem = requirementProblem(text, state?.version === 3 && state.structuredTablesRendered === true ? state.canonical?.requirements : undefined);
     const questions = blockingQuestions(exploration.text);
     const researched = exploration.exists && exploration.placeholders === 0;
     return { ready: problem === null && !questions && researched,

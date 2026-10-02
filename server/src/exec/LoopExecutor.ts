@@ -1156,7 +1156,15 @@ export class LoopExecutor implements StageExecutor {
           // Тело агента — его системный промпт, задача приходит пользовательским
           // сообщением. Рассказ вызывающего о своей работе сюда НЕ попадает: рецензент не
           // должен получать версию автора.
-          system: def.prompt,
+          system:
+            def.name === 'sdlc-locator'
+              ? `${def.prompt}\n\nТы независимый read-only проверяющий места правки. Работай только с путями из запроса вызывающего. Для каждого существующего файла сначала вызови Read или Grep по символу/месту, затем процитируй точную короткую строку из результата. Никогда не угадывай код или anchor; если чтение не подтверждает цитату, верни status=diverged. Не выводи содержимое файлов, не ищи другие файлы и не делай исправлений. ` +
+                'Определи по задаче и плану, какие файлы и символы уже существуют, а какие надо создать. Отсутствие запланированной новой функции или нового теста ожидаемо. Сообщи расхождение только при отсутствующей необходимой опоре, неверном состоянии файла или противоречии плана коду. ' +
+                'Для existing anchor дай короткую точную цитату (до 100 символов) из места вставки/связанного символа; для new anchor=null. Поле change — одна короткая фраза о требуемом действии.\n\n' +
+                'Верни только один компактный JSON-объект без Markdown и текста до/после: ' +
+                '{"status":"matched"|"diverged","reason":null|"причина","files":[{"path":"путь из одобренного плана","state":"existing"|"new","anchor":"точная непрерывная цитата из существующего файла"|null,"change":"что план требует изменить"}]}. ' +
+                'Каждый путь из запроса укажи ровно один раз, не добавляй другие пути. JSON должен быть короче 1000 символов. Если требование не помещается или обнаружено противоречие, верни status=diverged и краткую причину.'
+              : def.prompt,
           user: task,
           tools: [],
           editedByOperator: false,
@@ -1197,9 +1205,10 @@ export class LoopExecutor implements StageExecutor {
     // Полный текст уходит рантайму отдельно (`resultText`): контракт `verify-review-v1`
     // (`reviewValidate.ts`) судит весь ответ, а не обрезок для истории хода — иначе хвост с
     // последними claim-N отрезался, и состоявшееся ревью оставляло гейт ⏭ (code-review-all 2026-09-23).
-    return result.finalText === ''
-      ? { text: `субагент «${def.name}» вернул пустой ответ`, full: '' }
-      : { text: cap(result.finalText, this.o.maxResultBytes), full: result.finalText };
+    if (result.finalText === '') return { text: `субагент «${def.name}» вернул пустой ответ`, full: '' };
+    const runtimeNote = hooks.onSubagentResult?.(def.name, result.finalText);
+    const full = runtimeNote ? `${result.finalText}\n\n${runtimeNote}` : result.finalText;
+    return { text: cap(full, this.o.maxResultBytes), full };
   }
 
   private async execute(

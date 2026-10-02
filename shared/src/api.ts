@@ -351,7 +351,22 @@ export interface IterationSummary {
 }
 
 export interface PreparationSummary {
-  version: 2;
+  version: 2 | 3;
+  canonical?: {
+    requirements?: {
+      documentHash: string;
+      acceptance: { id: string; behavior: string; procedure: string; expected: string }[];
+      basis: { id: string; basis: string; scenario: string; counterexample: string }[];
+      constraints: { inScope: string[]; outOfScope: string[]; invariants: string[]; assumptions: string[]; questions: string[] };
+    };
+    plan?: {
+      documentHash: string;
+      approach: string;
+      filesToTouch: string[];
+      fileRoles: { path: string; roles: ('source' | 'target' | 'forbidden' | 'new')[] }[];
+      steps: { n: number; title: string; file: string; filePaths: string[]; isNew: boolean; symbol: string | null; isNewSymbol: boolean; action: string; claims: string[]; check: string | null; expect: string | null; checkSpecified: boolean; contractChange: string | null; contractSpecified: boolean; dependsOn: number[]; dependenciesSpecified: boolean; facts: string | null; explicit: boolean }[];
+    };
+  };
   fingerprint: string;
   revision: number;
   confirmed: boolean;

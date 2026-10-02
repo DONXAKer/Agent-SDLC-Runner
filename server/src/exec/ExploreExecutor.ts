@@ -61,7 +61,7 @@ import { autofillExplorationReport, type ExplorationFacts } from '../run/explore
 import { ProviderEnvError, type ChatMessage, type ChatProvider } from '../provider/ChatProvider.ts';
 import { ESTIMATE_MARGIN_TOKENS, budgetParams, estimateMessageTokens } from './contextBudget.ts';
 import { FormFillExecutor } from './FormFillExecutor.ts';
-import { parseExploreMap } from './exploreMap.ts';
+import { isNoExploreMapCorrection, parseExploreMap } from './exploreMap.ts';
 import { writeThroughGate } from './gateWrite.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import type { ToolContext } from './tools/index.ts';
@@ -99,6 +99,8 @@ export interface ExploreExecutorOptions {
     claims: readonly AuthorClaim[];
     notDoing: readonly string[];
   };
+  /** In preparation v2, the task's accepted claims are the canonical check list. */
+  acceptanceChecks?: readonly string[];
   reportPath: string;
   /** `null` — слепой вывод не запускался; причина — в `claimsSkipReason`. */
   claims: BlindClaimsResult | null;
@@ -108,6 +110,8 @@ export interface ExploreExecutorOptions {
   edgeExample: readonly string[];
   /** Потолок карточек одного вопроса — окно локальной модели, не вкус. */
   cardBudgetBytes: number;
+  /** Record only source cards successfully delivered to the model as preparation evidence. */
+  onSourceProvided?: (path: string, excerpt: string) => void;
 }
 
 interface Parsed {
@@ -286,6 +290,7 @@ export class ExploreExecutor implements StageExecutor {
       brief: this.o.intent.brief,
       stack: this.o.ecosystem,
       fillednessGate: this.o.fillednessGate,
+      ...(this.o.acceptanceChecks === undefined ? {} : { checks: this.o.acceptanceChecks }),
     });
     let text = auto.text;
     notes.push(`механических полей заполнено: ${auto.filled}`);
@@ -297,12 +302,20 @@ export class ExploreExecutor implements StageExecutor {
 
     // 2. Карта кодовой базы.
     const ranked = this.o.built.ranked;
-    const perCard = cardBudgetPerFile(this.o.cardBudgetBytes, ranked.length);
+    // Keep every ranked candidate. A fixed count cap can discard an explicit
+    // source that Explore must inspect (for example, a required contract at #7).
+    const mapCandidates = ranked;
+    const perCard = cardBudgetPerFile(this.o.cardBudgetBytes, mapCandidates.length);
     const mapRows: Record<string, string>[] = [];
     let mapProblem: string | null = null;
     if (ranked.length === 0) {
       notes.push('карта: индекс не дал ни одного кандидата — карту составить не по чему');
     } else {
+      const sourceCards = mapCandidates.map((r) => ({
+        path: r.file.path,
+        text: fileCard(r.file, perCard),
+      }));
+      const packedSourceCards = packCards(sourceCards.map((card) => card.text), this.o.cardBudgetBytes);
       const answer = await ask(
         'карта кодовой базы',
         [
@@ -310,12 +323,9 @@ export class ExploreExecutor implements StageExecutor {
           claimsBlock,
           '',
           'Файлы-кандидаты (пронумерованы; ниже — их содержимое, обрезанное по потолку):',
-          ...ranked.map((r, i) => `${i + 1}. \`${r.file.path}\` — ${r.why.join('; ')}`),
+          ...mapCandidates.map((r, i) => `${i + 1}. \`${r.file.path}\` — ${r.why.join('; ')}`),
           '',
-          packCards(
-            ranked.map((r) => fileCard(r.file, perCard)),
-            this.o.cardBudgetBytes,
-          ),
+          packedSourceCards,
           '',
           'Ответь по одной строке на КАЖДЫЙ номер, строго в форме:',
           '`N. путь: существующие классы/функции | конкретное изменение` — файл относится к задаче. Путь возьми из списка кандидатов, N замени числом.',
@@ -325,22 +335,26 @@ export class ExploreExecutor implements StageExecutor {
         ].join('\n'),
       );
       if (answer !== null) {
-        const candidates = ranked.map((r) => r.file.path);
+        for (const card of sourceCards) {
+          if (packedSourceCards.includes(`### \`${card.path}\``)) this.o.onSourceProvided?.(card.path, card.text);
+        }
+        const candidates = mapCandidates.map((r) => r.file.path);
         const parsed = parseExploreMap(answer, candidates);
         if (parsed.missing.length || parsed.rejected.length) {
           const correction = await ask('исправление карты кодовой базы', [
             'Исправь только непринятые строки. Принятые строки повторять нельзя.',
             ...parsed.rejected,
             'Для каждого номера ниже реши, относится ли файл к задаче. Даже для не относящихся файлов нужен ответ «нет».',
-            'Формат: номер. да | существующие функции | конкретное изменение; либо номер. нет.',
-            'Вместо слова «номер» напиши число из списка. Не копируй названия полей: заполни их по исходникам.',
+            'Верни ровно одну строку на номер, сохраняя именно эту нумерацию. Формат: N. да | имя существующей функции/класса/теста из карточки | конкретное изменение; либо N. нет.',
+            'После первого | укажи имя существующего символа из карточки. Не повторяй там путь или имя файла. Если файл нужен только для нового теста, укажи существующий тестовый символ из карточки; если его нет — отметь «нет», новый файл укажи отдельной строкой + путь | что создаём.',
+            'Пример: 1. да | calculateTotal | добавить требуемое поведение с сохранением существующего контракта. Не копируй имена символов или полей: используй только то, что есть в карточке и требованиях.',
             'Оставшиеся кандидаты (новая нумерация):',
             ...parsed.missing.map((path, i) => `${i + 1}. ${path}`),
-            packCards(ranked.filter((r) => parsed.missing.includes(r.file.path)).map((r) => fileCard(r.file, perCard)), this.o.cardBudgetBytes),
+            packCards(mapCandidates.filter((r) => parsed.missing.includes(r.file.path)).map((r) => fileCard(r.file, perCard)), this.o.cardBudgetBytes),
             parsed.missing.length ? `Верни ровно ${parsed.missing.length} строк с номерами ${parsed.missing.map((_, i) => i + 1).join(', ')}.` : 'Все кандидаты уже приняты; ответь: нет исправлений.',
           ].join('\n'));
           const retry = correction === null ? null : parseExploreMap(
-            parsed.missing.length === 0 && correction.trim() === 'нет исправлений' ? '' : correction,
+            parsed.missing.length === 0 && isNoExploreMapCorrection(correction) ? '' : correction,
             parsed.missing,
           );
           if (retry) for (const [path, row] of retry.accepted) parsed.accepted.set(path, row);
@@ -446,6 +460,9 @@ export class ExploreExecutor implements StageExecutor {
         ].join('\n'),
       );
       if (answer === null) continue;
+      // Record evidence only after the prompt containing the source was actually
+      // delivered and answered; cancellation/budget exhaustion is not inspection.
+      if (card !== '') this.o.onSourceProvided?.(c.path, card);
       reuseAnswered++;
       // Строка ответа — сначала строка, ПОХОЖАЯ на форму ответа (начинается с «да»/«нет»),
       // и только если такой нет — первая строка с разделителем `|`, а не первая непустая:

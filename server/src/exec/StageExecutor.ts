@@ -81,6 +81,8 @@ export interface ExecHooks {
      */
     resultText?: string;
   }) => void;
+  /** Runtime observer for successful subagent results; may return a fact to append to the caller. */
+  onSubagentResult?: (agent: string, text: string) => string | null | void;
   /** Вопрос человеку из инструмента `AskHuman`. Возвращает ответы по id вопроса. */
   onAskHuman: (call: NormalizedCall) => Promise<Record<string, string[]>>;
   /**

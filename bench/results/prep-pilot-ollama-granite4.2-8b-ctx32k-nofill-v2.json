@@ -1,0 +1,198 @@
+{
+  "run": {
+    "slug": "prep-pilot-ollama-granite4.2-8b-ctx32k-nofill-v2",
+    "model": "ollama:granite4.2-8b-ctx32k-nofill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:granite4.2-8b-ctx32k-nofill",
+      "explore": "ollama:granite4.2-8b-ctx32k-nofill",
+      "ask": "ollama:granite4.2-8b-ctx32k-nofill",
+      "plan": "ollama:granite4.2-8b-ctx32k-nofill",
+      "chunk": "ollama:granite4.2-8b-ctx32k-nofill",
+      "verify": "ollama:granite4.2-8b-ctx32k-nofill",
+      "handoff": "ollama:granite4.2-8b-ctx32k-nofill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-01T10:48:34.735Z",
+    "finishedAt": "2026-10-01T11:00:36.041Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [],
+    "finalVerdict": null,
+    "stopped": "running"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 52448,
+          "outputTokens": 10493,
+          "cacheReadTokens": 42319,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 467070
+        },
+        "durationMs": 0,
+        "requestDurationsMs": [
+          45428,
+          2958,
+          2369,
+          287735,
+          125186,
+          3398
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 6,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 0,
+        "waitMs": 2
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Какой подход к переносу брони на другой слот считается совместимым с проектом? (a) Создать новую бронь с тем же `id` и `expiresIso`, а `slot` — snapshot нового слота; (b) Поправить слот у существующей брони (изменить её объект/создать с тем же expires). Что определяет выбор — контракт «Бронь — значение» в `src/hold.ts` или другие требования? Нужно фиксировать выбор в плане до кода. Чем грозит ошибка, если выбрать неправильный подход?"
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.arch"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 5159,
+        "userChars": 6974,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-36f5d780-151d-4e03-b754-ddd7a0ca29de-1",
+        "questionId": "q1",
+        "text": "Какой подход к переносу брони на другой слот считается совместимым с проектом? (a) Создать новую бронь с тем же `id` и `expiresIso`, а `slot` — snapshot нового слота; (b) Поправить слот у существующей брони (изменить её объект/создать с тем же expires). Что определяет выбор — контракт «Бронь — значение» в `src/hold.ts` или другие требования? Нужно фиксировать выбор в плане до кода. Чем грозит ошибка, если выбрать неправильный подход?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "b4847bacc0fe338b1eec0f2e265da56cc0ed7594",
+      "sourceHash": "0f1add205669bb999bc26beec819404a64e6dfa27b66f9cbc071ea5ac5519d6f",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "0f5c9012ab7e1ae0edfe808c9cc76ad35f6c71539a0910d65894abea4b3c1de2",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "9a8517e05dbb6ba6959a8aaf203cfd527ab108337bd4d239b223ae9f46be647e",
+    "state": "running",
+    "capturedAt": "2026-10-01T11:00:36.046Z",
+    "lastEvent": {
+      "type": "tool_result",
+      "stage": "intent",
+      "at": "2026-10-01T10:56:22.987Z"
+    },
+    "artifacts": [
+      {
+        "path": "clarification-report.md",
+        "sha256": "2212047363e380af27fe7920a04eb64b95b956418bd47a6f3a89917519062998",
+        "placeholders": 8,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "c6d5042d1466f8565885cf91c544db01dc5ff4bdff67c4843f4fe23ddff6df4f",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "100dcb43a7264c90671153b5c61799447f60eccf682d2d904bb33064efc08235",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

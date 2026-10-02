@@ -60,6 +60,24 @@ describe('planMapProblem', () => {
     ok(problem?.includes('этап 4'));
   });
 
+  it('принимает явно новый символ, если имя требуется задачей', () => {
+    const ctx = setup('', STEP.replace('- символ: priceFor', '- символ: новый: moveHold'));
+    const intentText = '# Intent\nClaim 1 requires moveHold';
+    writeFileSync(ctx.paths.intent, intentText);
+    const hash = resolvedRequirementsHash(intentText, '');
+    const planText = readFileSync(ctx.paths.plan, 'utf8').replace(/^- \*\*Требования \(SHA-256\):\*\*.*$/m, `- **Требования (SHA-256):** \`${hash}\``);
+    writeFileSync(ctx.paths.plan, planText);
+    strictEqual(planMapProblem(ctx), null);
+  });
+
+  it('не принимает новый символ, которого нет в требованиях', () => {
+    const ctx = setup('', STEP.replace('- символ: priceFor', '- символ: новый: moveHold'));
+    const hash = resolvedRequirementsHash('# Intent\nClaim 1', '');
+    const planText = readFileSync(ctx.paths.plan, 'utf8').replace(/^- \*\*Требования \(SHA-256\):\*\*.*$/m, `- **Требования (SHA-256):** \`${hash}\``);
+    writeFileSync(ctx.paths.plan, planText);
+    ok(planMapProblem(ctx)?.includes('не подтверждён как новый требуемый символ'));
+  });
+
   it('останавливает передачу, если задача изменилась после фиксации плана', () => {
     const ctx = setup('export function priceFor() {}', STEP);
     writeFileSync(ctx.paths.intent, '# Intent\nClaim 1 changed');

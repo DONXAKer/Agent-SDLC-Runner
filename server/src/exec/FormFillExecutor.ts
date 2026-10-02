@@ -92,15 +92,29 @@ const HIGH_RISK_FIELD = /security|безопас|денеж|оплат|нало�
 export function compactFieldGroups(fields: readonly SchemaField[], maxSize = FIELD_GROUP_SIZE): SchemaField[][] {
   const groups: SchemaField[][] = [];
   const pending = new Map<string, SchemaField[]>();
+  const groupKey = (field: SchemaField): string | undefined => {
+    if (field.compactGroup !== undefined) return field.compactGroup;
+    const section = field.section.trim().toLowerCase().replace(/ё/g, 'е');
+    const label = (field.label ?? '').trim().toLowerCase().replace(/ё/g, 'е');
+    if (field.shape === 'cell' && section === 'последствия шагов' &&
+        ['затронута шагами', 'что именно в шагах', 'исход'].includes(label)) {
+      // Three adjacent cells express one consequence decision; asking them separately
+      // creates 18 low-value calls for the six required axes and lets their answers drift.
+      return `plan-impact-row:${field.range.start}`;
+    }
+    return undefined;
+  };
   const batchable = (field: SchemaField): boolean =>
       (field.kind === 'scalar' || field.kind === 'choice') &&
       field.min === undefined &&
-      !HIGH_RISK_FIELD.test(`${field.section} ${field.id} ${field.label ?? ''} ${field.hint}`);
+      (!HIGH_RISK_FIELD.test(`${field.section} ${field.id} ${field.label ?? ''} ${field.hint}`) ||
+        groupKey(field)?.startsWith('plan-impact-row:') === true);
   for (const field of fields) {
-    if (maxSize > 1 && field.compactGroup !== undefined && batchable(field)) {
-      const group = pending.get(field.compactGroup) ?? [];
+    const key = groupKey(field);
+    if (maxSize > 1 && key !== undefined && batchable(field)) {
+      const group = pending.get(key) ?? [];
       group.push(field);
-      pending.set(field.compactGroup, group);
+      pending.set(key, group);
     } else {
       groups.push([field]);
     }
@@ -282,6 +296,124 @@ function cardSection(field: SchemaField): string | null {
   return norm(section) === norm(label) ? null : section;
 }
 
+/** Keep a plan step's edit target tied to the project, repairing stale template paths early. */
+export function planStepInventedFileCompact(field: SchemaField, answerText: string, cwd: string): string | null {
+  const label = (field.label ?? field.id.split('/').at(-1) ?? '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+  if (label !== 'файл' || !/шаг/iu.test(field.section)) return null;
+  const match = answerText.match(/(?:[\w.@-]+\/)*[\w.@-]+\.[A-Za-z0-9]{1,8}/u);
+  if (match === null) return 'впиши точный путь файла шага из проекта';
+  const candidate = match[0].replace(/[.,;:!?)\]}]+$/u, '');
+  if (pathExistsAny(join(cwd, candidate))) return null;
+  if (/\b(?:новый|создать)\b/iu.test(answerText)) return null;
+  // A new test target is the one ordinary absent path in the plan form; other new files
+  // must be declared explicitly so a stale artifact name cannot become an edit target.
+  if (/(^|\/)(__tests__|tests?|spec)\//iu.test(candidate)) return null;
+  return `путь «${candidate}» не существует в проекте; выбери файл из разведки или явно пометь новый файл`;
+}
+
+export function planApproachEvidenceProblem(field: SchemaField, answerText: string, cwd?: string, groundingText = ''): string | null {
+  const label = (field.label ?? field.id.split('/').at(-1) ?? '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+  if (label !== 'подход') return null;
+  const evidence = answerText.match(/((?:src|test)\/[\p{L}\p{N}_./-]+):\s*[\p{L}\p{N}_$-]+/giu) ?? [];
+  const evidencePaths = new Set(evidence.map((item) => item.slice(0, item.lastIndexOf(':')).toLocaleLowerCase('ru-RU')));
+  const inventedPaths = cwd === undefined ? [] : [...evidencePaths].filter((source) => !pathExistsAny(join(cwd, source)));
+  const groundingRefs = [...groundingText.matchAll(/((?:src|test)\/[\p{L}\p{N}_./-]+):\s*([\p{L}\p{N}_$-]+)(?:\s+\(L\d+\))?/giu)]
+    .map((match) => `${match[1]!.toLocaleLowerCase('ru-RU')}:${match[2]!.toLocaleLowerCase('ru-RU')}`);
+  const citedRefs = evidence.map((item) => item.replace(/\s+/gu, '').toLocaleLowerCase('ru-RU'));
+  const groundedCitations = citedRefs.filter((item) => groundingRefs.includes(item));
+  const chosen = /^\s*выбранный\s*:/imu.test(answerText);
+  const rejected = /^\s*отвергнутый\s*:/imu.test(answerText);
+  const chosenMatch = /^\s*выбранный\s*:\s*([\s\S]*?)(?=\s*отвергнутый\s*:|$)/iu.exec(answerText);
+  const chosenText = chosenMatch?.[1] ?? '';
+  const contradictory = /(?:измен(?:я|яе|ить|ение)[\p{L} ]{0,30}(?:исходн|существующ|входн).{0,100}(?:возврат|вернуть|новый объект)|(?:возврат|вернуть|новый объект).{0,100}измен(?:я|яе|ить|ение)[\p{L} ]{0,30}(?:исходн|существующ|входн))/iu.test(chosenText);
+  return evidencePaths.size >= 2 && inventedPaths.length === 0 &&
+    (groundingRefs.length === 0 || new Set(groundedCitations).size >= 2) && chosen && rejected && !contradictory
+    ? null
+    : `Перепиши строго с метками «Выбранный:» и «Отвергнутый:». Для каждого варианта дай объяснение и адрес реального файла из разведки в формате путь:символ; нужны два разных существующих файла (источник и тест).${groundingRefs.length ? ` Цитируй точно из этого списка: ${[...new Set(groundingRefs)].slice(0, 8).map((ref) => `\`${ref}\``).join(', ')}.` : ''}${inventedPaths.length ? ` Не ссылайся на отсутствующие пути: ${inventedPaths.join(', ')}.` : ''} Не используй символ moveHold как свидетельство (его ещё нет в коде). Не объединяй способы и не описывай одновременно изменение исходного объекта и возврат нового.`;
+}
+
+/** Defer implementation choices in Intent when the user's task explicitly reserves them for Plan. */
+export function deferredIntentMethodProblem(field: SchemaField, answerText: string, userPrompt: string): string | null {
+  const label = (field.label ?? field.id.split('/').at(-1) ?? '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+  if (label !== 'что делаем') return null;
+  if (/^\s*(?:ветка витка|дата|база|название)\s*:/imu.test(answerText)) return 'это значение метаданных, а не описание задачи; опиши наблюдаемое изменение поведения для пользователя';
+  if (!/(выбор|решение).{0,80}(?:план|изучен|исследован|исходник)|(?:план|изучен|исследован|исходник).{0,80}(?:выбор|решение)/iu.test(userPrompt)) return null;
+  const commitsToMethod = /(?:(?:измен[\p{L}]*|обнов[\p{L}]*).{0,35}(?:исходн|существующ|входн).{0,25}(?:объект|брон)|(?:поправить|мутир(?:овать|ует|уетcя)|мутац(?:ия|ии)).{0,35}(?:существующ|исходн|объект|брон)|(?:собрать|создать|возвращать|вернуть).{0,30}нов(?:ый|ую).{0,20}(?:объект|брон))/iu.test(answerText);
+  if (!commitsToMethod) return null;
+  return 'Исходный запрос прямо откладывает выбор способа до Plan. Перепиши как пользовательское поведение: «Пользователь может [действие из задачи]; результат сохраняет [требуемые свойства]». Не называй функции, файлы, код, изменение/мутацию существующего объекта, создание нового объекта или совместимость метода; просто назови действие пользователя и ожидаемый результат.';
+}
+
+/** Make the two intent JSON slots unambiguous at the exact field where the model answers. */
+function structuredClaimJsonInstruction(field: SchemaField, currentArtifactText: string): string | null {
+  const key = `${field.id} ${field.label ?? ''} ${field.placeholders.map((p) => p.text).join(' ')}`
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+  if (key.includes('acceptancejson')) {
+    return 'Формат ответа для этого поля: только JSON-массив вида [{"id":"claim-1","behavior":"...","procedure":"...","expected":"..."}]. Каждый объект содержит ровно эти четыре строковых ключа. Делай значения краткими, по одному предложению. Не добавляй внешний объект, ключ acceptance, Markdown или сведения для basis.';
+  }
+  if (key.includes('basisjson')) {
+    const acceptanceBlock = /<!--\s*sdlc-json:acceptance:start\s*-->([\s\S]*?)<!--\s*sdlc-json:acceptance:end\s*-->/u.exec(currentArtifactText)?.[1]?.trim();
+    let acceptanceRows: { id: string; behavior: string }[] = [];
+    if (acceptanceBlock !== undefined) {
+      try {
+        const rows: unknown = JSON.parse(acceptanceBlock);
+        if (Array.isArray(rows)) acceptanceRows = rows.flatMap((row) =>
+          typeof row === 'object' && row !== null &&
+          typeof (row as Record<string, unknown>).id === 'string' &&
+          typeof (row as Record<string, unknown>).behavior === 'string'
+            ? [{ id: (row as Record<string, string>).id!, behavior: (row as Record<string, string>).behavior! }]
+            : [],
+        );
+      } catch { /* The normalizer reports malformed acceptance JSON after the form is filled. */ }
+    }
+    const alignment = acceptanceRows.length === 0 ? '' :
+      ` Используй ровно эти пары ID → требование, каждый один раз: ${acceptanceRows.map((row) => `${row.id} → ${row.behavior}`).join('; ')}. ` +
+      'В каждой записи basis сохраняй связь с требованием того же ID; не переставляй основания между соседними требованиями.';
+    return 'Формат ответа для этого поля: только JSON-массив вида [{"id":"claim-1","basis":"...","scenario":"...","counterexample":"..."}]. Каждый объект содержит ровно эти четыре строковых ключа. Делай значения краткими, по одному предложению. Не добавляй внешний объект, ключ basis, Markdown или сведения для acceptance.' + alignment;
+  }
+  return null;
+}
+
+/** Validate the structured claim arrays while the model can still repair the field. */
+function structuredClaimJsonProblem(field: SchemaField, answer: string, currentArtifactText: string): string | null {
+  const normalizedKey = `${field.id} ${field.label ?? ''} ${field.placeholders.map((p) => p.text).join(' ')}`
+    .toLowerCase().replace(/[^a-z]/g, '');
+  const kind = normalizedKey.includes('acceptancejson') ? 'acceptance' : normalizedKey.includes('basisjson') ? 'basis' : null;
+  if (kind === null) return null;
+  let rows: unknown;
+  try { rows = JSON.parse(answer.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
+  catch { return `${kind} должен быть валидным JSON-массивом; верни только массив объектов`; }
+  const fields = kind === 'acceptance'
+    ? ['id', 'behavior', 'procedure', 'expected']
+    : ['id', 'basis', 'scenario', 'counterexample'];
+  if (!Array.isArray(rows) || rows.length === 0 || rows.some((row) =>
+    typeof row !== 'object' || row === null || Object.keys(row).length !== fields.length ||
+    fields.some((key) => typeof (row as Record<string, unknown>)[key] !== 'string' || !(row as Record<string, string>)[key]!.trim()))) {
+    return `${kind}: каждый объект должен содержать ровно строковые ключи ${fields.join(', ')}; лишние ключи запрещены`;
+  }
+  const ids = (rows as Record<string, string>[]).map((row) => row.id!);
+  if (ids.some((id) => !/^claim-\d+$/u.test(id)) || new Set(ids).size !== ids.length) {
+    return `${kind}: используй уникальные ID формата claim-N`;
+  }
+  if (kind === 'basis') {
+    const block = /<!--\s*sdlc-json:acceptance:start\s*-->([\s\S]*?)<!--\s*sdlc-json:acceptance:end\s*-->/u.exec(currentArtifactText)?.[1]?.trim();
+    if (block === undefined || block.includes('‹')) {
+      return 'basis: acceptance ещё не прошёл проверку; дождись его исправления и свяжи основания с точными ID и требованиями';
+    }
+    try {
+      const acceptance: unknown = block === undefined ? null : JSON.parse(block);
+      if (!Array.isArray(acceptance) || acceptance.length === 0) {
+        return 'basis: acceptance должен быть непустым JSON-массивом до заполнения оснований';
+      }
+      const expected = acceptance.map((row) => (row as Record<string, string>).id).filter((id): id is string => typeof id === 'string');
+      if (expected.length !== ids.length || expected.some((id) => !ids.includes(id))) {
+        return `basis: ID должны точно совпасть с acceptance (${expected.join(', ')})`;
+      }
+    } catch { return 'basis: acceptance JSON некорректен; дождись исправления этого блока'; }
+  }
+  return null;
+}
+
 /**
  * Ключ ИДЕНТИЧНОСТИ поля — устойчив к пересчёту схемы между проходами `sweep()`, в отличие
  * от `field.id` (несёт порядковый суффикс раздела, который у соседа смещается, когда
@@ -355,6 +487,8 @@ export interface FormFillOptions {
    * (`groupFields`/`cleanFieldAnswer`/`cleanRowAnswer`) не трогается ни строкой.
    */
   compact?: boolean;
+  /** Preparation v2 derives acceptance rows from the task; legacy fixed quotas do not apply. */
+  preparationV2?: boolean;
   /** Этап, на котором исполняется бланк — только для `compact`: отсекает `stageOnly`. */
   stage?: StageId;
   /**
@@ -1173,6 +1307,7 @@ export class FormFillExecutor implements StageExecutor {
        * id тот же дрейф чинит `currentFieldId` — здесь он чинится снимком.
        */
       snapshot: string,
+      currentArtifactText = snapshot,
     ): ReturnType<ChatProvider['chat']> => {
       // Карта кодовой базы и в карточке получает тот же список реальных путей, что у
       // некомпактного пути: у режима нет Read/Task, и без него пути угадываются по памяти.
@@ -1203,6 +1338,7 @@ export class FormFillExecutor implements StageExecutor {
         ...(field.min === undefined ? [] : [`- минимум строк: ${field.min.rows}, из них с тегом [edge]: ${field.min.edges ?? 0}`]),
         ...(field.emptyAlternative === undefined ? [] : [`- если элементов нет — ответь пустой строкой`]),
         `- подсказка: ${field.hint === '' ? '(нет)' : field.hint.slice(0, 800)}`,
+        ...(structuredClaimJsonInstruction(field, currentArtifactText) === null ? [] : [`- обязательная форма ответа: ${structuredClaimJsonInstruction(field, currentArtifactText)}`]),
         '',
         ...(needsCodeMap
           ? [
@@ -1247,12 +1383,24 @@ export class FormFillExecutor implements StageExecutor {
           { role: 'system', content: fieldSystem(req) },
           { role: 'user', content: [req.prompt.user, '', card].join('\n') },
         ];
+      const structuredClaimJson = structuredClaimJsonInstruction(field, currentArtifactText) !== null;
+      const fieldParams = this.compactFillParams(
+        req,
+        [field],
+        field.kind === 'scalar' || field.kind === 'choice'
+          ? { response_format: compactGroupResponseFormat([field]) }
+          : {},
+      );
+      // Structured JSON slots need a short, schema-first answer. Disable extra reasoning
+      // tokens here so local models do not spend the bounded field response on a hidden
+      // deliberation and then return an empty/truncated value.
+      if (structuredClaimJson) fieldParams['reasoning_effort'] = 'none';
       if (field.kind === 'scalar' || field.kind === 'choice') {
-        const result = await this.ask(req, messages, hooks, this.compactFillParams(req, [field], { response_format: compactGroupResponseFormat([field]) }));
+        const result = await this.ask(req, messages, hooks, fieldParams);
         const decoded = parseCompactGroupResponse(result.text, [field]);
         return decoded === null ? result : { ...result, text: decoded[field.id]! };
       }
-      return this.ask(req, messages, hooks, this.compactFillParams(req, [field]));
+      return this.ask(req, messages, hooks, fieldParams);
     };
 
     /** Добор записи ниже минимума (`compact`) — та же идея, что `askClaimsTopUp`, через `applyFill('add')`. */
@@ -1401,16 +1549,21 @@ export class FormFillExecutor implements StageExecutor {
       // A rejected value must be retried alone so its field card can include the
       // concrete rejection reason. Re-grouping it would lose that recovery hint.
       const groups = compactFieldGroups(remainingFields).flatMap((group) => {
+        if (group.some((field) => structuredClaimJsonInstruction(field, text) !== null)) return group.map((field) => [field]);
         const rejected = group.filter((field) => fieldRejectionMemo.has(compactFieldKey(field)));
         if (rejected.length === 0) return [group];
         return [...rejected.map((field) => [field]), ...compactFieldGroups(group.filter((field) => !rejected.includes(field)))];
       });
 
-      for (let batchStart = 0; batchStart < groups.length; batchStart += FIELD_PARALLEL) {
+      for (let batchStart = 0; batchStart < groups.length;) {
         if (req.signal.aborted) return { stop: { ok: false, finalText: '', usage, note: 'этап отменён' }, changed, text };
 
         const allowed = Math.min(FIELD_PARALLEL, requestBudget - callsSpent);
-        const batch = groups.slice(batchStart, batchStart + FIELD_PARALLEL);
+        const nextClaimJson = groups.slice(batchStart, batchStart + FIELD_PARALLEL)
+          .findIndex((group) => group.some((field) => structuredClaimJsonInstruction(field, text) !== null));
+        const width = nextClaimJson < 0 ? FIELD_PARALLEL : nextClaimJson + 1;
+        const batch = groups.slice(batchStart, batchStart + width);
+        batchStart += batch.length;
         if (allowed <= 0) continue;
         const askedGroups = batch.slice(0, allowed);
         const asked = askedGroups.flat();
@@ -1419,7 +1572,7 @@ export class FormFillExecutor implements StageExecutor {
         // `startText`, а не текущий `text`: схема полей выведена из него, и смещения
         // `field.range` действительны только в нём.
         const groupResults = await Promise.allSettled(askedGroups.map((group) =>
-          group.length === 1 ? askFieldCompact(group[0]!, startText) : askFieldGroupCompact(group, startText),
+          group.length === 1 ? askFieldCompact(group[0]!, startText, text) : askFieldGroupCompact(group, startText),
         ));
         const answers: PromiseSettledResult<Awaited<ReturnType<ChatProvider['chat']>>>[] = [];
         for (let i = 0; i < askedGroups.length; i++) {
@@ -1482,6 +1635,17 @@ export class FormFillExecutor implements StageExecutor {
             annotateExchange(finalRawLogPath, { accepted: false, oracle, target: 'form-field', reason });
           };
 
+          const claimJsonProblem = this.o.preparationV2
+            ? structuredClaimJsonProblem(field, answerText, text)
+            : null;
+          if (claimJsonProblem !== null) {
+            const rejection = `поле ${field.id}: ${claimJsonProblem}`;
+            notes.push(`ответ на поле отклонён: ${rejection}; будет повторный запрос с причиной`);
+            fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            rejectFieldCompact('structured-claim-json');
+            continue;
+          }
+
           // Прямая проверка сбоя генерации ДО applyFill — тем же порядком, что range-режим
           // (строки ниже, `foreignScript`/`looksLikeToolCallEcho` на `filled`), а не разбор
           // текста отказа applyFill по подстроке: тот текст задаёт `sheet.ts` для человека,
@@ -1516,6 +1680,39 @@ export class FormFillExecutor implements StageExecutor {
             notes.push(rejection);
             fieldRejectionMemo.set(compactFieldKey(field), rejection);
             rejectFieldCompact('structured-scalar-answer');
+            continue;
+          }
+
+          const planFileProblem = this.o.preparationV2
+            ? planStepInventedFileCompact(field, answerText, req.cwd)
+            : null;
+          if (planFileProblem !== null) {
+            const rejection = `поле ${field.id}: ${planFileProblem}`;
+            notes.push(`ответ на поле отклонён: ${rejection}; будет повторный запрос с причиной`);
+            fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            rejectFieldCompact('plan-step-file-path');
+            continue;
+          }
+
+          const planEvidenceProblem = this.o.preparationV2 && this.o.stage === 'plan'
+            ? planApproachEvidenceProblem(field, answerText, req.cwd, req.prompt.user)
+            : null;
+          if (planEvidenceProblem !== null) {
+            const rejection = `поле ${field.id}: ${planEvidenceProblem}`;
+            notes.push(`ответ на поле отклонён: ${rejection}; будет повторный запрос с причиной`);
+            fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            rejectFieldCompact('plan-approach-evidence');
+            continue;
+          }
+
+          const deferredMethodProblem = this.o.preparationV2 && this.o.stage === 'intent'
+            ? deferredIntentMethodProblem(field, answerText, req.prompt.user)
+            : null;
+          if (deferredMethodProblem !== null) {
+            const rejection = `поле ${field.id}: ${deferredMethodProblem}`;
+            notes.push(`ответ на поле отклонён: ${rejection}; будет повторный запрос с причиной`);
+            fieldRejectionMemo.set(compactFieldKey(field), rejection);
+            rejectFieldCompact('intent-premature-design-choice');
             continue;
           }
 
@@ -1560,7 +1757,7 @@ export class FormFillExecutor implements StageExecutor {
           // `recordsInvalid` — тем же правилом, что `filesToTouchInvalid` выше: держит
           // «дефицит листа» до финальной метки, а не только до заметки в отчёте.
           let recordsInvalid = false;
-          if (field.kind === 'records' && field.min !== undefined && callsSpent < requestBudget) {
+          if (!this.o.preparationV2 && field.kind === 'records' && field.min !== undefined && callsSpent < requestBudget) {
             const min = field.min;
             // Тот же класс бага, что у legacy-добора (askClaimsTopUp): один выстрел без
             // перепроверки засчитывал добор успешным, даже если добавленные записи не
@@ -1848,7 +2045,7 @@ export class FormFillExecutor implements StageExecutor {
             }
             // Лист приёмки ниже нормы полного контура — один добор на месте. Мелкому
             // контуру переизбыток пунктов не вредит (его мягкий минимум знает гейт).
-            if (range.kind === 'row' && /claim-/.test(range.text) && callsSpent < requestBudget) {
+            if (!this.o.preparationV2 && range.kind === 'row' && /claim-/.test(range.text) && callsSpent < requestBudget) {
               // Один выстрел без перепроверки однажды считал добор успешным, даже если
               // добавленные строки не несли [edge]: заметка «добавлено M» писалась
               // независимо от факта, а предусловие explore честно находило тот же
@@ -1999,10 +2196,21 @@ export class FormFillExecutor implements StageExecutor {
       const stopped2 = await sweep();
       if (stopped2 !== null) return withSpent(stopped2);
     }
+    // Структурно/семантически отклонённые поля получают ещё один ограниченный шанс:
+    // на дешёвых моделях два сэмпла подряд нередко повторяют одну ошибку, а третья попытка
+    // меняет формулировку. Повтор остаётся в общем бюджете запросов и берёт только пустые
+    // поля; уже принятые ответы не переспрашиваются.
+    let thirdSweep = false;
+    if (this.o.preparationV2 && fieldRejectionMemo.size > 0 && fieldsLeftOnDisk(true) > 0 &&
+        callsSpent < requestBudget && !req.signal.aborted) {
+      thirdSweep = true;
+      const stopped3 = await sweep();
+      if (stopped3 !== null) return withSpent(stopped3);
+    }
     // Каждый пересчёт — чтение всех бланков и `deriveSchema`. Без отказов гейта «только
     // пересчитываемые» и «все» — одно и то же число, а без второго прохода диск с тех пор
     // не менялся: перечитывать незачем.
-    const fieldsLeft = secondSweep || writeDenied.size > 0 ? fieldsLeftOnDisk() : leftRetriable;
+    const fieldsLeft = secondSweep || thirdSweep || writeDenied.size > 0 ? fieldsLeftOnDisk() : leftRetriable;
 
     // «Заполнено в тексте» — не «записано на диск»: отклонённая гейтом запись оставляет
     // бланк нетронутым, и сводка обязана это различать, а не отчитываться сделанным.

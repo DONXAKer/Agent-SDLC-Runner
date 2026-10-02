@@ -5,14 +5,35 @@ export interface MapAnswer {
   change: string;
 }
 
+/** The no-op correction response may carry ordinary terminal punctuation. */
+export function isNoExploreMapCorrection(text: string): boolean {
+  return /^нет исправлений[.!…]*$/iu.test(text.trim());
+}
+
 export function parseExploreMap(text: string, candidates: readonly string[]) {
   const accepted = new Map<string, MapAnswer | null>();
   const rejected: string[] = [];
   const newFiles: Array<{ path: string; what: string }> = [];
   const ambiguous = new Set<string>();
   const clean = (s: string) => s.replace(/[`*]/g, '').trim();
+  const safeNegativeTail = (parts: readonly string[]) => {
+    const tail = parts.slice(1).map((part) => clean(part).replace(/[.!?]+$/u, '').trim()).filter(Boolean);
+    return tail.every((part) => /^(?:нет|no|[-—–])$/iu.test(part)) ||
+      (tail.length > 0 && /(?:не относится|не касается|вне задачи|не нужен|not relevant|out of scope)/iu.test(tail.join(' ')));
+  };
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim() || /^\s*```/.test(line)) continue;
+    // Some models preserve the semantic new-file marker but miss the `+ path | change`
+    // syntax. Accept that explicit equivalent while still rejecting unmarked guesses.
+    const markedNew = /^\s*(.+?)\s+\(новый\)\s*(?:[/|—–-])\s*(.+)$/iu.exec(line);
+    if (markedNew !== null) {
+      const path = clean(markedNew[1]!);
+      const what = markedNew[2]!.trim();
+      if (!/^[\w./@-]+$/.test(path) || !(path.includes('/') || /\.[a-z0-9]{1,8}$/i.test(path)) || !what) {
+        rejected.push(`неверный новый путь или пустое изменение: ${line}`);
+      } else newFiles.push({ path, what });
+      continue;
+    }
     if (/^\s*\+/.test(line)) {
       const [rawPath = '', ...rest] = line.trim().slice(1).split('|');
       const path = clean(rawPath);
@@ -25,7 +46,9 @@ export function parseExploreMap(text: string, candidates: readonly string[]) {
     const match = /^\s*(\d+)[.)]\s*(.*)$/.exec(line);
     if (!match) { rejected.push(`неоднозначная строка: ${line}`); continue; }
     const parts = match[2]!.split('|').map((p) => p.trim());
-    const head = clean(parts[0]!);
+    // The prompt's documented negative form is `N. нет.`; accept its terminal
+    // punctuation before checking whether the candidate is out of scope.
+    const head = clean(parts[0]!).replace(/[.!?]+$/u, '').trim();
     let path = candidates[Number(match[1]) - 1];
     let now = parts[1] ?? '';
     let change = parts.slice(2).join(' | ').trim();
@@ -37,7 +60,7 @@ export function parseExploreMap(text: string, candidates: readonly string[]) {
       path = candidates.find((p) => p === named);
       if (!path) { rejected.push(`неизвестный путь: ${named}`); continue; }
       if (/^(нет|no)$/i.test(pathDecision[2]!)) {
-        if (parts.length !== 1) { rejected.push(`неоднозначное отрицание: ${line}`); continue; }
+        if (!safeNegativeTail(parts)) { rejected.push(`неоднозначное отрицание: ${line}`); continue; }
         if (accepted.has(path) || ambiguous.has(path)) { accepted.delete(path); ambiguous.add(path); rejected.push(`повторная строка для ${path}`); continue; }
         accepted.set(path, null);
         continue;
@@ -66,7 +89,12 @@ export function parseExploreMap(text: string, candidates: readonly string[]) {
       ambiguous.add(path);
       rejected.push(`повторная строка для ${path}`); continue;
     }
-    if (no && parts.slice(1).some((p) => p !== '')) { rejected.push(`неоднозначное отрицание: ${line}`); continue; }
+    // Small local models sometimes copy the three visible response columns even
+    // for a negative row (`N. нет | нет | нет`). Treat that as one unambiguous
+    // negative decision; any substantive text after `нет` remains rejected.
+    if (no && !safeNegativeTail(parts)) {
+      rejected.push(`неоднозначное отрицание: ${line}`); continue;
+    }
     if (!no && (!now || !change || /^[—–-]$/.test(change))) {
       rejected.push(`пустое описание или изменение: ${path}`); continue;
     }

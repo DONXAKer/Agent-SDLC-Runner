@@ -2,11 +2,11 @@
 
 import { localResultBytes } from '../../config/limits.ts';
 import { DECISION, countPlaceholdersInSection, pathExistsAny, readArtifact } from '../../artifacts/artifact.ts';
+import { isPreparationV2, preparation, preparationExploreEvidenceProblem, recordPreparationRead } from '../../artifacts/preparation.ts';
 import { declaredAsNew } from '../../artifacts/planFiles.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
 import { TOUCH_SECTION, claimsMinimum, exists, intentFilled, isSmallContour, readinessReady, relOf } from './preconditions.ts';
-import { isPreparationV2 } from '../../artifacts/preparation.ts';
 import type { Precondition, StageContext, StageDef, StageHost, StageModule } from './types.ts';
 import { autofillTitle } from '../formAutofill.ts';
 import { edgeExampleLines } from '../../artifacts/edgeExample.ts';
@@ -325,11 +325,12 @@ export function exploreIndexFor(
 ): { index: ExploreIndex; kw: Keywords; built: BuiltView } {
   const intent = readArtifact(host.paths.intent);
   const intentText = intent.exists ? intent.text : '';
+  const originalRequest = preparation(host.paths)?.requests.at(-1) ?? '';
   const axesEnabled = host.axesEnabled();
-  const key = `${axesEnabled ? 'axes' : 'no-axes'}\n${ecosystem.map((e) => `${e.dir}|${e.build ?? ''}|${e.test ?? ''}`).join(';')}\n${intentText}`;
+  const key = `${axesEnabled ? 'axes' : 'no-axes'}\n${ecosystem.map((e) => `${e.dir}|${e.build ?? ''}|${e.test ?? ''}`).join(';')}\n${intentText}\n${originalRequest}`;
   if (host.exploreState.indexCache !== null && host.exploreState.indexCache.key === key) return host.exploreState.indexCache;
   const index = readTree(host.projectRoot);
-  const kw = intentKeywords(intentText);
+  const kw = intentKeywords(intentText, originalRequest);
   const built = buildView(index, ecosystem, kw, axesEnabled);
   host.exploreState.indexCache = { key, index, kw, built };
   return host.exploreState.indexCache;
@@ -441,7 +442,11 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
       claims,
       notDoing: notDoingLines(intentText),
     },
+    ...(isPreparationV2(host.paths) ? {
+      acceptanceChecks: claims.map((claim) => `${claim.id}: ${claim.text}`),
+    } : {}),
     reportPath: host.paths.explorationReport,
+    onSourceProvided: (path, excerpt) => recordPreparationRead(host.paths, stage, path, excerpt),
     claims: host.exploreState.claims.result,
     claimsSkipReason: host.exploreState.claims.skipReason,
     axesEnabled: host.axesEnabled(),
@@ -480,7 +485,7 @@ export const exploreModule: StageModule = {
     // В режиме `exploreFill` дозаполнение уже внутри конвейера (вложенным
     // `FormFillExecutor` со `skipFields`) — второй проход здесь переспрашивал бы поля.
     formFinish: () =>
-      usesExploreFill(route)
+      usesExploreFill(route) || isPreparationV2(host.paths)
         ? null
         : {
             path: host.paths.explorationReport,
@@ -504,6 +509,10 @@ export const exploreModule: StageModule = {
           `${problem}. Поправь карту: несуществующий путь либо убери, либо помечай ` +
           `словом «новый» — файл, который предстоит создать, картой кодовой базы не является.`
         );
+      }
+      if (isPreparationV2(host.paths)) {
+        const evidence = preparationExploreEvidenceProblem(host.paths);
+        if (evidence !== null) return evidence;
       }
       // Вторая находка того же стража: «Что придётся тронуть» в задаче заполняет разведка,
       // и спросить об этом больше некого — этап 4 на входе считает эту секцию.

@@ -15,7 +15,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
 import { isPreparationV2, preparationContext } from '../artifacts/preparation.ts';
-import { preparationInstructions } from './preparation.ts';
+import { preparationFieldInstructions, preparationInstructions } from './preparation.ts';
 import { capBytes } from './bytes.ts';
 import { INDEX_BLOCK_BYTES, renderIndexBlock } from '../explore/render.ts';
 import { BYTES_PER_TOKEN_ESTIMATE } from '../exec/contextBudget.ts';
@@ -598,7 +598,8 @@ function fillFieldFewShot(i: BuildPromptInput, path: string, text: string): stri
   );
   if (key === undefined) return null;
   const schema = deriveSchema(text, templateNameFor(path));
-  const field = modelFields(schema, i.stage.id)[0];
+  const fields = modelFields(schema, i.stage.id);
+  const field = fields[0];
   if (field === undefined) return null;
   const callJson = JSON.stringify({
     tool: 'FillField',
@@ -613,6 +614,12 @@ function fillFieldFewShot(i: BuildPromptInput, path: string, text: string): stri
     '  Метку поля («- **Метка:** …») в значении повторять не надо — рантайм сам найдёт ' +
       'место и нарисует разметку. Когда в артефакте не осталось `‹…›` — вызови ' +
       '`FinalizeArtifact` с путём артефакта.',
+    ...(i.stage.id === 'plan'
+      ? [
+          '- Допустимые точные `field` ID этого плана (используй их буквально; подписи в шаблоне могут повторяться): ' +
+            fields.map((item) => `\`${item.id}\``).join(', ') + '.',
+        ]
+      : []),
     '- НЕПРАВИЛЬНО: печатать содержимое файла текстом в ответе, самому вписывать `|` или ' +
       '`**`, спрашивать человека о том, что видно из кода.',
   ];
@@ -913,7 +920,7 @@ function userMessage(i: BuildPromptInput, systemBytes = 0): string {
 export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
   const v2 = i.preparationV2 ?? isPreparationV2(i.ctx.paths);
   const preparing = ['intent', 'explore', 'ask', 'plan'].includes(i.stage.id);
-  const skillBody = v2 && preparing ? preparationInstructions(i.runner.methodologyDir, i.stage.id) : readSkillBody(i.runner.skillsDir, i.stage.skill);
+  const skillBody = v2 && preparing ? preparationInstructions(i.runner.methodologyDir, i.stage.id, i.formFill === true) : readSkillBody(i.runner.skillsDir, i.stage.skill);
   const system = `${skillBody}\n\n---\n\n${adapterBlock(i)}`;
 
   const specs = specsFor(i.tools ?? i.stage.tools);
@@ -940,7 +947,14 @@ export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
           'не показан — всё остальное, что уйдёт в модель, видно ниже.'
         : null,
     system,
-    user: [userMessage(i, Buffer.byteLength(system, 'utf8')), ...(v2 ? [preparationContext(i.ctx.paths), ...(!preparing ? [preparationInstructions(i.runner.methodologyDir, i.stage.id)] : [])] : [])].filter(Boolean).join('\n\n'),
+    user: [
+      userMessage(i, Buffer.byteLength(system, 'utf8')),
+      ...(v2 ? [
+        preparationContext(i.ctx.paths, i.stage.id),
+        ...(i.formFill === true ? [preparationFieldInstructions(i.stage.id)] : []),
+        ...(!preparing ? [preparationInstructions(i.runner.methodologyDir, i.stage.id)] : []),
+      ] : []),
+    ].filter(Boolean).join('\n\n'),
     tools,
     editedByOperator: false,
   };

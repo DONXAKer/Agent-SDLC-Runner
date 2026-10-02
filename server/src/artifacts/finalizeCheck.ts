@@ -146,6 +146,19 @@ function resolveArtifactPath(artifactArg: string, projectRoot: string, formArtif
   const exact = formArtifacts.find((f) => pathsEqual(lexicalNormalize(f), abs, ci));
   if (exact !== undefined) return exact;
   if (relativizeWithin(projectRoot, abs) === null) return null;
+  const requestedRel = relativizeWithin(projectRoot, abs);
+  if (requestedRel !== null) {
+    const malformed = formArtifacts.find((f) => {
+      const canonicalRel = relativizeWithin(projectRoot, lexicalNormalize(f));
+      if (canonicalRel === null || !pathsEqual(canonicalRel.split('/')[0] ?? '', '.sdlc', ci)) return false;
+      const slash = canonicalRel.lastIndexOf('/');
+      if (slash < 0) return false;
+      const dir = canonicalRel.slice(0, slash);
+      const file = canonicalRel.slice(slash + 1);
+      return [`${dir}(${file}`, `${dir}(${file})`].some((typo) => pathsEqual(requestedRel, typo, ci));
+    });
+    if (malformed !== undefined) return malformed;
+  }
   const name = basename(abs);
   if (name === '') return null;
   return formArtifacts.find((f) => pathsEqual(basename(lexicalNormalize(f)), name, ci)) ?? null;

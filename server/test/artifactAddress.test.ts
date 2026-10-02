@@ -99,6 +99,41 @@ describe('readdressOwnArtifact', () => {
   });
 });
 
+describe('readdressOwnArtifact: malformed filename separator', () => {
+  it('repairs the exact stage artifact path only', () => {
+    const c = ctx({
+      stage: 'intent',
+      stageArtifacts: [{ key: 'intent', path: '/proj/.sdlc/prep-goal-ministral-v2-r1/intent.md' }],
+    });
+    const r = readdressOwnArtifact(
+      { kind: 'edit', path: '.sdlc/prep-goal-ministral-v2-r1(intent.md', edits: [] },
+      c,
+    );
+    strictEqual(r?.to, '/proj/.sdlc/prep-goal-ministral-v2-r1/intent.md');
+    strictEqual(
+      readdressOwnArtifact({ kind: 'edit', path: '.sdlc/other-run(intent.md', edits: [] }, c),
+      null,
+    );
+  });
+
+  it('repairs the exact separator typo with a Windows workspace root', () => {
+    const c = ctx({
+      projectRoot: 'C:/Users/Root/AppData/Local/Temp/sdlc-bench/demo',
+      stage: 'intent',
+      stageArtifacts: [{ key: 'intent', path: 'C:/Users/Root/AppData/Local/Temp/sdlc-bench/demo/.sdlc/run/intent.md' }],
+    });
+    const r = readdressOwnArtifact(
+      { kind: 'edit', path: '.sdlc/run(intent.md', edits: [] },
+      c,
+    );
+    strictEqual(r?.to, 'C:/Users/Root/AppData/Local/Temp/sdlc-bench/demo/.sdlc/run/intent.md');
+    strictEqual(
+      readdressOwnArtifact({ kind: 'edit', path: '.sdlc/run(intent.md)', edits: [] }, c)?.to,
+      'C:/Users/Root/AppData/Local/Temp/sdlc-bench/demo/.sdlc/run/intent.md',
+    );
+  });
+});
+
 describe('withReaddressedPath', () => {
   it('путь подставляется под тем ключом, под которым пришёл', () => {
     deepStrictEqual(withReaddressedPath({ path: 'a.md', content: 'x' }, '/p/a.md'), { path: '/p/a.md', content: 'x' });

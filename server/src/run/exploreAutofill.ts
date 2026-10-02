@@ -8,7 +8,7 @@
 
 import { replaceAfterLabel } from '../artifacts/artifact.ts';
 import { fillMechanicalPlaceholders } from './journalAutofill.ts';
-import { spliceFieldValue } from '../explore/fields.ts';
+import { replaceListInSection, spliceFieldValue } from '../explore/fields.ts';
 import type { EcosystemLine } from '../explore/view.ts';
 
 export interface ExplorationFacts {
@@ -23,6 +23,8 @@ export interface ExplorationFacts {
    * долге`; `absent` — строки в наборе нет вовсе: тоже долг, и это сказано в примечании.
    */
   fillednessGate: 'enabled' | 'debt' | 'absent';
+  /** Exact acceptance points from intent v2; copied into the report instead of paraphrased. */
+  checks?: readonly string[];
 }
 
 const TEMPLATE = 'exploration-report.template.md';
@@ -96,6 +98,10 @@ export function autofillExplorationReport(text: string, facts: ExplorationFacts)
       out = spliced;
       n++;
     }
+  }
+  if (facts.checks !== undefined && facts.checks.length > 0) {
+    out = replaceListInSection(out, /^Проверки$/iu, facts.checks, 'проверки не заданы в intent.md');
+    n++;
   }
   return { text: out, filled: n };
 }

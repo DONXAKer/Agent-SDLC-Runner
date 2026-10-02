@@ -15,6 +15,7 @@ import { loadConfig } from '../src/config/load.ts';
 import { groupFields, modelGroupFields } from '../src/exec/FormFillExecutor.ts';
 import {
   RUNTIME_AUTOFILLED_TEMPLATES,
+  acceptanceChecksFromIntent,
   autofillClarification,
   autofillHandoff,
   autofillPlan,
@@ -58,6 +59,36 @@ describe('autofillPlan', () => {
   it('идемпотентно', () => {
     const once = autofillPlan(PLAN, facts).text;
     deepStrictEqual(autofillPlan(once, facts), { text: once, filled: 0 });
+  });
+
+  it('copies the exact intent claims into the plan acceptance table instead of asking the model to restate them', () => {
+    const plan = [
+      '## Подход', 'text',
+      '## Проверки приёмки',
+      '| ID | Наблюдаемое поведение | Процедура | Ожидаемый результат |',
+      '|---|---|---|---|',
+      '| claim-1 | ‹поведение› | ‹проверка› | ‹результат› |',
+      '',
+      '## Последствия шагов', 'later',
+    ].join('\n');
+    const checks = [{ id: 'claim-1', behavior: 'Keep id | expiry', procedure: 'Call moveHold', expected: 'Fields stay equal' }];
+    const first = autofillPlan(plan, { ...facts, acceptanceChecks: checks });
+    ok(first.text.includes('| claim-1 | Keep id \\| expiry | Call moveHold | Fields stay equal |'), first.text);
+    ok(first.text.includes('## Последствия шагов\nlater'), first.text);
+    deepStrictEqual(autofillPlan(first.text, { ...facts, acceptanceChecks: checks }), { text: first.text, filled: 0 });
+  });
+
+  it('reads the canonical JSON claims instead of trying to split the rendered combined procedure cell', () => {
+    const intent = '<!-- sdlc-json:acceptance:start -->\n[{"id":"claim-1","behavior":"Keeps id","procedure":"Call moveHold","expected":"Same id"}]\n<!-- sdlc-json:acceptance:end -->';
+    deepStrictEqual(acceptanceChecksFromIntent(intent), [{ id: 'claim-1', behavior: 'Keeps id', procedure: 'Call moveHold', expected: 'Same id' }]);
+    const rendered = [
+      '## Приёмочный лист',
+      '| ID | Пункт | Как проверить (процедура + критерий) |',
+      '|---|---|---|',
+      '| claim-1 | Keeps id | Процедура: Call moveHold. Ожидаемо: Same id. |',
+    ].join('\n');
+    deepStrictEqual(acceptanceChecksFromIntent(rendered), [{ id: 'claim-1', behavior: 'Keeps id', procedure: 'Call moveHold', expected: 'Same id.' }]);
+    deepStrictEqual(acceptanceChecksFromIntent('no marker'), []);
   });
 });
 

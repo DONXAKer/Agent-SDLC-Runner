@@ -656,9 +656,9 @@ app.post('/api/runs/:id/stages/:stage/prompt', async (req, reply) => {
   const live = liveRun(id);
   if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
 
-  const body = (req.body ?? {}) as { requirement?: string; extra?: string; preparationVersion?: 1 | 2 };
-  if (body.preparationVersion !== undefined && body.preparationVersion !== 1 && body.preparationVersion !== 2) {
-    return reply.code(400).send({ error: 'preparationVersion должна быть 1 или 2' });
+  const body = (req.body ?? {}) as { requirement?: string; extra?: string; preparationVersion?: 1 | 2 | 3 };
+  if (body.preparationVersion !== undefined && body.preparationVersion !== 1 && body.preparationVersion !== 2 && body.preparationVersion !== 3) {
+    return reply.code(400).send({ error: 'preparationVersion должна быть 1, 2 или 3' });
   }
   try {
     const response: PromptResponse = {
@@ -684,14 +684,14 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
   const body = (req.body ?? {}) as {
     prompt?: { system?: unknown; user?: unknown };
     requirement?: string;
-    preparationVersion?: 1 | 2;
+    preparationVersion?: 1 | 2 | 3;
     extra?: string;
     abortHandoff?: boolean;
   };
 
   let editedPrompt: { system: string; user: string } | null = null;
-  if (body.preparationVersion !== undefined && body.preparationVersion !== 1 && body.preparationVersion !== 2) {
-    return reply.code(400).send({ error: 'preparationVersion должна быть 1 или 2' });
+  if (body.preparationVersion !== undefined && body.preparationVersion !== 1 && body.preparationVersion !== 2 && body.preparationVersion !== 3) {
+    return reply.code(400).send({ error: 'preparationVersion должна быть 1, 2 или 3' });
   }
   if (body.prompt !== undefined) {
     if (typeof body.prompt.system !== 'string' || typeof body.prompt.user !== 'string') {

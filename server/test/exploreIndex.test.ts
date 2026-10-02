@@ -76,6 +76,23 @@ describe('ключевые слова задачи', () => {
     ok(!k.paths.includes('src/secret.ts'), 'секция вне списка прочитана');
   });
 
+  it('оригинальный запрос добавляет явно названные пути для проверки в разведке', () => {
+    const k = intentKeywords('# Task\n\n## Коротко\n\nработаем с `src/hold.ts`', 'Изменить `src/hold.ts` и экспортировать из `src/index.ts`');
+    ok(k.paths.includes('src/hold.ts'));
+    ok(k.paths.includes('src/index.ts'));
+  });
+
+  it('не ранжирует пути, упомянутые только как запрет на изменение', () => {
+    const k = intentKeywords(
+      '# Task\n\n## Коротко\n\nПеренести бронь в `src/hold.ts` и экспортировать из `src/index.ts`\n\n## Чего не делаем\n\nНе трогаем `src/slots.ts` и `src/warehouse.ts`.',
+      'Нужен перенос через `src/hold.ts`, экспорт из `src/index.ts`. В этом витке `src/slots.ts`, `src/warehouse.ts` и существующие тесты не трогаются.',
+    );
+    ok(k.paths.includes('src/hold.ts'));
+    ok(k.paths.includes('src/index.ts'));
+    ok(!k.paths.includes('src/slots.ts'));
+    ok(!k.paths.includes('src/warehouse.ts'));
+  });
+
   it('«Приёмочный лист» не источник слов — утечка в слепой блок индекса', () => {
     const intent = ['# Задача: демо', '', '## Коротко', '', 'правим src/a.ts', '', '## Приёмочный лист', '', '1. secretMarkerWord | как проверить', ''].join('\n');
     const k = intentKeywords(intent);

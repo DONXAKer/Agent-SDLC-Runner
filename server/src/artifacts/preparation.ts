@@ -1,14 +1,17 @@
 /** Версионированная проработка. Старые витки без записи версии остаются на v1. */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
-import { dirname, join, relative, isAbsolute } from 'node:path';
+import { dirname, join, relative, isAbsolute, resolve } from 'node:path';
 import type { WitokPaths } from './paths.ts';
 import { readArtifact, readDecision } from './artifact.ts';
 import { resolvedRequirementsHash } from './resolvedRequirements.ts';
 import { intentSections } from './intentSections.ts';
 import { claimIdOf } from './claims.ts';
-import { parseTables, columnIndex } from '../md/table.ts';
-import type { PreparationSummary } from '@sdlc-runner/shared';
+import { parseTables, columnIndex, escapeCell } from '../md/table.ts';
+import { extractHumanFacts } from './humanFacts.ts';
+import { extractFilesToTouch } from './planFiles.ts';
+import { extractExplicitSteps } from './planSteps.ts';
+import type { PreparationSummary, StageId } from '@sdlc-runner/shared';
 
 export interface PreparationReview {
   sourceHashes?: Record<string, string>;
@@ -17,20 +20,64 @@ export interface PreparationReview {
   issues: string[];
   completed: boolean;
 }
+export interface PreparationReadEvidence {
+  path: string;
+  sourceHash: string;
+  excerptHash: string;
+  stage: StageId;
+}
+export interface PreparationCanonicalV3 {
+  requirements?: {
+    documentHash: string;
+    acceptance: { id: string; behavior: string; procedure: string; expected: string }[];
+    basis: { id: string; basis: string; scenario: string; counterexample: string }[];
+    constraints: { inScope: string[]; outOfScope: string[]; invariants: string[]; assumptions: string[]; questions: string[] };
+  };
+  plan?: {
+    documentHash: string;
+    approach: string;
+    filesToTouch: string[];
+    fileRoles: { path: string; roles: ('source' | 'target' | 'forbidden' | 'new')[] }[];
+    steps: ReturnType<typeof extractExplicitSteps>;
+  };
+}
 export interface PreparationState {
-  version: 2;
+  version: 2 | 3;
   requests: string[];
   review?: PreparationReview;
+  readEvidence?: PreparationReadEvidence[];
+  structuredTablesRequired?: boolean;
+  structuredTablesRendered?: boolean;
+  canonical?: PreparationCanonicalV3;
   revisions: { revision: number; requestsHash: string; requirementsHash: string; planHash: string; intent: string; clarifications: string; plan: string; approvedBy: string; approvedAt: string }[];
 }
 
 function statePath(paths: WitokPaths): string { return join(paths.dir, 'preparation.json'); }
+function sectionItems(text: string, heading: string): string[] {
+  return section(text, heading).split(/\r?\n/u).map((line) => line.trim().replace(/^[-*+]\s*/u, ''))
+    .filter((line) => line !== '' && !/^н\/п\b|^нет\b|^‹/iu.test(line));
+}
 export function preparation(paths: WitokPaths): PreparationState | null {
   const path = statePath(paths);
   if (!existsSync(path)) return null;
   const state = JSON.parse(readFileSync(path, 'utf8')) as PreparationState;
-  if (state.version !== 2 || !Array.isArray(state.requests) || !Array.isArray(state.revisions)) {
+  if ((state.version !== 2 && state.version !== 3) || !Array.isArray(state.requests) || !Array.isArray(state.revisions)) {
     throw new Error('неподдерживаемая или повреждённая версия проработки');
+  }
+  if (state.version === 3 && state.canonical !== undefined) {
+    const data = state.canonical;
+    if (typeof data !== 'object' || data === null || Array.isArray(data)) throw new Error('повреждены структурированные данные проработки v3');
+    const validRequirements = data.requirements === undefined ||
+      (typeof data.requirements.documentHash === 'string' && Array.isArray(data.requirements.acceptance) &&
+        Array.isArray(data.requirements.basis) && data.requirements.acceptance.every((item) =>
+          ['id', 'behavior', 'procedure', 'expected'].every((key) => typeof item[key as keyof typeof item] === 'string')) &&
+        data.requirements.basis.every((item) => ['id', 'basis', 'scenario', 'counterexample'].every((key) => typeof item[key as keyof typeof item] === 'string')));
+    const validPlan = data.plan === undefined ||
+      (typeof data.plan.documentHash === 'string' && typeof data.plan.approach === 'string' &&
+        Array.isArray(data.plan.filesToTouch) && data.plan.filesToTouch.every((item) => typeof item === 'string') &&
+        Array.isArray(data.plan.fileRoles) && data.plan.fileRoles.every((item) => typeof item.path === 'string' && Array.isArray(item.roles)) &&
+        Array.isArray(data.plan.steps));
+    if (!validRequirements || !validPlan) throw new Error('повреждены структурированные данные проработки v3');
   }
   return state;
 }
@@ -40,39 +87,357 @@ export function savePreparation(paths: WitokPaths, state: PreparationState): voi
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(state, null, 2) + '\n', 'utf8');
 }
+
+export function requireStructuredPreparationTables(paths: WitokPaths): void {
+  const state = preparation(paths);
+  if (state === null || state.structuredTablesRequired === true) return;
+  state.structuredTablesRequired = true;
+  savePreparation(paths, state);
+}
+
+export function markStructuredPreparationTablesRendered(paths: WitokPaths): void {
+  const state = preparation(paths);
+  if (state === null || state.structuredTablesRendered === true) return;
+  state.structuredTablesRequired = true;
+  state.structuredTablesRendered = true;
+  savePreparation(paths, state);
+}
+
+/** Запоминает только успешное чтение файла инструментом Runner, не цитату модели. */
+export function recordPreparationRead(paths: WitokPaths, stage: StageId, path: string, excerpt: string): void {
+  const state = preparation(paths);
+  if (state === null || (stage !== 'explore' && stage !== 'plan')) return;
+  try {
+    const root = realpathSync(paths.projectRoot);
+    const real = realpathSync(resolve(paths.projectRoot, path));
+    const rel = relative(root, real).replace(/\\/gu, '/');
+    if (rel === '' || rel.startsWith('../') || isAbsolute(rel) || rel.split('/').includes('.sdlc')) return;
+    const source = readFileSync(real, 'utf8');
+    const record: PreparationReadEvidence = {
+      path: rel,
+      sourceHash: sourceHash(source),
+      excerptHash: sourceHash(excerpt),
+      stage,
+    };
+    const evidence = (state.readEvidence ?? []).filter((entry) => entry.path.toLocaleLowerCase() !== rel.toLocaleLowerCase());
+    evidence.push(record);
+    state.readEvidence = evidence;
+    savePreparation(paths, state);
+  } catch {
+    // A failed, outside-root, or stale path is not evidence.
+  }
+}
+
+function normalizedPath(path: string): string {
+  return path.replace(/\\/gu, '/').replace(/^\.\//u, '').toLocaleLowerCase();
+}
+
+export function preparationReferencedCodePaths(text: string): string[] {
+  const matches = text.match(/(?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|cs|php|rb|sql|json|yaml|yml)/giu) ?? [];
+  return [...new Set(matches.map(normalizedPath))];
+}
+
+/** Every existing source/test path named by the requester must be inspected in explore. */
+export function preparationExploreEvidenceProblem(paths: WitokPaths): string | null {
+  const state = preparation(paths);
+  if (state === null) return null;
+  const root = realpathSync(paths.projectRoot);
+  const required = new Set<string>();
+  for (const request of state.requests) {
+    for (const rel of preparationReferencedCodePaths(request)) {
+      try {
+        const real = realpathSync(resolve(root, rel));
+        const actual = relative(root, real).replace(/\\/gu, '/');
+        if (actual !== '' && !actual.startsWith('../') && !actual.split('/').includes('.sdlc')) required.add(normalizedPath(actual));
+      } catch { /* A new or unavailable path is not a source that can be read yet. */ }
+    }
+  }
+  const read = new Set((state.readEvidence ?? []).map((entry) => normalizedPath(entry.path)));
+  const missing = [...required].filter((path) => !read.has(path));
+  if (missing.length === 0 && (required.size > 0 || read.size > 0)) return null;
+  return missing.length > 0
+    ? `до завершения разведки Runner должен передать модели карточки указанных исходников и тестов: ${missing.join(', ')}`
+    : 'до завершения разведки Runner должен передать модели хотя бы одну карточку исходника или теста проекта';
+}
+
+/** Paths cited in the implementation choice must come from successful Read results. */
+export function preparationPlanEvidenceProblem(paths: WitokPaths, planText: string): string | null {
+  const state = preparation(paths);
+  if (state === null) return null;
+  const approach = section(planText, 'Подход');
+  const cited = preparationReferencedCodePaths(approach);
+  if (cited.length === 0) return 'в «Подход» укажи файлы и символы, по которым выбрано решение';
+  const records = new Map((state.readEvidence ?? []).map((entry) => [normalizedPath(entry.path), entry]));
+  const missing = cited.filter((path) => {
+    const evidence = records.get(path);
+    if (evidence === undefined) return true;
+    try {
+      const current = readFileSync(resolve(paths.projectRoot, evidence.path), 'utf8');
+      return sourceHash(current) !== evidence.sourceHash;
+    } catch { return true; }
+  });
+  return missing.length === 0
+    ? null
+    : `решение в «Подход» ссылается на непереданные или изменившиеся исходники: ${missing.join(', ')} — используй источники из отчёта разведки и обнови обоснование`;
+}
 /** Только новый intent; открытие старого витка никогда не мигрирует его. */
-export function initializePreparation(paths: WitokPaths, request?: string, version: 1 | 2 = 2): void {
+export function initializePreparation(paths: WitokPaths, request?: string, version: 1 | 2 | 3 = 3): void {
   let state = preparation(paths);
   if (state === null && (version === 1 || existsSync(paths.intent) || existsSync(paths.plan) || existsSync(paths.explorationReport))) return;
-  state ??= { version: 2, requests: [], revisions: [] };
+  state ??= version === 1 ? null : { version, requests: [], revisions: [] };
+  if (state === null) return;
   if (request !== undefined && request.trim() !== '' && state.requests.at(-1) !== request) state.requests.push(request);
   savePreparation(paths, state);
 }
 
-export function section(text: string, name: string): string { return intentSections(text).get(name)?.trim() ?? ''; }
-function substantive(text: string): boolean { return text.trim().length > 0 && !/[‹›]/u.test(text); }
-export function researchProblem(intent: string): string | null {
-  for (const name of ['Коротко', 'Зачем', 'Что делаем', 'Чего не делаем']) {
-    if (!substantive(section(intent, name))) return `для исследования заполни «${name}»: цель, результат и границы`;
+/** Refresh v3's machine-readable source data from the validated rendered documents. */
+export function syncCanonicalPreparation(paths: WitokPaths): void {
+  const state = preparation(paths);
+  if (state?.version !== 3) return;
+  const intent = readArtifact(paths.intent);
+  const plan = readArtifact(paths.plan);
+  const acceptanceTable = parseTables(section(intent.text, 'Приёмочный лист'))[0];
+  const basisTable = parseTables(section(intent.text, 'Основания и сценарии'))[0];
+  const acceptance = acceptanceTable === undefined ? [] : acceptanceTable.rows.map((row) => ({
+    id: (row[columnIndex(acceptanceTable.header, 'id')] ?? '').replace(/`/gu, '').trim(),
+    behavior: row[columnIndex(acceptanceTable.header, 'Пункт')] ?? '',
+    procedure: ((row[columnIndex(acceptanceTable.header, 'Как проверить (процедура + критерий)')] ?? '').match(/Процедура:\s*(.*?)(?:\.\s*Ожидаемо:|$)/iu)?.[1] ?? '').trim(),
+    expected: ((row[columnIndex(acceptanceTable.header, 'Как проверить (процедура + критерий)')] ?? '').match(/Ожидаемо:\s*(.*)$/iu)?.[1] ?? '').trim(),
+  }));
+  const basis = basisTable === undefined ? [] : basisTable.rows.map((row) => ({
+    basis: row[columnIndex(basisTable.header, 'Основание')] ?? '',
+    scenario: row[columnIndex(basisTable.header, 'Сценарий')] ?? '',
+    counterexample: row[columnIndex(basisTable.header, 'Контрпример')] ?? '',
+    id: (row[columnIndex(basisTable.header, 'ID')] ?? '').replace(/`/gu, '').trim(),
+  }));
+  const inScope = sectionItems(intent.text, 'Что делаем');
+  const outOfScope = sectionItems(intent.text, 'Чего не делаем');
+  const invariants = sectionItems(intent.text, 'Инварианты');
+  const assumptions = sectionItems(intent.text, 'Предположения');
+  const questions = sectionItems(intent.text, 'Открытые вопросы');
+  const targetPaths = plan.exists ? extractFilesToTouch(plan.text) : [];
+  const forbiddenPaths = preparationReferencedCodePaths(section(intent.text, 'Чего не делаем'));
+  const sourcePaths = (state.readEvidence ?? []).map((entry) => entry.path);
+  const allPaths = [...new Set([...sourcePaths, ...targetPaths, ...forbiddenPaths])];
+  const canonical: PreparationCanonicalV3 = {
+    ...(acceptance.length > 0 && basis.length > 0 ? {
+      requirements: {
+        documentHash: sourceHash(intent.text), acceptance, basis,
+        constraints: { inScope, outOfScope, invariants, assumptions, questions },
+      },
+    } : {}),
+    ...(plan.exists ? {
+      plan: {
+        documentHash: sourceHash(plan.text),
+        approach: section(plan.text, 'Подход'),
+        filesToTouch: targetPaths,
+        fileRoles: allPaths.map((path) => ({
+          path,
+          roles: [
+            ...(sourcePaths.includes(path) ? ['source' as const] : []),
+            ...(targetPaths.includes(path) ? ['target' as const] : []),
+            ...(forbiddenPaths.includes(path) ? ['forbidden' as const] : []),
+            ...(!existsSync(resolve(paths.projectRoot, path)) ? ['new' as const] : []),
+          ],
+        })),
+        steps: extractExplicitSteps(plan.text),
+      },
+    } : {}),
+  };
+  if (JSON.stringify(state.canonical ?? {}) !== JSON.stringify(canonical)) {
+    state.canonical = canonical;
+    savePreparation(paths, state);
   }
-  return blockingQuestions(intent, true) ? 'открыт вопрос [исследование]: без него нельзя исследовать задачу' : null;
+}
+
+export function section(text: string, name: string): string { return intentSections(text).get(name)?.trim() ?? ''; }
+export type PreparationTableKind = 'acceptance' | 'basis';
+export interface PreparationTableNormalization { text: string; changed: boolean; problem: string | null; }
+
+function canonicalizeMarkdownClaimTables(intent: string): string | null {
+  const specs = [
+    { kind: 'acceptance' as const, title: 'Приёмочный лист' },
+    { kind: 'basis' as const, title: 'Основания и сценарии' },
+  ];
+  const replacements: { start: number; end: number; text: string }[] = [];
+  for (const spec of specs) {
+    const lines = intent.match(/.*(?:\r?\n|$)/gu) ?? [];
+    let offset = 0;
+    let sectionStart = -1;
+    let sectionEnd = lines.length;
+    for (let index = 0; index < lines.length; index++) {
+      if (sectionStart < 0 && /^#{1,2}\s+/u.test(lines[index]!) && lines[index]!.toLocaleLowerCase().includes(spec.title.toLocaleLowerCase())) sectionStart = index + 1;
+      else if (sectionStart >= 0 && /^#{1,2}\s+/u.test(lines[index]!)) { sectionEnd = index; break; }
+    }
+    if (sectionStart < 0) return null;
+    let tableStart = -1;
+    let tableEnd = -1;
+    let lineStartOffset = 0;
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index]!;
+      if (index >= sectionStart && index < sectionEnd && /^\s*\|/u.test(line)) {
+        if (tableStart < 0) { tableStart = index; lineStartOffset = offset; }
+        tableEnd = index;
+      } else if (tableStart >= 0) break;
+      offset += line.length;
+    }
+    if (tableStart < 0) return null;
+    const raw = lines.slice(tableStart, tableEnd + 1).join('');
+    const table = parseTables(raw)[0];
+    if (table === undefined) return null;
+    const headers = table.header.map((header) => header.replace(/`/gu, '').trim().toLocaleLowerCase());
+    const col = (matcher: RegExp, last = false): number => {
+      const matches = headers.map((header, index) => matcher.test(header) ? index : -1).filter((index) => index >= 0);
+      return matches.length === 0 ? -1 : last ? matches.at(-1)! : matches[0]!;
+    };
+    let rows: Record<string, string>[];
+    if (spec.kind === 'acceptance') {
+      const id = col(/^id$/u), behavior = col(/пункт|поведен/u), check = col(/провер/u);
+      if ([id, behavior, check].some((index) => index < 0)) return null;
+      rows = table.rows.map((row) => ({
+        id: (row[id] ?? '').replace(/`/gu, '').trim(),
+        behavior: row[behavior] ?? '',
+        procedure: row[check] ?? '',
+        expected: row[behavior] ?? '',
+      }));
+    } else {
+      const basis = col(/основан/u), scenario = col(/сценари/u), counterexample = col(/контрпример/u), id = col(/^id$/u, true);
+      if ([basis, scenario, counterexample, id].some((index) => index < 0)) return null;
+      rows = table.rows.map((row) => ({
+        id: (row[id] ?? '').replace(/`/gu, '').trim(),
+        basis: row[basis] ?? '',
+        scenario: row[scenario] ?? '',
+        counterexample: row[counterexample] ?? '',
+      }));
+    }
+    const marker = `<!-- sdlc-json:${spec.kind}:start -->\n${JSON.stringify(rows)}\n<!-- sdlc-json:${spec.kind}:end -->`;
+    const endOffset = lines.slice(0, tableEnd + 1).join('').length;
+    replacements.push({ start: lineStartOffset, end: endOffset, text: marker });
+  }
+  let result = intent;
+  for (const replacement of replacements.sort((a, b) => b.start - a.start)) {
+    result = result.slice(0, replacement.start) + replacement.text + result.slice(replacement.end);
+  }
+  return result;
+}
+
+/** Convert model-authored JSON arrays into Markdown tables owned by the Runner. */
+export function normalizePreparationTables(intent: string, required = false): PreparationTableNormalization {
+  const specs: { kind: PreparationTableKind; fields: string[]; headers: string[] }[] = [
+    { kind: 'acceptance', fields: ['id', 'behavior', 'procedure', 'expected'], headers: ['ID', 'Пункт', 'Как проверить (процедура + критерий)'] },
+    { kind: 'basis', fields: ['id', 'basis', 'scenario', 'counterexample'], headers: ['Основание', 'Сценарий', 'Контрпример', 'ID'] },
+  ];
+  let text = intent;
+  let changed = false;
+  if (required && !intent.includes('sdlc-json:acceptance:start') && !intent.includes('sdlc-json:basis:start')) {
+    const legacy = canonicalizeMarkdownClaimTables(intent);
+    if (legacy !== null) return normalizePreparationTables(legacy, true);
+  }
+  const rendered = new Map<PreparationTableKind, Record<string, string>[]>();
+  let foundMarkers = 0;
+  for (const spec of specs) {
+    const marker = new RegExp(`<!--\\s*sdlc-json:${spec.kind}:start\\s*-->([\\s\\S]*?)<!--\\s*sdlc-json:${spec.kind}:end\\s*-->`, 'u');
+    const match = marker.exec(text);
+    if (match === null) continue;
+    foundMarkers++;
+    const payload = (match[1] ?? '').trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
+    let rows: unknown;
+    try { rows = JSON.parse(payload); } catch {
+      return { text, changed, problem: `Сформируй блок ${spec.kind} как JSON-массив объектов с полями: ${spec.fields.join(', ')}.` };
+    }
+    if (!Array.isArray(rows) || rows.length === 0 || rows.some((row) =>
+      typeof row !== 'object' || row === null || spec.fields.some((field) => typeof (row as Record<string, unknown>)[field] !== 'string' || !(row as Record<string, string>)[field]!.trim()) ||
+      Object.keys(row as object).length !== spec.fields.length)) {
+      return { text, changed, problem: `JSON-блок ${spec.kind} должен быть непустым массивом объектов с обязательными строковыми полями: ${spec.fields.join(', ')}. Лишние поля запрещены.` };
+    }
+    const typedRows = rows as Record<string, string>[];
+    const ids = typedRows.map((row) => row.id!);
+    if (ids.some((id) => !/^claim-\d+$/u.test(id)) || new Set(ids).size !== ids.length) {
+      return { text, changed, problem: `В JSON-блоке ${spec.kind} укажи уникальные ID формата claim-N.` };
+    }
+    rendered.set(spec.kind, typedRows);
+    const markdownRows = [
+      `| ${spec.headers.map(escapeCell).join(' | ')} |`,
+      `|${spec.headers.map(() => '---').join('|')}|`,
+      ...typedRows.map((row) => spec.kind === 'acceptance'
+        ? `| ${escapeCell(row.id!)} | ${escapeCell(row.behavior!)} | ${escapeCell(`Процедура: ${row.procedure!}. Ожидаемо: ${row.expected!}`)} |`
+        : `| ${escapeCell(row.basis!)} | ${escapeCell(row.scenario!)} | ${escapeCell(row.counterexample!)} | ${escapeCell(row.id!)} |`),
+    ].join('\n');
+    text = text.replace(marker, markdownRows);
+    changed = true;
+  }
+  if (required && foundMarkers !== specs.length) {
+    return { text: intent, changed: false, problem: 'Восстанови оба блока JSON-маркерами sdlc-json:acceptance и sdlc-json:basis; не записывай эти данные Markdown-таблицами.' };
+  }
+  const acceptance = rendered.get('acceptance');
+  const basis = rendered.get('basis');
+  if (acceptance !== undefined && basis !== undefined) {
+    const left = new Set(acceptance.map((row) => row.id));
+    const right = new Set(basis.map((row) => row.id));
+    if (left.size !== right.size || [...left].some((id) => !right.has(id))) {
+      return { text: intent, changed: false, problem: 'JSON-блоки acceptance и basis должны содержать одинаковый набор claim-N, по одной строке на ID.' };
+    }
+  }
+  return { text, changed, problem: null };
+}
+
+function substantive(text: string): boolean { return text.trim().length > 0 && !/[‹›]/u.test(text); }
+function hasSubstantiveIntentLabel(text: string, labels: readonly string[]): boolean {
+  return labels.some((label) => {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+    const match = new RegExp(`(?:^|\\n)\\s*(?:#+\\s*)?(?:\\*\\*)?${escaped}(?:\\*\\*)?\\s*:?\\s*([^\\n]*)`, 'u').exec(text);
+    return match !== null && substantive(match[1] ?? '');
+  });
+}
+export function researchProblem(intent: string): string | null {
+  const required: { name: string; labels: string[] }[] = [
+    { name: 'Коротко', labels: ['Коротко', 'Кратко', 'Назначение', 'Цель'] },
+    { name: 'Зачем', labels: ['Зачем', 'Проблема', 'Контекст'] },
+    { name: 'Что делаем', labels: ['Что делаем', 'Желаемый результат', 'Что должно получиться', 'Требования'] },
+    { name: 'Чего не делаем', labels: ['Чего не делаем', 'Что не делаем', 'Не делаем', 'Границы', 'Ограничения'] },
+  ];
+  const sections = intentSections(intent);
+  for (const field of required) {
+    const hasSection = field.labels.some((label) => substantive(sections.get(label) ?? ''));
+    if (!hasSection && !hasSubstantiveIntentLabel(intent, field.labels)) {
+      return `для исследования заполни «${field.name}»: цель, результат и границы`;
+    }
+  }
+  // A research question is the reason to enter `explore`, not a blocker to it.
+  // Unresolved behavioral questions are checked after exploration in `requirementProblem`.
+  return null;
 }
 /** Неблокирующие вопросы разрешено сохранять открытыми. Непомеченный вопрос блокирует реализацию. */
 export function blockingQuestions(text: string, researchOnly = false): boolean {
   return text.split(/\r?\n/u).some((line) => /^\s*[-*+]\s*\[\s*\]/u.test(line) &&
     (researchOnly ? /\[исследование\]/iu.test(line) : !/\[неблокирующий\]/iu.test(line)));
 }
-export function requirementProblem(intent: string): string | null {
+export function requirementProblem(intent: string, canonical?: PreparationCanonicalV3['requirements']): string | null {
   const first = researchProblem(intent);
   if (first !== null) return first;
   if (blockingQuestions(intent)) return 'остались существенные вопросы: вернись к уточнениям до реализации';
-  const claims = parseTables(section(intent, 'Приёмочный лист')).flatMap((t) => t.rows);
+  if (canonical !== undefined && canonical.documentHash !== sourceHash(intent)) return 'структурированные требования устарели относительно intent; повтори нормализацию требований';
+  const claims = canonical?.acceptance.map((item) => [item.id, item.behavior, `${item.procedure} ${item.expected}`]) ??
+    parseTables(section(intent, 'Приёмочный лист')).flatMap((t) => t.rows);
   if (claims.length === 0) return 'нет сценариев приёмки';
   const ids = new Set<string>();
   for (const row of claims) {
     const id = claimIdOf('| ' + row.join(' | ') + ' |');
-    if (id === null || ids.has(id) || !substantive(row[1] ?? '') || !substantive(row[2] ?? '')) return 'приёмка: нужны уникальные claim-N, поведение и процедура с ожидаемым результатом';
+    if (id === null || ids.has(id) || !substantive(row[1] ?? '') || !substantive(row[2] ?? '') ||
+        (canonical !== undefined && canonical.acceptance.some((item) => item.id === id && (!substantive(item.procedure) || !substantive(item.expected))))) {
+      return 'приёмка: нужны уникальные claim-N, поведение и процедура с ожидаемым результатом';
+    }
     ids.add(id);
+  }
+  if (canonical !== undefined) {
+    const seen = new Set<string>();
+    for (const row of canonical.basis) {
+      if (!ids.has(row.id) || seen.has(row.id) || !substantive(row.basis) || !substantive(row.scenario) || !substantive(row.counterexample)) {
+        return 'структурированные основания должны однозначно покрывать каждое требование и содержать сценарий с контрпримером';
+      }
+      seen.add(row.id);
+    }
+    return seen.size === ids.size ? null : 'у части требований нет основания, сценария или контрпримера';
   }
   const table = parseTables(section(intent, 'Основания и сценарии'))[0];
   const labels = ['ID', 'Основание', 'Сценарий', 'Контрпример'];
@@ -94,6 +459,7 @@ export function planContentHash(plan: string): string {
 export function preparationFingerprint(paths: WitokPaths): string {
   return createHash('sha256').update(JSON.stringify({
     requests: preparation(paths)?.requests,
+    readEvidence: preparation(paths)?.readEvidence ?? [],
     requirements: resolvedRequirementsHash(readArtifact(paths.intent).text, readArtifact(paths.clarificationReport).text),
     plan: planContentHash(readArtifact(paths.plan).text),
     research: readArtifact(paths.explorationReport).text,
@@ -102,11 +468,24 @@ export function preparationFingerprint(paths: WitokPaths): string {
 export function preparationReviewProblem(paths: WitokPaths): string | null {
   const state = preparation(paths);
   if (state === null) return null;
-  const problem = requirementProblem(readArtifact(paths.intent).text);
+  const problem = requirementProblem(readArtifact(paths.intent).text,
+    state.version === 3 && state.structuredTablesRendered === true ? state.canonical?.requirements : undefined);
   if (problem !== null) return problem;
+  const planArtifact = readArtifact(paths.plan);
+  if (planArtifact.exists) {
+    const sourceProblem = preparationPlanEvidenceProblem(paths, planArtifact.text);
+    if (sourceProblem !== null) return sourceProblem;
+  }
   const review = state.review;
-  if (review === undefined || !review.completed || review.fingerprint !== preparationFingerprint(paths) ||
-      (approvedPreparationProblem(paths) !== null && !reviewSourcesCurrent(paths, review))) return 'нужна независимая проверка текущей редакции требований, плана и исходников: повтори этап plan';
+  if (review === undefined) return 'независимая проверка ещё не проводилась; заверши проверку требований и плана';
+  if (!review.completed) {
+    const diagnostic = review.issues.find((issue) => issue.trim() !== '');
+    return diagnostic === undefined
+      ? 'независимая проверка не завершилась; повтори проверку требований и плана'
+      : `независимая проверка не завершилась: ${diagnostic}`;
+  }
+  if (review.fingerprint !== preparationFingerprint(paths) ||
+      (approvedPreparationProblem(paths) !== null && !reviewSourcesCurrent(paths, review))) return 'требования, план или исходники изменились после ревью; повтори проверку актуальной редакции';
   return review.issues.length === 0 ? null : 'проработка требует исправлений:\n' + review.issues.map((issue) => '- ' + issue).join('\n');
 }
 
@@ -124,20 +503,27 @@ export function reviewSourcesCurrent(paths: WitokPaths, review: PreparationRevie
 export function approvePreparation(paths: WitokPaths, operator: string, now: Date): void {
   const state = preparation(paths);
   if (state === null) return;
+  syncCanonicalPreparation(paths);
+  const current = preparation(paths)!;
   const problem = preparationReviewProblem(paths);
   if (problem !== null) throw new Error(problem);
   const intent = readArtifact(paths.intent).text;
   const clarifications = readArtifact(paths.clarificationReport).text;
   const plan = readArtifact(paths.plan).text;
-  const previous = state.revisions.at(-1);
-  const requestsHash = sourceHash(JSON.stringify(state.requests));
+  const previous = current.revisions.at(-1);
+  const requestsHash = sourceHash(JSON.stringify(current.requests));
   if (previous?.requestsHash === requestsHash && previous.requirementsHash === resolvedRequirementsHash(intent, clarifications) && previous.planHash === planContentHash(plan)) return;
-  state.revisions.push({ revision: state.revisions.length + 1, requestsHash, requirementsHash: resolvedRequirementsHash(intent, clarifications), planHash: planContentHash(plan), intent, clarifications, plan, approvedBy: operator, approvedAt: now.toISOString() });
-  savePreparation(paths, state);
+  current.revisions.push({ revision: current.revisions.length + 1, requestsHash, requirementsHash: resolvedRequirementsHash(intent, clarifications), planHash: planContentHash(plan), intent, clarifications, plan, approvedBy: operator, approvedAt: now.toISOString() });
+  savePreparation(paths, current);
 }
 export function approvedPreparationProblem(paths: WitokPaths): string | null {
   const state = preparation(paths);
   if (state === null) return null;
+  const planArtifact = readArtifact(paths.plan);
+  if (planArtifact.exists) {
+    const sourceProblem = preparationPlanEvidenceProblem(paths, planArtifact.text);
+    if (sourceProblem !== null) return sourceProblem;
+  }
   const approved = state.revisions.at(-1);
   if (approved === undefined) return 'актуальная редакция требований и плана ещё не подтверждена человеком';
   if (readDecision(readArtifact(paths.plan).text, 'Одобрение').state !== 'granted' ||
@@ -146,22 +532,104 @@ export function approvedPreparationProblem(paths: WitokPaths): string | null {
       approved.planHash !== planContentHash(readArtifact(paths.plan).text)) return 'требования или план изменились после подтверждения; вернись к проработке и подтверди новую редакцию';
   return null;
 }
-export function preparationContext(paths: WitokPaths): string | null {
+function approvedClaims(intent: string): Map<string, string> {
+  const table = parseTables(section(intent, 'Приёмочный лист'))[0];
+  if (table === undefined) return new Map();
+  const idColumn = columnIndex(table.header, 'id');
+  const pointColumn = columnIndex(table.header, 'пункт');
+  const checkColumn = columnIndex(table.header, 'как проверить');
+  if (idColumn < 0 || pointColumn < 0 || checkColumn < 0) return new Map();
+  const claims = new Map<string, string>();
+  for (const row of table.rows) {
+    const id = claimIdOf(`| ${row.join(' | ')} |`);
+    if (id === null) continue;
+    claims.set(id, `${row[pointColumn] ?? ''} — ${row[checkColumn] ?? ''}`.trim());
+  }
+  return claims;
+}
+
+function bounded(text: string, maxChars: number): string {
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n…[фрагмент сокращён; полная редакция сохранена рантаймом]`;
+}
+
+/**
+ * Дополнительный контекст, которого нет во входных артефактах конкретного этапа.
+ * Сам intent/exploration/clarification/plan уже подаются через `stageInputs`; повторная
+ * передача всех документов здесь раздувала каждый запрос и историю цикла. Оставляем только
+ * сведения о предыдущем подтверждении, ответы человека на этапе вопросов и замечания
+ * независимой проверки плана.
+ */
+export function preparationContext(paths: WitokPaths, stage: StageId): string | null {
   const state = preparation(paths);
   if (state === null) return null;
+  if (!['intent', 'ask', 'plan'].includes(stage)) return null;
   const last = state.revisions.at(-1);
-  return [
-    '## Проработка v2: исходные запросы пользователя (дословно)', ...state.requests,
-    '## Актуальные требования — intent.md', readArtifact(paths.intent).text,
-    '## Решения человека — clarification-report.md', readArtifact(paths.clarificationReport).text,
-    last === undefined ? 'Статус требований: черновик, подтверждения ещё нет.' : `Последняя подтверждённая редакция: ${last.revision}. ${approvedPreparationProblem(paths) ?? 'Текущие требования и план подтверждены.'}`,
-    ...(last === undefined ? [] : ['## Последняя подтверждённая редакция требований для сравнения', last.intent]),
-    ...(state.review === undefined ? [] : ['## Последняя критика плана (проверь актуальность)', ...state.review.issues]),
-  ].join('\n\n');
+  const parts: string[] = [];
+  if (stage === 'intent') {
+    if (last === undefined) return null;
+    const claims = approvedClaims(last.intent);
+    parts.push(`## Предыдущие подтверждённые требования (редакция ${last.revision})`);
+    parts.push(claims.size === 0
+      ? 'Приёмочных требований в предыдущей редакции не было.'
+      : [...claims].map(([id, text]) => `- ${id}: ${text}`).join('\n'));
+    parts.push('На повторном входе сначала прочитай текущий intent.md и сохраняй ID неизменённых требований.');
+  }
+  if (stage === 'ask') {
+    const clarification = readArtifact(paths.clarificationReport);
+    const facts = extractHumanFacts(clarification.exists ? clarification.text : '');
+    if (facts.length === 0) return null;
+    parts.push('## Уже записанные ответы человека (дословные факты; не спрашивай повторно)');
+    parts.push(facts.map((fact, i) => [
+      `${i + 1}. Вопрос: ${fact.question}`,
+      `Ответ: ${fact.answer}`,
+      ...(fact.changed === '' ? [] : [`Отражение в задаче: ${fact.changed}`]),
+    ].join('\n')).join('\n\n'));
+  }
+  if (stage === 'plan') {
+    if (last !== undefined) {
+      const previous = approvedClaims(last.intent);
+      const currentIntent = readArtifact(paths.intent).text;
+      const current = approvedClaims(currentIntent);
+      const ids = new Set([...previous.keys(), ...current.keys()]);
+      const changes = [...ids].filter((id) => previous.get(id) !== current.get(id));
+      parts.push(`## Сверка с последней подтверждённой редакцией ${last.revision}`);
+      parts.push(changes.length === 0
+        ? 'Тексты требований claim-N не изменились.'
+        : changes.map((id) => {
+            const before = previous.get(id);
+            const after = current.get(id);
+            if (before === undefined) return `- Добавлен ${id}: ${after}`;
+            if (after === undefined) return `- Удалён ${id}: ${before}`;
+            return `- Изменён ${id}: было «${before}»; стало «${after}»`;
+          }).join('\n'));
+      const oldSections = intentSections(last.intent);
+      const newSections = intentSections(currentIntent);
+      const sectionChanges = [...new Set([...oldSections.keys(), ...newSections.keys()])]
+        .filter((name) => name !== 'Приёмочный лист' && oldSections.get(name) !== newSections.get(name));
+      if (sectionChanges.length > 0) {
+        parts.push('Изменения остальных разделов intent (фрагменты ограничены; текущий intent.md — источник полной редакции):');
+        parts.push(sectionChanges.map((name) => {
+          const before = oldSections.get(name);
+          const after = newSections.get(name);
+          if (before === undefined) return `- Добавлен раздел «${name}»: ${bounded(after ?? '', 700)}`;
+          if (after === undefined) return `- Удалён раздел «${name}»: ${bounded(before, 700)}`;
+          return `- Изменён раздел «${name}»: было «${bounded(before, 700)}»; стало «${bounded(after, 700)}»`;
+        }).join('\n'));
+      }
+    } else {
+      parts.push('Это первая редакция; сравнивай требования с исходным запросом и объясни уточнения в плане.');
+    }
+    if (state.review !== undefined && state.review.issues.length > 0) {
+      parts.push('## Замечания независимой проверки к прошлой редакции плана');
+      parts.push(state.review.issues.map((issue, i) => `${i + 1}. ${bounded(issue, 1_000)}`).join('\n'));
+    }
+  }
+  return parts.length === 0 ? null : parts.join('\n\n');
 }
 
 /** Для решения человека: текущая редакция и фактические отличия от последней одобренной. */
 export function preparationSummary(paths: WitokPaths): PreparationSummary | null {
+  syncCanonicalPreparation(paths);
   const state = preparation(paths);
   if (state === null) return null;
   const requirements = readArtifact(paths.intent).text;
@@ -171,7 +639,7 @@ export function preparationSummary(paths: WitokPaths): PreparationSummary | null
   const confirmed = approvedPreparationProblem(paths) === null;
   const problem = preparationReviewProblem(paths);
   return {
-    version: 2, fingerprint: preparationFingerprint(paths), revision: state.revisions.length + (confirmed ? 0 : 1), confirmed,
+    version: state.version, ...(state.canonical === undefined ? {} : { canonical: state.canonical }), fingerprint: preparationFingerprint(paths), revision: state.revisions.length + (confirmed ? 0 : 1), confirmed,
     readyToApprove: problem === null, issues: problem === null ? [] : [problem], requirements,
     changes: [...new Set([...before.keys(), ...after.keys()])].filter((name) => before.get(name) !== after.get(name)).map((name) => ({ section: name, before: before.get(name) ?? '', after: after.get(name) ?? '' })),
   };

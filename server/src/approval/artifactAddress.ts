@@ -50,6 +50,32 @@ export function readdressOwnArtifact(call: NormalizedCall, ctx: PolicyContext): 
   const artifacts = ctx.stageArtifacts ?? [];
   if (artifacts.length === 0) return null;
   const ci = isWindowsStyle(ctx.projectRoot);
+  // Some models join the artifact directory and filename with `(` instead of
+  // `/`, e.g. `.sdlc/run-slug(intent.md`. Repair only this exact typo for a
+  // known stage artifact under the run's .sdlc directory. The canonical path
+  // still goes through the normal policy checks below.
+  const malformed = artifacts.find((artifact) => {
+    const canonical = lexicalNormalize(artifact.path);
+    const canonicalRel = relativizeWithin(ctx.projectRoot, canonical);
+    if (canonicalRel === null || !pathsEqual(canonicalRel.split('/')[0] ?? '', '.sdlc', ci)) return false;
+    const slash = canonicalRel.lastIndexOf('/');
+    if (slash < 0) return false;
+    const file = canonicalRel.slice(slash + 1);
+    const expectedTypos = [
+      `${canonicalRel.slice(0, slash)}(${file}`,
+      `${canonicalRel.slice(0, slash)}(${file})`,
+    ];
+    const requestedRel = relativizeWithin(ctx.projectRoot, resolveUserPath(ctx.projectRoot, call.path));
+    return requestedRel !== null && expectedTypos.some((typo) => pathsEqual(requestedRel, typo, ci));
+  });
+  if (malformed !== undefined) {
+    const canonical = lexicalNormalize(malformed.path);
+    const rel = relativizeWithin(ctx.projectRoot, canonical);
+    if (rel === null || (ctx.planFiles ?? []).some((p) => pathsEqual(rel, normalizePlanPath(ctx.projectRoot, p), ci))) {
+      return null;
+    }
+    return { from: call.path, to: canonical, key: malformed.key };
+  }
   const name = basename(lexicalNormalize(call.path));
   if (name === '') return null;
   const entry = artifacts.find((a) => pathsEqual(basename(lexicalNormalize(a.path)), name, ci));

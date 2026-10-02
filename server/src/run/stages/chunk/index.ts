@@ -5,6 +5,7 @@
  */
 
 import { DECISION, readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
+import { isPreparationV2 } from '../../../artifacts/preparation.ts';
 import { attemptDiff } from '../../../gates/git.ts';
 import { preflightGateBlockers } from '../../../gates/preflight.ts';
 import { ensureSandboxFor } from '../../../sandbox/registry.ts';
@@ -273,7 +274,15 @@ export const chunkModule: StageModule = {
     // доезжали, и он заново угадывал, что именно не сошлось.
     enterFacts: async () => {
       const carried = host.carryForward();
-      return carried === null ? [] : [carried];
+      const facts = carried === null ? [] : [carried];
+      if (isPreparationV2(host.paths)) {
+        const plan = readArtifact(host.paths.plan);
+        const approvedOn = plan.exists ? approvedPlanDate(plan.text) : null;
+        if (approvedOn !== null) {
+          facts.push(`## Объём уже одобренного плана\n\nЧеловек одобрил текущие точки правки в плане (${approvedOn}); рантайм проверяет их перед реализацией. Не запрашивай повторное подтверждение этих точек. Вноси изменения в исходные файлы инструментами Edit/Write, не печатай патч или готовый код только в сообщении. Поведенческие вопросы, не решённые планом, по-прежнему передавай человеку.`);
+        }
+      }
+      return facts;
     },
 
     autofill: (seeded) => autofillJournal(host, seeded),

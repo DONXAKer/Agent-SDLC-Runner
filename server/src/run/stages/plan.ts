@@ -2,7 +2,16 @@
 
 import { existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { isPreparationV2, requirementProblem, preparationReviewProblem } from '../../artifacts/preparation.ts';
+import {
+  isPreparationV2,
+  preparation,
+  requirementProblem,
+  preparationReviewProblem,
+  preparationPlanEvidenceProblem,
+  sourceHash,
+  section,
+  syncCanonicalPreparation,
+} from '../../artifacts/preparation.ts';
 import { reviewPreparation } from '../preparationReview.ts';
 
 import type { NormalizedCall } from '@sdlc-runner/shared';
@@ -12,12 +21,15 @@ import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { planAxisProblems, unansweredAxes } from '../../artifacts/planAxes.ts';
 import {
   addedBeyondPlanPaths,
+  appendFilesToTouch,
   excludedFromPlanPaths,
   extractFilesToTouch,
+  filesToTouchDirectories,
   seedFilesToTouch,
+  removeFilesFromTouch,
   touchListEntries,
 } from '../../artifacts/planFiles.ts';
-import { explicitStepProblems, extractExplicitSteps, planSteps } from '../../artifacts/planSteps.ts';
+import { appendMissingPlanStepCards, explicitStepProblems, extractExplicitSteps, planSteps } from '../../artifacts/planSteps.ts';
 import { addRequirementsHash, readRequirementsHash, resolvedRequirementsHash } from '../../artifacts/resolvedRequirements.ts';
 import { clarificationResolutionBlock, clarificationResolutionProblem } from '../../artifacts/clarificationResolution.ts';
 import { claimIdOf } from '../../artifacts/claims.ts';
@@ -28,10 +40,10 @@ import { readTree } from '../../explore/tree.ts';
 import { callersOf } from '../../explore/symbols.ts';
 import { capBytes } from '../../prompt/bytes.ts';
 import type { GatesFile } from '../../gates/gatesFile.ts';
-import { h2SectionRanges } from '../../md/table.ts';
+import { h2SectionRanges, parseTables } from '../../md/table.ts';
 import { ProviderEnvError } from '../../provider/ChatProvider.ts';
 import { createProvider } from '../../provider/registry.ts';
-import { autofillPlan, autofillReadiness } from '../formAutofill.ts';
+import { acceptanceChecksFromIntent, autofillPlan, autofillReadiness } from '../formAutofill.ts';
 import { hasRuntimeReadiness, readinessRun2 } from '../readinessChecks.ts';
 import { fillPlanAxes } from '../planAxisFill.ts';
 import { fillPlanAxesStepwise } from '../planAxisStepwise.ts';
@@ -55,12 +67,295 @@ import type { StageContext, StageDef, StageHost, StageModule } from './types.ts'
 export function filesToTouchProblem(c: StageContext): string | null {
   const plan = readArtifact(c.paths.plan);
   if (!plan.exists) return null; // отсутствие плана ловит соседнее предусловие
+  const directories = filesToTouchDirectories(plan.text);
+  if (directories.length > 0) {
+    return `files_to_touch перечисляет каталоги вместо файлов: ${[...new Set(directories)].join(', ')}; укажи конкретный файл, который будет создан`;
+  }
   if (extractFilesToTouch(plan.text).length > 0) return null;
   return (
     `в files_to_touch плана нет ни одного пути: без него PlanScope выключится молча на ` +
     `этапе 5, и запись перестанет быть ограниченной планом. Впиши хотя бы один путь строкой ` +
     `таблицы.`
   );
+}
+
+/** Paths stated as implementation targets in Intent must survive into the executable plan. */
+export function extractIntentImplementationPaths(intentText: string): string[] {
+  const implementation = section(intentText, 'Что делаем');
+  // Intent often names read-only evidence in phrases such as "на основе анализа
+  // src/foo.ts". Require paths attached to implementation verbs, not every
+  // path mentioned in the prose; the approved plan still guards actual writes.
+  const required = [...implementation.matchAll(/(?:реализ\w*|реализац\w*|созда\w*|добав\w*|измен\w*|экспорт\w*|обнов\w*)[^\n.;]{0,180}?((?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12})/giu)]
+    .map((match) => (match[1] ?? '').replace(/\\/gu, '/'));
+  return [...new Set(required.filter((path) =>
+    path !== '' && !path.startsWith('/') && !/^[a-z]:/iu.test(path) && !path.split('/').includes('..'),
+  ))];
+}
+
+/** Explicit public-export paths in the original request are implementation targets too. */
+export function extractExplicitExportPaths(requests: readonly string[]): string[] {
+  const paths = requests.flatMap((request) =>
+    [...request.matchAll(/(?:export(?:ed)?|экспорт\p{L}*)[^\n.;]{0,180}?((?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12})/giu)]
+      .map((match) => (match[1] ?? '').replace(/\\/gu, '/')),
+  );
+  return [...new Set(paths.filter((path) =>
+    path !== '' && !path.startsWith('/') && !/^[a-z]:/iu.test(path) && !path.split('/').includes('..'),
+  ))];
+}
+
+export function intentNewTestPath(intentText: string, projectRoot: string, originalRequests: readonly string[] = []): string | null {
+  const requestText = originalRequests.join('\n');
+  const existingTestsForbidden = /(?:не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:существующ\p{L}*.{0,20})?(?:тест|test\/)|(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)\s+не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*))/iu
+    .test(section(intentText, 'Чего не делаем') + '\n' + requestText);
+  const requiresNewTestFile =
+    /нов\p{L}*\s+тест\p{L}*.{0,80}(?:отдельн\p{L}*\s+)?файл|тест\p{L}*.{0,80}(?:отдельн\p{L}*\s+)?нов\p{L}*\s+файл|(?:отдельн\p{L}*\s+)?нов\p{L}*\s+файл.{0,80}тест/iu.test(intentText + '\n' + requestText) ||
+    // If Intent forbids editing existing tests but names a test path or requires test
+    // coverage, planning against an existing file would make the task impossible.
+    (existingTestsForbidden && /(?:test\/|тест\p{L}*)/iu.test(intentText + '\n' + requestText));
+  if (!requiresNewTestFile) return null;
+  const implementation = section(intentText, 'Что делаем');
+  const symbol = /(?:функц(?:ия|ию|ии)?|function)\s+([A-Za-z_$][\w$]*)/iu.exec(implementation)?.[1] ??
+    /(?:функц(?:ия|ию|ии)?|function)\s+[`']?([A-Za-z_$][\w$]*)/iu.exec(intentText + '\n' + requestText)?.[1];
+  if (symbol === undefined) return null;
+  // Infer the new test target from this project's existing test naming pattern.
+  // If the repository offers no recognizable convention, let the plan author
+  // choose a path instead of assuming TypeScript, a `test/` directory, or a suffix.
+  const examples = readTree(projectRoot).files.filter((file) => file.kind === 'test').map((file) => file.path.replace(/\\/gu, '/'));
+  const conventions: { directory: string; makeName: (index: number) => string; extension: string }[] = [];
+  for (const example of examples) {
+    const slash = example.lastIndexOf('/');
+    const directory = slash < 0 ? '' : example.slice(0, slash + 1);
+    const basename = example.slice(slash + 1);
+    const jestStyle = /^.+\.test\.(.+)$/iu.exec(basename);
+    if (jestStyle !== null) {
+      const extension = jestStyle[1]!;
+      conventions.push({ directory, extension, makeName: (index) => `${symbol}${index === 0 ? '' : `.${index}`}.test.${extension}` });
+      continue;
+    }
+    const goStyle = /^.+_test\.go$/iu.test(basename);
+    if (goStyle) {
+      conventions.push({ directory, extension: 'go', makeName: (index) => `${symbol}${index === 0 ? '' : `_${index}`}_test.go` });
+      continue;
+    }
+    if (/^test_.+\.py$/iu.test(basename)) {
+      conventions.push({ directory, extension: 'py', makeName: (index) => `test_${symbol.replace(/[A-Z]/gu, (letter) => `_${letter.toLowerCase()}`)}${index === 0 ? '' : `_${index}`}.py` });
+    }
+  }
+  const unique = new Map(conventions.map((convention) => [`${convention.directory}:${convention.extension}`, convention]));
+  for (const convention of unique.values()) {
+    for (let index = 0; index < 10; index++) {
+      const candidate = `${convention.directory}${convention.makeName(index)}`;
+      if (!existsSync(join(projectRoot, candidate))) return candidate;
+    }
+  }
+  return null;
+}
+
+export function intentImplementationPathsProblem(
+  intentText: string,
+  planText: string,
+  additionalRequiredPaths: readonly string[] = [],
+): string | null {
+  const required = [...new Set([...extractIntentImplementationPaths(intentText), ...additionalRequiredPaths])];
+  const planned = new Set(extractFilesToTouch(planText).map((path) => path.replace(/\\/gu, '/')));
+  const missing = required.filter((path) => !planned.has(path));
+  return missing.length === 0
+    ? null
+    : `в «Что делаем» названы файлы реализации, отсутствующие в files_to_touch: ${missing.join(', ')}; добавь шаг на каждый такой файл`;
+}
+
+/** Reject explicit no-touch boundaries and cards whose action is aimed at another Intent target. */
+export function intentPlanBoundaryProblem(intentText: string, planText: string, projectRoot?: string): string | null {
+  const excluded = section(intentText, 'Чего не делаем');
+  const forbidden = new Set<string>();
+  for (const line of excluded.split(/\r?\n/u)) {
+    if (!/не\s+(?:измен\p{L}*|меня\p{L}*|модифицир\p{L}*|трога\p{L}*)/iu.test(line)) continue;
+    for (const match of line.matchAll(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12}/giu)) forbidden.add(match[0]);
+  }
+  const touched = extractFilesToTouch(planText);
+  const forbiddenTouched = touched.filter((path) => forbidden.has(path));
+  if (forbiddenTouched.length > 0) {
+    return `files_to_touch нарушает явную границу «Чего не делаем»: ${forbiddenTouched.join(', ')}; удали эти пути и их карточки.`;
+  }
+  const existingTestsForbidden = /(?:не\s+делаем|не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*)).{0,80}(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)|(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)\s+не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*)/iu
+    .test(section(intentText, 'Чего не делаем'));
+  if (existingTestsForbidden && projectRoot !== undefined) {
+    const editedExistingTests = touched.filter((path) => /^test\//iu.test(path) && existsSync(join(projectRoot, path)));
+    if (editedExistingTests.length > 0) {
+      return `files_to_touch включает существующие тесты, которые Intent запрещает менять: ${editedExistingTests.join(', ')}; оставь только новый файл тестов.`;
+    }
+  }
+
+  const targets = extractIntentImplementationPaths(intentText);
+  const steps = extractExplicitSteps(planText);
+  for (const target of targets) {
+    if (target.startsWith('test/')) continue; // a test legitimately references the source it exercises
+    const step = steps.find((candidate) => candidate.file.replace(/\\/gu, '/') === target);
+    if (step === undefined) continue;
+    const action = `${step.title} ${step.action}`.replace(/\\/gu, '/').toLowerCase();
+    const otherTarget = targets.find((path) => path !== target && action.includes(path.toLowerCase()));
+    if (otherTarget !== undefined && !/(?:экспорт\p{L}*|export)/iu.test(action)) {
+      return `шаг ${step.n} адресован ${target}, но его действие описывает ${otherTarget}; перепиши действие для файла карточки.`;
+    }
+  }
+  return null;
+}
+
+/** Prepare mandatory Intent targets and editable per-file cards before the plan model starts. */
+export function preparePlanImplementationCards(
+  planText: string,
+  intentText: string,
+  projectRoot: string,
+  additionalRequiredPaths: readonly string[] = [],
+  originalRequests: readonly string[] = [],
+): { text: string; paths: string[] } {
+  const implementation = `${section(intentText, 'Что делаем')}\n${originalRequests.join('\n')}`;
+  const paths = extractIntentImplementationPaths(intentText);
+  const symbol = /(?:функц(?:ия|ию|ии)?|function)\s+([A-Za-z_$][\w$]*)/iu.exec(implementation)?.[1];
+  const checks = acceptanceChecksFromIntent(intentText);
+  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests);
+  const testCandidates = testPath === null ? [] : [testPath];
+  const mandatory = [...new Set([...paths, ...additionalRequiredPaths, ...(testPath === null ? [] : [testPath])])];
+  const planned = new Set(extractFilesToTouch(planText).map((path) => path.replace(/\\/gu, '/')));
+  const missing = mandatory.filter((path) => !planned.has(path));
+  const entries = missing.map((path) => ({
+    path,
+    note: testCandidates.includes(path)
+      ? 'новый файл для поведенческих тестов из acceptance листа'
+      : `${existsSync(join(projectRoot, path)) ? 'существующий' : 'новый'} файл из «Что делаем»; опиши конкретное изменение`,
+  }));
+  const added = appendFilesToTouch(planText, entries);
+  let text = added.text;
+  const fileSlot = /^(-\s*файл:\s*)‹существующий путь›\s*\(существующий\)/m;
+  const testFileSlot = /^(-\s*файл:\s*)‹новый путь теста›\s*\(новый\)/m;
+  const firstTarget = paths[0];
+  if (firstTarget !== undefined && fileSlot.test(text)) {
+    const state = existsSync(join(projectRoot, firstTarget)) ? 'существующий' : 'новый';
+    text = text.replace(fileSlot, `$1${firstTarget} (${state})`);
+  }
+  if (testPath !== null && testFileSlot.test(text)) {
+    text = text.replace(testFileSlot, `$1${testPath} (новый)`);
+  }
+  const cards = appendMissingPlanStepCards(text);
+  text = cards.text;
+
+  // Carry acceptance checks into the test-file step so they stay attached to
+  // the implementation target chosen by the requirements.
+  const testableChecks = checks.filter((check) =>
+    !/выбор.{0,35}(?:метод|способ)|зафиксир.{0,30}план/iu.test(`${check.behavior} ${check.procedure}`),
+  );
+  if (testableChecks.length > 0) {
+    const testStep = testPath === null ? undefined : extractExplicitSteps(text).find((step) => step.file === testPath);
+    const testTitle = testStep === undefined ? null : `### Шаг ${testStep.n} — ${testStep.title}`;
+    const testStart = testTitle === null ? -1 : text.indexOf(testTitle);
+    if (testStart >= 0) {
+      const nextHeading = /^###\s+Шаг\s+\d+\b/gmu;
+      nextHeading.lastIndex = testStart + (testTitle?.length ?? 0);
+      const next = nextHeading.exec(text)?.index ?? text.indexOf('\n## ', testStart);
+      const end = next < 0 ? text.length : next;
+      let card = text.slice(testStart, end);
+      const assertions = testableChecks.map((check) =>
+        `${check.id}: ${check.behavior}; ${check.procedure}; ожидаемо: ${check.expected}`,
+      );
+      card = card.replace(
+        /^(-\s*действие:\s*).*$/mu,
+        `$1Добавить поведенческие тесты: ${assertions.join('. ')}.`,
+      );
+      card = card.replace(/^(-\s*закрывает:\s*).*$/mu, `$1${testableChecks.map((check) => check.id).join(', ')}`);
+      text = text.slice(0, testStart) + card + text.slice(end);
+    }
+  }
+
+  // A public-export path is mechanically determined by Intent: give the model a
+  // concrete draft card instead of asking a small model to invent another nested form.
+  if (symbol !== undefined) {
+    for (const path of cards.paths) {
+      const pathAt = implementation.indexOf(path);
+      const exportTarget = pathAt >= 0 && /экспорт\p{L}*|export/iu.test(implementation.slice(Math.max(0, pathAt - 100), pathAt));
+      if (!exportTarget) continue;
+      const source = paths.find((candidate) => candidate !== path && implementation.indexOf(candidate) < pathAt);
+      const related = checks.filter((check) =>
+        `${check.behavior} ${check.procedure} ${check.expected}`.toLowerCase().includes(path.toLowerCase()),
+      );
+      const claimIds = related.map((check) => check.id);
+      if (claimIds.length === 0) continue;
+      const steps = extractExplicitSteps(text);
+      const dependency = source === undefined ? null : steps.find((step) => step.file === source)?.n ?? null;
+      const checkText = related.map((check) => `${check.procedure} · ожидаемо: ${check.expected}`).join('; ');
+      const action = `Экспортировать ${symbol} из ${source ?? 'модуля реализации'} через публичный вход ${path}; сохранить существующие экспорты.`;
+      const contract = `Добавить публичный экспорт ${symbol} из ${source ?? 'модуля реализации'} в ${path}; прежние экспорты остаются доступны.`;
+      const titleAt = text.indexOf(`— Изменить ${path}`);
+      if (titleAt < 0) continue;
+      const blockStart = text.lastIndexOf('### Шаг ', titleAt);
+      const nextHeading = /^###\s+Шаг\s+\d+\b/gmu;
+      nextHeading.lastIndex = titleAt;
+      const blockEnd = nextHeading.exec(text)?.index ?? text.indexOf('\n## ', titleAt);
+      const end = blockEnd < 0 ? text.length : blockEnd;
+      let card = text.slice(blockStart, end);
+      const replaceField = (field: string, value: string): void => {
+        card = card.replace(new RegExp(`^(-\\s*${field}:\\s*).*$`, 'mu'), `$1${value}`);
+      };
+      replaceField('символ', `новый: ${symbol}`);
+      replaceField('действие', action);
+      replaceField('закрывает', claimIds.join(', '));
+      replaceField('проверка', checkText);
+      replaceField('контракт', contract);
+      replaceField('зависит от', dependency === null ? 'нет' : `шаг ${dependency}`);
+      text = text.slice(0, blockStart) + card + text.slice(end);
+    }
+  }
+  return { text, paths: missing };
+}
+
+/** Reapply a task-mandated new test-file target if the model replaces it with an existing test. */
+export function enforceIntentTestFileTarget(
+  planText: string,
+  intentText: string,
+  projectRoot: string,
+  originalRequests: readonly string[] = [],
+): { text: string; path: string | null; changed: boolean } {
+  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests);
+  if (testPath === null) return { text: planText, path: null, changed: false };
+  let text = planText;
+  const boundaries = section(intentText, 'Чего не делаем');
+  const existingTestsForbidden = /существующ\p{L}*.{0,50}(?:тест|test\/)|не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:тест|test\/)/iu.test(boundaries);
+  if (existingTestsForbidden) {
+    const conflicting = extractFilesToTouch(text).filter((path) =>
+      path.startsWith('test/') && path !== testPath && existsSync(join(projectRoot, path)),
+    );
+    const directories = filesToTouchDirectories(text).filter((path) => path.startsWith('test/'));
+    const removed = removeFilesFromTouch(text, [...conflicting, ...directories]);
+    text = removed.text;
+    // A conflicting existing test may also have survived as a separate scaffolded
+    // card. Remove only cards for those forbidden files; retain the new test card.
+    const forbidden = new Set(conflicting.map((path) => path.toLowerCase()));
+    const heading = /^###\s*Шаг\s+\d+\b[^\r\n]*\r?\n/gmu;
+    const matches = [...text.matchAll(heading)];
+    const blocks = matches.map((match, index) => {
+      const start = match.index!;
+      const end = matches[index + 1]?.index ?? text.length;
+      const content = text.slice(start, end);
+      const file = /^-\s*файл:\s*([^\s(]+)/mu.exec(content)?.[1]?.replace(/[`;,]+$/gu, '').toLowerCase();
+      const testLike = /(?:тест|провер|test)/iu.test(`${match[0]}\n${content}`);
+      return { start, end, content, file, preserve: file !== undefined && forbidden.has(file) && testLike };
+    });
+    let rebuilt = '';
+    let cursor = 0;
+    for (const block of blocks) {
+      rebuilt += text.slice(cursor, block.start);
+      if (block.file === undefined || !forbidden.has(block.file) || block.preserve) {
+        rebuilt += block.preserve
+          ? block.content.replace(/(^-\s*файл:\s*)[^\r\n]*/mu, `$1${testPath} (новый)`)
+          : block.content;
+      }
+      cursor = block.end;
+    }
+    text = rebuilt + text.slice(cursor);
+  }
+  if (!extractFilesToTouch(text).includes(testPath)) {
+    text = appendFilesToTouch(text, [{ path: testPath, note: 'новый файл тестов, как требует задача' }]).text;
+  }
+  return { text, path: testPath, changed: text !== planText };
 }
 
 /**
@@ -130,6 +425,12 @@ export function planStepSampleTextProblem(c: StageContext): string | null {
   if (steps.length === 0) return null;
   const files = extractFilesToTouch(plan.text);
   for (const step of steps) {
+    if (step.isNew && existsSync(join(c.paths.projectRoot, step.file))) {
+      return (
+        `явная форма шага ${step.n} помечает существующий файл «${step.file}» как новый. ` +
+        'Укажи, что файл существующий, либо выбери новый путь, как требует задача.'
+      );
+    }
     if (files.includes(step.file) || step.isNew) continue;
     if (existsSync(join(c.paths.projectRoot, step.file))) continue;
     return (
@@ -149,6 +450,20 @@ export function planStepsProblem(c: StageContext): string | null {
   // Existing plans in the legacy files_to_touch form stay on the locator fallback.
   if (extractExplicitSteps(plan.text).length === 0) return null;
   const problems = explicitStepProblems(plan.text);
+  if (isPreparationV2(c.paths)) {
+    const intent = readArtifact(c.paths.intent);
+    const claims = parseTables(section(intent.text, 'Приёмочный лист'))
+      .flatMap((table) => table.rows)
+      .map((row) => claimIdOf(`| ${row.join(' | ')} |`))
+      .filter((id): id is string => id !== null);
+    const known = new Set(claims);
+    const steps = extractExplicitSteps(plan.text);
+    const referenced = steps.flatMap((step) => step.claims);
+    const missing = claims.filter((id) => !referenced.includes(id));
+    const unknown = referenced.filter((id) => !known.has(id));
+    if (missing.length > 0) problems.push(`ни один шаг не покрывает требования ${missing.join(', ')}`);
+    if (unknown.length > 0) problems.push(`шаги ссылаются на отсутствующие требования ${[...new Set(unknown)].join(', ')}`);
+  }
   if (problems.length === 0) return null;
   return `карточки шагов плана не готовы:\n${problems.map((p) => `- ${p}`).join('\n')}`;
 }
@@ -167,6 +482,8 @@ export function planMapProblem(c: StageContext): string | null {
   const steps = extractExplicitSteps(plan.text);
   if (steps.length === 0) return null;
   const files = new Set(extractFilesToTouch(plan.text));
+  const intentText = readArtifact(c.paths.intent).text;
+  const originalRequests = preparation(c.paths)?.requests ?? [];
   const index = readTree(c.paths.projectRoot);
   const issues: string[] = [];
   for (const step of steps) {
@@ -183,7 +500,11 @@ export function planMapProblem(c: StageContext): string | null {
       continue; // неиндексируемые форматы не дают надёжной проверки символов
     }
     if (step.symbol !== null && !indexed.symbols.some((symbol) => symbol.name === step.symbol)) {
-      issues.push(`шаг ${step.n}: символ ${step.symbol} не найден в ${step.file}`);
+      const namedByTask = originalRequests.some((request) => request.includes(step.symbol!));
+      const requiredInIntent = intentText.includes(step.symbol);
+      if (!(requiredInIntent && (step.isNewSymbol || namedByTask))) {
+        issues.push(`шаг ${step.n}: символ ${step.symbol} не найден в ${step.file} и не подтверждён как новый требуемый символ`);
+      }
     }
   }
   const callersProblem = planCallersProblem(c, plan.text, index);
@@ -453,6 +774,103 @@ export async function topUpAxes(host: StageHost, route: ResolvedRoute, system: s
   if (envFailure !== null) throw new ProviderEnvError(envFailure);
 }
 
+/** Only request and require the independent reviewer after the plan's hard gates pass. */
+function preparationReviewReady(host: StageHost): boolean {
+  if (!isPreparationV2(host.paths) || !readinessRun2(host.ctx()).ready) return false;
+  const plan = readArtifact(host.paths.plan);
+  if (!plan.exists) return false;
+  const ctx = host.ctx();
+  const requests = preparation(host.paths)?.requests ?? [];
+  const testTarget = enforceIntentTestFileTarget(plan.text, readArtifact(host.paths.intent).text, ctx.paths.projectRoot, requests);
+  return testTarget.text === plan.text &&
+    filesToTouchProblem(ctx) === null &&
+    planRequirementsProblem(ctx) === null &&
+    planClarificationProblem(ctx) === null &&
+    planMapProblem(ctx) === null &&
+    planStepsProblem(ctx) === null &&
+    planStepSampleTextProblem(ctx) === null &&
+    planTouchDiscrepancyProblem(ctx) === null &&
+    intentPlanBoundaryProblem(readArtifact(host.paths.intent).text, plan.text, ctx.paths.projectRoot) === null &&
+    intentImplementationPathsProblem(readArtifact(host.paths.intent).text, plan.text, extractExplicitExportPaths(requests)) === null &&
+    preparationPlanEvidenceProblem(host.paths, plan.text) === null &&
+    axisProblems(host).length === 0;
+}
+
+/** Re-send the verified source cards from Explore so the plan author can reason from code. */
+export function preparationSourceFacts(paths: StageHost['paths']): string | null {
+  const state = preparation(paths);
+  const evidence = state?.readEvidence?.filter((entry) => entry.stage === 'explore') ?? [];
+  if (evidence.length === 0) return null;
+  const files = new Map(readTree(paths.projectRoot).files.map((file) => [file.path.replace(/\\/gu, '/'), file]));
+  const cards: string[] = [];
+  const contractFacts: string[] = [];
+  let remaining = 24_000;
+  for (const entry of evidence) {
+    if (remaining <= 0) break;
+    const file = files.get(entry.path.replace(/\\/gu, '/'));
+    if (file === undefined || sourceHash(file.text) !== entry.sourceHash) continue;
+    const excerpt = capBytes(file.text, Math.min(8_000, remaining));
+    remaining -= Buffer.byteLength(excerpt.text, 'utf8');
+    cards.push(`### ${entry.path}\n${excerpt.text}${excerpt.text.length < file.text.length ? '\n[исходник обрезан]' : ''}`);
+    const lines = file.text.split(/\r?\n/u);
+    for (let i = 0; i < lines.length && contractFacts.length < 8; i++) {
+      if (!/(?:snapshot|immutable|notStrictEqual|does not mutate|снимок|неизменяем|не мутирует|возвращает новый объект|новый объект)/iu.test(lines[i]!)) continue;
+      const testDecl = entry.path.startsWith('test/')
+        ? [...lines.slice(Math.max(0, i - 40), i + 1)].reverse().find((line) => /\b(?:it|test)\s*\(/u.test(line))
+        : undefined;
+      const symbolDecl = testDecl ??
+        lines.slice(i, Math.min(lines.length, i + 6)).find((line) => /\bexport\s+(?:interface|type|function|class)\s+[\w$]+/u.test(line)) ??
+        [...lines.slice(Math.max(0, i - 20), i + 1)].reverse().find((line) => /\bexport\s+(?:interface|type|function|class)\s+[\w$]+/u.test(line));
+      const name = testDecl === undefined
+        ? /\bexport\s+(?:interface|type|function|class)\s+([\w$]+)/u.exec(symbolDecl ?? '')?.[1] ?? 'source'
+        : /\b(?:it|test)\s*\(\s*['"`]([^'"`]+)['"`]/u.exec(testDecl)?.[1]?.trim().replace(/[^\p{L}\p{N}_$-]+/gu, '-') ?? 'test';
+      const fact = `${entry.path}:${name} (L${i + 1}): ${lines[i]!.trim().slice(0, 280)}`;
+      if (!contractFacts.includes(fact)) contractFacts.push(fact);
+    }
+  }
+  if (cards.length === 0) return null;
+  return [
+    'Исходники, прочитанные рантаймом на этапе explore. Используй их для выбора подхода и укажи конкретное основание. Не выводи желаемое поведение только из текущей реализации.',
+    ...(contractFacts.length > 0 ? ['Короткие выдержки о контрактах и неизменяемости (точные строки; используй их как отдельные проверяемые инварианты и покрой их тестами):', ...contractFacts] : []),
+    ...cards,
+  ].join('\n\n');
+}
+
+/** Feed concrete independent-review findings back into the next plan revision. */
+export function preparationReviewFacts(paths: StageHost['paths']): string | null {
+  const review = preparation(paths)?.review;
+  if (review === undefined || review.issues.length === 0) return null;
+  return [
+    'Предыдущая независимая проверка нашла расхождения в прежней редакции. Сверь каждое замечание с исходным запросом и переданными исходниками; исправь подтверждённые ошибки и не принимай неподтверждённые выводы проверки как новые требования.',
+    review.independent.trim(),
+    ...review.issues.map((issue) => `- ${issue}`),
+  ].filter(Boolean).join('\n\n');
+}
+
+/**
+ * `files_to_touch` duplicates the paths already named by explicit plan steps. Compact
+ * form filling can occasionally preserve only part of this duplicated list. Reconcile
+ * missing allowlist entries from explicit steps; all normal
+ * discrepancy, path, and new-file gates still validate the recovered entries.
+ */
+function reconcileTouchListFromSteps(host: StageHost): void {
+  const plan = readArtifact(host.paths.plan);
+  if (!plan.exists) return;
+  const steps = extractExplicitSteps(plan.text);
+  if (steps.length === 0) return;
+  const allowlisted = new Set(extractFilesToTouch(plan.text));
+  const entries = steps.map((step) => ({
+    path: step.file,
+    note: `${step.isNew ? 'новый файл — ' : ''}${step.action}`,
+  }));
+  const missing = entries.filter((entry) => !allowlisted.has(entry.path));
+  if (missing.length === 0) return;
+  const reconciled = allowlisted.size === 0
+    ? seedFilesToTouch(plan.text, missing)
+    : appendFilesToTouch(plan.text, missing);
+  if (reconciled.text !== plan.text) host.writeAutofilled(host.paths.plan, reconciled.text, []);
+}
+
 export const planStage: StageDef = {
   id: 'plan',
   skill: 'sdlc-plan',
@@ -508,6 +926,9 @@ export const planModule: StageModule = {
           const head = await host.head();
           const intent = readArtifact(host.paths.intent);
           const clarification = readArtifact(host.paths.clarificationReport);
+          const originalRequests = preparation(host.paths)?.requests ?? [];
+          const explicitExports = extractExplicitExportPaths(originalRequests);
+          const acceptanceChecks = intent.exists ? acceptanceChecksFromIntent(intent.text) : [];
           const autofilled = autofillPlan(t, {
             title: host.slug,
             explorationDone: artifactExists(host.paths.explorationReport),
@@ -517,13 +938,30 @@ export const planModule: StageModule = {
               intent.exists ? intent.text : '',
               clarification.exists ? clarification.text : '',
             ),
+            acceptanceChecks,
           });
           // Засев files_to_touch (4.1, «П»-половина): модель решает по готовой строке
           // (оставить/исключить/добавить), а не составляет список с нуля. Идемпотентно —
           // см. докстринг `seedFilesToTouch`.
           const touch = intent.exists ? touchListEntries(intent.text) : [];
           const seeded = seedFilesToTouch(autofilled.text, touch);
-          return { text: seeded.text, filled: autofilled.filled + seeded.seeded };
+          const prepared = intent.exists
+            ? preparePlanImplementationCards(
+                seeded.text,
+                intent.text,
+                host.ctx().paths.projectRoot,
+                explicitExports,
+                originalRequests,
+              )
+            : { text: seeded.text, paths: [] as string[] };
+          // All existing files_to_touch rows need an explicit execution card. Create those
+          // cards before the model sees Plan; adding them after its turn leaves new required
+          // fields that the model had no chance to fill (r65: Qwen stopped with 26 placeholders).
+          const scaffolded = appendMissingPlanStepCards(prepared.text);
+          return {
+            text: scaffolded.text,
+            filled: autofilled.filled + seeded.seeded + prepared.paths.length + scaffolded.paths.length,
+          };
         },
       },
       { path: host.paths.readiness, fill: async (t) => autofillReadiness(t, { title: host.slug, date, run: 2 }) },
@@ -536,7 +974,9 @@ export const planModule: StageModule = {
       const callers = callersBlock(ctx);
       const clarification = readArtifact(ctx.paths.clarificationReport);
       const resolutions = clarificationResolutionBlock(clarification.exists ? clarification.text : '', isPreparationV2(host.paths));
-      return [callers, resolutions].filter((fact): fact is string => fact !== null);
+      const sources = isPreparationV2(host.paths) ? preparationSourceFacts(host.paths) : null;
+      const review = isPreparationV2(host.paths) ? preparationReviewFacts(host.paths) : null;
+      return [callers, resolutions, sources, review].filter((fact): fact is string => fact !== null);
     },
     // Снимка секций задачи может не быть (виток начат до его появления или с середины по
     // снимку артефактов) — тогда он снимается здесь, с предупреждением: с этого момента
@@ -577,13 +1017,25 @@ export const planModule: StageModule = {
       }
     },
     afterForm: async (_prompt, _def, _agents, hooks) => {
-      if (isPreparationV2(host.paths) && !host.signal().aborted && readinessRun2(host.ctx()).ready &&
-          filesToTouchProblem(host.ctx()) === null && planRequirementsProblem(host.ctx()) === null &&
-          planClarificationProblem(host.ctx()) === null && planMapProblem(host.ctx()) === null && axisProblems(host).length === 0) {
+      if (isPreparationV2(host.paths)) {
+        reconcileTouchListFromSteps(host);
+        // The requirements hash is part of planContentHash/fingerprint. Write it
+        // before the independent review so finishProblem cannot immediately make
+        // a fresh review stale by adding this mechanical field afterward.
+        const draft = readArtifact(host.paths.plan);
+        if (draft.exists && readRequirementsHash(draft.text) === null) {
+          const intent = readArtifact(host.paths.intent);
+          const clarification = readArtifact(host.paths.clarificationReport);
+          const hash = resolvedRequirementsHash(intent.exists ? intent.text : '', clarification.exists ? clarification.text : '');
+          host.writeAutofilled(host.paths.plan, addRequirementsHash(draft.text, hash), []);
+        }
+        syncCanonicalPreparation(host.paths);
+      }
+      if (!host.signal().aborted && preparationReviewReady(host)) {
         await reviewPreparation(host, hooks);
       }
     },
-    outcomeProblem: () => isPreparationV2(host.paths) ? preparationReviewProblem(host.paths) : null,
+    outcomeProblem: () => preparationReviewReady(host) ? preparationReviewProblem(host.paths) : null,
 
     // Разбор последствий — тем же приёмом и по той же причине, что карта разведки:
     // находка нужна модели в её собственном ходу. Предусловием этапа 5 она пришла бы
@@ -591,21 +1043,15 @@ export const planModule: StageModule = {
     // самого исполнителя, которому решение человека не принадлежит.
     finishProblem: () => {
       if (isPreparationV2(host.paths)) {
-        const problem = requirementProblem(readArtifact(host.paths.intent).text);
+        const state = preparation(host.paths);
+        const problem = requirementProblem(readArtifact(host.paths.intent).text,
+          state?.version === 3 && state.structuredTablesRendered === true ? state.canonical?.requirements : undefined);
         if (problem !== null) return problem;
         const plan = readArtifact(host.paths.plan);
-        const hash = resolvedRequirementsHash(readArtifact(host.paths.intent).text, readArtifact(host.paths.clarificationReport).text);
-        if (plan.exists && readRequirementsHash(plan.text) !== hash) {
-          const without = plan.text.replace(/^- \*\*Требования \(SHA-256\):\*\*[^\n]*(?:\n|$)/gmu, '');
-          host.writeAutofilled(host.paths.plan, addRequirementsHash(without, hash), []);
+        if (plan.exists) {
+          const evidenceProblem = preparationPlanEvidenceProblem(host.paths, plan.text);
+          if (evidenceProblem !== null) return evidenceProblem;
         }
-      }
-      const draft = readArtifact(host.paths.plan);
-      if (draft.exists && readRequirementsHash(draft.text) === null) {
-        const intent = readArtifact(host.paths.intent);
-        const clarification = readArtifact(host.paths.clarificationReport);
-        const hash = resolvedRequirementsHash(intent.exists ? intent.text : '', clarification.exists ? clarification.text : '');
-        host.writeAutofilled(host.paths.plan, addRequirementsHash(draft.text, hash), []);
       }
       const readinessResult = readinessRun2(host.ctx());
       const readiness = readArtifact(host.paths.readiness);
@@ -622,14 +1068,77 @@ export const planModule: StageModule = {
       // последствий по осям тоже не может ссылаться на реальные пути, но само по
       // себе отсутствие files_to_touch — более фундаментальная и более дешёвая в
       // проверке находка (см. filesToTouchProblem).
+      const intentText = readArtifact(host.paths.intent).text;
+      let currentPlanForIntent = readArtifact(host.paths.plan);
+      if (currentPlanForIntent.exists) {
+        const enforcedTest = enforceIntentTestFileTarget(
+          currentPlanForIntent.text,
+          intentText,
+          host.ctx().paths.projectRoot,
+          preparation(host.paths)?.requests ?? [],
+        );
+        if (enforcedTest.changed) {
+          host.writeAutofilled(host.paths.plan, enforcedTest.text, []);
+          return (
+            `Рантайм восстановил заданный новый тестовый файл ${enforcedTest.path} и отдельную карточку тестов; ` +
+            'существующие тесты исключены из allowlist по границе Intent. Продолжи планирование, сохрани этот путь новым.'
+          );
+        }
+        currentPlanForIntent = readArtifact(host.paths.plan);
+      }
+      if (currentPlanForIntent.exists) {
+        const planned = new Set(extractFilesToTouch(currentPlanForIntent.text).map((path) => path.replace(/\\/gu, '/')));
+        const required = extractIntentImplementationPaths(intentText).filter((path) => !planned.has(path));
+        if (required.length > 0) {
+          const projectRoot = host.ctx().paths.projectRoot;
+          const additions = required.map((path) => ({
+            path,
+            note: `${existsSync(join(projectRoot, path)) ? 'существующий' : 'новый'} файл из «Что делаем»; опиши конкретное изменение`,
+          }));
+          const restored = appendFilesToTouch(currentPlanForIntent.text, additions);
+          if (restored.appended > 0) {
+            const scaffolded = appendMissingPlanStepCards(restored.text);
+            host.writeAutofilled(host.paths.plan, scaffolded.text, []);
+            return (
+              `Рантайм вернул в files_to_touch явные цели реализации из «Что делаем»: ${required.join(', ')}. ` +
+              `Добавлены отдельные карточки для отсутствующих путей: ${scaffolded.paths.join(', ') || 'карточки уже были'}. ` +
+              'Заполни для каждой карточки символ, действие, claims, проверку, контракт и зависимости до одобрения плана.'
+            );
+          }
+        }
+      }
       const filesProblem = filesToTouchProblem(host.ctx());
       if (filesProblem !== null) return filesProblem;
+      const boundaryProblem = intentPlanBoundaryProblem(
+        intentText,
+        readArtifact(host.paths.plan).text,
+        host.ctx().paths.projectRoot,
+      );
+      if (boundaryProblem !== null) return boundaryProblem;
+      const intentPathProblem = intentImplementationPathsProblem(
+        intentText,
+        readArtifact(host.paths.plan).text,
+        extractExplicitExportPaths(preparation(host.paths)?.requests ?? []),
+      );
+      if (intentPathProblem !== null) return intentPathProblem;
       const touchProblem = planTouchDiscrepancyProblem(host.ctx());
       if (touchProblem !== null) return touchProblem;
-      const sampleProblem = planStepSampleTextProblem(host.ctx());
-      if (sampleProblem !== null) return sampleProblem;
+      const currentPlan = readArtifact(host.paths.plan);
+      if (currentPlan.exists) {
+        const scaffolded = appendMissingPlanStepCards(currentPlan.text);
+        if (scaffolded.paths.length > 0) {
+          host.writeAutofilled(host.paths.plan, scaffolded.text, []);
+          return (
+            `Добавлены пустые карточки плана для разрешённых файлов без отдельного шага: ` +
+            `${scaffolded.paths.join(', ')}. Заполни поля каждой новой карточки: действие, символ, ` +
+            `claims, проверка и контракт; затем пересверь шаги с files_to_touch.`
+          );
+        }
+      }
       const stepProblem = planStepsProblem(host.ctx());
       if (stepProblem !== null) return stepProblem;
+      const sampleProblem = planStepSampleTextProblem(host.ctx());
+      if (sampleProblem !== null) return sampleProblem;
       const mapProblem = planMapProblem(host.ctx());
       if (mapProblem !== null) return mapProblem;
       const requirementsProblem = planRequirementsProblem(host.ctx());

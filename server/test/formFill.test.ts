@@ -22,10 +22,13 @@ import {
   compactFieldGroups,
   compactGroupResponseFormat,
   conditionalFieldEmptyAlternative,
+  deferredIntentMethodProblem,
   groupFields,
   parseCompactGroupResponse,
+  planApproachEvidenceProblem,
+  planStepInventedFileCompact,
 } from '../src/exec/FormFillExecutor.ts';
-import { deriveSchema } from '../src/artifacts/formSchema.ts';
+import { deriveSchema, modelFields } from '../src/artifacts/formSchema.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import { ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from '../src/exec/contextBudget.ts';
@@ -239,6 +242,85 @@ describe('карточка поля не несёт инструментов (20
 });
 
 describe('заполнение бланка по полям', () => {
+  it('дублирует точную форму JSON в карточках intent acceptance и basis', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-preparation-json-form-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(artifact, [
+      '<!-- sdlc-template: intent v1 -->',
+      '<!-- sdlc-json:acceptance:start -->', '‹acceptance_json›', '<!-- sdlc-json:acceptance:end -->',
+      '<!-- sdlc-json:basis:start -->', '‹basis_json›', '<!-- sdlc-json:basis:end -->',
+    ].join('\n'));
+    const questions: string[] = [];
+    const reasoningEfforts: unknown[] = [];
+    const provider: ChatProvider = {
+      name: 'capture-json-card',
+      async chat(req: ChatRequest) {
+        const question = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        questions.push(question);
+        reasoningEfforts.push(req.params?.['reasoning_effort']);
+        const answer = question.includes('acceptance_json')
+          ? '[{"id":"claim-1","behavior":"one","procedure":"check one","expected":"one"}]'
+          : '[{"id":"claim-1","basis":"why","scenario":"when","counterexample":"else"}]';
+        return {
+          text: answer, toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const result = await new FormFillExecutor({
+      provider, maxResultBytes: 10_000, readRangeRequiredAboveBytes: 10_000, bashTimeoutMs: 1000, compact: true,
+    }).run(request(root, artifact), hooks({ writes: [] }, true));
+    strictEqual(result.ok, true, result.note);
+    const acceptanceIndex = questions.findIndex((q) => q.includes('только JSON-массив') && q.toLowerCase().includes('не добавляй внешний объект') && q.includes('"procedure"'));
+    const basisIndex = questions.findIndex((q) => q.includes('ключ basis') && q.includes('"counterexample"'));
+    ok(acceptanceIndex >= 0, questions.join('\n---\n'));
+    ok(basisIndex > acceptanceIndex, questions.join('\n---\n'));
+    ok(questions[basisIndex]!.includes('claim-1 → one'), questions[basisIndex]);
+    deepStrictEqual(reasoningEfforts, ['none', 'none']);
+  });
+
+  it('переспрашивает malformed claim JSON с конкретной причиной до закрытия intent', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-preparation-json-repair-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(artifact, [
+      '<!-- sdlc-template: intent v1 -->',
+      '<!-- sdlc-json:acceptance:start -->', '‹acceptance_json›', '<!-- sdlc-json:acceptance:end -->',
+      '<!-- sdlc-json:basis:start -->', '‹basis_json›', '<!-- sdlc-json:basis:end -->',
+    ].join('\n'));
+    const questions: string[] = [];
+    let acceptanceCalls = 0;
+    const provider: ChatProvider = {
+      name: 'repair-json-card',
+      async chat(req: ChatRequest) {
+        const question = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
+        questions.push(question);
+        const acceptance = question.includes('acceptance_json');
+        acceptanceCalls += acceptance ? 1 : 0;
+        const answer = acceptance
+          ? acceptanceCalls === 1
+            ? '[{"id":"claim-1","buffer":"missing behavior","procedure":"check","expected":"ok"}]'
+            : '[{"id":"claim-1","behavior":"one","procedure":"check","expected":"ok"}]'
+          : '[{"id":"claim-1","basis":"source","scenario":"use","counterexample":"wrong"}]';
+        return {
+          text: answer, toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const result = await new FormFillExecutor({
+      provider, maxResultBytes: 10_000, readRangeRequiredAboveBytes: 10_000, bashTimeoutMs: 1000,
+      compact: true, preparationV2: true,
+    }).run(request(root, artifact), hooks({ writes: [] }, true));
+    strictEqual(result.ok, true, result.note);
+    strictEqual(acceptanceCalls, 2);
+    ok(questions.some((question) => question.includes('Прошлая попытка этого поля отклонена') && question.includes('лишние ключи запрещены')), questions.join('\n---\n'));
+    ok(!readFileSync(artifact, 'utf8').includes('‹acceptance_json›'));
+  });
+
   it('плейсхолдеры заполняются, запись идёт через гейт, этап зелёный', async () => {
     const { root, artifact } = setup();
     const seen = { writes: [] as NormalizedCall[] };
@@ -1016,7 +1098,7 @@ function compactProvider(answers: Record<string, string>): ChatProvider {
   } as unknown as ChatProvider;
 }
 
-const execCompact = (provider: ChatProvider, stage: 'intent' | 'explore' | 'plan' = 'intent'): FormFillExecutor =>
+const execCompact = (provider: ChatProvider, stage: 'intent' | 'explore' | 'plan' = 'intent', preparationV2 = false): FormFillExecutor =>
   new FormFillExecutor({
     provider,
     maxResultBytes: 10_000,
@@ -1024,9 +1106,35 @@ const execCompact = (provider: ChatProvider, stage: 'intent' | 'explore' | 'plan
     bashTimeoutMs: 1000,
     compact: true,
     stage,
+    preparationV2,
   });
 
 describe('режим compact: поля из схемы, ответ рисует applyFill', () => {
+  it('даёт критичному отклонённому полю третий ограниченный шанс в preparation v2', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-form-third-retry-'));
+    roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(artifact, '# Задача\n\n## Что делаем\n‹наблюдаемое изменение›\n');
+    const answers = [
+      'Обновляем существующую бронь, меняя слот.',
+      'Изменяем существующий объект брони, чтобы назначить новый слот.',
+      'Клиент может перенести бронь на другой слот, сохраняя её идентификатор и срок действия.',
+    ];
+    let calls = 0;
+    const provider: ChatProvider = {
+      name: 'local-spy',
+      async chat() {
+        const text = answers[calls++] ?? answers.at(-1)!;
+        return { text, toolCalls: [], usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false }, finishReason: 'end_turn' as const };
+      },
+    } as unknown as ChatProvider;
+    const runRequest = request(root, artifact, { prompt: { presetNote: null, system: '', user: 'Выбор способа зафиксируй в плане после исследования исходников.', tools: [], editedByOperator: false } });
+    const result = await execCompact(provider, 'intent', true).run(runRequest, hooks({ writes: [] }, true));
+    strictEqual(result.ok, true, result.note);
+    strictEqual(calls, 3);
+    ok(readFileSync(artifact, 'utf8').includes('Клиент может перенести'));
+  });
+
   it('задаёт Ollama низкое reasoning и лимит по виду поля; поднимает лимит один раз при truncation', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-form-local-params-'));
     roots.push(root);
@@ -1441,6 +1549,69 @@ describe('режим compact: поля из схемы, ответ рисует 
 });
 
 describe('адаптивное заполнение формы', () => {
+  it('отклоняет несуществующий файл в шаге плана, но принимает существующий исходник и новый тест', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-plan-file-guard-'));
+    roots.push(root);
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'src', 'hold.ts'), 'export {};');
+    const stepField = deriveSchema([
+      '## Шаги',
+      '### Шаг 1 — Реализовать изменение',
+      '- **Файл:** ‹точный файл›',
+    ].join('\n'), 'plan.template.md').fields[0]!;
+    ok(planStepInventedFileCompact(stepField, 'clarification-report.md', root)?.includes('не существует'));
+    strictEqual(planStepInventedFileCompact(stepField, 'src/hold.ts', root), null);
+    strictEqual(planStepInventedFileCompact(stepField, 'test/hold.test.ts', root), null);
+  });
+
+  it('требует конкретные источники для сравнения подходов', () => {
+    const field = deriveSchema('## Подход\n‹обоснуй›', 'plan.template.md').fields[0]!;
+    ok(planApproachEvidenceProblem(field, 'Возврат нового объекта совместим с архитектурой и тестами.')?.includes('путь:символ'));
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-plan-approach-'));
+    roots.push(root);
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'test'), { recursive: true });
+    writeFileSync(join(root, 'src', 'hold.ts'), 'export function makeHold() {}');
+    writeFileSync(join(root, 'test', 'hold.test.ts'), 'test("does not mutate", () => {});');
+    strictEqual(planApproachEvidenceProblem(field,
+      'Выбранный: src/hold.ts:makeHold — значение;\nОтвергнутый: test/hold.test.ts:moveHold — мутация нарушает тест.', root), null);
+    const grounding = 'src/hold.ts:source (L7): Hold — значение\ntest/hold.test.ts:не-мутирует-аргументы-и-возвращает-новый-объект (L39): тест контракта';
+    strictEqual(planApproachEvidenceProblem(field,
+      'Выбранный: src/hold.ts:source — значение\nОтвергнутый: test/hold.test.ts:не-мутирует-аргументы-и-возвращает-новый-объект — контрпример', root, grounding), null);
+    ok(planApproachEvidenceProblem(field,
+      'Выбранный: src/hold.ts:moveHold — новый объект\nОтвергнутый: test/hold.test.ts:claim-1 — мутация', root, grounding)?.includes('Цитируй точно из этого списка'));
+    ok(planApproachEvidenceProblem(field,
+      'Выбранный: возвращает новый объект — test/hold.test.ts:moveHold; отвергнутый: мутирует — test/hold.test.ts:moveHold', root)?.includes('два разных существующих файла'));
+    ok(planApproachEvidenceProblem(field,
+      'Выбранный: test/hold.test.ts:moveHold; отвергнутый: src/hold.test.ts:moveHold', root)?.includes('отсутствующие пути'));
+    ok(planApproachEvidenceProblem(field,
+      'Выбранный: изменить существующий объект и вернуть новый; src/hold.ts:Hold; test/hold.test.ts:moveHold\nОтвергнутый: другой способ; src/hold.ts:makeHold; test/hold.test.ts:Hold') !== null);
+  });
+
+  it('откладывает выбор реализации из Intent, если пользователь прямо оставил его для Plan', () => {
+    const field = deriveSchema('## Что делаем\n‹поведение›', 'intent.template.md').fields[0]!;
+    const prompt = 'Изучи исходники и зафиксируй выбор способа в плане после исследования.';
+    ok(deferredIntentMethodProblem(field, 'Переносим бронь через изменение существующего объекта.', prompt)?.includes('Пользователь может'));
+    ok(deferredIntentMethodProblem(field, 'Обновляем функцию так, чтобы она изменяла существующую бронь, обновляя её слот.', prompt)?.includes('Пользователь может'));
+    ok(deferredIntentMethodProblem(field, 'Ветка витка: sdlc/two-right-answers', prompt)?.includes('метаданных'));
+    strictEqual(deferredIntentMethodProblem(field, 'Перенос брони на другой слот без изменения идентификатора и срока действия, сохраняя старые значения id и expiresIso.', prompt), null);
+    strictEqual(deferredIntentMethodProblem(field, 'Клиент может перенести бронь, сохранив её идентификатор.', prompt), null);
+    strictEqual(deferredIntentMethodProblem(field, 'Изменить объект.', 'Перенести бронь на другой слот.'), null);
+  });
+
+  it('собирает ячейки одной оси последствий в один JSON-ответ', () => {
+    const plan = [
+      '## Последствия шагов',
+      '| Ось | Затронута шагами | Что именно в шагах | Исход |',
+      '|---|---|---|---|',
+      '| Безопасность | ‹да/нет› | ‹файл:символ› | ‹claim-N / н/п — причина› |',
+    ].join('\n');
+    const fields = modelFields(deriveSchema(plan, 'plan.template.md'), 'plan');
+    const groups = compactFieldGroups(fields);
+    strictEqual(groups.length, 1, JSON.stringify(groups.map((group) => group.map((field) => ({ id: field.id, kind: field.kind, key: field.compactGroup, range: field.range, section: field.section, label: field.label }))), null, 2));
+    strictEqual(groups[0]?.length, 3);
+  });
+
   it('группирует только поля с явной меткой группы и отделяет решения повышенного риска', () => {
     const fields = deriveSchema([
       '# Задача',

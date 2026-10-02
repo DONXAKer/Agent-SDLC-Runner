@@ -242,6 +242,38 @@ export function parseFileContent(answer: string): string | null {
 }
 
 /**
+ * Recover a planned new function when a model returns its code block instead of
+ * SEARCH/REPLACE. This is intentionally limited to one new symbol named by the
+ * approved step; the resulting append still goes through the normal Edit gate.
+ */
+export function plannedFunctionAddition(
+  step: PlanStep,
+  current: string,
+  answer: string,
+): { oldStr: string; newStr: string } | null {
+  const symbol = step.symbol?.replace(/^новый\s*:\s*/iu, '').replace(/[`'"\s]/gu, '');
+  if (symbol === undefined || !/^[A-Za-z_$][\w$]*$/u.test(symbol)) return null;
+  const intentText = `${step.title}\n${step.action}`;
+  if (!new RegExp(`(?:добавить|создать|реализовать|implement|add|create)[^\\n]{0,100}\\b${symbol}\\b`, 'iu').test(intentText)) return null;
+  if (new RegExp(`\\bfunction\\s+${symbol}\\b|\\b(?:const|let|var)\\s+${symbol}\\b`, 'u').test(current)) return null;
+
+  const blocks = [...answer.matchAll(/```[^\r\n]*\r?\n([\s\S]*?)\r?\n```/gu)]
+    .map((match) => (match[1] ?? '').replace(/^\s*\/\/\s*[^\r\n]*\.(?:ts|tsx|js|jsx)\s*\r?\n/u, '').trim())
+    .filter((body) => new RegExp(`(?:export\\s+)?function\\s+${symbol}\\b`, 'u').test(body));
+  if (blocks.length !== 1) return null;
+  const addition = blocks[0]!;
+  if (/\b(?:describe|it|test)\s*\(/u.test(addition) || !addition.endsWith('}')) return null;
+
+  const lines = current.replace(/\r\n/gu, '\n').replace(/\s+$/u, '').split('\n');
+  for (let count = 1; count <= Math.min(lines.length, 12); count++) {
+    const oldStr = lines.slice(-count).join('\n');
+    if (oldStr.trim() === '' || current.replace(/\r\n/gu, '\n').indexOf(oldStr) !== current.replace(/\r\n/gu, '\n').lastIndexOf(oldStr)) continue;
+    return { oldStr, newStr: `${oldStr}\n\n${addition}` };
+  }
+  return null;
+}
+
+/**
  * Причина из ответа, который ЦЕЛИКОМ есть `БЕЗ ПРАВОК: …`, либо `null`. Ответ с блоками
  * замены или содержимым файла сюда не попадает по построению — проверяется после разбора
  * блоков, иначе одна строка-комментарий модели отменяла готовую правку.
@@ -662,6 +694,10 @@ export class StepExecutor implements StageExecutor {
       let partialNote = '';
       if (current !== null) {
         const edits = parseSearchReplace(answer);
+        if (edits.length === 0) {
+          const addition = plannedFunctionAddition(step, current, answer);
+          if (addition !== null) edits.push(addition);
+        }
         if (edits.length === 0) {
           const reason = noChangeReason(answer);
           if (reason !== null) return { ok: true, text: reason, denied: false, noChange: reason, partialNote: '' };

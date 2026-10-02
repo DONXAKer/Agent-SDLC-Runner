@@ -217,6 +217,35 @@ describe('параллельный запуск субагентов', () => {
 });
 
 describe('модель субагента во флоу loop', () => {
+  it('locator treats absent planned additions as expected, not as map divergence', async () => {
+    const locator: SubagentDef = { ...reviewer, name: 'sdlc-locator', prompt: 'base locator instructions' };
+    const systems: string[] = [];
+    let i = 0;
+    const p = {
+      async chat(req: { model: string; messages: { role: string; content: string }[] }) {
+        const system = req.messages.find((message) => message.role === 'system')?.content;
+        if (system !== undefined) systems.push(system);
+        const turns = [
+          { text: '', toolCalls: [callTask('sdlc-locator')] },
+          { text: 'location report' },
+          { text: 'done' },
+        ];
+        const t = turns[Math.min(i++, turns.length - 1)];
+        return {
+          text: t?.text ?? '',
+          toolCalls: (t?.toolCalls ?? []).map((c) => ({
+            id: c.id, name: c.name, arguments: c.arguments, rawArguments: JSON.stringify(c.arguments),
+          })),
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, durationMs: 1, envBlocked: false },
+          finishReason: 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const exec = new LoopExecutor({ provider: p, maxResultBytes: 1000, readRangeRequiredAboveBytes: 1000, bashTimeoutMs: 1000, temperature: null });
+    await exec.run(request({ subagents: [locator] }), hooks(emptySeen()));
+    ok(systems.some((system) => system.includes('его отсутствие сейчас ожидаемо')));
+  });
+
   it('алиас Claude Code (`model: opus`) не уходит провайдеру — НЕ-рецензент идёт на модели этапа', async () => {
     // sdlc-reviewer тут намеренно НЕ подходит: для рецензента тот же алиас теперь не
     // фолбэк, а отказ — см. describe ниже. Здесь субагент без ранговых требований.

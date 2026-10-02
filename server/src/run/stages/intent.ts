@@ -1,7 +1,7 @@
 /** Этап 1 — цель витка: определение этапа и его проверки. */
 
 import { existsSync } from 'node:fs';
-import { initializePreparation, isPreparationV2 } from '../../artifacts/preparation.ts';
+import { initializePreparation, isPreparationV2, markStructuredPreparationTablesRendered, normalizePreparationTables, preparation, syncCanonicalPreparation } from '../../artifacts/preparation.ts';
 
 import type { Question, StageId } from '@sdlc-runner/shared';
 
@@ -154,7 +154,7 @@ export const intentStage: StageDef = {
   // задачу оболочкой — копирует форму в проект и перебирает команды вместо того, чтобы
   // заполнить документ (у 35B двенадцать вызовов из четырнадцати были shell'ом). Этап 1
   // читает, спрашивает человека и пишет артефакт — команда ему не нужна ни для чего.
-  tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'FinalizeArtifact', 'FillField'],
+  tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'FinalizeArtifact', 'FillField'],
   subagents: [],
   produces: (c) => [c.paths.gates, c.paths.intent, c.paths.readiness],
   requires: [],
@@ -246,6 +246,18 @@ export const intentModule: StageModule = {
     // чинить уже некому (тот же класс потери, что карта разведки; живой
     // разбор серии v5, 2026-09-14: 4 из 22 прогонов упёрлись ровно в это).
     finishProblem: () => {
+      if (isPreparationV2(host.paths)) {
+        const state = preparation(host.paths);
+        if (state?.structuredTablesRequired === true && state.structuredTablesRendered !== true) {
+          const artifact = readArtifact(host.paths.intent);
+          const normalized = normalizePreparationTables(artifact.text, true);
+          if (normalized.problem !== null) return normalized.problem;
+          if (!normalized.changed) return 'Верни JSON-маркеры acceptance и basis с корректными объектами, чтобы Runner мог построить таблицы.';
+          host.writeAutofilled(host.paths.intent, normalized.text, []);
+          markStructuredPreparationTablesRendered(host.paths);
+        }
+        syncCanonicalPreparation(host.paths);
+      }
       const problem = intentPlaceholderProblem(host.ctx());
       if (problem !== null) {
         return `${problem}. Замени оставшиеся места «‹…›» содержимым и сохрани инструментом Edit.`;

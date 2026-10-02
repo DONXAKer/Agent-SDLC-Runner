@@ -26,6 +26,7 @@ import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import { intentKeywords } from '../src/explore/keywords.ts';
 import { readTree } from '../src/explore/tree.ts';
 import { buildView } from '../src/explore/view.ts';
+import type { RankedFile } from '../src/explore/rank.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import { explorationPathProblem, hasOpenQuestions } from '../src/run/stages.ts';
 
@@ -240,12 +241,13 @@ const eco = [{ dir: '.', label: 'Node.js', build: null, test: 'node --test' }];
 function executor(
   root: string,
   paths: WitokPaths,
-  over: { axesEnabled?: boolean; claims?: null; provider?: ChatProvider } = {},
+  over: { axesEnabled?: boolean; claims?: null; provider?: ChatProvider; onSourceProvided?: (path: string, excerpt: string) => void; mapRanked?: RankedFile[] } = {},
 ): ExploreExecutor {
   const index = readTree(root);
   const kw = intentKeywords(INTENT);
   const axesEnabled = over.axesEnabled ?? false;
   const built = buildView(index, eco, kw, axesEnabled);
+  if (over.mapRanked !== undefined) built.ranked = over.mapRanked;
   return new ExploreExecutor({
     provider: over.provider ?? provider([]),
     maxResultBytes: 12_000,
@@ -267,6 +269,7 @@ function executor(
       notDoing: ['- не меняем порядок применения скидки лояльности (`discountFor`)'],
     },
     reportPath: paths.explorationReport,
+    ...(over.onSourceProvided === undefined ? {} : { onSourceProvided: over.onSourceProvided }),
     claims:
       over.claims === null
         ? null
@@ -351,6 +354,36 @@ describe('переиспользование: неполная строка «д
 });
 
 describe('конвейер разведки на копии бланка', () => {
+  it('передаёт седьмой обязательный источник: у карты нет жёсткого потолка в шесть файлов', async () => {
+    const { root, paths } = setup(BLANK);
+    const index = readTree(root);
+    const target = index.files.find((file) => file.path === 'src/discounts.ts')!;
+    const fillers = index.files.filter((file) => file.kind !== 'doc' && file.path !== target.path).slice(0, 6);
+    strictEqual(fillers.length, 6);
+    const ranked: RankedFile[] = [...fillers, target].map((file, i) => ({ file, score: 10 - i, why: ['test candidate'] }));
+    const seen: ChatRequest[] = [];
+    const provided: string[] = [];
+    await executor(root, paths, {
+      provider: provider(seen),
+      mapRanked: ranked,
+      onSourceProvided: (path) => provided.push(path),
+    }).run(request(root, paths), hooks({ calls: [], warns: [] }));
+    const mapPrompt = seen.find((item) => (item.messages.at(-1)?.content ?? '').includes('## Сейчас — карта кодовой базы'))?.messages.at(-1)?.content ?? '';
+    ok(mapPrompt.includes('7. `src/discounts.ts`'), mapPrompt);
+    ok(provided.includes('src/discounts.ts'), JSON.stringify(provided));
+  });
+
+  it('reports only source cards actually included in the delivered map prompt', async () => {
+    const { root, paths } = setup(BLANK);
+    const provided: Array<{ path: string; excerpt: string }> = [];
+    await executor(root, paths, { onSourceProvided: (path, excerpt) => provided.push({ path, excerpt }) })
+      .run(request(root, paths), hooks({ calls: [], warns: [] }));
+    ok(provided.length > 0);
+    for (const card of provided) {
+      ok(card.excerpt.includes(`### \`${card.path}\``) || card.excerpt.includes(`### \`${card.path}:`), `source card header missing for ${card.path}`);
+    }
+  });
+
   for (const budget of [1, 2, 30]) it(`частичная карта: один переспрос и общий бюджет ${budget}`, async () => {
     const { root, paths } = setup(BLANK);
     const seen: ChatRequest[] = [];

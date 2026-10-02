@@ -102,6 +102,13 @@ describe('planStepSampleTextProblem', () => {
     strictEqual(problem, null);
   });
 
+  it('отклоняет шаг, который помечает существующий файл как новый', () => {
+    const problem = planStepSampleTextProblem(ctx(planWithStep(REAL_STEP), ['src/vat.ts']));
+    ok(problem !== null);
+    ok(problem.includes('src/vat.ts'), problem);
+    ok(problem.includes('как новый'), problem);
+  });
+
   it('файл шага в files_to_touch — не находка (обычный путь, ничего не образец)', () => {
     strictEqual(
       planStepSampleTextProblem(ctx(planWithStep(LEAKED_STEP, '| `src/tariffs.ts` | добавить наценку |'))),

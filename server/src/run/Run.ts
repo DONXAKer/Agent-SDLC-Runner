@@ -7,9 +7,19 @@
  */
 
 import { localResultBytes } from '../config/limits.ts';
-import { isPreparationV2, approvePreparation, preparationReviewProblem, preparationFingerprint } from '../artifacts/preparation.ts';
+import {
+  isPreparationV2,
+  approvePreparation,
+  preparationReviewProblem,
+  preparationFingerprint,
+  recordPreparationRead,
+  preparationExploreEvidenceProblem,
+} from '../artifacts/preparation.ts';
 import { seedPreparationForms } from './preparationForms.ts';
+import { preparationTools } from './preparationToolPolicy.ts';
 import { recordModelAnswers } from './stages/ask.ts';
+import { approvedPlanDate } from './journalAutofill.ts';
+import { buildRuntimeLocatorMap, fillVerifiedChunkLocation, validateLocatorMap } from './chunkLocatorApproval.ts';
 import { randomUUID } from 'node:crypto';
 
 import type {
@@ -46,6 +56,7 @@ import {
   countPlaceholdersExceptDecisions,
   hasNamedInvariants,
   readArtifact,
+  readDecision,
   readField,
   setDecision,
   setLastDecision,
@@ -55,7 +66,8 @@ import { checkTemplateVersion } from '../artifacts/templateVersion.ts';
 import { SDLC_CONSTANTS } from '../config/constants.ts';
 import { SDLC_DIR, WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { ARTIFACT_KEYS as ARTIFACT_KEYS_ALL, type ArtifactKey } from '@sdlc-runner/shared';
-import { appendScopeExtension } from '../artifacts/planFiles.ts';
+import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
+import { planSteps } from '../artifacts/planSteps.ts';
 import { h2SectionRanges } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import { repairErasedDecisions } from '../approval/destructive.ts';
@@ -133,6 +145,7 @@ import {
   type PreconditionReport,
   type StageContext,
   type StageDef,
+  planMapProblem,
 } from './stages.ts';
 import { ChunkState } from './stages/chunk/index.ts';
 import { stepFillExecutor } from './stages/chunk/steps.ts';
@@ -194,8 +207,8 @@ export interface RunOptions {
 export interface RunStageOptions {
   prompt?: PreparedPrompt;
   requirement?: string;
-  /** Только для нового витка: v2 по умолчанию, v1 — прежний режим с заполнением полей. */
-  preparationVersion?: 1 | 2;
+  /** Только для нового витка: v3 по умолчанию; v1/v2 остаются для воспроизводимости. */
+  preparationVersion?: 1 | 2 | 3;
   extra?: string;
   /** Оператор объявил обрыв витка — handoff оформляется без зелёного вердикта. */
   abortHandoff?: boolean;
@@ -480,7 +493,7 @@ export class Run {
       carryForward: () => this.carryForward,
       markReviewerRan: () => this.markReviewerRan(),
       toolsFor: (stage) => this.toolsFor(stage),
-      executorFor: (stage, route) => this.executorFor(stage, route),
+      executorFor: (stage, route, preparationForms) => this.executorFor(stage, route, preparationForms),
       mcpAccess: (stage) => this.mcpAccess(stage),
       maxTurnsFor: (stage) => this.maxTurnsFor(stage),
       readOnlyRoots: () => this.readOnlyRoots,
@@ -1680,8 +1693,9 @@ export class Run {
     // FillField выдаётся ТОЛЬКО при включённой ручке (compactForms 'fill'|'all') — иначе
     // замер этой ручки перестал бы быть замером «одной ручки»: право появлялось бы у всех
     // моделей стадии сразу, без записи в config/models.json, которую и сравнивает журнал.
-    const fillFieldOn = !preparationV2 && (route.compactForms === 'fill' || route.compactForms === 'all');
-    const base = fillFieldOn ? leaned : leaned.filter((t) => t !== 'FillField');
+    const compactFillRoute = route.compactForms === 'fill' || route.compactForms === 'all';
+    const base = preparationTools(leaned, stage, preparationV2, compactFillRoute);
+    if (preparationV2) return base;
     const rules = rulesForStage(this.mcpSetup, stage);
     if (rules.length === 0) return base;
 
@@ -1844,8 +1858,15 @@ export class Run {
    * модели инструменты, которых в поштучном запросе нет, — замер 2026-09-04 показал, чем
    * это кончается (`BuildPromptInput.formFill`).
    */
-  private usesFormFill(stage: StageId, route: ResolvedRoute): boolean {
-    if (isPreparationV2(this.paths)) return false;
+  private usesFormFill(stage: StageId, route: ResolvedRoute, preparationForms = true): boolean {
+    if (preparationForms && isPreparationV2(this.paths)) {
+      // Preparation v2 owns document construction: every supported document stage uses
+      // bounded field answers rather than asking the model to edit a growing Markdown file.
+      // Plan waits for verified exploration evidence; intent does not need that prerequisite.
+      return route.flow === 'loop' && (stage === 'intent' || stage === 'plan') &&
+        stageModule(stage).formFillExecutor &&
+        (stage !== 'plan' || preparationExploreEvidenceProblem(this.paths) === null);
+    }
     return route.formFill && stageModule(stage).formFillExecutor;
   }
 
@@ -1863,7 +1884,7 @@ export class Run {
     });
   }
 
-  private executorFor(stage: StageId, forRoute?: ResolvedRoute): StageExecutor {
+  private executorFor(stage: StageId, forRoute?: ResolvedRoute, preparationForms = true): StageExecutor {
     const route = forRoute ?? this.profile.routes[stage];
     if (route.flow === 'sdk') {
       // `stepFill`/`formFill` — ручки исполнителей флоу `loop`, у `sdk` своего цикла нет,
@@ -1894,12 +1915,12 @@ export class Run {
     // Этап 2 конвейером рантайма (`ModelDef.exploreFill`): индекс, карточки, закрытые
     // вопросы, запись через гейт — `exec/ExploreExecutor.ts`. Слепой лист уже посчитан в
     // `runStage` (`runClaimsBlind`, хук модуля explore) и лежит в `exploreState.claims`.
-    if (stage === 'explore' && usesExploreFill(route) && !isPreparationV2(this.paths)) return exploreFillExecutor(this.host, route);
+    if (stage === 'explore' && (usesExploreFill(route) || (preparationForms && isPreparationV2(this.paths)))) return exploreFillExecutor(this.host, route);
 
     // Режим заполнения по полям — только там, где этап и есть заполнение бланка.
     // Explore сюда не входит: его отчёт пишется по результатам разведки субагентами,
     // а не выводится из входов; chunk/verify — тем более.
-    if (this.usesFormFill(stage, route)) {
+    if (this.usesFormFill(stage, route, preparationForms)) {
       return new FormFillExecutor({
         provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill')),
         maxResultBytes: localResultBytes(limits),
@@ -1912,8 +1933,10 @@ export class Run {
         // (code-review-all, 2026-09-14).
         ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
         currency: route.providerDef.currency ?? 'USD',
-        // Схема формы вместо сплошного текста — см. `ModelDef.compactForms`.
-        compact: route.compactForms === 'fill' || route.compactForms === 'all',
+        // Preparation v2 uses schema-guided answers for all model routes. Outside v2,
+        // keep the per-model compactForms setting.
+        compact: isPreparationV2(this.paths) || route.compactForms === 'fill' || route.compactForms === 'all',
+        preparationV2: isPreparationV2(this.paths),
         // Образец граничного пункта — из примера эталона, читается в рантайме:
         // замер 2026-09-04 показал ноль `[edge]` в 4 прогонах из 5, а просьба
         // называла только формат (`artifacts/edgeExample.ts`).
@@ -1967,7 +1990,7 @@ export class Run {
    * Готовит промпт этапа, не запуская его. Отдельный шаг, потому что оператор вправе
    * отредактировать промпт до отправки — а значит, он должен увидеть его раньше.
    */
-  preparePrompt(stage: StageId, opts: { requirement?: string; extra?: string; preparationVersion?: 1 | 2 } = {}): PreparedPrompt {
+  preparePrompt(stage: StageId, opts: { requirement?: string; extra?: string; preparationVersion?: 1 | 2 | 3 } = {}): PreparedPrompt {
     // Диагноз прошлой попытки попадает уже в собранный промпт, а не подклеивается позже:
     // промпт уходит в шину и редактируется оператором, и всё, что уйдёт в модель, должно
     // быть видно ему до запуска. Проверка на вхождение — от второго экземпляра, когда
@@ -1990,6 +2013,8 @@ export class Run {
     const chunkPlanFiles = stage === 'chunk' ? (this.planFilesFor(stage) ?? []) : [];
     const ecosystem = this.ecosystemFor(stage);
     const preparationV2 = isPreparationV2(this.paths) || (stage === 'intent' && opts.preparationVersion !== 1 && !readArtifact(this.paths.intent).exists && !readArtifact(this.paths.plan).exists && !readArtifact(this.paths.explorationReport).exists);
+    const structuredPreparation = preparationV2 && route.flow === 'loop' &&
+      (stage === 'intent' || stage === 'explore' || stage === 'plan');
     const prompt = buildPrompt({
       runner: this.config.runner,
       stage: def,
@@ -1997,14 +2022,22 @@ export class Run {
       flow: route.flow,
       slug: this.slug,
       preparationV2,
-      compactForms: preparationV2 ? 'off' : route.compactForms,
+      // Preparation v2 usually keeps its authored forms verbatim. If this route
+      // uses the runtime-owned structured form, keep the matching field-answer prompt
+      // enabled for every model route.
+      compactForms:
+        structuredPreparation
+          ? 'fill'
+          : preparationV2
+            ? 'off'
+            : route.compactForms,
       // Тем же условием, каким выбирается исполнитель: промпт обязан знать, что
       // инструментов в запросах этого этапа не будет.
-      formFill: !preparationV2 && (this.usesFormFill(stage, route) || (stage === 'explore' && usesExploreFill(route))),
+      formFill: structuredPreparation || (!preparationV2 && stage === 'explore' && usesExploreFill(route)),
       // Эффективный набор, а не `stage.tools`: урезание `leanTools` обязано быть видно
       // в промпте — панель показывает ровно тот список, с которым уйдёт запрос.
       // MCP-права здесь не нужны: у внешних инструментов своя строка в adapter-блоке.
-      tools: this.toolsFor(stage, preparationV2).filter((t) => t !== 'McpRead' && t !== 'McpWrite'),
+      tools: (structuredPreparation ? [] : this.toolsFor(stage, preparationV2)).filter((t) => t !== 'McpRead' && t !== 'McpWrite'),
       now: new Date(),
       ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
       ...(opts.extra === undefined ? {} : { extra: opts.extra }),
@@ -2494,6 +2527,7 @@ export class Run {
       /** Команда bash по requestId — только для вызовов, дошедших до исполнения: `onToolResult`
        * знает исход, но не сам вызов, `recordBashResult` гейта нужны оба. */
       const pendingBash = new Map<string, string>();
+      const pendingReads = new Map<string, { path: string; stage: StageId }>();
       /**
        * Прогресс этапа 5 — ПРИНЯТЫЕ записи в дерево (Write/Edit, дошедшие до исполнения
        * без ошибки). До этого счётчика `progressSignal` передавался только этапу 6, и на
@@ -2519,6 +2553,7 @@ export class Run {
        */
       const reviewerNames = new Set(def.subagents.filter((n) => REVIEWER_AGENTS.includes(n)));
 
+      let skippedApprovedLocationAsk = false;
       const hooks: ExecHooks = {
         onText: (text) => this.emit({ type: 'assistant_text', runId: this.id, stage, text }),
         onThinking: (text) => this.emit({ type: 'thinking', runId: this.id, stage, text }),
@@ -2576,6 +2611,9 @@ export class Run {
                 ...(meta.sdk?.sessionDir == null ? {} : { harnessResultsRoot: meta.sdk.sessionDir }),
               },
             });
+            if (decision.allowed && call.kind === 'read' && (stage === 'explore' || stage === 'plan')) {
+              pendingReads.set(meta.requestId, { path: call.path, stage });
+            }
             // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
             // рантайм прочитал с диска. Подстрока «reviewer» в имени этой планкой не
             // является: модель, вызвавшая несуществующего `code-reviewer-helper`, получала
@@ -2662,6 +2700,11 @@ export class Run {
 
         onToolResult: (meta) => {
           this.countFriction(stage, 'toolCalls');
+          const pendingRead = pendingReads.get(meta.requestId);
+          if (pendingRead !== undefined && meta.ok && meta.resultText !== undefined) {
+            recordPreparationRead(this.paths, pendingRead.stage, pendingRead.path, meta.resultText);
+          }
+          pendingReads.delete(meta.requestId);
           // Гейт «Ревью независимым агентом» зеленеет только по состоявшемуся ревью: вызов
           // дошёл до результата без ошибки И ответ прошёл планки этапа (`reviewAccepted` —
           // у verify те же, что у прямого прогона). Прежде здесь хватало `ok` — пустой ответ
@@ -2697,8 +2740,67 @@ export class Run {
           });
         },
 
+        onSubagentResult: (agent, response) => {
+          if (stage !== 'chunk' || agent !== 'sdlc-locator' || !isPreparationV2(this.paths)) return null;
+          const plan = readArtifact(this.paths.plan);
+          if (!plan.exists) return 'Одобренный plan.md не найден; подтверждение места правки не переиспользовано.';
+          const reviewProblem = preparationReviewProblem(this.paths);
+          if (reviewProblem !== null) return `Проработка изменилась или не одобрена (${reviewProblem}); подтверждение места правки не переиспользовано.`;
+          const mapProblem = planMapProblem(this.ctx);
+          if (mapProblem !== null) return `${mapProblem}; подтверждение места правки не переиспользовано.`;
+          const plannedFiles = extractFilesToTouch(plan.text);
+          const modelMap = validateLocatorMap(response, plannedFiles, this.paths.projectRoot);
+          const runtimeMap = modelMap.ok ? null : buildRuntimeLocatorMap(plan.text, this.paths.projectRoot);
+          if (!modelMap.ok) {
+            this.emit({
+              type: 'warning', runId: this.id, stage,
+              message: runtimeMap === null
+                ? `карта locator не подтверждена, резервная проверка дерева не удалась: ${modelMap.reason}`
+                : `locator вернул непригодную карту (${modelMap.reason}); список путей и точные якоря восстановлены рантаймом из одобренного плана и дерева`,
+            });
+            if (runtimeMap === null) {
+              return `Рантайм не подтвердил карту locator (${modelMap.reason}), и не смог безопасно построить её из одобренного плана и дерева. Поля журнала оставлены пустыми; не начинай реализацию.`;
+            }
+          }
+          const verified = modelMap.ok ? modelMap : { ok: true as const, value: runtimeMap! };
+          const steps = planSteps(plan.text);
+          const normalizePath = (path: string): string => path.replace(/\\/gu, '/').replace(/^\.\//u, '').toLowerCase();
+          const stepFiles = new Set(steps.map((step) => normalizePath(step.file)));
+          if (steps.length === 0 || plannedFiles.some((path) => !stepFiles.has(normalizePath(path)))) {
+            return 'JSON-карта совпала с files_to_touch, но план не содержит шага на каждый путь; подтверждение места правки не переиспользовано.';
+          }
+          const approvedOn = approvedPlanDate(plan.text);
+          if (approvedOn === null || readDecision(plan.text, DECISION.approval).state !== 'granted') {
+            return 'Дата одобрения плана не подтверждена; решение оператора для места правки не переиспользовано.';
+          }
+          const journalPath = this.paths.chunkJournal(this.chunk);
+          const journal = readArtifact(journalPath);
+          if (!journal.exists) return 'Журнал chunk не найден; подтверждение места правки не записано.';
+          const points = steps.map((step) => `${step.file}:${step.symbol ?? (step.isNew ? 'new file' : 'file-level change')}`);
+          const filled = fillVerifiedChunkLocation(journal.text, verified.value.files, approvedOn, points);
+          if (filled === null) return 'Форма журнала отличается от проверенного шаблона; подтверждение места правки не записано.';
+          this.writeAutofilled(journalPath, filled, seeded);
+          const message = modelMap.ok
+            ? 'рантайм записал точки правки из карты locator, сверенной с планом и файлами'
+            : 'рантайм сверил все цели одобренного плана и сам взял точные якоря из файлов после ошибки locator';
+          this.emit({ type: 'warning', runId: this.id, stage, message });
+          return modelMap.ok
+            ? `Рантайм проверил полный JSON-ответ locator против одобренного plan.md и текущих исходников, записал карту и сослался на одобрение плана этой сессии (${approvedOn}). Не спрашивай человека повторно и не меняй эти поля; переходи к реализации в пределах files_to_touch.`
+            : `Рантайм отклонил ответ locator, затем проверил каждый путь из одобренного files_to_touch, определил состояние по дереву и записал точные якоря из файлов; одобрение плана этой сессии (${approvedOn}) распространяется на эти подтверждённые цели. Не меняй поля журнала; переходи к реализации строго в пределах плана.`;
+        },
+
         onAskHuman: async (call) => {
           if (call.kind !== 'ask_human') return {};
+          if (stage === 'chunk' && isPreparationV2(this.paths) && call.questions.length > 0 &&
+              call.questions.every((q) => /подтвердите место правки|подтверждение места правки|точки правки/iu.test(q.question))) {
+            const plan = readArtifact(this.paths.plan);
+            if (plan.exists && approvedPlanDate(plan.text) !== null &&
+                readDecision(plan.text, DECISION.approval).state === 'granted' &&
+                preparationReviewProblem(this.paths) === null && planMapProblem(this.ctx) === null) {
+              skippedApprovedLocationAsk = true;
+              return {};
+            }
+          }
           this.status = 'awaiting';
           try {
             return await this.askGate.ask({ runId: this.id, stage, questions: call.questions });
@@ -2707,8 +2809,14 @@ export class Run {
           }
         },
 
-        afterAskHuman: (call, answers) =>
-          call.kind === 'ask_human' ? (isPreparationV2(this.paths) ? recordModelAnswers(this.host, call.questions, answers) : (inv.afterAskHuman?.(call.questions, answers) ?? null)) : null,
+        afterAskHuman: (call, answers) => {
+          if (call.kind !== 'ask_human') return null;
+          if (skippedApprovedLocationAsk) {
+            skippedApprovedLocationAsk = false;
+            return 'Точки правки уже входят в одобренный актуальный план и проверены рантаймом. Повторное подтверждение места не требуется; реализуй план через инструменты редактирования файлов. Вопросы о поведении и требованиях по-прежнему задавай человеку.';
+          }
+          return isPreparationV2(this.paths) ? recordModelAnswers(this.host, call.questions, answers) : (inv.afterAskHuman?.(call.questions, answers) ?? null);
+        },
 
         // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
         // одним `Write` после хода, обычным путём через политику и гейт.

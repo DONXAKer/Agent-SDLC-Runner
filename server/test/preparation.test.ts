@@ -1,16 +1,16 @@
 import { strictEqual, ok, throws, deepStrictEqual } from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 import { emptyUsage } from '@sdlc-runner/shared';
 import { WitokPaths, isRuntimeServicePath } from '../src/artifacts/paths.ts';
 import { writeArtifact } from '../src/artifacts/artifact.ts';
-import { initializePreparation, preparation, isPreparationV2, researchProblem, requirementProblem, blockingQuestions, savePreparation, preparationFingerprint, approvePreparation, approvedPreparationProblem, preparationReviewProblem, sourceHash } from '../src/artifacts/preparation.ts';
+import { initializePreparation, preparation, preparationContext, isPreparationV2, researchProblem, requirementProblem, blockingQuestions, savePreparation, preparationFingerprint, approvePreparation, approvedPreparationProblem, preparationReviewProblem, sourceHash, recordPreparationRead, syncCanonicalPreparation, preparationSummary, requireStructuredPreparationTables, markStructuredPreparationTablesRendered } from '../src/artifacts/preparation.ts';
 import { commitTargets } from '../src/run/commitByRuntime.ts';
 import { claimsMinimum, isSmallContour } from '../src/run/stages/preconditions.ts';
 import { readinessRun1, readinessRun2 } from '../src/run/readinessChecks.ts';
-import { reviewPreparation, parsePreparationReview } from '../src/run/preparationReview.ts';
+import { reviewPreparation, parseIndependentScenarios, parsePreparationReview } from '../src/run/preparationReview.ts';
 import { decisionState } from '../src/run/stageInfo.ts';
 import { stageById } from '../src/run/stages/index.ts';
 import { seedPreparationForms } from '../src/run/preparationForms.ts';
@@ -40,9 +40,12 @@ const requirements = draft + `
 `;
 function fixture() {
   const p = paths();
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src/list.ts'), 'export function listFilter() {}\n', 'utf8');
   initializePreparation(p, 'Неизвестная зона — пустой результат, код выхода 0');
+  recordPreparationRead(p, 'explore', 'src/list.ts', 'export function listFilter() {}');
   writeArtifact(p.intent, requirements);
-  writeArtifact(p.plan, '# План\n- **Одобрение:** ‹имя и дата›\nРеализовать фильтр\n');
+  writeArtifact(p.plan, '# План\n## Подход\nОснован на src/list.ts\n- **Одобрение:** ‹имя и дата›\nРеализовать фильтр\n');
   writeArtifact(p.explorationReport, '## Карта кодовой базы\nИсходники: src/list.ts\n## Приёмочный лист\nСЕКРЕТ_АВТОРСКОЙ_ПРИЁМКИ');
   return p;
 }
@@ -52,18 +55,21 @@ function reviewed(p: WitokPaths) {
 }
 function approved(p: WitokPaths) {
   reviewed(p);
-  writeArtifact(p.plan, '# План\n- **Одобрение:** Алексей · 2026-10-01\nРеализовать фильтр\n');
+  writeArtifact(p.plan, '# План\n## Подход\nОснован на src/list.ts\n- **Одобрение:** Алексей · 2026-10-01\nРеализовать фильтр\n');
   approvePreparation(p, 'Алексей', new Date('2026-10-01T00:00:00Z'));
 }
 
-describe('проработка v2', () => {
-  it('новый виток получает v2; старый и явно выбранный v1 не мигрируют', () => {
+describe('версионированная проработка', () => {
+  it('новый виток получает v3; явно выбранные v1/v2 остаются прежними', () => {
     const fresh = paths(); initializePreparation(fresh, '  запрос дословно  ');
     strictEqual(isPreparationV2(fresh), true);
+    strictEqual(preparation(fresh)!.version, 3);
     strictEqual(preparation(fresh)!.requests[0], '  запрос дословно  ');
     const old = paths(); writeArtifact(old.intent, draft); initializePreparation(old, 'новая формулировка');
     strictEqual(isPreparationV2(old), false);
     const legacy = paths(); initializePreparation(legacy, 'запрос', 1); strictEqual(isPreparationV2(legacy), false);
+    const v2 = paths(); initializePreparation(v2, 'старый структурированный виток', 2);
+    strictEqual(preparation(v2)!.version, 2);
   });
   it('исследование допускает неготовую приёмку и вопросы к реализации', () => {
     const p = paths(); initializePreparation(p, 'цель');
@@ -74,8 +80,8 @@ describe('проработка v2', () => {
     strictEqual(readinessRun2(c).ready, false);
     strictEqual(isSmallContour(c), false);
   });
-  it('вопрос, блокирующий само исследование, останавливает вход', () => {
-    ok(researchProblem(draft + '\n- [ ] [исследование] Какой проект исследовать?'));
+  it('вопрос на исследование не блокирует вход в исследование', () => {
+    strictEqual(researchProblem(draft + '\n- [ ] [исследование] Какой проект исследовать?'), null);
     strictEqual(blockingQuestions('- [ ] [неблокирующий] Цвет иконки'), false);
     strictEqual(blockingQuestions('- [ ] Правило расчёта'), true);
   });
@@ -84,6 +90,31 @@ describe('проработка v2', () => {
     deepStrictEqual(countClaims(requirements), { rows: 1, edges: 0 });
     ok(requirementProblem(requirements.replace('Вывод полной таблицы вместо пустого результата', '')));
     ok(requirementProblem(requirements.replace('## Основания и сценарии', '## Другая секция')));
+  });
+  it('передаёт модели только добавочный контекст этапа, а не копии всех артефактов', () => {
+    const p = fixture();
+    approved(p);
+    writeArtifact(p.intent, requirements
+      .replace('Неизвестная зона возвращает пустой результат', 'Неизвестная зона возвращает пустой результат без изменения exit-кода')
+      .replace('Без флага вывод не меняется', 'Без флага вывод не меняется и кэш сохраняется'));
+
+    const plan = preparationContext(p, 'plan');
+    ok(plan?.includes('Изменён claim-1'));
+    ok(plan?.includes('Изменён раздел'));
+    ok(plan?.includes('кэш сохраняется'));
+    ok(plan?.includes('Без флага вывод не меняется и кэш сохраняется'));
+    ok(!plan?.includes('СЕКРЕТ_АВТОРСКОЙ_ПРИЁМКИ'));
+
+    writeArtifact(p.clarificationReport, [
+      '## Вопросы и ответы',
+      '| # | Вопрос | Блокирующий | Ответ человека | Что изменилось в задаче |',
+      '|---|---|---|---|---|',
+      '| 1 | Допускать ли неизвестную зону? | да | Нет, вернуть пустой результат | уточняет claim-1 |',
+    ].join('\n'));
+    const ask = preparationContext(p, 'ask');
+    ok(ask?.includes('Нет, вернуть пустой результат'));
+    ok(!ask?.includes('СЕКРЕТ_АВТОРСКОЙ_ПРИЁМКИ'));
+    strictEqual(preparationContext(p, 'chunk'), null);
   });
   it('до независимой проверки нельзя одобрить требования', () => {
     const p = fixture();
@@ -96,7 +127,8 @@ describe('проработка v2', () => {
     writeArtifact(p.intent, requirements.replace('exit 0', 'exit 1'));
     ok(approvedPreparationProblem(p));
     strictEqual(decisionState(stageById('plan'), { paths: p, chunk: 1, attempt: 1 }), 'pending');
-    writeArtifact(p.intent, requirements);
+    recordPreparationRead(p, 'explore', 'src/list.ts', 'export function listFilter() {}');
+  writeArtifact(p.intent, requirements);
     writeArtifact(p.plan, readFileSync(p.plan, 'utf8') + '\nНовый контракт');
     ok(approvedPreparationProblem(p));
   });
@@ -115,7 +147,7 @@ describe('проработка v2', () => {
     writeArtifact(p.clarificationReport, 'Позднее уточнение: только активные зоны');
     ok(approvedPreparationProblem(p));
     writeArtifact(p.clarificationReport, '');
-    writeArtifact(p.plan, '# План\n- **Одобрение:** **не одобрено**\nРеализовать фильтр\n');
+    writeArtifact(p.plan, '# План\n## Подход\nОснован на src/list.ts\n- **Одобрение:** **не одобрено**\nРеализовать фильтр\n');
     ok(approvedPreparationProblem(p));
   });
   it('runtime-история закрыта для записи инструментами модели', () => {
@@ -142,11 +174,60 @@ describe('проработка v2', () => {
     writeArtifact(join(root, path), 'new');
     ok(preparationReviewProblem(p));
     writeArtifact(join(root, path), 'old');
-    writeArtifact(p.plan, '# План\n- **Одобрение:** Алексей · 2026-10-01\nРеализовать фильтр\n');
+    writeArtifact(p.plan, '# План\n## Подход\nОснован на src/list.ts\n- **Одобрение:** Алексей · 2026-10-01\nРеализовать фильтр\n');
     approvePreparation(p, 'Алексей', new Date());
     writeArtifact(join(root, path), 'implementation');
     strictEqual(preparationReviewProblem(p), null);
     strictEqual(approvedPreparationProblem(p), null);
+  });
+  it('показывает причину сбоя независимого ревью вместо общего сообщения', () => {
+    const p = fixture();
+    const state = preparation(p)!;
+    savePreparation(p, { ...state, review: {
+      fingerprint: preparationFingerprint(p), independent: '',
+      issues: ['SyntaxError: Unexpected token } in JSON at position 17'], completed: false,
+    } });
+    ok(preparationReviewProblem(p)?.includes('Unexpected token'), 'ошибка протокола должна быть видна оператору');
+  });
+  it('v3 публикует валидированные требования и шаги из документов как структурированные данные', () => {
+    const p = paths(); initializePreparation(p, 'Добавить фильтр');
+    requireStructuredPreparationTables(p);
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src/list.ts'), 'export function list() {}\n', 'utf8');
+    const canonicalIntent = [
+      '# Задача: фильтр', '## Коротко', 'Фильтрация списка.', '## Зачем', 'Убрать несовпадающие элементы.',
+      '## Что делаем', 'Добавить фильтр.', '## Чего не делаем', 'Не менять формат результата.',
+      '## Инварианты', 'Стабильный порядок элементов.',
+      '## Приёмочный лист',
+      '| ID | Пункт | Как проверить (процедура + критерий) |',
+      '|---|---|---|',
+      '| claim-1 | Неизвестная зона даёт пустой результат | Процедура: вызвать list с неизвестной зоной. Ожидаемо: пустой список. |',
+      '## Основания и сценарии',
+      '| Основание | Сценарий | Контрпример | ID |',
+      '|---|---|---|---|',
+      '| Запрос | Неизвестная зона | Возврат всех зон | claim-1 |',
+    ].join('\n');
+    writeArtifact(p.intent, canonicalIntent);
+    markStructuredPreparationTablesRendered(p);
+    writeArtifact(p.plan, [
+      '## Подход', 'Использовать src/list.ts.', '## Шаги',
+      '### Шаг 1 — Добавить фильтр', '- файл: src/list.ts (существующий)', '- символ: list',
+      '- действие: применить фильтр', '- закрывает: claim-1', '- проверка: вызвать функцию · ожидаемо: пустой список',
+      '- контракт: n/a — контракт прежний', '- зависит от: нет', '- факты человека: n/a',
+      '## files_to_touch', '| Путь | Что делаем |', '|---|---|', '| src/list.ts | фильтр |',
+    ].join('\n'));
+    syncCanonicalPreparation(p);
+    const result = preparationSummary(p)!;
+    strictEqual(result.version, 3);
+    strictEqual(result.canonical?.requirements?.acceptance[0]?.id, 'claim-1');
+    strictEqual(result.canonical?.requirements?.acceptance[0]?.expected, 'пустой список.');
+    strictEqual(result.canonical?.requirements?.constraints.invariants[0], 'Стабильный порядок элементов.');
+    strictEqual(result.canonical?.plan?.filesToTouch.includes('src/list.ts'), true);
+    ok(result.canonical?.plan?.fileRoles.some((item) => item.path === 'src/list.ts' && item.roles.includes('target')));
+    strictEqual(result.canonical?.plan?.steps[0]?.claims[0], 'claim-1');
+    strictEqual(requirementProblem(canonicalIntent, result.canonical?.requirements), null);
+    writeArtifact(p.intent, canonicalIntent.replace('пустой список.', 'все зоны'));
+    ok(requirementProblem(readFileSync(p.intent, 'utf8'), result.canonical?.requirements)?.includes('устарели'));
   });
   it('разведка не требует второго отдельного подтверждения полноты', () => {
     const p = fixture();
@@ -170,45 +251,69 @@ describe('проработка v2', () => {
     const seeded = [{ path: p.intent, template: 'fixture' }]; seedPreparationForms(p, seeded);
     const text = readFileSync(p.intent, 'utf8');
     ok(text.includes('ИИ готовит'));
-    ok(text.includes('Основание | Сценарий | Контрпример | ID'));
+    ok(text.includes('sdlc-json:acceptance:start'));
+    ok(text.includes('sdlc-json:basis:start'));
     ok(preparationInstructions('', 'plan').includes('Контрпример') || preparationInstructions('', 'plan').includes('контрпример'));
   });
 });
 
 describe('независимая критика плана', () => {
-  function reviewer(p: WitokPaths, answers: string[], captured: ExecRequest[]) {
+  it('нормализует структурированные замечания для арбитража, сохраняя основание и место плана', () => {
+    deepStrictEqual(parsePreparationReview(JSON.stringify({ issues: [{ defect: 'Пропущен сценарий', basis: 'источник X', location: 'Шаг 1', counterexample: 'вход Y' }] })), [
+      'Пропущен сценарий — Основание: источник X — Место плана: Шаг 1 — Контрпример: вход Y',
+    ]);
+  });
+
+  it('принимает единственную лишнюю закрывающую скобку в JSON-ответе локальной модели', () => {
+    deepStrictEqual(parsePreparationReview('{"issues":[]}}'), []);
+    deepStrictEqual(parseIndependentScenarios('{"scenarios":[]}}'), []);
+    throws(() => parsePreparationReview('{"issues":[]} текст'));
+  });
+
+  function reviewer(p: WitokPaths, answers: string[], captured: ExecRequest[], preparationModes: boolean[] = []) {
     return {
       paths: p, id: 'test', projectRoot: root, emit: () => {}, signal: () => new AbortController().signal,
       verifyRoute: () => ({ flow: 'loop', model: 'strong', providerDef: { currency: 'USD' } }),
       maxBudgetUsd: 10, spentBefore: () => 0, accountOffPathUsage: () => {},
-      executorFor: () => ({ run: async (req: ExecRequest) => { captured.push(req); return { ok: true, finalText: answers.shift() ?? '', usage: emptyUsage() }; } }),
+      executorFor: (_stage: string, _route: unknown, preparationForms: boolean) => {
+        preparationModes.push(preparationForms);
+        return { run: async (req: ExecRequest) => { captured.push(req); return { ok: true, finalText: answers.shift() ?? '', usage: emptyUsage() }; } };
+      },
     } as unknown as StageHost;
   }
   it('первый запрос не видит авторских claims, план и интерпретацию ответов', async () => {
-    const p = fixture(); const captured: ExecRequest[] = [];
+    const p = fixture(); const captured: ExecRequest[] = []; const preparationModes: boolean[] = [];
+    writeFileSync(join(root, 'src/index.ts'), "export { listFilter } from './list.ts';\n", 'utf8');
+    const state = preparation(p)!;
+    savePreparation(p, { ...state, requests: ['Не меняй src/list.ts; экспортируй его из src/index.ts.'] });
     writeArtifact(p.clarificationReport, '## Уточнённое требование и подход\nСЕКРЕТ_ИНТЕРПРЕТАЦИИ');
-    strictEqual(await reviewPreparation(reviewer(p, ['НЕЗАВИСИМЫЙ_РАЗБОР', '{"issues":[]}'], captured), {} as ExecHooks), null);
+    strictEqual(await reviewPreparation(reviewer(p, ['{"scenarios":[{"scenario":"Перенос","incorrectBehavior":"Меняется id","basis":"Запрос требует сохранить id"}]}', '{"issues":[]}'], captured, preparationModes), {} as ExecHooks), null);
     strictEqual(captured.length, 2);
     ok(!captured[0]!.prompt.user.includes('Реализовать фильтр'));
     ok(!captured[0]!.prompt.user.includes('СЕКРЕТ_АВТОРСКОЙ_ПРИЁМКИ'));
     ok(!captured[0]!.prompt.user.includes('СЕКРЕТ_ИНТЕРПРЕТАЦИИ'));
-    ok(captured[1]!.prompt.user.includes('НЕЗАВИСИМЫЙ_РАЗБОР'));
+    ok(captured[0]!.prompt.user.includes("### src/index.ts\nexport { listFilter } from './list.ts';"), 'first review pass receives original-request sources even if the author map omitted them');
+    ok(captured[1]!.prompt.user.includes('"scenario":"Перенос"'));
     deepStrictEqual(captured[0]!.allowedTools, []);
     deepStrictEqual(captured[0]!.subagents, []);
+    deepStrictEqual(preparationModes, [false, false], 'independent review must use the ordinary loop executor');
   });
   it('замечание о тесте, подтверждающем неверное понимание, блокирует одобрение', async () => {
     const p = fixture(); const captured: ExecRequest[] = [];
-    const problem = await reviewPreparation(reviewer(p, ['анализ', '{"issues":["Тест ждёт exit 1, запрос требует 0: unknown-zone выявит расхождение"]}'], captured), {} as ExecHooks);
+    const finding = 'Тест ждёт exit 1, запрос требует 0: unknown-zone выявит расхождение';
+    const problem = await reviewPreparation(reviewer(p, ['{"scenarios":[]}', JSON.stringify({ issues: [finding] }), JSON.stringify({ issues: [finding] })], captured), {} as ExecHooks);
     ok(problem?.includes('exit 1'));
+    strictEqual(captured.length, 3, 'непустые замечания должны пройти арбитраж');
     throws(() => approvePreparation(p, 'Алексей', new Date()), /требует исправлений/);
   });
   it('ошибка формата и изменение источника после проверки не дают зелёный результат', async () => {
     const p = fixture();
-    ok(await reviewPreparation(reviewer(p, ['анализ', 'всё отлично'], []), {} as ExecHooks));
+    ok(await reviewPreparation(reviewer(p, ['невалидный разбор', 'всё отлично'], []), {} as ExecHooks));
     strictEqual(preparation(p)!.review!.completed, false);
     reviewed(p);
     writeArtifact(p.explorationReport, 'Новые факты о контракте');
     ok(preparationReviewProblem(p));
     throws(() => parsePreparationReview('{"issues":[false]}'));
+    throws(() => parseIndependentScenarios('{"scenarios":[{"scenario":"x"}]}'));
   });
 });

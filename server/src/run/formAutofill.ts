@@ -13,6 +13,52 @@
 
 import { readField, replaceAfterLabel } from '../artifacts/artifact.ts';
 import { fillMechanicalPlaceholders } from './journalAutofill.ts';
+import { escapeCell, h2SectionRanges, parseTables } from '../md/table.ts';
+
+export interface PlanAcceptanceCheck {
+  id: string;
+  behavior: string;
+  procedure: string;
+  expected: string;
+}
+
+export function acceptanceChecksFromIntent(intentText: string): PlanAcceptanceCheck[] {
+  const block = /<!--\s*sdlc-json:acceptance:start\s*-->([\s\S]*?)<!--\s*sdlc-json:acceptance:end\s*-->/u.exec(intentText)?.[1];
+  if (block !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(block);
+      if (Array.isArray(parsed)) {
+        const checks = parsed.flatMap((item: unknown) => {
+          if (typeof item !== 'object' || item === null) return [];
+          const row = item as Record<string, unknown>;
+          return typeof row.id === 'string' && /^claim-\d+$/u.test(row.id) &&
+            typeof row.behavior === 'string' && row.behavior.trim() !== '' &&
+            typeof row.procedure === 'string' && row.procedure.trim() !== '' &&
+            typeof row.expected === 'string' && row.expected.trim() !== ''
+            ? [{ id: row.id, behavior: row.behavior, procedure: row.procedure, expected: row.expected }]
+            : [];
+        });
+        if (checks.length > 0) return checks;
+      }
+    } catch {
+      // The finalized intent may have been rendered to its markdown table already.
+    }
+  }
+  // The finalizer renders and removes the temporary JSON comments after validating them.
+  // Recover the same four canonical fields from the stable table representation.
+  return parseTables(intentText)
+    .filter((table) => table.section.toLocaleLowerCase('ru-RU').replace(/ё/gu, 'е').includes('приемочн'))
+    .flatMap((table) => table.rows.flatMap((row) => {
+      const id = row[0]?.trim() ?? '';
+      const behavior = row[1]?.trim() ?? '';
+      const combined = row[2]?.trim() ?? '';
+      const split = /Ожидаемо\s*:\s*/iu.exec(combined);
+      if (!/^claim-\d+$/u.test(id) || behavior === '' || split === null) return [];
+      const procedure = combined.slice(0, split.index).replace(/^Процедура:\s*/iu, '').replace(/[.\s]+$/u, '').trim();
+      const expected = combined.slice(split.index + split[0].length).trim();
+      return procedure !== '' && expected !== '' ? [{ id, behavior, procedure, expected }] : [];
+    }));
+}
 
 /**
  * Шаблоны, у которых ВСЕ поля рантайма закрывает автозаполнение этого файла до модели.
@@ -40,6 +86,26 @@ export interface PlanFacts {
   /** HEAD либо причина его отсутствия — строкой: поле обязано закрыться. */
   base: string;
   requirementsHash: string;
+  acceptanceChecks?: readonly PlanAcceptanceCheck[];
+}
+
+function replacePlanAcceptanceTable(text: string, checks: readonly PlanAcceptanceCheck[]): { text: string; filled: number } {
+  if (checks.length === 0) return { text, filled: 0 };
+  const range = h2SectionRanges(text, /^Проверки приёмки$/iu)[0];
+  if (range === undefined) return { text, filled: 0 };
+  const body = text.slice(range.start, range.end);
+  const lines = body.split(/\r?\n/u);
+  const headerAt = lines.findIndex((line) => /^\|\s*ID\s*\|/iu.test(line));
+  if (headerAt < 0 || headerAt + 1 >= lines.length || !/^\|?\s*:?-{2,}/u.test(lines[headerAt + 1]!)) {
+    return { text, filled: 0 };
+  }
+  let tableEnd = headerAt + 2;
+  while (tableEnd < lines.length && /^\s*\|/u.test(lines[tableEnd]!)) tableEnd++;
+  const rows = checks.map((check) => `| ${[check.id, check.behavior, check.procedure, check.expected].map(escapeCell).join(' | ')} |`);
+  if (lines.slice(headerAt + 2, tableEnd).join('\n') === rows.join('\n')) return { text, filled: 0 };
+  lines.splice(headerAt + 2, tableEnd - (headerAt + 2), ...rows);
+  const replacement = lines.join('\n');
+  return { text: text.slice(0, range.start) + replacement + text.slice(range.end), filled: 1 };
 }
 
 export function autofillPlan(text: string, f: PlanFacts): { text: string; filled: number } {
@@ -55,18 +121,22 @@ export function autofillPlan(text: string, f: PlanFacts): { text: string; filled
   });
   // Older templates have no fingerprint field. Add it while preparing the plan,
   // before human approval; never repair an approved snapshot on restore.
+  let withHash: { text: string; filled: number };
   if (!/^\s*- \*\*Требования \(SHA-256\):\*\*/mu.test(filled.text)) {
     const line = `- **Требования (SHA-256):** ${f.requirementsHash}\n`;
     const base = /^- \*\*База:\*\*[^\n]*(?:\n|$)/mu;
     const text2 = base.test(filled.text)
       ? filled.text.replace(base, (match) => `${match.trimEnd()}\n${line}`)
       : `${filled.text.trimEnd()}\n\n${line}`;
-    return { text: text2, filled: filled.filled + 1 };
+    withHash = { text: text2, filled: filled.filled + 1 };
+  } else {
+    const refreshed = replaceAfterLabel(filled.text, 'Требования (SHA-256)', f.requirementsHash);
+    withHash = refreshed !== null && refreshed !== filled.text
+      ? { text: refreshed, filled: filled.filled + 1 }
+      : filled;
   }
-  const refreshed = replaceAfterLabel(filled.text, 'Требования (SHA-256)', f.requirementsHash);
-  return refreshed !== null && refreshed !== filled.text
-    ? { text: refreshed, filled: filled.filled + 1 }
-    : filled;
+  const acceptance = replacePlanAcceptanceTable(withHash.text, f.acceptanceChecks ?? []);
+  return { text: acceptance.text, filled: withHash.filled + acceptance.filled };
 }
 
 export interface ReadinessFacts {

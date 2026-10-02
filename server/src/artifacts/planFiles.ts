@@ -14,7 +14,7 @@
  */
 
 import { hasPlaceholder } from './artifact.ts';
-import { LEADING_PIPE_SEPARATOR_RE, h2SectionRanges, splitRow } from '../md/table.ts';
+import { LEADING_PIPE_SEPARATOR_RE, h2SectionRanges, parseTables, splitRow } from '../md/table.ts';
 
 const SECTION_RE = /^#{1,6}\s.*files_to_touch/im;
 const NEXT_HEADING_RE = /^#{1,6}\s/m;
@@ -79,6 +79,7 @@ const NOT_PATH_CHARS = /[*,;]/;
 function looksLikePath(raw: string): boolean {
   const t = clean(raw);
   if (t === '' || /\s/.test(t)) return false;
+  if (t.endsWith('/')) return false; // scope entries are files, not directories
   if (t.includes('‹') || t.includes('›')) return false;
   if (/^[#\d.,)]+$/.test(t)) return false; // номер строки таблицы
   if (t.includes('::')) return false; // `путь:символ` — форма отчёта разведки
@@ -334,6 +335,16 @@ export function extractFilesToTouch(planText: string): string[] {
   return out;
 }
 
+/** Directories cannot be entries in a write allowlist; each row must name a file. */
+export function filesToTouchDirectories(planText: string): string[] {
+  return parseTables(planText)
+    .filter((table) => /files_to_touch/i.test(table.section))
+    .flatMap((table) => table.rows.flatMap((row) => row
+      .map((cell) => cell.trim().replace(/^`|`$/gu, ''))
+      .filter((cell) => /^(?:[\w.-]+\/)+$/u.test(cell)),
+    ));
+}
+
 /**
  * Засевает пустую таблицу `files_to_touch` строками из «Что придётся тронуть» задачи (4.1,
  * «П»-половина — механический засев ДО хода модели; «М»-половина уже была:
@@ -386,4 +397,56 @@ export function seedFilesToTouch(
   const newSection = newLines.join('\n');
   const newText = planText.slice(0, sectionStart) + newSection + planText.slice(sectionStart + section.length);
   return { text: newText, seeded: rows.length };
+}
+
+/** Add only missing entries, used to reconcile explicit plan-step paths with the allowlist. */
+export function appendFilesToTouch(
+  planText: string,
+  entries: readonly TouchEntry[],
+): { text: string; appended: number } {
+  if (entries.length === 0) return { text: planText, appended: 0 };
+  const boundary = filesToTouchSection(planText);
+  if (boundary === null) return { text: planText, appended: 0 };
+  const existing = new Set(extractFilesToTouch(planText));
+  const seen = new Set(existing);
+  const rows: string[] = [];
+  for (const entry of entries) {
+    if (seen.has(entry.path)) continue;
+    seen.add(entry.path);
+    const note = entry.note === '' ? 'см. шаг плана' : entry.note;
+    rows.push(`| \`${entry.path}\` | ${note} |`);
+  }
+  if (rows.length === 0) return { text: planText, appended: 0 };
+  const lines = boundary.section.split('\n');
+  const separatorAt = lines.findIndex((line) => LEADING_PIPE_SEPARATOR_RE.test(line.trim()));
+  if (separatorAt < 0) return { text: planText, appended: 0 };
+  let rowsEnd = separatorAt + 1;
+  while (rowsEnd < lines.length && lines[rowsEnd]!.trim().startsWith('|')) rowsEnd++;
+  const updated = [...lines.slice(0, rowsEnd), ...rows, ...lines.slice(rowsEnd)].join('\n');
+  return {
+    text: planText.slice(0, boundary.start) + updated + planText.slice(boundary.start + boundary.section.length),
+    appended: rows.length,
+  };
+}
+
+/** Remove exact allowlist rows after a boundary check has proved they are forbidden. */
+export function removeFilesFromTouch(planText: string, paths: readonly string[]): { text: string; removed: number } {
+  if (paths.length === 0) return { text: planText, removed: 0 };
+  const boundary = filesToTouchSection(planText);
+  if (boundary === null) return { text: planText, removed: 0 };
+  const denied = new Set(paths);
+  let removed = 0;
+  const sectionLines = boundary.section.split('\n').filter((line) => {
+    if (!line.trimStart().startsWith('|') || LEADING_PIPE_SEPARATOR_RE.test(line.trim())) return true;
+    const cells = splitRow(line).map((cell) => cell.trim().replace(/^`|`$/gu, ''));
+    const path = pathFromRow(line) ?? cells.find((cell) => /^(?:[\w.-]+\/)+$/u.test(cell)) ?? null;
+    if (path === null || !denied.has(path)) return true;
+    removed++;
+    return false;
+  });
+  const section = sectionLines.join('\n');
+  return {
+    text: planText.slice(0, boundary.start) + section + planText.slice(boundary.start + boundary.section.length),
+    removed,
+  };
 }

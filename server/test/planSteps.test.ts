@@ -7,7 +7,7 @@ import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
-import { describeStep, explicitStepProblems, extractExplicitSteps, planSteps, stepsFromFilesToTouch } from '../src/artifacts/planSteps.ts';
+import { appendMissingPlanStepCards, describeStep, explicitStepProblems, extractExplicitSteps, planSteps, stepsFromFilesToTouch } from '../src/artifacts/planSteps.ts';
 
 it('сохраняет продолжения действия, проверки и фактов человека', () => {
   const [step] = extractExplicitSteps('### Шаг 1 — НДС\n- файл: src/vat.ts\n- действие: ставка 10% если все reduced, иначе\n  20%; поле vat не добавлять\n  при none\n- проверка: `node --test test/vat.test.ts` · ожидаемо:\n  зелёный\n- факты человека: расчёт от суммы\n  с округлением половина вверх\n');
@@ -112,6 +112,38 @@ describe('явная форма шага плана', () => {
       .some((p) => p.includes('контракт')));
   });
 
+  it('requires an implementation step for every files_to_touch entry', () => {
+    const malformed = EXPLICIT.replace('- **файл:** src/tariffs.ts', '- **файл:** src/oversize.ts');
+    ok(explicitStepProblems(malformed).some((problem) => problem.includes('src/tariffs.ts')));
+  });
+
+  it('rejects several target files packed into one step card', () => {
+    const malformed = EXPLICIT.replace(
+      '- файл: `src/oversize.ts` (новый)',
+      '- файл: `src/oversize.ts` (экспорт в `src/index.ts`, новый)',
+    );
+    ok(explicitStepProblems(malformed).some((problem) => problem.includes('ровно один файл на карточку')));
+  });
+
+  it('rejects duplicate step cards for the same file', () => {
+    const malformed = EXPLICIT.replace(
+      '## files_to_touch',
+      [
+        '### Шаг 3 — Проверить модуль',
+        '- файл: src/oversize.ts (новый)',
+        '- символ: тест',
+        '- действие: добавить поведенческий тест',
+        '- закрывает: claim-2',
+        '- проверка: `node --test test/oversize.test.ts` · ожидаемо: зелёный',
+        '- контракт: н/п — тест',
+        '- зависит от: шаг 1',
+        '',
+        '## files_to_touch',
+      ].join('\n'),
+    );
+    ok(explicitStepProblems(malformed).some((problem) => problem.includes('уже покрыт другой карточкой')));
+  });
+
   it('planSteps предпочитает явную форму, когда она есть', () => {
     strictEqual(planSteps(EXPLICIT).every((s) => s.explicit), true);
   });
@@ -166,5 +198,42 @@ describe('fallback по files_to_touch', () => {
     ok(line.includes('src/oversize.ts (новый)'));
     ok(line.includes('символ surchargeFor'));
     ok(line.includes('claim-2'));
+  });
+});
+
+describe('карточки на все разрешённые файлы', () => {
+  it('добавляет заготовку только для пути без явного шага и сохраняет уже заполненные шаги', () => {
+    const plan = [
+      '## Шаги',
+      '### Шаг 1 — Обновить модуль',
+      '- файл: src/a.ts (существующий)',
+      '- символ: run',
+      '- действие: обновить run',
+      '- закрывает: claim-1',
+      '- проверка: н/п — проверяется шагом тестов',
+      '- контракт: н/п — сигнатура без изменений',
+      '- зависит от: нет',
+      '- факты человека: н/п',
+      '',
+      '## files_to_touch',
+      '| Путь | Что делаем |',
+      '|---|---|',
+      '| src/a.ts | обновить run |',
+      '| src/index.ts | экспортировать run |',
+      '| test/new.test.ts | новый файл тестов |',
+    ].join('\n');
+    const result = appendMissingPlanStepCards(plan);
+    deepStrictEqual(result.paths, ['src/index.ts', 'test/new.test.ts']);
+    ok(result.text.includes('### Шаг 2 — Изменить src/index.ts'));
+    ok(result.text.includes('- файл: src/index.ts (существующий)'));
+    ok(result.text.includes('### Шаг 3 — Создать test/new.test.ts'));
+    ok(result.text.includes('- файл: test/new.test.ts (новый)'));
+    strictEqual(result.text.includes('### Шаг 1 — Обновить модуль'), true);
+  });
+
+  it('ничего не добавляет без секции шагов или когда все файлы покрыты', () => {
+    const noSteps = appendMissingPlanStepCards('## files_to_touch\n| Путь |\n|---|\n| src/a.ts |');
+    strictEqual(noSteps.text.includes('Шаг 1'), false);
+    deepStrictEqual(noSteps.paths, []);
   });
 });

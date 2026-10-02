@@ -23,6 +23,7 @@ import {
   noChangeReason,
   parseFileContent,
   parseSearchReplace,
+  plannedFunctionAddition,
   repairGuidance,
 } from '../src/exec/StepExecutor.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
@@ -39,8 +40,10 @@ function step(over: Partial<PlanStep>): PlanStep {
     n: 1,
     title: 'шаг',
     file: 'src/a.ts',
+    filePaths: ['src/a.ts'],
     isNew: false,
     symbol: null,
+    isNewSymbol: false,
     action: 'сделать',
     claims: [],
     check: null,
@@ -215,6 +218,38 @@ describe('разбор ответов шага', () => {
     const answer = ['SEARCH:', '```ts', 'const old = 1;', '```', '', 'REPLACE:', '```ts', 'const next = 2;', '```'].join('\n');
     deepStrictEqual(parseSearchReplace(answer), [{ oldStr: 'const old = 1;', newStr: 'const next = 2;' }]);
     deepStrictEqual(parseSearchReplace('SEARCH: `const old = 1;`\nREPLACE: `const next = 2;`'), []);
+  });
+});
+
+describe('planned function addition recovery', () => {
+  it('converts a single planned function code block into a minimal append edit', () => {
+    const current = 'export function isActive() {\n  return true;\n}\n';
+    const answer = [
+      '```typescript',
+      '// src/hold.ts',
+      'export function moveHold(hold: Hold, newSlot: Slot): Hold { return { ...hold, slot: newSlot }; }',
+      '```',
+      '',
+      '```typescript',
+      '// test/moveHold.test.ts',
+      "describe('moveHold', () => {});",
+      '```',
+    ].join('\n');
+    deepStrictEqual(plannedFunctionAddition(step({
+      title: 'Implement moveHold', symbol: 'moveHold', isNewSymbol: true,
+      action: 'Add function moveHold',
+    }), current, answer), {
+      oldStr: '}',
+      newStr: '}\n\nexport function moveHold(hold: Hold, newSlot: Slot): Hold { return { ...hold, slot: newSlot }; }',
+    });
+  });
+
+  it('rejects unplanned, already implemented, and ambiguous function output', () => {
+    const current = 'export function isActive() {\n  return true;\n}\n';
+    const answer = '```ts\nexport function moveHold() { return {}; }\n```';
+    strictEqual(plannedFunctionAddition(step({ symbol: 'moveHold' }), current, answer), null);
+    strictEqual(plannedFunctionAddition(step({ symbol: 'isActive', isNewSymbol: true, action: 'Add isActive' }), current, answer), null);
+    strictEqual(plannedFunctionAddition(step({ symbol: 'moveHold', isNewSymbol: true, action: 'Add moveHold' }), current, `${answer}\n${answer}`), null);
   });
 });
 

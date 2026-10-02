@@ -20,7 +20,7 @@
  */
 
 import { parseTables } from '../md/table.ts';
-import { extractFilesToTouch } from './planFiles.ts';
+import { declaredAsNew, extractFilesToTouch, pathFromCells } from './planFiles.ts';
 
 export interface PlanStep {
   /** Порядковый номер: из заголовка явной формы либо позиция строки в fallback. */
@@ -28,9 +28,13 @@ export interface PlanStep {
   title: string;
   /** Путь относительно корня проекта, как в плане. */
   file: string;
+  /** All path-like addresses in the file field; explicit steps must name exactly one. */
+  filePaths: string[];
   /** План говорит, что файл предстоит создать. */
   isNew: boolean;
   symbol: string | null;
+  /** The symbol is absent from the current file and is explicitly planned for creation. */
+  isNewSymbol: boolean;
   /** Что сделать — одна фраза. */
   action: string;
   /** Пункты приёмки, которые шаг закрывает (`claim-N`, нижний регистр). */
@@ -94,13 +98,16 @@ export function extractExplicitSteps(planText: string): PlanStep[] {
     if (cur === null) return;
     const f = cur.fields;
     const fileRaw = f.get('файл') ?? '';
+    const filePaths = [...fileRaw.matchAll(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12}/giu)].map((match) => match[0]);
     // Путь — первый токен поля без кавычек и без хвостовых разделителей: пометка «(новый)»
     // живёт после него, а «`src/a.ts`, `src/b.ts`» (нарушение «один файл на шаг»)
     // давало путь «src/a.ts`,» и шаг в несуществующий файл.
     const file = stripTicks((fileRaw.split(/[\s,;]+/)[0] ?? '').replace(/[,;:]+$/, ''));
     if (file !== '' && !file.includes('‹')) {
       const symbolRaw = f.get('символ') ?? '';
-      const symbol = stripTicks(symbolRaw.split(/\s+/)[0] ?? '').replace(/[;,]+$/u, '');
+      const isNewSymbol = /^новый\s*:\s*/iu.test(symbolRaw.trim());
+      const symbolValue = isNewSymbol ? symbolRaw.trim().replace(/^новый\s*:\s*/iu, '') : symbolRaw;
+      const symbol = stripTicks(symbolValue.split(/\s+/)[0] ?? '').replace(/[;,]+$/u, '');
       const checkRaw = f.get('проверка') ?? '';
       const checkCmd = /`([^`]+)`/.exec(checkRaw)?.[1]?.trim() ?? null;
       const expect = /ожидаемо\s*:\s*(.+)$/i.exec(checkRaw)?.[1]?.trim() ?? null;
@@ -116,8 +123,10 @@ export function extractExplicitSteps(planText: string): PlanStep[] {
         n: cur.n,
         title: cur.title,
         file,
+        filePaths,
         isNew: NEW_MARK_RE.test(fileRaw) || NEW_MARK_RE.test(symbolRaw),
         symbol: symbol === '' || symbol.includes('‹') || /^н\s*\/\s*п$/iu.test(symbol) ? null : symbol,
+        isNewSymbol,
         action: (f.get('действие') ?? cur.title).trim(),
         claims: claimsOf(f.get('закрывает') ?? ''),
         check: checkCmd,
@@ -181,8 +190,10 @@ export function stepsFromFilesToTouch(planText: string): PlanStep[] {
       n: idx + 1,
       title: file,
       file,
+      filePaths: [file],
       isNew: NEW_MARK_RE.test(rowText) || /^нов/i.test(rest.join(' ').trim()),
       symbol: null,
+      isNewSymbol: false,
       action: rest.length === 0 ? `правка по плану: ${file}` : rest.join(' — '),
       claims: claimsOf(rowText),
       check: null,
@@ -214,10 +225,17 @@ export function explicitStepProblems(planText: string): string[] {
     problems.push('у одной или нескольких карточек нет корректного поля «файл»');
   }
   const seen = new Set<number>();
+  const seenFiles = new Set<string>();
   for (const [index, step] of steps.entries()) {
     if (seen.has(step.n)) problems.push(`номер шага ${step.n} повторяется`);
     seen.add(step.n);
     if (step.n !== index + 1) problems.push(`шаги должны идти подряд с 1; ожидался шаг ${index + 1}, найден ${step.n}`);
+    if (step.filePaths.length > 1) {
+      problems.push(`шаг ${step.n}: в поле «файл» перечислено несколько путей (${step.filePaths.join(', ')}); укажи ровно один файл на карточку`);
+    }
+    const normalizedFile = step.file.replace(/\\/gu, '/').replace(/^\.\//u, '').toLowerCase();
+    if (seenFiles.has(normalizedFile)) problems.push(`шаг ${step.n}: путь ${step.file} уже покрыт другой карточкой; объедини работу в одну карточку на файл`);
+    seenFiles.add(normalizedFile);
     if (step.action === '' || step.action.includes('‹')) problems.push(`шаг ${step.n}: не заполнено поле «действие»`);
     if (step.claims.length === 0) problems.push(`шаг ${step.n}: укажи закрываемый claim-N или явно объясни, почему шаг не закрывает пункт`);
     if (!step.checkSpecified) problems.push(`шаг ${step.n}: укажи проверку результата или «н/п — причина»`);
@@ -227,7 +245,65 @@ export function explicitStepProblems(planText: string): string[] {
       problems.push(`шаг ${step.n}: зависимость должна ссылаться на более ранний шаг`);
     }
   }
+  // In the explicit format, `files_to_touch` is the execution allowlist and each
+  // listed file must have a corresponding step. Otherwise stepFill can silently
+  // skip a required source change while still writing a test file from the plan.
+  const normalize = (value: string): string => value.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+  const plannedFiles = new Set(steps.map((step) => normalize(step.file)));
+  const missingSteps = extractFilesToTouch(planText).filter((file) => !plannedFiles.has(normalize(file)));
+  if (missingSteps.length > 0) {
+    problems.push(`files_to_touch содержит файлы без шага реализации: ${missingSteps.join(', ')}`);
+  }
   return problems;
+}
+
+/**
+ * Appends one editable step card for each allowlisted file that has no card yet.
+ * The runtime supplies only the address and its declared new/existing state; the
+ * model still has to define the implementation, claims, contract, and check.
+ */
+export function appendMissingPlanStepCards(planText: string): { text: string; paths: string[] } {
+  const tables = parseTables(planText).filter((table) => /files_to_touch/i.test(table.section));
+  const files = new Map<string, boolean>();
+  for (const table of tables) {
+    for (const row of table.rows) {
+      const path = pathFromCells(row);
+      if (path !== null && !files.has(path)) files.set(path, declaredAsNew(row));
+    }
+  }
+  const normalize = (value: string): string => value.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+  const covered = new Set(extractExplicitSteps(planText).map((step) => normalize(step.file)));
+  const missing = [...files.entries()].filter(([path]) => !covered.has(normalize(path)));
+  if (missing.length === 0) return { text: planText, paths: [] };
+
+  const lastNumber = Math.max(0, ...[...planText.matchAll(/^#{2,4}\s*Шаг\s+(\d+)\b/gimu)].map((match) => Number(match[1])));
+  const cards = missing.map(([path, isNew], index) => {
+    const n = lastNumber + index + 1;
+    const verb = isNew ? 'Создать' : 'Изменить';
+    const state = isNew ? ' (новый)' : ' (существующий)';
+    return [
+      `### Шаг ${n} — ${verb} ${path}`,
+      `- файл: ${path}${state}`,
+      '- символ: ‹укажи существующий символ или новый›',
+      '- действие: ‹одно проверяемое изменение только в этом файле›',
+      '- закрывает: ‹claim-N›',
+      '- проверка: ‹что подтвердит результат› · ожидаемо: ‹ожидаемый результат›',
+      '- контракт: ‹до → после; потребители либо н/п — причина›',
+      '- зависит от: нет',
+      '- факты человека: н/п',
+    ].join('\n');
+  });
+  const insertion = cards.join('\n\n');
+  const stepsHeading = /^## Шаги\s*$/mi.exec(planText);
+  if (stepsHeading === null) return { text: planText, paths: [] };
+  const insertAt = stepsHeading.index + stepsHeading[0].length;
+  const nextSection = /^##\s+/gm;
+  nextSection.lastIndex = insertAt;
+  const boundary = nextSection.exec(planText)?.index ?? planText.length;
+  const before = planText.slice(0, boundary).trimEnd();
+  const after = planText.slice(boundary);
+  const text = `${before}\n\n${insertion}\n${after}`;
+  return { text, paths: missing.map(([path]) => path) };
 }
 
 /** Строка таблицы `files_to_touch` для fallback-шага — чтобы тест видел, что читается. */

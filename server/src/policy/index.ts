@@ -94,12 +94,15 @@ function checkStageTools(call: NormalizedCall, ctx: PolicyContext): PolicyVerdic
     // субагента нет, пошла делать его работу сама: написала на РАЗВЕДКЕ продуктовый код.
     // Про права здесь речи нет, и говорить о них нельзя.
     const declared = (ctx.allowedTools as readonly string[]).includes(call.toolName);
+    const fillField = /^(?:FillField|mcp__sdlc__fill_field)$/iu.test(call.toolName);
     return policyDeny(
       'stageTools',
       declared
-        ? `вызов «${call.toolName}» не разобран: инструмент на этапе ${ctx.stage} объявлен и ` +
-          `доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в ` +
-          `правах — сверь вызов со схемой инструмента и повтори. ${unknownCallSentFields(call.raw)}`
+        ? fillField
+          ? `вызов «${call.toolName}» не разобран. Для FillField передай строковые artifact, field и value; artifact — ключ из карточки бланка (например, journal), не имя файла вроде chunk-1-journal.md. Дело не в правах — сверь вызов со схемой и повтори. ${unknownCallSentFields(call.raw)}`
+          : `вызов «${call.toolName}» не разобран: инструмент на этапе ${ctx.stage} объявлен и ` +
+            `доступен, но обязательные аргументы отсутствуют или заданы не строкой. Дело не в ` +
+            `правах — сверь вызов со схемой инструмента и повтори. ${unknownCallSentFields(call.raw)}`
         : `инструмент «${call.toolName}» не объявлен на этапе ${ctx.stage} и не опознан рантаймом.` +
           (PATCH_STYLE_NAME.test(call.toolName) ? ` ${PATCH_HINT}` : ''),
     );

@@ -119,7 +119,7 @@ export interface StageHost {
   /** Права этапа с учётом MCP и урезанного набора (`Run.toolsFor`). */
   toolsFor(stage: StageId): readonly ToolName[];
   /** Исполнитель этапа под маршрут (`Run.executorFor`). */
-  executorFor(stage: StageId, route?: ResolvedRoute): StageExecutor;
+  executorFor(stage: StageId, route?: ResolvedRoute, preparationForms?: boolean): StageExecutor;
   /** Инструменты внешних MCP-серверов этапа (`Run.mcpAccess`). */
   mcpAccess(stage: StageId): Promise<McpAccess | null>;
   /** Потолок ходов этапа (`Run.maxTurnsFor`). */
@@ -210,7 +210,7 @@ export interface StageModule {
   /** Закрывать ли этап, как только артефакт готов (`ExecRequest.closeOnFinalizeReady`); умолчание — да. */
   closeOnFinalizeReady?: boolean;
   /** Инициализация формата нового витка до проверки входа. */
-  initialize?(host: StageHost, opts: { requirement?: string; preparationVersion?: 1 | 2 }): void;
+  initialize?(host: StageHost, opts: { requirement?: string; preparationVersion?: 1 | 2 | 3 }): void;
   /** Хуки одного прохода этапа; локальное состояние прохода — в замыкании. */
   begin?(host: StageHost, route: ResolvedRoute, opts?: { abortHandoff?: boolean }): StageInvocation;
 }
