@@ -553,3 +553,15 @@ ollama оставляет запас под вычислительные буф�
 | `ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill` | ollama | — | 32768 | ✓ | ✓ | ✓ | — | — | ✓ (fill) | — | explore | гейт готовности | `d4-qwen3coder-rename-field` | intent ok⚠, explore заблокирован | `qwen3-coder-30b-ctx32k` |
 | `ollama:gpt-oss-20b-agent-inputs` | ollama | — | 32768 | ✓ | — | — | — | — | ✓ (inputs) | — | verify | ревью провалено | `d4-gptoss-inputs-rename-field` | intent→chunk ✅, verify escalate, опасна | `gpt-oss-20b-ctx32k` |
 | `ollama:ministral3-14b-instruct-ctx32k` | ollama | — | 32768 | ✓ | — | — | — | — | — | — | — | правка целиком | — | преполёт красный, прогон не начат | `ministral3-14b-instruct` |
+
+## Guided flow — пилот GPT-OSS 20B (2026-10-05)
+
+| Модель | Задача | Отдельный успешный запуск | Парная перепроверка | Вывод |
+|---|---|---|---|---|
+| `ollama:gpt-oss-20b-effort-low-t02-rf` | `zero-change-verify` | Handoff, 7/7, `guided-sample-20261005071059492` | Chunk остановлен, 2/7, `guided-sample-20261005075337660-m1-t1` | единичный успех, не воспроизведён |
+| `ollama:gpt-oss-20b-effort-low-t02-rf` | `add-validator` | Handoff, 8/8, `guided-sample-20261005073154296` | Verify остановлен, 8/8, ревью не согласилось, `guided-sample-20261005075337660-m1-t2` | единичный успех, не воспроизведён |
+
+Парная перепроверка намеренно учитывается как самостоятельный исход: прохождение
+скрытых тестов без чистого Handoff и подтверждённых гейтов не является полным успехом.
+Эти две задачи использовались для отладки режима и не являются независимым holdout;
+данных недостаточно для оценки обобщаемости или частоты успеха модели.

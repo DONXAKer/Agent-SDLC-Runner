@@ -7,8 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { WitokPaths } from '../src/artifacts/paths.ts';
-import { resolvedRequirementsHash } from '../src/artifacts/resolvedRequirements.ts';
+import { addRequirementsHash, resolvedRequirementsHash } from '../src/artifacts/resolvedRequirements.ts';
 import { callersBlock, planMapProblem, planRequirementsProblem } from '../src/run/stages/plan.ts';
+import { renderGuidedPlan } from '../src/exec/GuidedPlanExecutor.ts';
+import { AXES } from '../src/artifacts/planAxes.ts';
 import type { StageContext } from '../src/run/stages.ts';
 
 const roots: string[] = [];
@@ -129,6 +131,31 @@ describe('planMapProblem', () => {
     const block = callersBlock(ctx);
     ok(block?.includes('src/consumer-6.ts:1'), block ?? 'нет карты вызывающих');
     ok(block?.includes('все найденные места'));
+  });
+
+  it('принимает карту вызывающих, отрендеренную guided-планировщиком', () => {
+    const ctx = setup('export function priceFor(input: number) { return input; }', STEP);
+    writeFileSync(join(ctx.paths.projectRoot, 'src', 'consumer.ts'),
+      "import { priceFor } from './tariffs.js';\nexport const total = priceFor(1);\n");
+    const plan = { approach: 'apply zone surcharge', steps: [{ id: 1, file: 'src/tariffs.ts', isNew: false,
+        symbol: 'priceFor', action: 'apply zone surcharge', claims: ['claim-1'], check: 'npm test', expected: 'pass',
+        contract: '`priceFor(number)` → `priceFor(number, zone)`', dependsOn: [] }],
+      excluded: [], axes: AXES.map(name => ({ name, affected: false, reason: 'unchanged', outcome: 'invariant' })), changes: 'none',
+      callers: [{ symbol: 'src/tariffs.ts:priceFor', caller: 'src/consumer.ts:2 (total)', covered: 'нет' as const,
+        decision: 'zone имеет значение по умолчанию; вызов совместим без правок' }] };
+    const claims = [{ id: 'claim-1', behavior: 'surcharge', procedure: 'test', expected: 'pass' }];
+    const hash = resolvedRequirementsHash('# Intent\nClaim 1', '');
+    const rendered = addRequirementsHash(renderGuidedPlan(plan, 'demo', claims), hash);
+    ok(rendered.includes('## Затронутые вызовы/сигнатуры'));
+    writeFileSync(ctx.paths.plan, rendered);
+    strictEqual(planMapProblem(ctx), null);
+
+    const coveredYes = addRequirementsHash(renderGuidedPlan({ ...plan, callers: [{ ...plan.callers[0]!, covered: 'да' }] }, 'demo', claims), hash);
+    writeFileSync(ctx.paths.plan, coveredYes);
+    ok(planMapProblem(ctx)?.includes('src/consumer.ts:2'));
+
+    writeFileSync(ctx.paths.plan, addRequirementsHash(renderGuidedPlan({ ...plan, callers: [] }, 'demo', claims), hash));
+    ok(planMapProblem(ctx)?.includes('src/tariffs.ts:priceFor ← src/consumer.ts:2'));
   });
 
   it('не блокирует старый план без явных карточек', () => {

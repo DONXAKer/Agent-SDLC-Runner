@@ -32,6 +32,17 @@ it('identifies directory entries instead of silently treating them as writable f
   deepStrictEqual(extractFilesToTouch(plan), ['src/hold.ts']);
 });
 
+it('does not treat an optional property name as a file path', () => {
+  const plan = [
+    '## files_to_touch',
+    '| Путь | Что делаем |',
+    '|---|---|',
+    '| `opts.issuer?` | сохранить опциональное поле |',
+    '| `src/issuer.ts` | обновить issuer |',
+  ].join('\n');
+  deepStrictEqual(extractFilesToTouch(plan), ['src/issuer.ts']);
+});
+
 describe('touchListEntries', () => {
   it('читает путь и заметку из бульита «Что придётся тронуть»', () => {
     const intent = [

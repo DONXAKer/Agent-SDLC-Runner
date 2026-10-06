@@ -15,7 +15,14 @@ it('версия проработки задаётся явно; историч�
   strictEqual(parseArgs(['--model', 'x', '--all']).preparationVersion, undefined);
   strictEqual(parseArgs(['--model', 'x', '--all', '--preparation-version', '1']).preparationVersion, 1);
   strictEqual(parseArgs(['--model', 'x', '--all', '--preparation-version=2', '--stop-after-stage', 'plan']).preparationVersion, 2);
-  throws(() => parseArgs(['--model', 'x', '--all', '--preparation-version', '3']), /ожидается 1 или 2/);
+  strictEqual(parseArgs(['--model', 'x', '--all', '--preparation-version', '3']).preparationVersion, 3);
+  throws(() => parseArgs(['--model', 'x', '--all', '--preparation-version', '4']), /ожидается 1, 2 или 3/);
+});
+
+it('guided requires a full cycle and prevents contradictory preparation versions and timer overflow', () => {
+  strictEqual(parseArgs(['--model', 'x', '--all', '--execution-mode', 'guided']).executionMode, 'guided');
+  throws(() => parseArgs(['--model', 'x', '--all', '--execution-mode', 'guided', '--preparation-version', '1']), /guided/);
+  throws(() => parseArgs(['--model', 'x', '--all', '--stage-timeout', '300000']), /тайм/);
 });
 
 describe('лимиты ходов (resolveTurnLimits)', () => {

@@ -25,7 +25,7 @@ export function parseExploreMap(text: string, candidates: readonly string[]) {
     if (!line.trim() || /^\s*```/.test(line)) continue;
     // Some models preserve the semantic new-file marker but miss the `+ path | change`
     // syntax. Accept that explicit equivalent while still rejecting unmarked guesses.
-    const markedNew = /^\s*(.+?)\s+\(новый\)\s*(?:[/|—–-])\s*(.+)$/iu.exec(line);
+    const markedNew = /^\s*(.+?)\s+\(\u043d\u043e\u0432\u044b\u0439\)\s*(?:[\/|\u2014\u2013-])\s*(.+)$/iu.exec(line);
     if (markedNew !== null) {
       const path = clean(markedNew[1]!);
       const what = markedNew[2]!.trim();

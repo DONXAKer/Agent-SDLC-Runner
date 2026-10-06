@@ -170,6 +170,39 @@ describe('рендер отчёта из записей', () => {
     strictEqual(readReport(text).confirmedReviewFindings, 0);
   });
 
+  it('advisory-находка саморевью видна в отчёте, но разбор вердикта её не читает', () => {
+    // Норма verify редизайна «модель решает — рантайм пишет»: саморевью уровнем вердикта
+    // не является. Текст намеренно содержит метку «Подтверждённое расхождение:» — она
+    // доказывает, что справочный раздел ни один разбор не читает.
+    const { text } = renderRecords(TEMPLATE, {
+      claims: [],
+      findings: [
+        { section: 'review', text: 'Подтверждённое расхождение: копейка теряется', evidence: 'src/x.ts:42', anchored: true, advisory: true },
+        { section: 'invariant', text: 'округление — нарушен: src/money.ts', evidence: 'src/money.ts', anchored: true, advisory: true },
+        { section: 'regression', text: 'старый экспорт удалён', evidence: 'src/y.ts:7', anchored: true, advisory: true },
+      ],
+    });
+    ok(text.includes('копейка теряется'), 'находка видна оператору в отчёте');
+    ok(text.includes('advisory'));
+    const facts = readReport(text);
+    strictEqual(facts.confirmedReviewFindings, 0);
+    strictEqual(facts.brokenInvariants.length, 0);
+    strictEqual(facts.regressions.length, 0);
+  });
+
+  it('advisory и блокирующая находки в одном отчёте не смешиваются', () => {
+    const { text } = renderRecords(TEMPLATE, {
+      claims: [],
+      findings: [
+        { section: 'regression', text: 'старый экспорт удалён', evidence: 'src/y.ts:7', anchored: true, advisory: true },
+        { section: 'review', text: 'цена не округляется', evidence: 'src/x.ts:42', anchored: true },
+      ],
+    });
+    const facts = readReport(text);
+    strictEqual(facts.confirmedReviewFindings, 1, 'роняет только находка независимого рецензента');
+    strictEqual(facts.regressions.length, 0);
+  });
+
   it('без записей отчёт не трогается вовсе', () => {
     const { text, filled } = renderRecords(TEMPLATE, { claims: [], findings: [] });
     strictEqual(filled, 0);

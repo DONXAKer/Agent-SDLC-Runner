@@ -37,6 +37,13 @@ export interface FindingRecord {
   evidence: string;
   /** Нашлась ли ссылка на место в патче попытки или в дереве. */
   anchored: boolean;
+  /**
+   * `true` — находка саморевью: модель рецензента совпадает с исполнителем
+   * (`run/reviewRoute.ts::decideReviewScan`). Такие находки рендерятся отдельным
+   * справочным разделом, который разбор вердикта (`verdict/collect.ts`) не читает:
+   * видны оператору, но вердикт не роняют. Не задано — блокирующая, как прежде.
+   */
+  advisory?: boolean;
 }
 
 /** Однострочная ячейка: переносы и трубы в таблице жить не могут. */
@@ -191,8 +198,13 @@ export function renderRecords(
   }
 
   // ── §2–§5: находки ───────────────────────────────────────────────────────
-  const anchored = records.findings.filter((f) => f.anchored);
-  const unanchored = records.findings.filter((f) => !f.anchored);
+  // Advisory-находки саморевью в разбираемые секции не попадают ВООБЩЕ: разбор
+  // вердикта читает §2–§5 текстом, и любая строка там — кандидат в причины красного.
+  // Они уходят в отдельный справочный раздел ниже, который `readReport` не читает.
+  const blockingFindings = records.findings.filter((f) => f.advisory !== true);
+  const advisoryFindings = records.findings.filter((f) => f.advisory === true);
+  const anchored = blockingFindings.filter((f) => f.anchored);
+  const unanchored = blockingFindings.filter((f) => !f.anchored);
 
   for (const section of ['review', 'scope', 'invariant', 'regression'] as const) {
     const mine = anchored.filter((f) => f.section === section);
@@ -222,6 +234,31 @@ export function renderRecords(
       lines.splice(range.to, 0, ...block);
       filled += unanchored.length;
     }
+  }
+
+  // Справочные находки саморевью — отдельным разделом уровня `##`, НЕ буллетами:
+  // буллеты разбираются `collect.ts` (метка «Подтверждённое расхождение» в §2, «нарушен:»
+  // в §4, любой пункт в §5, «Сверка с деревом» по всему отчёту), а таблица с чужими
+  // колонками ни один разбор не читает. Раздел ставится перед «## Вердикт» — после
+  // него человек уже не читает.
+  if (advisoryFindings.length > 0) {
+    const block = [
+      '',
+      '## Справочные находки саморевью (advisory — в вердикт не идут)',
+      '',
+      '_Ревью выполнила та же модель, что и исполнитель: находки ниже видны оператору, ' +
+        'но вердикт не роняют. Блокирующими могут быть только находки отдельного ' +
+        'review-маршрута (`reviewModel` в конфиге раннера)._',
+      '',
+      '| Секция | Находка | Место |',
+      '|---|---|---|',
+      ...advisoryFindings.map((f) => `| ${cell(f.section)} | ${cell(f.text)} | ${cell(f.evidence)} |`),
+      '',
+    ];
+    const verdictAt = lines.findIndex((l) => /^##\s+Вердикт/.test(l.trim()));
+    if (verdictAt >= 0) lines.splice(verdictAt, 0, ...block);
+    else lines.push(...block);
+    filled += advisoryFindings.length;
   }
 
   return { text: lines.join('\n'), filled };

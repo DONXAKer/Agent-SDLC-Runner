@@ -92,7 +92,8 @@ export interface DriverResult {
 }
 
 export interface DriverArgs {
-  preparationVersion?: 1 | 2;
+  preparationVersion?: 1 | 2 | 3;
+  executionMode?: 'legacy' | 'guided';
   /** Diagnostic boundary; unlike a snapshot, also stops on failed/incomplete stages. */
   measurementEnd?: StageId;
   signal?: AbortSignal;
@@ -313,7 +314,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     const { result, timedOut } = await runStageWithTimeout(
       run,
       stage,
-      stage === 'intent' ? { preparationVersion: args.preparationVersion ?? 1, ...(args.requirement === undefined ? {} : { requirement: args.requirement }) } : {},
+      stage === 'intent' ? { preparationVersion: args.preparationVersion ?? (args.executionMode === 'guided' ? 3 : 1), ...(args.executionMode === undefined ? {} : { executionMode: args.executionMode }), ...(args.requirement === undefined ? {} : { requirement: args.requirement }) } : {},
       stageTimeoutMs,
     );
     // `runStage` возвращает пропуск этапа тем же `StageResult`, что и настоящий прогон —

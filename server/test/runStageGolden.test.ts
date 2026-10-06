@@ -16,9 +16,9 @@
  * поведении которого уверены. Без файла эталона тест падает, а не создаёт его молча.
  */
 
-import { deepStrictEqual, ok } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -34,6 +34,9 @@ import { ApprovalGate } from '../src/approval/gate.ts';
 import type { LoadedConfig } from '../src/config/load.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../src/config/schema.ts';
 import { Run } from '../src/run/Run.ts';
+import { envRetryCount } from '../src/run/envRetryBudget.ts';
+import { readRunVerdict } from '../src/run/verdictStore.ts';
+import { parseIterations, readIterationsText } from '../src/run/iterationsLog.ts';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'runStage');
 const UPDATE = process.env['UPDATE_GOLDEN'] === '1';
@@ -155,7 +158,7 @@ function git(root: string, ...args: string[]): void {
   });
 }
 
-function makeProject(gates: string = GATES, reviewer = false): string {
+function makeProject(gates: string = GATES, reviewer = false, files: Record<string, string> = {}): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-golden-')));
   roots.push(root);
   for (const stage of STAGE_ORDER) {
@@ -178,6 +181,11 @@ function makeProject(gates: string = GATES, reviewer = false): string {
   mkdirSync(join(root, '.sdlc'), { recursive: true });
   writeFileSync(join(root, '.sdlc', 'gates.md'), gates);
   writeFileSync(join(root, '.gitignore'), 'skills/\nmethodology/\nagents/\n');
+  for (const [name, content] of Object.entries(files)) {
+    const path = join(root, name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
+  }
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'база');
@@ -542,6 +550,78 @@ async function toChunkDone(run: Run, results: Record<string, unknown>): Promise<
 }
 
 describe('runStage: эталон поведения витка', () => {
+  it('средовой сбой → рестарт → третий красный → восстановление → успешный Verify', { timeout: 60_000 }, async () => {
+    const gates = GATES.replace('`node --version`', '`node tools/build.cjs`');
+    const root = makeProject(gates, true, {
+      'tools/build.cjs': "const fs = require('node:fs');\nif (fs.existsSync('agents/build-env-broken')) { console.error('java: command not found'); process.exit(127); }\nconsole.log('build passed');\n",
+      'methodology/templates/verification-report.template.md': TEMPLATES['verification-report.template.md']!
+        .replace('| Сборка | ‹статус› | ‹итог› |', ['Сборка', 'Тесты', 'Scope: файлы вне плана', 'Анти-обход тест-гейта', 'Ревью независимым агентом'].map(name => `| ${name} | ‹статус› | ‹итог› |`).join('\n')) + '- **По каким условиям упал:** н/п\n',
+    });
+    const review = JSON.stringify({
+      schema_version: 'agent-sdlc/verify-review/v1',
+      claims: [{ id: 'claim-1', status: 'passed', evidence: [{ path: 'src/app.js', anchor: 'export const version = 2;' }], remediation: '' }],
+      findings: [], scope: [], invariants: [], regressions: [], retry_instruction: '',
+    });
+    const queues = {
+      intent: INTENT_REPLIES(), plan: PLAN_REPLIES(), chunk: CHUNK_REPLIES(),
+      verify: [
+        { tool: 'Edit', args: { file_path: '.sdlc/demo/verification-report-1-attempt-1.md', old_string: '| Ревью независимым агентом | ‹статус› | ‹итог› |', new_string: '| Ревью независимым агентом | ✅ | независимый рецензент проверил src/app.js и claim-1 |' } },
+        { tool: 'Edit', args: { file_path: '.sdlc/demo/verification-report-1-attempt-1.md', old_string: '| claim-1 | ‹пункт› | ‹статус› | ‹чем› | ‹что› |', new_string: '| claim-1 | версия поднята до 2 | ✅ | src/app.js:export const version = 2; | н/п |' } },
+        ...Array.from({ length: 4 }, () => ({ text: 'проверено' })),
+      ],
+      'вне этапа': Array.from({ length: 4 }, () => ({ text: review })),
+    } as Queues;
+    const model = await startModel(queues, root);
+    const events: RunEvent[] = [];
+    let run = makeRun(root, model.baseUrl, events);
+    try {
+      const results: Record<string, unknown> = {};
+      await toChunkDone(run, results);
+      ok(run.blockers('verify').length === 0, run.blockers('verify').join('; '));
+      writeFileSync(join(root, 'agents', 'build-env-broken'), 'dependency unavailable');
+      for (let cycle = 1; cycle <= 3; cycle++) {
+        const outcome = await run.runStage('verify');
+        const expected = cycle === 3 ? 'escalate' : 'blocked_env';
+        ok(outcome.ok, JSON.stringify({ note: outcome.note, events: events.filter(e => e.type === 'tool_result' || e.type === 'warning') }));
+        strictEqual(run.lastVerdict?.action, expected, JSON.stringify({ outcome, verdict: run.lastVerdict, warnings: events.filter(e => e.type === 'warning') }));
+        strictEqual(run.attempt, 1);
+        strictEqual(envRetryCount(run.paths, 1), cycle);
+        strictEqual(readRunVerdict(run.paths, 1, 1)?.action, expected);
+        const report = readFileSync(run.paths.verificationReport(1, 1), 'utf8');
+        ok(report.includes(expected), report);
+        ok(run.gateResults.some(g => g.name === 'Сборка' && g.envBlocked), 'средовой красный должен происходить из фактического прогона сборки');
+        if (cycle === 3) ok(report.includes('среда не восстановлена за 3'), report);
+        if (cycle < 3) strictEqual(run.advanceProblem('attempt'), null);
+        else ok(run.advanceProblem('attempt')?.includes('Восстанови среду и повтори Verify'));
+        if (cycle === 1) {
+          await run.dispose();
+          run = makeRun(root, model.baseUrl, events);
+          strictEqual(run.lastVerdict?.action, 'blocked_env');
+          strictEqual(envRetryCount(run.paths, 1), 1);
+        }
+      }
+      unlinkSync(join(root, 'agents', 'build-env-broken'));
+      const recovered = await run.runStage('verify');
+      ok(recovered.ok, recovered.note);
+      strictEqual(run.lastVerdict?.passed, true, JSON.stringify({ recovered, verdict: run.lastVerdict, report: readFileSync(run.paths.verificationReport(1, 1), 'utf8') }));
+      strictEqual(run.lastVerdict?.action, 'continue');
+      strictEqual(run.attempt, 1);
+      strictEqual(envRetryCount(run.paths, 1), 0);
+      strictEqual(readRunVerdict(run.paths, 1, 1)?.passed, true);
+      strictEqual(run.advanceProblem('chunk'), null);
+      ok(run.gateResults.some(g => g.name === 'Сборка' && g.status === '✅' && !g.envBlocked));
+      const finalReport = readFileSync(run.paths.verificationReport(1, 1), 'utf8');
+      ok(finalReport.includes('**passed:** true') && finalReport.includes('**action:** continue'), finalReport);
+      ok(!finalReport.includes('среда не восстановлена'), finalReport);
+      strictEqual(run.blockers('handoff').length, 0, run.blockers('handoff').join('; '));
+      deepStrictEqual(parseIterations(readIterationsText(run.paths).text).map(v => v.action), ['blocked_env', 'blocked_env', 'escalate', 'continue']);
+      deepStrictEqual(events.filter(e => e.type === 'verdict').map(e => e.verdict.action), ['blocked_env', 'blocked_env', 'escalate', 'continue']);
+      strictEqual(model.requests.filter(r => r.stage === 'вне этапа').length, 4, 'каждый Verify проводит независимое ревью');
+    } finally {
+      await run.dispose();
+      model.close();
+    }
+  });
   it('мелкий контур: intent → plan → chunk → verify → handoff (обрыв)', async () => {
     await scenario(
       'small-contour',

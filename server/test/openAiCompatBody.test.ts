@@ -7,13 +7,13 @@
  * обязан его перекрывать — проверяем оба на поднятом stub-сервере, читающем тело.
  */
 
-import { deepStrictEqual, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, rejects, strictEqual } from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, describe, it } from 'node:test';
 
 import { OpenAiCompatProvider } from '../src/provider/OpenAiCompatProvider.ts';
-import type { ChatRequest } from '../src/provider/ChatProvider.ts';
+import { ProviderEnvError, type ChatRequest } from '../src/provider/ChatProvider.ts';
 
 let servers: Server[] = [];
 const bodies: Record<string, unknown>[] = [];
@@ -69,5 +69,33 @@ describe('тело запроса OpenAiCompatProvider', () => {
     const provider = new OpenAiCompatProvider({ name: 'stub', baseUrl, apiKey: null, timeoutMs: 2000 });
     await provider.chat(request({ max_tokens: 512 }));
     strictEqual(bodies[bodies.length - 1]!['max_tokens'], 512);
+  });
+});
+
+describe('таймаут одного запроса', () => {
+  it('зависший сервер обрывается собственным AbortSignal и называется таймаутом, а не отменой', async () => {
+    // Потолок (`limits.chatTimeoutMs`/`exploreRequestTimeoutMs`) — единственная защита от
+    // локального сервера, держащего соединение без ответа: разбор 2026-10-05, запросы
+    // разведки по ~300 с. Таймаут не повторяется (иначе висели бы 3×timeoutMs) и не
+    // маскируется под отмену оператора — у них разная диагностика.
+    const server = createServer(() => {
+      // Ответа не будет никогда — клиент обязан оборвать ожидание сам.
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    servers.push(server);
+    const address = server.address() as AddressInfo;
+    const provider = new OpenAiCompatProvider({
+      name: 'stub', baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: null, timeoutMs: 200,
+    });
+    const started = Date.now();
+    await rejects(
+      () => provider.chat(request()),
+      (e: unknown) => {
+        ok(e instanceof ProviderEnvError, String(e));
+        ok((e as Error).message.includes('таймаут запроса'), (e as Error).message);
+        return true;
+      },
+    );
+    ok(Date.now() - started < 5000, 'таймаут не сработал или запрос пошёл на повторы');
   });
 });

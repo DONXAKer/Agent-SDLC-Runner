@@ -81,6 +81,7 @@ const STRUCTURED_FIELDS: readonly string[] = [
 ];
 
 export interface ExploreExecutorOptions {
+  originalRequests?: readonly string[];
   provider: ChatProvider;
   params?: Record<string, unknown> | null;
   currency?: string;
@@ -254,8 +255,8 @@ export class ExploreExecutor implements StageExecutor {
         { role: 'system', content: fieldSystem(req) },
         { role: 'user', content: `${req.prompt.user}\n\n## Сейчас — ${title}\n\n${body}` },
       ];
+      const startedAt = Date.now();
       try {
-        const startedAt = Date.now();
         const answer = await this.o.provider.chat({
           model: req.model,
           messages,
@@ -275,6 +276,10 @@ export class ExploreExecutor implements StageExecutor {
         }
         return answer.text;
       } catch (e) {
+        // Время оборванного запроса (таймаут `limits.exploreRequestTimeoutMs`, сеть) —
+        // тоже замер этапа: иначе многоминутное висение выпадало из requestDurationsMs,
+        // и съеденный им бюджет этапа не был виден в метриках (разбор прогона 2026-10-05).
+        hooks.onUsage(emptyUsage(), Date.now() - startedAt);
         if (envFailure === null && e instanceof ProviderEnvError) envFailure = e.message;
         notes.push(`${title}: запрос не удался — ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
         return null;

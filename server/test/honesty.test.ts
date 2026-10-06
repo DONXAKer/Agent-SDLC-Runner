@@ -47,6 +47,19 @@ function bashCall(command: string, requestId = 'x', ok = true): RunEvent[] {
 }
 
 describe('checkJournalClaimsVsBash', () => {
+  it('accepts actual runtime test gates and rejects skipped, failed or commandless gates', () => {
+    const event: Extract<RunEvent, { type: 'gate_result' }> = {
+      type: 'gate_result', runId: 'r', stage: 'chunk',
+      gate: { name: 'Тесты', status: '✅', command: 'node --test', exitCode: 0, envBlocked: false,
+        lastLine: 'all tests passed', durationMs: 10, outputTail: 'tests 3; pass 3' },
+    };
+    strictEqual(checkJournalClaimsVsBash('тесты пройдены', [event]).ok, true);
+    for (const patch of [{ status: '⏭' as const }, { status: '❌' as const }, { command: null },
+      { exitCode: null }, { exitCode: 1 }, { envBlocked: true }, { command: 'echo tests passed' }]) {
+      strictEqual(checkJournalClaimsVsBash('тесты пройдены', [{ ...event, gate: { ...event.gate, ...patch } }]).ok, false);
+    }
+  });
+
   it('нет утверждения о тестах — нечего проверять', () => {
     strictEqual(checkJournalClaimsVsBash('первая попытка', []).ok, null);
   });

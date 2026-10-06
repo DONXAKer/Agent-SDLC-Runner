@@ -329,6 +329,7 @@ const SOURCE_RANK: Record<QuestionAnswer['source'], number> = { rule: 0, noise: 
 // ---------------------------------------------------------------------------
 
 export interface AttachOperatorArgs {
+  strictQuestions?: boolean;
   gate: ApprovalBus;
   askGate: AskBus;
   /** Прогон, за который отвечает этот автоответчик — фан-аут может обслуживать не только его. */
@@ -383,7 +384,7 @@ export function attachOperator(args: AttachOperatorArgs): { detach(): void } {
       let best: QuestionAnswer = { source: 'fallback', tag: null, answer: script.answers.fallback };
       for (const q of p.questions) {
         const classified = classifyQuestion(script, q);
-        answers[q.id] = classified.answer;
+        answers[q.id] = args.strictQuestions && classified.source !== 'rule' ? [] : classified.answer;
         if (SOURCE_RANK[classified.source] < SOURCE_RANK[best.source]) best = classified;
       }
       log.asks.push({

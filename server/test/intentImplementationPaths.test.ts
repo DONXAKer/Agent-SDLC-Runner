@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { it } from 'node:test';
+import { extractExplicitSteps } from '../src/artifacts/planSteps.ts';
 
 import { enforceIntentTestFileTarget, extractExplicitExportPaths, extractIntentImplementationPaths, intentImplementationPathsProblem, intentNewTestPath, intentPlanBoundaryProblem, preparePlanImplementationCards } from '../src/run/stages/plan.ts';
 
@@ -61,6 +62,13 @@ it('rejects edits to existing tests when Intent permits only a new test file', (
   ok(intentPlanBoundaryProblem(intent, plan, root)?.includes('test/hold.test.ts'));
   strictEqual(intentPlanBoundaryProblem(intent,
     '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| test/moveHold.test.ts | создать новый тест |\n', root), null);
+});
+
+it('distinguishes an export structure constraint from a whole-file prohibition', () => {
+  const plan = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| src/index.ts | реэкспорт функции |';
+  strictEqual(intentPlanBoundaryProblem('## Чего не делаем\nНе меняем структуру экспорта из src/index.ts помимо реэкспорта rule.\n', plan), null);
+  ok(intentPlanBoundaryProblem('## Чего не делаем\nНе меняем src/index.ts.\n', plan)?.includes('src/index.ts'));
+  ok(intentPlanBoundaryProblem('## Чего не делаем\nНе меняем src/index.ts кроме test/rule.test.ts.\n', plan)?.includes('src/index.ts'));
 });
 
 it('recognizes implementation nouns used by compact Intent wording', () => {
@@ -126,9 +134,31 @@ it('seeds Intent implementation paths and adds their editable cards before plan 
   ok(result.text.includes('- действие: Экспортировать moveHold'));
   ok(result.text.includes('- закрывает: claim-1'));
   ok(result.text.includes('- зависит от: шаг 1'));
-  ok(result.text.includes('- действие: Добавить поведенческие тесты: claim-1:'));
+  ok(result.text.includes('- действие: Добавить поведенческие тесты для claim-1;'));
+  ok(extractExplicitSteps(result.text).find(step => step.file === 'test/moveHold.test.ts')?.checkSpecified);
+  ok(result.text.includes('- контракт: н/п — тест'));
+  strictEqual(result.text.includes('коды нарушений'), false, 'проверка не переносит лексику другой задачи');
   strictEqual(result.text.includes('исходный Hold не мутируется'), false, 'общий планировщик не добавляет контракт конкретной задачи');
+  const authored = result.text.replace(/- проверка:.*$/gmu, '- проверка: проверить сохранение expiresIso и независимость копии · ожидаемо: все проверки проходят');
+  const repeated = preparePlanImplementationCards(authored, intent, root);
+  ok(repeated.text.includes('- проверка: проверить сохранение expiresIso и независимость копии'));
   deepStrictEqual(result.paths, ['src/hold.ts', 'src/index.ts', 'test/moveHold.test.ts']);
+});
+
+it('preserves a valid authored new test filename and prefers an explicit user filename', () => {
+  const root = join(process.cwd(), '..', 'bench', 'fixtures', 'booking');
+  const intent = '## Что делаем\nРеализовать функцию moveHold. Добавить новый файл тестов.\n## Чего не делаем\nНе менять существующие тесты.\n';
+  const plan = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| test/move.test.ts | Новый тест |\n';
+  strictEqual(intentNewTestPath(intent, root, [], plan), 'test/move.test.ts');
+  strictEqual(enforceIntentTestFileTarget(plan, intent, root).changed, false);
+  strictEqual(intentNewTestPath(intent, root, ['Добавить новый файл тестов test/requested.test.ts.'], plan), 'test/requested.test.ts');
+});
+it('uses a new test committed in Intent before inventing a second fallback test', () => {
+  const root = join(process.cwd(), '..', 'bench', 'fixtures', 'booking');
+  const intent = '## Что делаем\nРеализовать функцию moveHold. Добавить новый файл тестов test/move.test.ts.\n';
+  strictEqual(intentNewTestPath(intent, root), 'test/move.test.ts');
+  const prepared = preparePlanImplementationCards('## files_to_touch\n| Путь | Что делаем |\n|---|---|\n', intent, root);
+  ok(prepared.text.includes('test/move.test.ts')); strictEqual(prepared.text.includes('test/moveHold.test.ts'), false);
 });
 
 it('restores the generated new test path when the model selects an existing forbidden test', () => {
@@ -180,6 +210,21 @@ it('uses the original task to restore a required new test when Intent omits that
   const request = 'Добавить поведенческие тесты в новом файле в test/. Существующие тесты не менять.';
   const root = join(process.cwd(), '..', 'bench', 'fixtures', 'booking');
   strictEqual(intentNewTestPath(intent, root, [request]), 'test/moveHold.test.ts');
+});
+
+it('requires a new test when existing tests must remain without edits', () => {
+  const root = join(process.cwd(), '..', 'bench', 'fixtures', 'booking');
+  const intent = '## Что делаем\nДобавить функцию moveHold.\n';
+  const request = 'На новое правило есть тест рядом с существующими (test/). Существующие тесты остаются зелёными и **без правки**.';
+  strictEqual(intentNewTestPath(intent, root, [request]), 'test/moveHold.test.ts');
+});
+
+it('derives the new test from the added function, never from an excluded function', () => {
+  const root = join(process.cwd(), '..', 'bench', 'fixtures', 'booking');
+  for (const noun of ['функцией', 'функции', 'функцию', 'функция']) {
+    const intent = `## Что делаем\nСоздание модуля с ${noun} moveHold(hold, slot).\n## Чего не делаем\nНе встраиваем изменение в функцию cancelHold. Не меняем существующие тесты.\n`;
+    strictEqual(intentNewTestPath(intent, root), 'test/moveHold.test.ts');
+  }
 });
 
 it('infers a new test target from the repository convention and leaves unknown conventions to the plan', () => {

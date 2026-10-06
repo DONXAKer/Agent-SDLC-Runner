@@ -14,6 +14,7 @@ import {
   readSnapshotMeta,
   restoreSnapshot,
   startStageAfter,
+  startStageForMeasurement,
   verifyRestoredBranch,
 } from '../src/snapshot.ts';
 
@@ -24,6 +25,12 @@ describe('точка снимка и первый измеряемый этап'
     strictEqual(startStageAfter('handoff'), null);
     strictEqual(startStageAfter('нет-такого'), null);
     strictEqual(startStageAfter(undefined), null);
+  });
+
+  it('--stage со снимка пропускает промежуточные контрольные этапы', () => {
+    strictEqual(startStageForMeasurement('ask', 'verify'), 'verify');
+    strictEqual(startStageForMeasurement('ask'), 'ask');
+    strictEqual(startStageForMeasurement('verify', 'plan'), 'verify');
   });
 
   it('первый измеряемый — не раньше старта: --all со снимка после plan мерит chunk, а не intent', () => {

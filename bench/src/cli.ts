@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { RunEvent, RunMetrics, StageId } from '@sdlc-runner/shared';
 import { WitokPaths } from '../../server/src/artifacts/paths.ts';
+import { guidedSummary } from '../../server/src/run/guidedState.ts';
 import { readPersistedEvents } from '../../server/src/eventLog.ts';
 
 import { ApprovalGate } from '../../server/src/approval/gate.ts';
@@ -35,7 +36,7 @@ import type { BenchOptions } from './options.ts';
 import { ControlError, buildProfile, readControl } from './profile.ts';
 import type { BuiltProfile } from './profile.ts';
 import { WorkspaceError, prepareWorkspace } from './workspace.ts';
-import { SnapshotError, makeSnapshot, restoreSnapshot, startStageAfter, verifyRestoredBranch } from './snapshot.ts';
+import { SnapshotError, makeSnapshot, restoreSnapshot, startStageAfter, startStageForMeasurement, verifyRestoredBranch } from './snapshot.ts';
 import { TaskError, requireTaskFiles } from './tasks.ts';
 import type { TaskPaths } from './tasks.ts';
 import { rawLogDisabledReason, resetRawLog } from '../../server/src/provider/rawLog.ts';
@@ -265,7 +266,10 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     // самом снимке, а не в ключах прогона — прогон не может её переврать.
     // Точку снимка `restoreSnapshot` уже проверил (`readSnapshotMeta` бросает на `null`).
     const nextStage = startStageAfter(restored.stoppedAfterStage)!;
-    startStage = nextStage;
+    // Измерение одного этапа со снимка должно начинаться на измеряемом этапе, а не
+    // прогонять промежуточные control-маршруты. Для --all сохраняем обычное продолжение
+    // сразу за точкой снимка.
+    startStage = startStageForMeasurement(nextStage, opts.mode.kind === 'stage' ? opts.mode.stage : undefined);
     if (opts.mode.kind === 'stage' && STAGE_ORDER.indexOf(opts.mode.stage) < STAGE_ORDER.indexOf(nextStage)) {
       restored.dispose();
       throw new SnapshotError(`снимок уже прошёл измеряемый этап ${opts.mode.stage}; выбери снимок до него`);
@@ -491,6 +495,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   );
 
   const operatorHandle = guard(() => attachOperator({
+    strictQuestions: opts.strictQuestions === true || opts.executionMode === 'guided',
     gate: approvalBus,
     askGate: askBus,
     runId: () => runId,
@@ -551,6 +556,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   const persistPartial = (state: RunDiagnostics['state'], reason: DriverStopReason): void => {
     const result = buildResult({
       opts, built, startedAt, finishedAt: new Date(),
+      guided: guidedSummary(new WitokPaths(wsRoot, opts.slug)),
       driver: { stages: [...records], finalVerdict: run.lastVerdict, stopped: reason },
       metrics: run.metrics, operator: operatorLog, observed: collector.state,
       turnLimits: resolveTurnLimits(base.runner.limits, opts),
@@ -580,7 +586,8 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
   try {
     persistPartial('running', 'running');
     const driverResult = await runBench({
-      preparationVersion: opts.preparationVersion ?? 1,
+      preparationVersion: opts.preparationVersion ?? (opts.executionMode === 'guided' ? 3 : 1),
+      ...(opts.executionMode === undefined ? {} : { executionMode: opts.executionMode }),
       records, signal: cancellation.signal,
       ...(opts.stopAfterStage === undefined ? {} : { measurementEnd: opts.stopAfterStage }),
       run,
@@ -716,6 +723,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       startedAt,
       finishedAt,
       driver: driverResult,
+      guided: guidedSummary(new WitokPaths(wsRoot, opts.slug)),
       metrics: run.metrics,
       operator: operatorLog,
       observed: collector.state,

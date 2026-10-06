@@ -248,6 +248,16 @@ describe('нарезка под потолок', () => {
 });
 
 describe('конвейер', () => {
+  it('guided no-change reviews supplied source without fabricating a diff', async () => {
+    const provider = scripted(['нет']);
+    const result = await reviewByHunks({ provider, model: 'stub', params: null, taskContext: 'value is one', diff: '',
+      sourceHunks: [{ file: 'a.ts', text: 'Текущий исходник a.ts; это не изменение:\n1: export const value = 1;' }],
+      axes: [], hunkBudgetBytes: 12000, signal: new AbortController().signal });
+    strictEqual(result.hunksAsked, 1); strictEqual(result.hunksAnswered, 1);
+    strictEqual(result.findings.length, 0);
+    ok(provider.asked[0]?.includes('export const value = 1;'));
+    ok(!provider.asked[0]?.includes('diff --git'));
+  });
   it('по вопросу на фрагмент и на КАЖДУЮ ось (трек 1а — не только «не затронутые»); находки — записи', async () => {
     const provider = scripted([
       'review | чтение TARIFF_ZONE_EXTRA без умолчания | src/tariffs.ts:11',

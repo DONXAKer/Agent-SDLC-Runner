@@ -25,6 +25,7 @@ import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../src/confi
 import { WitokPaths } from '../src/artifacts/paths.ts';
 import { Run } from '../src/run/Run.ts';
 import { writeRunVerdict } from '../src/run/verdictStore.ts';
+import { applyEnvRetryBudget } from '../src/run/envRetryBudget.ts';
 
 const roots: string[] = [];
 after(() => {
@@ -223,6 +224,29 @@ describe('восстановление chunk/attempt из артефактов �
     strictEqual(run.advanceProblem('attempt'), null);
     strictEqual(run.nextAttempt(), 2);
     strictEqual(run.blockers('chunk').filter((p) => p.includes('отвергнута')).length, 0);
+  });
+
+  it('средовой бюджет переживает восстановление Run и закрывает advance после третьего прогона', () => {
+    const root = tempRoot();
+    const paths = new WitokPaths(root, 'demo');
+    mkdirSync(paths.dir, { recursive: true });
+    writeFileSync(paths.chunkJournal(1), JOURNAL(1));
+    const blocked: Verdict = { passed: false, action: 'blocked_env', reasons: ['java: command not found'] };
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      const run = makeRun(root);
+      const verdict = applyEnvRetryBudget(run.paths, run.chunk, `verify-${cycle}`, blocked, 3);
+      writeRunVerdict(run.paths, run.chunk, run.attempt, verdict);
+      const restored = makeRun(root);
+      strictEqual(restored.attempt, 1);
+      strictEqual(restored.lastVerdict?.action, cycle === 3 ? 'escalate' : 'blocked_env');
+      if (cycle < 3) {
+        strictEqual(restored.advanceProblem('attempt'), null);
+        strictEqual(restored.nextAttempt(), 1);
+      } else {
+        ok(restored.advanceProblem('attempt')?.includes('среда не восстановлена за 3'));
+        ok(restored.advanceProblem('attempt')?.includes('повтори Verify'));
+      }
+    }
   });
 
   it('обычный красный по-прежнему сдвигает номер', () => {

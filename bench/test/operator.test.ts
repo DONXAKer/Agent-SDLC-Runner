@@ -245,4 +245,15 @@ describe('автоответчик человека (bench/src/operator.ts)', ()
 
     handle.detach();
   });
+
+  it('strict bank leaves unknown questions unanswered', async () => {
+    const askBus = new AskBus();
+    const handle = attachOperator({ gate: new ApprovalBus(), askGate: askBus, runId: () => 'strict',
+      script: readHumanScript(HUMAN_JSON), log: emptyOperatorLog(), strictQuestions: true });
+    const answers = await askBus.gate.ask({ runId: 'strict', stage: 'ask', questions: [{
+      id: 'unknown', question: 'Какой любимый цвет у заказчика?', header: 'Неизвестно', multiSelect: false, options: [],
+    }] });
+    deepStrictEqual(answers['unknown'], []);
+    handle.detach();
+  });
 });

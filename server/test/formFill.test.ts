@@ -27,13 +27,53 @@ import {
   parseCompactGroupResponse,
   planApproachEvidenceProblem,
   planStepInventedFileCompact,
+  renderBasisReferences,
+  structuredClaimResponseFormat,
 } from '../src/exec/FormFillExecutor.ts';
-import { deriveSchema, modelFields } from '../src/artifacts/formSchema.ts';
+import { deriveSchema, modelFields, type FormField } from '../src/artifacts/formSchema.ts';
+import { normalizePreparationTables, requirementProblem } from '../src/artifacts/preparation.ts';
 import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
 import { ESTIMATE_MARGIN_TOKENS, estimateMessageTokens } from '../src/exec/contextBudget.ts';
 
 const roots: string[] = [];
+it('guided reviews acceptance before writing it and retries concrete semantic errors', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-intent-review-')); roots.push(root);
+  const artifact = join(root, 'intent.md');
+  writeFileSync(artifact, '<!-- sdlc-template: intent v1 -->\n<!-- sdlc-json:acceptance:start -->\n‹acceptance_json›\n<!-- sdlc-json:acceptance:end -->');
+  let drafts = 0, audits = 0;
+  const provider = { name: 'semantic-spy', async chat(req: ChatRequest) {
+    const audit = req.messages[0]?.content.startsWith('Проверь черновик приёмки');
+    let text: string;
+    if (audit) {
+      audits++;
+      const data = JSON.parse(req.messages.at(-1)!.content);
+      strictEqual(data.phase,'BEFORE_IMPLEMENTATION'); strictEqual('sourceFacts' in data,false);
+      text = JSON.stringify({ issues: audits === 1 ? [{claimId:'claim-1',problem:'valid input must not fail',basis:'valid allowed',counterexample:'valid input expected refusal'}] : [] });
+    } else {
+      drafts++;
+      if (drafts > 1) ok(req.messages.at(-1)?.content.includes('valid input must not fail'));
+      text = JSON.stringify([{id:'claim-1',behavior:'valid input allowed',procedure:'use valid input',expected:drafts === 1 ? 'refuse' : 'allow'}]);
+    }
+    return { text, toolCalls: [], finishReason:'end_turn' as const, usage:{inputTokens:1,outputTokens:1,cacheReadTokens:0,cacheWriteTokens:0,costUsd:null,durationMs:1} };
+  }} as unknown as ChatProvider;
+  const result = await new FormFillExecutor({provider,maxResultBytes:10000,readRangeRequiredAboveBytes:10000,bashTimeoutMs:1000,
+    compact:true,preparationV2:true,reviewIntentClaims:true,stage:'intent'}).run(request(root,artifact), hooks({writes:[]},true));
+  strictEqual(result.ok,true,result.note); strictEqual(drafts,2); strictEqual(audits,2);
+  ok(readFileSync(artifact,'utf8').includes('"expected":"allow"')); ok(!readFileSync(artifact,'utf8').includes('"expected":"refuse"'));
+});
+it('guided does not close acceptance when its semantic review is malformed', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-intent-review-fail-')); roots.push(root);
+  const artifact = join(root,'intent.md');
+  writeFileSync(artifact,'<!-- sdlc-template: intent v1 -->\n<!-- sdlc-json:acceptance:start -->\n‹acceptance_json›\n<!-- sdlc-json:acceptance:end -->');
+  const provider = {name:'incomplete-audit',async chat(req:ChatRequest) {
+    return {text:req.messages[0]?.content.startsWith('Проверь черновик приёмки') ? '{}' : '[{"id":"claim-1","behavior":"valid","procedure":"check","expected":"allow"}]',
+      toolCalls:[],finishReason:'end_turn' as const,usage:{inputTokens:1,outputTokens:1,cacheReadTokens:0,cacheWriteTokens:0,costUsd:null,durationMs:1}};
+  }} as unknown as ChatProvider;
+  const result = await new FormFillExecutor({provider,maxResultBytes:10000,readRangeRequiredAboveBytes:10000,bashTimeoutMs:1000,
+    compact:true,preparationV2:true,reviewIntentClaims:true,stage:'intent'}).run(request(root,artifact),hooks({writes:[]},true));
+  strictEqual(result.ok,false); ok(readFileSync(artifact,'utf8').includes('‹acceptance_json›'));
+});
 after(() => {
   for (const r of roots) rmSync(r, { recursive: true, force: true });
 });
@@ -242,6 +282,76 @@ describe('карточка поля не несёт инструментов (20
 });
 
 describe('заполнение бланка по полям', () => {
+  it('uses the actual provider for local reasoning defaults and preserves explicit effort', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-local-effort-')); roots.push(root);
+    const artifact = join(root, 'intent.md');
+    const model = fieldProvider({ 'название': 'Демо' });
+    const seen: unknown[] = [];
+    const local = { ...model, name: 'ollama', async chat(input: ChatRequest) {
+      seen.push(input.params?.['reasoning_effort']); return model.chat(input);
+    } };
+    const options = { provider: local, maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000, compact: true };
+    writeFileSync(artifact, '# Задача: ‹название›');
+    strictEqual((await new FormFillExecutor(options).run(request(root, artifact, { model: 'local-tag' }), hooks({ writes: [] }, true))).ok, true);
+    deepStrictEqual(seen, ['none']);
+    seen.length = 0; writeFileSync(artifact, '# Задача: ‹название›');
+    strictEqual((await new FormFillExecutor({ ...options, params: { reasoning_effort: 'low' } }).run(request(root, artifact), hooks({ writes: [] }, true))).ok, true);
+    deepStrictEqual(seen, ['low']);
+  });
+
+  it('повтор после обрезки max_tokens идёт с тем же reasoning_effort и поднятым лимитом', async () => {
+    // Разбор прогонов 2026-10-05: повтор молча понижал medium/high до low — параметр
+    // эксперимента менялся посреди измерения. Теперь растёт только лимит длины.
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-effort-retry-')); roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(artifact, '# Задача: ‹название›');
+    const calls: Record<string, unknown>[] = [];
+    const provider = {
+      name: 'ollama',
+      async chat(req: ChatRequest) {
+        calls.push({ ...(req.params ?? {}) });
+        const truncated = calls.length === 1;
+        return {
+          text: truncated ? '' : 'Демо', toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: truncated ? 'max_tokens' as const : 'end_turn' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const result = await new FormFillExecutor({
+      provider, maxResultBytes: 10_000, readRangeRequiredAboveBytes: 10_000, bashTimeoutMs: 1000,
+      compact: true, params: { reasoning_effort: 'high' },
+    }).run(request(root, artifact), hooks({ writes: [] }, true));
+    strictEqual(result.ok, true, result.note);
+    strictEqual(calls.length, 2, JSON.stringify(calls));
+    strictEqual(calls[0]!['reasoning_effort'], 'high');
+    strictEqual(calls[1]!['reasoning_effort'], 'high');
+    strictEqual(Number(calls[1]!['max_tokens']), Math.min(8192, Number(calls[0]!['max_tokens']) * 2));
+  });
+
+  it('непоправимая обрезка поля — трение truncated в метриках, а не молчаливый приём', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sdlc-truncated-friction-')); roots.push(root);
+    const artifact = join(root, 'intent.md');
+    writeFileSync(artifact, '# Задача: ‹название›');
+    const provider = {
+      name: 'ollama',
+      async chat() {
+        return {
+          text: '', toolCalls: [],
+          usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
+          finishReason: 'max_tokens' as const,
+        };
+      },
+    } as unknown as ChatProvider;
+    const frictions: string[] = [];
+    const h = { ...hooks({ writes: [] }, true), onFriction: (kind: string) => { frictions.push(kind); } } as unknown as ExecHooks;
+    const result = await new FormFillExecutor({
+      provider, maxResultBytes: 10_000, readRangeRequiredAboveBytes: 10_000, bashTimeoutMs: 1000, compact: true,
+    }).run(request(root, artifact), h);
+    strictEqual(result.ok, false);
+    ok(frictions.includes('truncated'), JSON.stringify(frictions));
+  });
+
   it('дублирует точную форму JSON в карточках intent acceptance и basis', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sdlc-preparation-json-form-'));
     roots.push(root);
@@ -259,9 +369,19 @@ describe('заполнение бланка по полям', () => {
         const question = req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
         questions.push(question);
         reasoningEfforts.push(req.params?.['reasoning_effort']);
+        const format = req.params?.['response_format'] as any;
+        strictEqual(format.json_schema.schema.type, 'array');
+        const items = format.json_schema.schema.items;
+        if (items.oneOf !== undefined) {
+          deepStrictEqual(items.oneOf.map((row: any) => row.properties.id.const), ['claim-1']);
+          strictEqual(items.oneOf[0].additionalProperties, false);
+        } else {
+          strictEqual(items.additionalProperties, false);
+        }
+        ok(Number(req.params?.['max_tokens']) >= 4096);
         const answer = question.includes('acceptance_json')
           ? '[{"id":"claim-1","behavior":"one","procedure":"check one","expected":"one"}]'
-          : '[{"id":"claim-1","basis":"why","scenario":"when","counterexample":"else"}]';
+          : '[{"id":"claim-1","basis":{"file":"request-1","lines":[1,1]},"scenario":"when","counterexample":"else"}]';
         return {
           text: answer, toolCalls: [],
           usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
@@ -274,7 +394,7 @@ describe('заполнение бланка по полям', () => {
     }).run(request(root, artifact), hooks({ writes: [] }, true));
     strictEqual(result.ok, true, result.note);
     const acceptanceIndex = questions.findIndex((q) => q.includes('только JSON-массив') && q.toLowerCase().includes('не добавляй внешний объект') && q.includes('"procedure"'));
-    const basisIndex = questions.findIndex((q) => q.includes('ключ basis') && q.includes('"counterexample"'));
+    const basisIndex = questions.findIndex((q) => q.includes('ссылка на строки показанного исходного запроса') && q.includes('"counterexample"'));
     ok(acceptanceIndex >= 0, questions.join('\n---\n'));
     ok(basisIndex > acceptanceIndex, questions.join('\n---\n'));
     ok(questions[basisIndex]!.includes('claim-1 → one'), questions[basisIndex]);
@@ -303,7 +423,7 @@ describe('заполнение бланка по полям', () => {
           ? acceptanceCalls === 1
             ? '[{"id":"claim-1","buffer":"missing behavior","procedure":"check","expected":"ok"}]'
             : '[{"id":"claim-1","behavior":"one","procedure":"check","expected":"ok"}]'
-          : '[{"id":"claim-1","basis":"source","scenario":"use","counterexample":"wrong"}]';
+          : '[{"id":"claim-1","basis":{"file":"request-1","lines":[1,1]},"scenario":"use","counterexample":"wrong"}]';
         return {
           text: answer, toolCalls: [],
           usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1, envBlocked: false },
@@ -1655,4 +1775,48 @@ describe('адаптивное заполнение формы', () => {
     strictEqual(conditionalFieldEmptyAlternative(field, 'Добавить авторизацию пользователя'), null);
     strictEqual(conditionalFieldEmptyAlternative({ section: field.section, hint: field.hint }, 'обычная задача'), null);
   });
+});
+
+const basisJsonField = { id: 'основания и сценарии', label: null, placeholders: [{ text: '‹basis_json›' }] } as unknown as FormField;
+
+it('basis schema pins one row per accepted claim ID and degrades safely without them', () => {
+  const format = structuredClaimResponseFormat(basisJsonField, ['# Запрос\nстрока 2\nстрока 3'], ['claim-1', 'claim-2']) as {
+    json_schema: { schema: { minItems: number; maxItems: number; items: { oneOf: { properties: { id: { const: string } } }[] } } };
+  };
+  strictEqual(format.json_schema.schema.minItems, 2);
+  strictEqual(format.json_schema.schema.maxItems, 2);
+  deepStrictEqual(format.json_schema.schema.items.oneOf.map((row) => row.properties.id.const), ['claim-1', 'claim-2']);
+  const free = structuredClaimResponseFormat(basisJsonField, ['# Запрос']) as {
+    json_schema: { schema: { minItems: number; maxItems: number; items: { oneOf?: unknown } } } };
+  strictEqual(free.json_schema.schema.minItems, 1);
+  strictEqual(free.json_schema.schema.maxItems, 24);
+  strictEqual(free.json_schema.schema.items.oneOf, undefined, 'без списка claim-id — свободная схема');
+  strictEqual(JSON.stringify(free).includes('"oneOf":[]'), false, 'пустой oneOf запрещён для Ollama');
+});
+
+it('многострочная цитата основания не ломает таблицу: корректный ответ проходит гейт (отказ r1)', () => {
+  const requests = ['# Валидация покупателя\n\nСчета выставляются на данные из формы заказа как есть'];
+  const acceptance = [
+    { id: 'claim-1', behavior: 'Неизвестная зона даёт пустой результат', procedure: 'вызвать list с неизвестной зоной', expected: 'пустой список' },
+    { id: 'claim-2', behavior: 'Известная зона фильтрует строки', procedure: 'вызвать list с зоной nord', expected: 'только строки зоны' },
+  ];
+  const answer = JSON.stringify(acceptance.map((row) => ({ id: row.id,
+    basis: { file: 'request-1', lines: [1, 3] }, scenario: `сценарий ${row.id}\nс переносом`, counterexample: `контрпример ${row.id} | с чертой` })));
+  const rendered = renderBasisReferences(basisJsonField, answer, requests)!;
+  const rows = JSON.parse(rendered) as { basis: string; scenario: string; counterexample: string }[];
+  strictEqual(rows[0]!.basis, 'request-1:L1-L3 «# Валидация покупателя Счета выставляются на данные из формы заказа как есть»');
+  strictEqual(rows[0]!.scenario.includes('\n'), false);
+  strictEqual(rows[0]!.counterexample.includes('|'), false);
+  const intent = [
+    '# Задача: фильтр', '## Коротко', 'Фильтрация списка.', '## Зачем', 'Убрать несовпадающие элементы.',
+    '## Что делаем', 'Добавить фильтр.', '## Чего не делаем', 'Не менять формат результата.',
+    '## Инварианты', 'Стабильный порядок элементов.',
+    '## Приёмочный лист', '<!-- sdlc-json:acceptance:start -->', JSON.stringify(acceptance), '<!-- sdlc-json:acceptance:end -->',
+    '## Основания и сценарии', '<!-- sdlc-json:basis:start -->', rendered, '<!-- sdlc-json:basis:end -->',
+  ].join('\n');
+  const normalized = normalizePreparationTables(intent);
+  strictEqual(normalized.problem, null);
+  strictEqual(normalized.text.split('\n').filter((line) => line.startsWith('| request-1:')).length, 2,
+    'каждая строка основания остаётся одной строкой таблицы');
+  strictEqual(requirementProblem(normalized.text), null);
 });

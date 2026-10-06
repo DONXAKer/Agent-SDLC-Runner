@@ -12,14 +12,13 @@ import {
   approvePreparation,
   preparationReviewProblem,
   preparationFingerprint,
+  preparation,
   recordPreparationRead,
   preparationExploreEvidenceProblem,
 } from '../artifacts/preparation.ts';
 import { seedPreparationForms } from './preparationForms.ts';
 import { preparationTools } from './preparationToolPolicy.ts';
 import { recordModelAnswers } from './stages/ask.ts';
-import { approvedPlanDate } from './journalAutofill.ts';
-import { buildRuntimeLocatorMap, fillVerifiedChunkLocation, validateLocatorMap } from './chunkLocatorApproval.ts';
 import { randomUUID } from 'node:crypto';
 
 import type {
@@ -67,7 +66,6 @@ import { SDLC_CONSTANTS } from '../config/constants.ts';
 import { SDLC_DIR, WitokPaths, artifactPathOf, isArtifactKey } from '../artifacts/paths.ts';
 import { ARTIFACT_KEYS as ARTIFACT_KEYS_ALL, type ArtifactKey } from '@sdlc-runner/shared';
 import { appendScopeExtension, extractFilesToTouch } from '../artifacts/planFiles.ts';
-import { planSteps } from '../artifacts/planSteps.ts';
 import { h2SectionRanges } from '../md/table.ts';
 import type { AskGate } from '../approval/askGate.ts';
 import { repairErasedDecisions } from '../approval/destructive.ts';
@@ -99,6 +97,7 @@ import { createProvider } from '../provider/registry.ts';
 import type { TraceLabel } from '../provider/rawLog.ts';
 import type {
   ExecHooks,
+  ExecRequest,
   FrictionKind,
   McpAccess,
   StageExecutor,
@@ -135,6 +134,7 @@ import { postmortemBlock } from './postmortem.ts';
 import { metricsBlock } from './metricsReport.ts';
 import { ProviderEnvError } from '../provider/ChatProvider.ts';
 import { suggestEscalation } from './escalation.ts';
+import { applyEnvRetryBudget, envRetryBudget, envRetryCount } from './envRetryBudget.ts';
 import type { Escalation } from './escalation.ts';
 import { buildPrompt } from '../prompt/build.ts';
 import {
@@ -145,10 +145,15 @@ import {
   type PreconditionReport,
   type StageContext,
   type StageDef,
-  planMapProblem,
 } from './stages.ts';
 import { ChunkState } from './stages/chunk/index.ts';
 import { stepFillExecutor } from './stages/chunk/steps.ts';
+import { guidedExecutor } from './guidedExecutor.ts';
+import { GuidedAskExecutor } from '../exec/GuidedAskExecutor.ts';
+import { GuidedPlanExecutor } from '../exec/GuidedPlanExecutor.ts';
+import { accountGuidedTime, initGuided, readGuided } from './guidedState.ts';
+import { decideReviewScan, routeKey } from './reviewRoute.ts';
+import type { ReviewScanDecision } from './reviewRoute.ts';
 /** Реэкспорт: тесты и прежние импорты берут выбор гейтов шага отсюда. */
 export { gatesForStep, pickStepFailure, plannedDependencyBlocker, plannedSameFileFollowup, plannedTestFollowup } from './stages/chunk/steps.ts';
 /** Реэкспорт: тесты берут блок рецензента для входа этапа 6 отсюда. */
@@ -205,6 +210,7 @@ export interface RunOptions {
 }
 
 export interface RunStageOptions {
+  executionMode?: 'legacy' | 'guided';
   prompt?: PreparedPrompt;
   requirement?: string;
   /** Только для нового витка: v3 по умолчанию; v1/v2 остаются для воспроизводимости. */
@@ -367,6 +373,8 @@ function EMPTY_FRICTION(): {
 
 export class Run {
   readonly id = randomUUID();
+  private verdictCycle = randomUUID();
+  private recordedVerdictCycle: string | null = null;
   readonly project: ProjectConfig;
   readonly profile: ResolvedProfile;
   readonly slug: string;
@@ -374,7 +382,15 @@ export class Run {
 
   chunk = 1;
   attempt = 1;
-  status: RunStatus = 'idle';
+  private currentStatus: RunStatus = 'idle';
+  awaitingSince: number | null = null;
+
+  get status(): RunStatus { return this.currentStatus; }
+  set status(value: RunStatus) {
+    if (value === 'awaiting' && this.currentStatus !== 'awaiting') this.awaitingSince = Date.now();
+    if (value !== 'awaiting') this.awaitingSince = null;
+    this.currentStatus = value;
+  }
   totalUsage: Usage = emptyUsage();
 
   /**
@@ -500,6 +516,7 @@ export class Run {
       maxBudgetUsd: this.project.maxBudgetUsd,
       spentBefore: (currency) => this.spent.spent(currency),
       verifyRoute: () => this.profile.routes.verify,
+      reviewScan: () => this.reviewScanRoute(),
       ensembleRoutes: () => this.profile.ensemble.verify ?? [],
       metrics: () => this.metrics,
       resetAttemptState: () => this.resetAttemptState(),
@@ -509,6 +526,7 @@ export class Run {
       chunkState: this.state.chunk,
       detectNoProgress: () => this.detectNoProgress(),
       computeStageVerdict: (noProgress) => this.computeStageVerdict(noProgress),
+      beginVerification: () => { this.verdictCycle = randomUUID(); },
       profile: () => this.profile,
     };
   }
@@ -609,7 +627,7 @@ export class Run {
   constructor(o: RunOptions) {
     this.config = o.config;
     this.project = o.project;
-    this.profile = o.profile;
+    this.profile = structuredClone(o.profile);
     this.slug = o.slug;
     this.gate = o.gate;
     this.askGate = o.askGate;
@@ -950,6 +968,7 @@ export class Run {
    * витка меняет стоимость и поведение, и решает это человек.
    */
   get escalation(): Escalation {
+    if (readGuided(this.paths)) return { kind: 'none', why: 'guided закрепляет одну модель; при неудаче требуется пересмотр задачи или плана' };
     // Escalate above the strongest chunk route so a retry can change models.
     const chunkRoutes = this.profile.ensemble.chunk ?? [this.profile.routes.chunk];
     const chunk = chunkRoutes.reduce((a, b) => (a.rank >= b.rank ? a : b), this.profile.routes.chunk);
@@ -1075,13 +1094,23 @@ export class Run {
         : `chunk ${this.chunk} не принят: следующий chunk — только после зелёного вердикта попытки ${this.attempt}`;
     }
     if (verdict === null || verdict.passed) {
+      if (verdict?.passed) {
+        const stale = stalePatchReason(this.paths, this.chunk, this.attempt, verdict);
+        if (stale !== null) return stale;
+      }
       return verdict !== null
         ? `попытка ${this.attempt} принята — новая попытка не нужна, дальше следующий chunk или передача`
         : `попытка ${this.attempt} ещё не проверена вердиктом этапа 6 — новая попытка поверх неё стёрла бы её диагноз`;
     }
     if (verdict.action === 'escalate') {
+      const envFailures = envRetryCount(this.paths, this.chunk);
+      if (envFailures > 0) {
+        return `вердикт попытки ${this.attempt} — escalate: среда не восстановлена за ${envFailures} прогонов Verify подряд. ` +
+          'Восстанови среду и повтори Verify; решение о продолжении — за человеком. ' +
+          'Другие варианты: обрыв витка или правка строки «Бюджет средовых повторов» в .sdlc/gates.md и повтор Verify';
+      }
       return (
-        `бюджет попыток исчерпан (вердикт попытки ${this.attempt} — escalate): решение за человеком — ` +
+        `вердикт попытки ${this.attempt} — escalate: решение за человеком — ` +
         'обрыв витка или правка бюджета в .sdlc/gates.md'
       );
     }
@@ -1178,6 +1207,7 @@ export class Run {
    * которая ещё не запускалась.
    */
   private resetAttemptState(): void {
+    this.verdictCycle = randomUUID();
     this.state.verify.lastGateResults = [];
     this.state.verify.lastGatesAborted = false;
     this.state.verify.verdict = null;
@@ -1859,6 +1889,7 @@ export class Run {
    * это кончается (`BuildPromptInput.formFill`).
    */
   private usesFormFill(stage: StageId, route: ResolvedRoute, preparationForms = true): boolean {
+    if (readGuided(this.paths) && route.flow === 'loop' && ['verify', 'handoff'].includes(stage)) return true;
     if (preparationForms && isPreparationV2(this.paths)) {
       // Preparation v2 owns document construction: every supported document stage uses
       // bounded field answers rather than asking the model to edit a growing Markdown file.
@@ -1884,8 +1915,43 @@ export class Run {
     });
   }
 
+  /**
+   * Маршрут независимого скана ревью этапа 6 и право его находок ронять вердикт
+   * (`reviewRoute.ts::decideReviewScan`): отдельный `reviewModel` из конфига раннера либо
+   * маршрут этапа verify; скан той же моделью, что исполнитель (chunk), — справочный
+   * (advisory). Резолвится ВНЕ профиля, поэтому инвариант «одна локальная модель в
+   * guided» (проверка маршрутов профиля выше) его не видит — это и есть единственное
+   * допустимое исключение из него.
+   *
+   * В guided конвейерные ручки ревью принудительно включаются и на заданном
+   * `reviewModel` — тем же правилом, что для маршрутов verify профиля (ниже в
+   * `runStage`): свободный ход субагента на локальной модели не проходит по бюджету.
+   */
+  private reviewScanRoute(): ReviewScanDecision {
+    const decision = decideReviewScan({
+      reviewModelId: this.config.runner.reviewModel,
+      models: this.config.models,
+      executor: this.profile.routes.chunk,
+      verifyRoute: this.profile.routes.verify,
+    });
+    if (readGuided(this.paths) === null) return decision;
+    const route = decision.route;
+    if (route === this.profile.routes.verify || route.flow !== 'loop') return decision;
+    return {
+      ...decision,
+      route: { ...route, reviewFill: true, claimFill: true, skipTurnAfterReviewFill: true },
+    };
+  }
+
   private executorFor(stage: StageId, forRoute?: ResolvedRoute, preparationForms = true): StageExecutor {
     const route = forRoute ?? this.profile.routes[stage];
+    if (stage === 'chunk' && readGuided(this.paths) !== null) return guidedExecutor(this.host, route);
+    if (preparationForms && stage === 'ask' && readGuided(this.paths) !== null) return new GuidedAskExecutor(this.host, {
+      provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'loop')),
+      params: route.params, contextWindow: route.contextWindow ?? 16384 });
+    if (preparationForms && stage === 'plan' && readGuided(this.paths) !== null) return new GuidedPlanExecutor({
+      paths: this.paths, slug: this.slug, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill')),
+      params: route.params, contextWindow: route.contextWindow ?? 16384 });
     if (route.flow === 'sdk') {
       // `stepFill`/`formFill` — ручки исполнителей флоу `loop`, у `sdk` своего цикла нет,
       // и молчаливое игнорирование выглядело бы как «настройка не сработала», не как
@@ -1937,6 +2003,9 @@ export class Run {
         // keep the per-model compactForms setting.
         compact: isPreparationV2(this.paths) || route.compactForms === 'fill' || route.compactForms === 'all',
         preparationV2: isPreparationV2(this.paths),
+        reviewIntentClaims: stage === 'intent' && readGuided(this.paths) !== null,
+        reviewIntentContract: stage === 'intent' && readGuided(this.paths) !== null,
+        intentRequests: preparation(this.paths)?.requests ?? [],
         // Образец граничного пункта — из примера эталона, читается в рантайме:
         // замер 2026-09-04 показал ноль `[edge]` в 4 прогонах из 5, а просьба
         // называла только формат (`artifacts/edgeExample.ts`).
@@ -2064,6 +2133,9 @@ export class Run {
       // читает и парсит plan.md с диска.
       ...(chunkPlanFiles.length > 0 ? { planFiles: chunkPlanFiles } : {}),
     });
+    if (readGuided(this.paths) && (stage === 'explore' || stage === 'plan' || stage === 'chunk')) {
+      prompt.presetNote = 'guided: исполнитель формирует отдельные JSON-запросы по текущему состоянию. Фактические запросы и ответы доступны в трассе этапа.';
+    }
     this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     return prompt;
   }
@@ -2229,7 +2301,15 @@ export class Run {
     // Расчёт — `stages/verify/verdict.ts`; здесь учёт попытки в метриках витка и событие.
     const computed = stageVerdict(this.host, noProgress);
     if (computed === null) return null;
-    const { verdict: withNotes, input } = computed;
+    const { verdict: rawVerdict, input } = computed;
+    const withNotes = applyEnvRetryBudget(this.paths, this.chunk, this.verdictCycle, rawVerdict, envRetryBudget(this.gatesFile));
+    this.state.verify.verdict = withNotes;
+    // Журнал отражает каждый завершённый Verify, включая повтор на той же попытке.
+    // Чистый пересчёт внутри одного прогона строку не удваивает.
+    if (this.recordedVerdictCycle !== this.verdictCycle) {
+      this.recordIteration(withNotes, noProgress);
+      this.recordedVerdictCycle = this.verdictCycle;
+    }
 
     // Статистика попытки учитывается РОВНО ОДИН РАЗ. Пересчёт вердикта на той же попытке
     // (оператор поправил набор гейтов и запустил verify снова) обязан обновить сам
@@ -2240,7 +2320,6 @@ export class Run {
       // Гейт-агрегаты — по тем же статусам, что ушли в вердикт: рантайм видел прогон
       // рецензента своими глазами, и `⏭`, стоявшее там до его вызова, метрикой не является.
       for (const g of gateResultsForVerdict(this.host)) this.recordGateResult(g);
-      this.recordIteration(withNotes, noProgress);
       this.verdictCount += 1;
       if (!withNotes.passed) this.redCount += 1;
       if (this.state.verify.redCause !== null) {
@@ -2251,7 +2330,7 @@ export class Run {
       // из-за него — совет лечить то, что не болеет.
       // `blocked_env` ничего не проверял (`SDLC.md`): его ⚠ по пунктам, держащимся на тестах,
       // в счёт «второй красный подряд» для эскалации не идут (ревью).
-      if (withNotes.action !== 'blocked_env') {
+      if (rawVerdict.action !== 'blocked_env') {
         this.failedClaimsByAttempt.push(
           input.claims.filter((c) => c.status !== '✅' && c.status !== 'manual').map((c) => c.id),
         );
@@ -2309,6 +2388,33 @@ export class Run {
   }
 
   async runStage(stage: StageId, opts: RunStageOptions = {}): Promise<StageResult> {
+    if (opts.executionMode !== undefined && opts.executionMode !== 'legacy' && opts.executionMode !== 'guided') throw new Error('Неизвестный режим исполнения');
+    if (opts.executionMode === 'legacy' && readGuided(this.paths)) throw new Error('Режим задачи уже закреплён как guided');
+    if (opts.executionMode === 'guided' && !readGuided(this.paths)) {
+      if (!stageModule(stage).def.startsTask || readArtifact(this.paths.intent).exists) throw new Error('guided выбирается при создании новой задачи');
+      if (opts.preparationVersion !== undefined && opts.preparationVersion !== 3) throw new Error('guided требует preparationVersion=3');
+      const selected = this.profile.routes.intent;
+      const routes = Object.values(this.profile.ensemble).flat();
+      if (routes.some(r => r.flow !== 'loop' || r.model !== selected.model || r.provider !== selected.provider ||
+        !['localhost', '127.0.0.1', '[::1]'].includes(new URL(r.providerDef.baseUrl ?? 'http://invalid').hostname))) {
+        throw new Error('guided требует одну локальную модель на всех этапах и маршрутах ревью');
+      }
+      initGuided(this.paths, `${selected.provider}:${selected.model}`);
+    }
+    const guided = readGuided(this.paths);
+    if (guided) {
+      opts = { ...opts, preparationVersion: 3 };
+      if ([...Object.values(this.profile.routes), ...Object.values(this.profile.ensemble).flat()].some(r =>
+        `${r.provider}:${r.model}` !== guided.modelId || r.flow !== 'loop' ||
+        !['localhost', '127.0.0.1', '[::1]'].includes(new URL(r.providerDef.baseUrl ?? 'http://invalid').hostname))) throw new Error('Локальная модель guided-задачи изменена');
+      if (guided.activeMs >= guided.budgetMs) return { ok: false, finalText: '', usage: emptyUsage(), note: 'Лимит guided-задачи 30 минут исчерпан' };
+      for (const r of [this.profile.routes.verify, ...this.profile.ensemble.verify]) {
+        r.reviewFill = true;
+        r.claimFill = true;
+        r.skipTurnAfterReviewFill = true;
+        r.formFill = true;
+      }
+    }
     const def = stageById(stage);
     const route = this.profile.routes[stage];
     const abortOpts = opts.abortHandoff === true ? { abortHandoff: true } : {};
@@ -2411,6 +2517,16 @@ export class Run {
     // сколько занял. Время меряется здесь, а не по событиям шины: буфер шины вытесняет
     // старое, и считать по нему длительность значило бы терять её на длинных витках.
     const stageStartedAt = Date.now();
+    let guidedTick = Date.now();
+    const chargeGuided = (): void => {
+      const now = Date.now();
+      if (guided && accountGuidedTime(this.paths, now - guidedTick, this.status === 'running')) this.aborter?.abort(new Error('Лимит guided-задачи 30 минут исчерпан'));
+      guidedTick = now;
+    };
+    const guidedTimer = guided ? setInterval(() => {
+      try { chargeGuided(); }
+      catch (error) { this.aborter?.abort(error); }
+    }, 1000) : null;
     const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0, requestDurationsMs: [] };
     stat.runs += 1;
     this.stageStats.set(stage, stat);
@@ -2569,6 +2685,8 @@ export class Run {
           }),
 
         onToolRequest: async (call, meta) => {
+          chargeGuided();
+          if (guided) this.aborter?.signal.throwIfAborted();
           this.status = 'awaiting';
           try {
             const decision = await this.gate.request({
@@ -2611,7 +2729,7 @@ export class Run {
                 ...(meta.sdk?.sessionDir == null ? {} : { harnessResultsRoot: meta.sdk.sessionDir }),
               },
             });
-            if (decision.allowed && call.kind === 'read' && (stage === 'explore' || stage === 'plan')) {
+            if (decision.allowed && call.kind === 'read' && mod.tracksPreparationReads === true) {
               pendingReads.set(meta.requestId, { path: call.path, stage });
             }
             // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
@@ -2694,6 +2812,7 @@ export class Run {
             }
             return decision;
           } finally {
+            guidedTick = Date.now();
             this.status = 'running';
           }
         },
@@ -2740,71 +2859,21 @@ export class Run {
           });
         },
 
-        onSubagentResult: (agent, response) => {
-          if (stage !== 'chunk' || agent !== 'sdlc-locator' || !isPreparationV2(this.paths)) return null;
-          const plan = readArtifact(this.paths.plan);
-          if (!plan.exists) return 'Одобренный plan.md не найден; подтверждение места правки не переиспользовано.';
-          const reviewProblem = preparationReviewProblem(this.paths);
-          if (reviewProblem !== null) return `Проработка изменилась или не одобрена (${reviewProblem}); подтверждение места правки не переиспользовано.`;
-          const mapProblem = planMapProblem(this.ctx);
-          if (mapProblem !== null) return `${mapProblem}; подтверждение места правки не переиспользовано.`;
-          const plannedFiles = extractFilesToTouch(plan.text);
-          const modelMap = validateLocatorMap(response, plannedFiles, this.paths.projectRoot);
-          const runtimeMap = modelMap.ok ? null : buildRuntimeLocatorMap(plan.text, this.paths.projectRoot);
-          if (!modelMap.ok) {
-            this.emit({
-              type: 'warning', runId: this.id, stage,
-              message: runtimeMap === null
-                ? `карта locator не подтверждена, резервная проверка дерева не удалась: ${modelMap.reason}`
-                : `locator вернул непригодную карту (${modelMap.reason}); список путей и точные якоря восстановлены рантаймом из одобренного плана и дерева`,
-            });
-            if (runtimeMap === null) {
-              return `Рантайм не подтвердил карту locator (${modelMap.reason}), и не смог безопасно построить её из одобренного плана и дерева. Поля журнала оставлены пустыми; не начинай реализацию.`;
-            }
-          }
-          const verified = modelMap.ok ? modelMap : { ok: true as const, value: runtimeMap! };
-          const steps = planSteps(plan.text);
-          const normalizePath = (path: string): string => path.replace(/\\/gu, '/').replace(/^\.\//u, '').toLowerCase();
-          const stepFiles = new Set(steps.map((step) => normalizePath(step.file)));
-          if (steps.length === 0 || plannedFiles.some((path) => !stepFiles.has(normalizePath(path)))) {
-            return 'JSON-карта совпала с files_to_touch, но план не содержит шага на каждый путь; подтверждение места правки не переиспользовано.';
-          }
-          const approvedOn = approvedPlanDate(plan.text);
-          if (approvedOn === null || readDecision(plan.text, DECISION.approval).state !== 'granted') {
-            return 'Дата одобрения плана не подтверждена; решение оператора для места правки не переиспользовано.';
-          }
-          const journalPath = this.paths.chunkJournal(this.chunk);
-          const journal = readArtifact(journalPath);
-          if (!journal.exists) return 'Журнал chunk не найден; подтверждение места правки не записано.';
-          const points = steps.map((step) => `${step.file}:${step.symbol ?? (step.isNew ? 'new file' : 'file-level change')}`);
-          const filled = fillVerifiedChunkLocation(journal.text, verified.value.files, approvedOn, points);
-          if (filled === null) return 'Форма журнала отличается от проверенного шаблона; подтверждение места правки не записано.';
-          this.writeAutofilled(journalPath, filled, seeded);
-          const message = modelMap.ok
-            ? 'рантайм записал точки правки из карты locator, сверенной с планом и файлами'
-            : 'рантайм сверил все цели одобренного плана и сам взял точные якоря из файлов после ошибки locator';
-          this.emit({ type: 'warning', runId: this.id, stage, message });
-          return modelMap.ok
-            ? `Рантайм проверил полный JSON-ответ locator против одобренного plan.md и текущих исходников, записал карту и сослался на одобрение плана этой сессии (${approvedOn}). Не спрашивай человека повторно и не меняй эти поля; переходи к реализации в пределах files_to_touch.`
-            : `Рантайм отклонил ответ locator, затем проверил каждый путь из одобренного files_to_touch, определил состояние по дереву и записал точные якоря из файлов; одобрение плана этой сессии (${approvedOn}) распространяется на эти подтверждённые цели. Не меняй поля журнала; переходи к реализации строго в пределах плана.`;
-        },
+        onSubagentResult: (agent, response) => mod.subagentResult?.(this.host, agent, response, seeded) ?? null,
 
         onAskHuman: async (call) => {
           if (call.kind !== 'ask_human') return {};
-          if (stage === 'chunk' && isPreparationV2(this.paths) && call.questions.length > 0 &&
-              call.questions.every((q) => /подтвердите место правки|подтверждение места правки|точки правки/iu.test(q.question))) {
-            const plan = readArtifact(this.paths.plan);
-            if (plan.exists && approvedPlanDate(plan.text) !== null &&
-                readDecision(plan.text, DECISION.approval).state === 'granted' &&
-                preparationReviewProblem(this.paths) === null && planMapProblem(this.ctx) === null) {
-              skippedApprovedLocationAsk = true;
-              return {};
-            }
+          if (inv.locationAlreadyApproved?.(call.questions)) {
+            skippedApprovedLocationAsk = true;
+            return {};
           }
+          chargeGuided();
+          if (guided) this.aborter?.signal.throwIfAborted();
           this.status = 'awaiting';
           try {
             return await this.askGate.ask({ runId: this.id, stage, questions: call.questions });
           } finally {
+            guidedTick = Date.now();
             this.status = 'running';
           }
         },
@@ -2820,7 +2889,11 @@ export class Run {
 
         // Записи в отчёт этапа 6. Здесь только приём и проверка ссылки: в файл они попадут
         // одним `Write` после хода, обычным путём через политику и гейт.
-        onRecord: (call) => acceptRecord(this.host, call),
+        // Записи той же модели, что исполнитель (маршрут этапа совпадает с chunk), —
+        // справочные (advisory): саморевью уровнем вердикта не является.
+        onRecord: (call) => acceptRecord(this.host, call, {
+          advisory: routeKey(route) === routeKey(this.profile.routes.chunk),
+        }),
 
         onUsage: (usage, durationMs) => {
           const st = this.stageStats.get(stage);
@@ -2898,10 +2971,8 @@ export class Run {
         return lastStageProblem;
       };
 
-      let result: StageResult = pre.skip !== null
-        ? pre.skip
-        : await executor.run(
-        {
+      await inv.beforeModel?.(hooks, seeded);
+      const execRequest: ExecRequest = {
           prompt: stagePrompt,
           cwd: this.project.projectRoot,
           model: route.model,
@@ -2930,9 +3001,8 @@ export class Run {
           // до диска (LoopExecutor кладёт его в ToolContext, SdkExecutor — в свой MCP-сервер).
           stageArtifacts: this.stageArtifacts(stage),
           signal: this.aborter.signal,
-        },
-        hooks,
-      );
+        };
+      let result: StageResult = pre.skip !== null ? pre.skip : await executor.run(execRequest, hooks);
 
       // Доборы рантайма после хода, до дозаполнения по полям и ансамбля (добор пунктов и
       // записи отчёта verify, добор осей plan): оба обязаны видеть уже внесённое.
@@ -2969,8 +3039,11 @@ export class Run {
       const finish = inv.formFinish?.(result) ?? null;
       if (
         finish !== null &&
+        // Guided executors own their bounded repair loops; a failed judgment must
+        // not fall through to legacy form filling (nor become a success there).
+        (guided === null || result.ok) &&
         route.flow === 'loop' &&
-        (route.formFill || finish.forced) && !isPreparationV2(this.paths) &&
+        (route.formFill || finish.forced) && (!isPreparationV2(this.paths) || guided !== null) &&
         !this.aborter.signal.aborted
       ) {
         result = await this.finishFormArtifact(
@@ -2992,6 +3065,21 @@ export class Run {
       }
 
       await inv.afterForm?.(prompt, def, agents, hooks);
+      // A substantive review finding is repair feedback, not a terminal format
+      // failure. Only a new independent review may approve the repaired revision.
+      if (result.ok && pre.skip === null && mod.repairFeedback !== undefined) {
+        for (let revision = 0; revision < 2 && !this.aborter.signal.aborted; revision++) {
+          const feedback = mod.repairFeedback(this.host);
+          if (feedback === null) break;
+          this.emit({ type: 'warning', runId: this.id, stage, message: `${feedback} (${revision + 1}/2)` });
+          const remainingTurns = execRequest.maxTurns - (result.modelRequests ?? 0);
+          if (remainingTurns <= 0) break;
+          const repaired = await executor.run({ ...execRequest, maxTurns: remainingTurns }, hooks);
+          result = { ...repaired, usage: addUsage(result.usage, repaired.usage), modelRequests: (result.modelRequests ?? 0) + (repaired.modelRequests ?? 0) };
+          if (!repaired.ok) break;
+          await inv.afterForm?.(prompt, def, agents, hooks);
+        }
+      }
 
       // Отмена проверяется ДО записи улик. Иначе отменённый этап затирал патч предыдущего
       // состояния снимком наполовину сделанного дерева (а при прерванном сигнале git
@@ -3007,7 +3095,9 @@ export class Run {
 
       if (cancelled) {
         this.status = 'cancelled';
-        const note = 'этап отменён оператором';
+        const reason: unknown = this.aborter?.signal.reason;
+        const note = this.cancelRequested ? 'этап отменён оператором'
+          : `этап прерван рантаймом: ${reason instanceof Error ? reason.message : String(reason ?? 'причина не указана')}`;
         this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note });
         return { ...result, ok: false, note };
       }
@@ -3033,6 +3123,8 @@ export class Run {
           ? { ...result, ok: false, note: stageProblem }
           : result;
 
+      chargeGuided();
+      if (guided) this.aborter?.signal.throwIfAborted();
       this.status = outcome.ok ? 'done' : 'failed';
       this.emit({ type: 'stage_done', runId: this.id, stage, ok: outcome.ok, note: outcome.note });
       return outcome;
@@ -3053,6 +3145,7 @@ export class Run {
         ...(e instanceof ProviderEnvError ? { envFailure: message } : {}),
       };
     } finally {
+      if (guidedTimer) { clearInterval(guidedTimer); chargeGuided(); }
       stat.durationMs += Date.now() - stageStartedAt;
       this.aborter = null;
       // Снапшот после КАЖДОГО этапа: виток переживает пересоздание `Run`, и метрики

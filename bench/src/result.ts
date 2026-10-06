@@ -12,7 +12,7 @@
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import type { RunMetrics, StageId, Verdict } from '@sdlc-runner/shared';
+import type { GuidedSummary, RunMetrics, StageId, Verdict } from '@sdlc-runner/shared';
 
 import type { DriverResult } from './driver.ts';
 import type { OperatorDecisionLog } from './operator.ts';
@@ -26,6 +26,7 @@ import type { RunDiagnostics } from './diagnostics.ts';
 import { taskById } from './tasks.ts';
 
 export interface BenchResult {
+  guided?: GuidedSummary | null;
   diagnostics?: RunDiagnostics;
   /** Идентификация прогона — не измерение, а его паспорт. */
   run: {
@@ -35,6 +36,9 @@ export interface BenchResult {
     task: string;
     fixtureDir: string;
     mode: BenchOptions['mode'];
+    executionMode?: BenchOptions['executionMode'];
+    preparationVersion?: BenchOptions['preparationVersion'];
+    strictQuestions?: boolean;
     profileLabel: string;
     routes: BuiltProfile['routes'];
     /** Валюта каждого маршрута — стоимость этапа подписывается ею, а не хардкодом `$`. */
@@ -74,6 +78,7 @@ export interface BenchResult {
 }
 
 export function buildResult(args: {
+  guided?: GuidedSummary | null;
   opts: BenchOptions;
   built: BuiltProfile;
   startedAt: Date;
@@ -91,12 +96,16 @@ export function buildResult(args: {
   const { opts, built } = args;
   const limits = args.turnLimits;
   return {
+    ...(args.guided === undefined ? {} : { guided: args.guided }),
     run: {
       slug: opts.slug,
       model: opts.model,
       task: opts.task,
       fixtureDir: taskById(opts.task).fixtureDir,
       mode: opts.mode,
+      executionMode: opts.executionMode ?? 'legacy',
+      preparationVersion: opts.preparationVersion ?? (opts.executionMode === 'guided' ? 3 : 1),
+      strictQuestions: opts.strictQuestions === true || opts.executionMode === 'guided',
       profileLabel: built.profile.label,
       routes: built.routes,
       currencies: built.currencies,

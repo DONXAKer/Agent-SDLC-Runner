@@ -61,6 +61,7 @@ export function RunPage({
   const [stage, setStage] = useState<StageId>('intent');
   const [prompt, setPrompt] = useState<PreparedPrompt | null>(null);
   const [requirement, setRequirement] = useState(initialRequirement);
+  const [executionMode, setExecutionMode] = useState<'legacy' | 'guided'>('legacy');
   /** Что именно решил человек — сохраняется в артефакте рядом с подписью. */
   const [decisionNote, setDecisionNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -294,7 +295,7 @@ export function RunPage({
     setError(null);
     setBusy(true);
     try {
-      await api.runStage(runId, stage, { prompt: edited, ...opts });
+      await api.runStage(runId, stage, { prompt: edited, ...(stage === 'intent' ? { requirement, executionMode: detail?.guided ? 'guided' : executionMode } : {}), ...opts });
     } catch (e) {
       setBusy(false);
       setError((e as Error).message);
@@ -459,6 +460,26 @@ export function RunPage({
 
   return (
     <div className="flex h-full flex-col">
+      {stage === 'intent' && detail?.preparation == null && !stageRunning ? (
+        <label className="flex items-center gap-2 p-2 text-sm">Исполнение задачи
+          <select value={executionMode} onChange={e => setExecutionMode(e.target.value as 'legacy' | 'guided')}>
+            <option value="legacy">Текущий флоу</option>
+            <option value="guided">Проверяемые шаги · эксперимент · одна локальная модель · лимит 30 минут</option>
+          </select>
+        </label>
+      ) : null}
+      {detail?.guided ? (
+        <section className="rounded border border-slate-700 p-3 text-sm" aria-label="Проверяемые шаги">
+          <p>Осталось {Math.ceil(detail.guided.remainingMs / 60000)} мин · {detail.guided.currentItem ?? 'Ожидание следующего этапа'}</p>
+          {detail.guided.stopReason ? <p className="text-amber-300">{detail.guided.stopReason}</p> : null}
+          {detail.guided.items.map(item => <details key={item.id}>
+            <summary>{item.id}: {{ pending: 'Ожидает', running: 'В работе', checked: 'Проверено', failed: 'Ошибка', blocked: 'Заблокировано' }[item.status]} · попыток {item.attempts}</summary>
+            <p className="whitespace-pre-wrap">{item.title}</p>
+            <p>Ожидание: {item.prediction}</p>
+            {detail.guided?.observations.filter(o => o.itemId === item.id).map((o, i) => <pre key={i} className="whitespace-pre-wrap">{`${o.at}\nОжидалось: ${o.prediction}\nНаблюдение: ${o.result}`}</pre>)}
+          </details>)}
+        </section>
+      ) : null}
       <RunHeader
         detail={detail}
         connected={connected}

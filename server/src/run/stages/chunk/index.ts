@@ -4,19 +4,23 @@
  * chunk'а и попытки — `chunk/restore.ts`.
  */
 
-import { DECISION, readArtifact, writeArtifact } from '../../../artifacts/artifact.ts';
-import { isPreparationV2 } from '../../../artifacts/preparation.ts';
+import { DECISION, readArtifact, readDecision, writeArtifact } from '../../../artifacts/artifact.ts';
+import { extractFilesToTouch } from '../../../artifacts/planFiles.ts';
+import { buildRuntimeLocatorMap } from '../../chunkLocatorApproval.ts';
+import { isPreparationV2, preparationReviewProblem, recordPreparationImplementation } from '../../../artifacts/preparation.ts';
 import { attemptDiff } from '../../../gates/git.ts';
 import { preflightGateBlockers } from '../../../gates/preflight.ts';
 import { ensureSandboxFor } from '../../../sandbox/registry.ts';
 import { checkJournalClaimsVsBash } from '../../../verdict/honesty.ts';
 import { approvedPlanDate, autofillChunkJournal } from '../../journalAutofill.ts';
+import { readGuided, appendGuidedJournalFacts, guidedImplementationHashes } from '../../guidedState.ts';
 import { attemptJudgedInLog, readRunVerdict } from '../../verdictStore.ts';
 import { RUNTIME_PROTECTED, granted, intentSectionsIntact, readinessReady } from '../preconditions.ts';
 import { planMapProblem } from '../plan.ts';
 import { attemptHadBash, ensureBaseline, recordEvidence } from './evidence.ts';
 import type { SeededArtifact, StageDef, StageHost, StageModule } from '../types.ts';
 import type { TreeChange } from '../../evidence.ts';
+import { reuseLocatorApproval } from './locator.ts';
 
 export const chunkStage: StageDef = {
   id: 'chunk',
@@ -94,6 +98,7 @@ export const chunkStage: StageDef = {
 };
 
 export const chunkModule: StageModule = {
+  subagentResult: reuseLocatorApproval,
   def: chunkStage,
   runtimeFacts: [{ id: 'carry-forward', purpose: 'диагнозы и результаты гейтов предыдущей попытки для корректирующей работы', freshness: 'attempt' }],
   formFillExecutor: false,
@@ -108,6 +113,28 @@ export const chunkModule: StageModule = {
     /** Живой геттер принятых записей — тот же, что уходит в `progressSignal` ниже. */
     let acceptedWrites: (() => number) | null = null;
     return {
+    locationAlreadyApproved: (questions) => {
+      if (!isPreparationV2(host.paths) || questions.length === 0 ||
+          !questions.every(q => /подтвердите место правки|подтверждение места правки|точки правки/iu.test(q.question))) return false;
+      const plan = readArtifact(host.paths.plan);
+      return plan.exists && approvedPlanDate(plan.text) !== null &&
+        readDecision(plan.text, DECISION.approval).state === 'granted' &&
+        preparationReviewProblem(host.paths) === null && planMapProblem(host.ctx()) === null;
+    },
+    beforeModel: (hooks, seeded) => {
+      if (!readGuided(host.paths)) return;
+      const plan = readArtifact(host.paths.plan).text;
+      const map = buildRuntimeLocatorMap(plan, host.projectRoot);
+      if (map) hooks.onSubagentResult?.('sdlc-locator', JSON.stringify({ status: 'matched', reason: null, files: map.files }));
+      else if (extractFilesToTouch(plan).length === 0 && approvedPlanDate(plan) && readDecision(plan, DECISION.approval).state === 'granted') {
+        const path = host.paths.chunkJournal(host.chunk());
+        const text = readArtifact(path).text
+          .replace('‹файл:символ, …›', 'н/п — одобрен план проверки существующего поведения без правок')
+          .replace('совпала / разошлась — ‹что именно; расхождение = возврат на план›', 'совпала — план не разрешает правки')
+          .replace('‹имя›', 'одобрение плана этой сессии').replaceAll('‹дата›', approvedPlanDate(plan)!);
+        host.writeAutofilled(path, text, seeded);
+      } else throw new Error('Рантайм не смог подтвердить карту guided-плана');
+    },
     // Снимок рабочего дерева ДО этапа: «дерево не изменилось» обязано считаться против
     // него, а не против HEAD. Коммита до этапа 7 не бывает, поэтому правки прошлой попытки
     // и прошлого chunk'а остаются в дереве, и сравнение с HEAD объявляло бы результативной
@@ -163,6 +190,10 @@ export const chunkModule: StageModule = {
     // запись идёт через тот же гейт; этап закрывается ТОЛЬКО если исполнитель упал
     // именно на оформлении и после дозаполнения на диске всё на месте.
     formFinish: (result) => {
+      if (readGuided(host.paths) !== null) {
+        writeArtifact(host.paths.chunkSteps(host.chunk(), host.attempt()), `${result.finalText}\n`);
+        return null;
+      }
       // В режиме по шагам (`stepFill`) журнал chunk'а исполнитель не пишет по построению:
       // дозаполнение по полям идёт с отчётом о шагах во входе — иначе поля «что сделано»
       // заполнялись бы по памяти, которой у режима нет. Но только если хоть один шаг дал
@@ -200,6 +231,14 @@ export const chunkModule: StageModule = {
     // то, что записал агент. Иначе вход этапа 6 остаётся рассказом исполнителя о самом
     // себе; замер поймал ровно этот случай (см. `evidence.ts`).
     evidence: async () => {
+      const implementation = guidedImplementationHashes(host.paths);
+      if (implementation !== null) recordPreparationImplementation(host.paths, implementation);
+      const journalPath = host.paths.chunkJournal(host.chunk());
+      const currentJournal = readArtifact(journalPath);
+      if (currentJournal.exists && readGuided(host.paths)) {
+        const completed = appendGuidedJournalFacts(host.paths, currentJournal.text);
+        if (completed !== currentJournal.text) host.writeAutofilled(journalPath, completed, []);
+      }
       // Модель исполнителя — факт рантайма (маршрут профиля), а не самоотчёт: этап 6
       // сверяет её с моделью рецензента, и доказанным превосходство становится только так.
       host.chunkState.tree = await recordEvidence(host, diffBefore, route.modelId);
@@ -231,7 +270,8 @@ export const chunkModule: StageModule = {
     // быть признаком сделанной работы. `unknown` роняет этап по той же причине — состояние
     // дерева неизвестно, и считать его успехом значит зеленеть на непроверенном.
     outcomeProblem: (result) =>
-      result.ok && host.chunkState.tree !== 'changed'
+      result.ok && host.chunkState.tree !== 'changed' && !(host.chunkState.tree === 'empty' &&
+        readGuided(host.paths)?.items.length && readGuided(host.paths)!.items.every(i => i.status === 'checked'))
         ? host.chunkState.tree === 'empty'
           ? 'этап закончился, но дерево не изменилось: правки не было'
           : 'этап закончился, но состояние дерева неизвестно: свидетельства попытки не записаны'
@@ -257,6 +297,8 @@ export const chunkModule: StageModule = {
     // упал молча). `finishGuard` (`Run.ts`) даёт до `FINISH_REMINDERS` шансов исправиться
     // в том же ходу — дешевле, чем сжечь весь лимит ходов и упасть на `outcomeProblem`.
     finishProblem: () => {
+      const guided = readGuided(host.paths);
+      if (guided && guided.items.length > 0 && guided.items.every(i => i.status === 'checked')) return null;
       if ((acceptedWrites?.() ?? 0) > 0) return null;
       if (attemptHadBash(host.attemptToolEvents())) return null;
       return (

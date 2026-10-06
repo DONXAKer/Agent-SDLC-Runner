@@ -1,0 +1,301 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:granite4.2-8b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 163925,
+    "remainingMs": 1636075,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": []
+  },
+  "run": {
+    "slug": "guided-sample-20261003213202675-m2-t1",
+    "model": "ollama:granite4.2-8b-ctx32k-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "explore": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "ask": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "plan": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "chunk": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "verify": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "handoff": "ollama:granite4.2-8b-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-03T21:37:49.886Z",
+    "finishedAt": "2026-10-03T21:40:34.400Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Исследование src/invoice.ts не подготовлено: Исправь формат предыдущего ответа: Bad control character in string literal in JSON at position 3637 (line 7 column 1055)\n{\n  \"fact\": \"существующее поведение: `Invoice` интерфейс ограничен полями number, customer, lines, subtotal, total; нет поля dueDays. Функция `buildInvoice` принимает config? и вызывает `resolveConfig(config)`, которое, вероятно, читает конфиг через `resolveConfig`; `BillingConfig` (src/config.ts) должен содержать опцию `defaultDueDays` с встроенным дефолтом 14. Текущий `resolveConfig` используется для чтения конфига, прямых обращений к `DEFAULT_CONFIG` нет.\",\n  \"impact\": \"Требуется добавить поле `dueDays: number` в интерфейс `Invoice`, а значение `dueDays` определяется приоритетом: `opts.dueDays` (переданный объект в `bill` функции), затем `BillingConfig.defaultDays` через `resolveConfig`, иначе встроенный 14. Нужно убедиться, что `buildInvoice` (или `bill`) получает доступ к `dueDays` и включает его в `Invoice`. Сейчас `buildInvoice` не принимает `opts`, и не вставляет `dueDays` в возвращаемый объект. Поэтому изменить только `src/invoice.ts` нужно так, чтобы `Invoice` содержало `dueDays`, и `buildInvoice` использовало правило приоритета. Однако `buildInvoice` получает только `config?` и `lines`, а не `opts`. По условию `bill` передаёт `opts` пятым параметром, и `bill` должен передавать `opts` в `buildInvoice` или использовать его для установки `dueDays`. Поскольку мы исследуем только `src/invoice.ts`, нужно модифицировать `buildInvoice`, чтобы он мог принимать `opts` (по умолчанию `undefined`) и возвращать `Invoice` с полем `dueDays` вычисленным по приоритету: `opts?.dueDays !== undefined ? opts.dueDays : resolved.defaultDueDays ?? 14`. Требуется, чтобы `resolveConfig` возвращал объект конфига с полем `defaultDueDays` (что должно быть обеспечено в `config.ts`).\",\n  \"change\": \"export interface Invoice {\\n  number: string;\\n  customer: Customer;\\n  lines: readonly Line[];\\n  subtotal: Kopeck;\\n  total: Kopeck;\\n  dueDays: number;\\n}\\n\\nexport function buildInvoice(\\n  number: string,\\n  customer: Customer,\\n  lines: readonly Line[],\\n  config?: Partial<BillingConfig>,\\n  opts?: { dueDays?: number },\\n): Invoice {\\n  const resolved = resolveConfig(config); // resolved содержит BillingConfig с defaultDueDays\\n  const dueDays = opts?.dueDays !== undefined ? opts.dueDays : resolved.defaultDueDays ?? 14;\\n  const sub = subtotal(lines);\\n  return { number, customer, lines, subtotal: sub, total: sub, dueDays };\\n}\",\n  \"reuse\": \"Использовать существующий `resolveConfig` для получения `defaultDueDays` из конфига; не использовать прямое обращение к `DEFAULT_CONFIG`. Поле `dueDays` вычисляется в `buildInvoice` по правилу приоритета.\",\n  \"risks\": [\n    \"Если `resolveConfig` не возвращает поле `defaultDueDays` в объекте `resolved`, то `dueDays` будет 14, что корректно согласно встроенному дефолту. Но это зависит от реализации `resolveConfig` в `config.ts`, которого мы не меняем в данном фиксе — предполагается, что `BillingConfig` будет содержать `defaultDueDays` и `resolveConfig` его включит. Риск минимал, если `resolveConfig` уже обрабатывает конфиг корректно.\\n    Если вызывающий код (`bill`) не передаёт `opts` в `buildInvoice`, то `opts` будет `undefined`, и `dueDays` будет браться из `resolved.defaultDueDays`, что соответствует требованию 'конфиг площадки → встроенные 14'. Поэтому изменение сигнатуры безопасно: `opts` опциональный. Но если `bill` продолжает вызывать `buildInvoice` без `opts`, то нужно убедиться, что `bill` будет передавать `opts`. Однако в контексте исследования мы предполагаем, что `bill` будет обновлен независимо (задача включает изменение `bill`, но мы меняем только `invoice.ts`). Поэтому риск связанный с несовместимостью вызова с нулевым `opts` минимал.\\n  ],\n  \"questions\": []\n}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 5
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 20764,
+          "outputTokens": 1998,
+          "cacheReadTokens": 16831,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 109134
+        },
+        "durationMs": 45673,
+        "requestDurationsMs": [
+          23736,
+          24215,
+          29758,
+          6513,
+          9278,
+          11469,
+          4171
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 17659,
+          "outputTokens": 5119,
+          "cacheReadTokens": 10784,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 118199
+        },
+        "durationMs": 118266,
+        "requestDurationsMs": [
+          9683,
+          12473,
+          8525,
+          56638,
+          30880
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 5
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:c462116f-d7b7-4e4a-97be-4d650b34227c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261003213202675-m2-t1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4802,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 12021,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "cc1fbd7e5c8b544feab385826f0f34894a352db50fc001bb76ce15513e6044f8",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "06e49e82cc94dfa549a5426783443a901a0feae3b6e1a2837012359719d9c8c9",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 900000
+    },
+    "workspaceHash": "230af01cf9dd0b536d09f82771d1fa9fb1f58daab7feeaa98fd3c118b8572ffe",
+    "state": "finished",
+    "capturedAt": "2026-10-03T21:40:34.416Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-03T21:40:34.397Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "6e94263e1f3cdb3a02d4a230f5938ff6fc4de843bc78c9a849e916725380a6a9",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "ae23c8500ade9aef5b507bbb45655824963a1cedb922e3c8f225ba32762ebd9d",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "44482eff3e05c24c073dcd64d9029de79118ac3a5be0fe8cfdec8d30c1cbc210",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "e04a7026a026ab02913becfb4882ddb31baf16d8373728839eb81c63d74c3f6a",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

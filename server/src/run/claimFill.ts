@@ -32,6 +32,8 @@ export interface ClaimAsk {
 }
 
 export interface ClaimFillInput {
+  sourceHunks?: import('./claimEvidence.ts').Hunk[];
+  repairIncomplete?: boolean;
   provider: ChatProvider;
   model: string;
   params: Record<string, unknown> | null;
@@ -73,7 +75,17 @@ export function parseClaimAnswer(id: string, answer: string): NormalizedCall | n
     .find((l) => l.includes('|'));
   if (line === undefined) return null;
 
-  const [status = '', evidence = '', fix = ''] = line.split('|').map((p) => p.trim());
+  const fields = line.split('|').map((p) => p.trim());
+  const status = fields[0] ?? '';
+  let evidence = fields[1] ?? '';
+  let fix = fields[2] ?? '';
+  // Some models repeat the table heading inside the answer (`status | Чем
+  // подтверждён | file:symbol | fix`). Treat that heading as formatting, not
+  // evidence, and shift the actual reference into the evidence field.
+  if (/^(?:чем подтвержд[её]н|evidence|where evidenced)\s*:?$/iu.test(evidence) && fields.length >= 4) {
+    evidence = fields[2] ?? '';
+    fix = fields.slice(3).join(' | ');
+  }
   // Разбор — через общий нормализатор: он один знает, что `passed`, `да` и `✅` это одно
   // и то же, и что пятой градации не бывает. Своя таблица статусов здесь разошлась бы
   // с той, по которой считается вердикт.
@@ -121,9 +133,9 @@ function claimsCombinedQuestion(claims: readonly ClaimAsk[], packs: readonly str
     ...(tests.trim() === '' ? [] : ['', '## Что напечатал прогон тестов', '', '```', tests.trim().slice(-4000), '```']),
     '',
     `Ответь РОВНО ${claims.length} строками — по одной на каждый пункт, В ТОМ ЖЕ ПОРЯДКЕ, ` +
-      'начиная с номера пункта:',
+      `начиная с точного ID пункта (${claims.map(c => c.id).join(', ')}):`,
     '',
-    '`N. СТАТУС | ЧЕМ ПОДТВЕРЖДЁН | ЧТО ЧИНИТЬ`',
+    '`claim-N. СТАТУС | ЧЕМ ПОДТВЕРЖДЁН | ЧТО ЧИНИТЬ`',
     '',
     'СТАТУС — одно из: ✅ (доказано по diff или тестом), ❌ (опровергнуто), ' +
       '⚠ (доказательство держится на непройденной проверке), manual (пункт помечен ' +
@@ -151,9 +163,12 @@ export function parseClaimsCombinedAnswer(
     .map((l) => l.trim())
     .filter((l) => l !== '' && !l.startsWith('```'));
   for (const line of lines) {
-    const m = /^(\d+)\.\s*(.*)$/.exec(line);
+    const m = /^(claim-\d+|\d+)[.:]\s*(.*)$/u.exec(line);
     if (m === null) continue;
-    const idx = Number(m[1]) - 1;
+    const label = m[1]!;
+    const position = Number(label) - 1;
+    const idx = label.startsWith('claim-') ? claims.findIndex(c => c.id === label)
+      : position >= claims.length ? claims.findIndex(c => c.id === `claim-${label}`) : position;
     if (idx < 0 || idx >= claims.length || answeredIdx.has(idx)) continue;
     answeredIdx.add(idx);
     const rest = m[2] ?? '';
@@ -174,7 +189,7 @@ export function parseClaimsCombinedAnswer(
  * модель»).
  */
 export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
-  const hunks = splitHunks(i.diff);
+  const hunks = i.sourceHunks ?? splitHunks(i.diff);
   const out: NormalizedCall[] = [];
   let envFailure: string | null = null;
 
@@ -197,7 +212,7 @@ export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
     const packs = group.map((claim) => packForClaim(claim.text, hunks, i.evidenceBudgetBytes));
     let response: Awaited<ReturnType<typeof ask>>;
     try {
-      response = await ask(claimsCombinedQuestion(group, packs, i.tests));
+      response = await ask((i.sourceHunks ? 'Правок нет. Далее показаны текущие исходники, а не изменения. Подтверди требования по существующей реализации и фактическим тестам.\n' : '') + claimsCombinedQuestion(group, packs, i.tests));
     } catch (e) {
       if (envFailure === null && e instanceof ProviderEnvError) envFailure = e.message;
       const why = e instanceof Error ? e.message : String(e);
@@ -221,6 +236,25 @@ export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
     });
     if (answeredIdx.size < group.length) {
       i.onProgress?.(`ответ по группе пунктов неполон: разобрано ${answeredIdx.size} из ${group.length}`);
+    }
+    if (i.repairIncomplete) {
+      const recorded = new Set(calls.filter(call => call.kind === 'record_claim').map(call => call.id));
+      const missing = group.filter(claim => !recorded.has(claim.id));
+      if (missing.length) {
+        try {
+          const repaired = await ask('Предыдущая группа оставила эти пункты без корректных записей. Проверь только их и верни строки с ТОЧНЫМИ claim-ID; не меняй ответы остальных пунктов. Не объявляй успех без свидетельства.\n' +
+            (i.sourceHunks ? 'Далее текущие исходники, не изменения.\n' : '') + claimsCombinedQuestion(missing, missing.map(claim => packs[group.indexOf(claim)] ?? ''), i.tests));
+          i.onUsage?.(repaired.usage);
+          const parsed = parseClaimsCombinedAnswer(missing, repaired.text);
+          out.push(...parsed.calls);
+          annotateExchange(repaired.rawLogPath ?? null, { accepted: parsed.calls.length === missing.length,
+            oracle: 'record-claim-parse', target: 'claim-fill', reason: parsed.calls.length === missing.length ? 'accepted' : `repaired-${parsed.calls.length}-of-${missing.length}` });
+          i.onProgress?.(`адресный ремонт записей: ${parsed.calls.length} из ${missing.length}`);
+        } catch (error) {
+          if (envFailure === null && error instanceof ProviderEnvError) envFailure = error.message;
+          i.onProgress?.(`ремонт записей не завершён: ${String(error)}`);
+        }
+      }
     }
   }
 

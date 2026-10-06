@@ -1,0 +1,457 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:granite4.2-8b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 320790,
+    "remainingMs": 1479210,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": []
+  },
+  "run": {
+    "slug": "guided-sample-20261003221608542-m2-t2",
+    "model": "ollama:granite4.2-8b-ctx32k-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "explore": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "ask": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "plan": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "chunk": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "verify": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "handoff": "ollama:granite4.2-8b-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-03T22:20:08.880Z",
+    "finishedAt": "2026-10-03T22:25:30.368Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; ответ на поле отклонён: поле что делаем: Исходный запрос прямо откладывает выбор способа до Plan. Перепиши как пользовательское поведение: «Пользователь может [действие из задачи]; результат сохраняет [требуемые свойства]». Не называй функции, файлы, код, изменение/мутацию существующего объекта, создание нового объекта или совместимость метода; просто назови действие пользователя и ожидаемый результат.; будет повторный запрос с причиной",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "Исследование собрано из ответов по файлам; пути закреплены рантаймом",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "План не подготовлен: карточки шагов плана не готовы:\n- шаг 4: путь test/hold-move.test.ts уже покрыт другой карточкой; объедини работу в одну карточку на файл\n- шаг 5: укажи проверку результата или «н/п — причина»\n- шаг 5: укажи изменение контракта или «н/п — причина»",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 20870,
+          "outputTokens": 2112,
+          "cacheReadTokens": 16779,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 82025
+        },
+        "durationMs": 48206,
+        "requestDurationsMs": [
+          2966,
+          3619,
+          17769,
+          7573,
+          19968,
+          23539,
+          3630,
+          2964
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 30932,
+          "outputTokens": 2969,
+          "cacheReadTokens": 22687,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 70524
+        },
+        "durationMs": 70620,
+        "requestDurationsMs": [
+          12984,
+          12982,
+          6683,
+          8365,
+          7218,
+          9965,
+          6377,
+          5950
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 28247,
+          "outputTokens": 7625,
+          "cacheReadTokens": 16990,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 201554
+        },
+        "durationMs": 202011,
+        "requestDurationsMs": [
+          69187,
+          67798,
+          64569
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 10
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 4
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 9
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "plan.md",
+        "placeholders": 5
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:31c1527d-36ad-4c8f-8666-d2d7c769ff97",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261003221608542-m2-t2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:953b28ad-9a7c-4d22-9506-4a6ceaf010b7",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261003221608542-m2-t2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "guided-explore:74bc0061-a6ca-41c2-af06-277ef5ccb4d2",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261003221608542-m2-t2\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "plan",
+        "requestId": "guided-plan:af168d16-c3ae-4aae-9fd3-2132e734681c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-K6XmSD\\.sdlc\\guided-sample-20261003221608542-m2-t2\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "plan",
+        "requestId": "guided-plan:2ae08a1b-181a-4c68-a0b5-7acad47a92b2",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-K6XmSD\\.sdlc\\guided-sample-20261003221608542-m2-t2\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4744,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 13602,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 7478,
+        "userChars": 28944,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "14f0f4156d21726d97b537d3948ee4adc3d837796c5b2cc9dd4ca3f1c6bcccd0",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "dd0ee30720c8a086e22b0e7f73deb78802177d2fcdf6b3ff736310d97635e479",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 900000
+    },
+    "workspaceHash": "331235a090aedf29d29ab354276d9cc4fb74cd8a294af81e92f23944349f8338",
+    "state": "finished",
+    "capturedAt": "2026-10-03T22:25:30.398Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-03T22:25:30.364Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "a7309db93ae46283748840d18f9114956bfe2164f645760aea7d95f1102781df",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "2b8f05114c4ecb0b913bdb7a5b11e23e3f9989e276f2211f49657f556ed1d3cc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "5c280eac378d98ae1a2a7c7ac2d04d500c7721301c47f7b0311406d1d5eeb44e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "b1ba50fbe7e9e6b255c340fbac8c51a081cbbb4f8db6047f12888eaf05e038fb",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "1f1d6b77db9deb87296a0d875d161290caaf38678534fede10f2b91001c87844",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "618f9928b7f4c1d0e36f4cd1fc03873ffd843b94fcca7922eb85817a9748af85",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -1,8 +1,8 @@
 /** Этап 2 — разведка: определение этапа и проверка фактичности отчёта разведки. */
 
-import { localResultBytes } from '../../config/limits.ts';
+import { exploreChatTimeoutMs, localResultBytes } from '../../config/limits.ts';
 import { DECISION, countPlaceholdersInSection, pathExistsAny, readArtifact } from '../../artifacts/artifact.ts';
-import { isPreparationV2, preparation, preparationExploreEvidenceProblem, recordPreparationRead } from '../../artifacts/preparation.ts';
+import { isPreparationV2, preparation, preparationExploreEvidenceProblem, preparationReferencedCodePaths, recordPreparationRead } from '../../artifacts/preparation.ts';
 import { declaredAsNew } from '../../artifacts/planFiles.ts';
 import { SDLC_DIR } from '../../artifacts/paths.ts';
 import { columnIndex, h2SectionRanges, parseTables } from '../../md/table.ts';
@@ -12,13 +12,15 @@ import { autofillTitle } from '../formAutofill.ts';
 import { edgeExampleLines } from '../../artifacts/edgeExample.ts';
 import type { ResolvedRoute } from '../../config/schema.ts';
 import { ExploreExecutor } from '../../exec/ExploreExecutor.ts';
+import { GuidedExploreExecutor } from '../../exec/GuidedExploreExecutor.ts';
+import { readGuided } from '../guidedState.ts';
 import { loadSubagent } from '../../exec/subagents.ts';
 import { cardBudgetPerFile, fileCard, packCards } from '../../explore/cards.ts';
 import type { AuthorClaim } from '../../explore/compare.ts';
 import { intentKeywords } from '../../explore/keywords.ts';
 import { INDEX_BLOCK_BYTES, renderIndexBlock } from '../../explore/render.ts';
 import { readTree } from '../../explore/tree.ts';
-import { buildView, type EcosystemLine } from '../../explore/view.ts';
+import { buildView, includeExplicitRequestPaths, type EcosystemLine } from '../../explore/view.ts';
 import { gateKey } from '../../gates/gatesFile.ts';
 import type { GateRow, GatesFile } from '../../gates/gatesFile.ts';
 import { ProviderEnvError } from '../../provider/ChatProvider.ts';
@@ -331,7 +333,8 @@ export function exploreIndexFor(
   if (host.exploreState.indexCache !== null && host.exploreState.indexCache.key === key) return host.exploreState.indexCache;
   const index = readTree(host.projectRoot);
   const kw = intentKeywords(intentText, originalRequest);
-  const built = buildView(index, ecosystem, kw, axesEnabled);
+  const built = includeExplicitRequestPaths(index, buildView(index, ecosystem, kw, axesEnabled),
+    preparationReferencedCodePaths(originalRequest));
   host.exploreState.indexCache = { key, index, kw, built };
   return host.exploreState.indexCache;
 }
@@ -375,7 +378,7 @@ export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecos
   const cardBudget = localResultBytes(limits);
   const perCard = cardBudgetPerFile(cardBudget, built.ranked.length);
   const result = await deriveClaimsBlind({
-    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('explore', 'claimsBlind')),
+    provider: createProvider(route.provider, route.providerDef, exploreChatTimeoutMs(limits), host.trace('explore', 'claimsBlind')),
     model: route.model,
     params: route.params,
     system: def.prompt,
@@ -406,7 +409,7 @@ export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecos
  * вопросы, запись через гейт — `exec/ExploreExecutor.ts`. Слепой лист уже посчитан
  * (`runClaimsBlind`) и лежит в `ExploreState.claims`.
  */
-export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): ExploreExecutor {
+export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): ExploreExecutor | GuidedExploreExecutor {
   const stage = 'explore';
   const limits = host.limits();
   const ecosystem = host.ecosystemFor(stage);
@@ -423,8 +426,10 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
       `переиспользования ${built.reuse.length}; AskHuman и Task в режиме нет — вопросы уходят в «Всплывшие вопросы», ` +
       'решение о полноте листа остаётся полем человека',
   });
-  return new ExploreExecutor({
-    provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace(stage, 'explore')),
+  const Executor = readGuided(host.paths) ? GuidedExploreExecutor : ExploreExecutor;
+  return new Executor({
+    originalRequests: preparation(host.paths)?.requests ?? [],
+    provider: createProvider(route.provider, route.providerDef, exploreChatTimeoutMs(limits), host.trace(stage, 'explore')),
     params: route.params,
     currency: route.providerDef.currency ?? 'USD',
     ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
@@ -457,6 +462,7 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
 }
 
 export const exploreModule: StageModule = {
+  tracksPreparationReads: true,
   def: exploreStage,
   runtimeFacts: [],
   formFillExecutor: false,

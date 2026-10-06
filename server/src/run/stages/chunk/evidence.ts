@@ -161,7 +161,7 @@ export async function runNamedGate(
       ...(signal === undefined ? {} : { signal }),
       ...(await attemptGateFacts(host, gates)),
     };
-  return runGateByName(
+  const result = await runGateByName(
     name,
     {
       gates,
@@ -175,6 +175,23 @@ export async function runNamedGate(
     },
     gateCtx,
   );
+  if (result !== null) {
+    const { output: _fullOutput, ...gate } = result;
+    host.emit({ type: 'gate_result', runId: host.id, stage, gate });
+  }
+  return result;
+}
+
+/**
+ * Сигналы scope-гейтов для метрики попытки. `scopeViolation` — только фактическое
+ * нарушение области (правки вне разрешённых путей); «пути плана без правок» при
+ * `treeChanged: false` краснеет на нуле правок и в нарушение области не входит.
+ */
+export function chunkScopeSignals(
+  outside: GateRunResult | null,
+  untouched: GateRunResult | null,
+): { scopeViolation: boolean; planPathsUntouched: boolean } {
+  return { scopeViolation: outside?.status === '❌', planPathsUntouched: untouched?.status === '❌' };
 }
 
 /**
@@ -321,7 +338,10 @@ export async function recordEvidence(
       attempt: host.attempt(),
       testsStatus,
       treeChanged: tree === 'changed',
-      scopeViolation: scopeOutside?.status === '❌' || scopeUntouched?.status === '❌',
+      // «пути плана без правок» краснеет и при нуле применённых правок — это не
+      // нарушение области, поэтому scopeViolation считается только по «файлы вне плана»,
+      // а «нет правок по планным путям» идёт отдельным флагом.
+      ...chunkScopeSignals(scopeOutside, scopeUntouched),
     });
 
     // Пустой патч называется вслух: «этап закончился, артефакты на месте» при нетронутом

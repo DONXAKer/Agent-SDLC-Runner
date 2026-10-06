@@ -118,6 +118,7 @@ export function normalizeMetrics(input: unknown): RunMetrics {
       testsStatus: t === '✅' || t === '❌' || t === '⏭' ? t : '⏭',
       treeChanged: e['treeChanged'] === true,
       scopeViolation: e['scopeViolation'] === true,
+      ...(e['planPathsUntouched'] === undefined ? {} : { planPathsUntouched: e['planPathsUntouched'] === true }),
     });
   }
   return {

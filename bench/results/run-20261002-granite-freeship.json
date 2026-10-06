@@ -1,0 +1,414 @@
+{
+  "run": {
+    "slug": "run-20261002-granite-freeship",
+    "model": "ollama:granite4.2-8b-ctx32k",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:granite4.2-8b-ctx32k",
+      "explore": "ollama:granite4.2-8b-ctx32k",
+      "ask": "ollama:granite4.2-8b-ctx32k",
+      "plan": "ollama:granite4.2-8b-ctx32k",
+      "chunk": "ollama:granite4.2-8b-ctx32k",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:granite4.2-8b-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T08:56:07.600Z",
+    "finishedAt": "2026-10-02T10:05:52.262Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 14,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "turns": 9,
+        "modelRequests": 6
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "running"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 41639,
+          "outputTokens": 42094,
+          "cacheReadTokens": 35676,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 2418677
+        },
+        "durationMs": 1588131,
+        "requestDurationsMs": [
+          63234,
+          113769,
+          774640,
+          54071,
+          158937,
+          238734,
+          44312,
+          106082,
+          307813,
+          103740,
+          141404,
+          193215,
+          45448,
+          73291
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 210117,
+          "outputTokens": 57042,
+          "cacheReadTokens": 174512,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1992105
+        },
+        "durationMs": 1800063,
+        "requestDurationsMs": [
+          23819,
+          15577,
+          1730,
+          39091,
+          200892,
+          29211,
+          8497,
+          2491,
+          78270,
+          363384,
+          61424,
+          3096,
+          234050,
+          314256,
+          68606,
+          162380,
+          276894,
+          35617,
+          72827
+        ]
+      },
+      {
+        "stage": "ask",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 97286,
+          "outputTokens": 23983,
+          "cacheReadTokens": 79679,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 770779
+        },
+        "durationMs": 0,
+        "requestDurationsMs": [
+          74257,
+          15169,
+          38107,
+          2292,
+          41576,
+          266920,
+          332459
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 12,
+        "reminders": 0
+      },
+      {
+        "stage": "ask",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 7,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 2,
+        "approvals": 1,
+        "waitMs": 15
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 1
+      },
+      {
+        "stage": "ask",
+        "questions": 1,
+        "approvals": 0,
+        "waitMs": 1
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 28
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:59a58c6b-9a68-4385-9941-5ba0da99a4b9",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-granite-freeship\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:e60a7ec8-1d56-4d11-b346-8efb5717cb22",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 0
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Реализовать бесплатную доставку для gold в весовой ступени 3 (от 2 до 5 кг)"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "Создать отдельный модуль для правила «действует ли льгота» и рассчитать priceFor gold в ступени 3 как бесплатная (discount=base, total=0)"
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.weightstep"
+      },
+      {
+        "stage": "ask",
+        "questions": [
+          {
+            "id": "q1",
+            "question": "Для gold в весовой ступени 3 (вес >2000g и ≤5000g) должна ли бесплатная доставка применяться автоматически без дополнительных условий (например, минимальный вес ≥3000g или исключения по зоне)?"
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.weightstep"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "ask",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11229,
+        "userChars": 5341,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10632,
+        "userChars": 10644,
+        "editedByOperator": false
+      },
+      {
+        "stage": "ask",
+        "systemChars": 6856,
+        "userChars": 11617,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-0d5234b3-8ff2-42ff-bff0-057a4d283593-1",
+        "questionId": "intent-open-0",
+        "text": "Реализовать бесплатную доставку для gold в весовой ступени 3 (от 2 до 5 кг)"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-0d5234b3-8ff2-42ff-bff0-057a4d283593-1",
+        "questionId": "intent-open-1",
+        "text": "Создать отдельный модуль для правила «действует ли льгота» и рассчитать priceFor gold в ступени 3 как бесплатная (discount=base, total=0)"
+      },
+      {
+        "stage": "ask",
+        "requestId": "ask-0d5234b3-8ff2-42ff-bff0-057a4d283593-2",
+        "questionId": "q1",
+        "text": "Для gold в весовой ступени 3 (вес >2000g и ≤5000g) должна ли бесплатная доставка применяться автоматически без дополнительных условий (например, минимальный вес ≥3000g или исключения по зоне)?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e78a5c6373a68f86059524d61c1493b3d337d284db42edfea1594a64bb3464af",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "f52a9a4096d25f56f79378ab7ceefacdd93aea2ed1066773580750c14facc7eb",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "d83355bf2dafd684787675b98b9d7f3d761091a9bf04bed13131dac832e86354",
+    "state": "running",
+    "capturedAt": "2026-10-02T10:05:52.267Z",
+    "lastEvent": {
+      "type": "tool_result",
+      "stage": "ask",
+      "at": "2026-10-02T10:05:27.934Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "9ae939fd0617fa41acd602615827f9340e3a798940f1292d482ee5341026dcf4",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "2354d41fabbfb766972fd59d38f9dad1acf40e556a688da97d62afc8e9fc1f37",
+        "placeholders": 8,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "730f12777151235189b095433defd592ef98be402ef5a5f376d519185b9e0383",
+        "placeholders": 28,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "cf3eb38e9db495c18b6c2496f6c8948da7f573149cefedfd37cdab21e45aeaea",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "466461553ba06b38203d9a1147b1afb976980858a6f2c57f7ed1a7de2ec8909b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

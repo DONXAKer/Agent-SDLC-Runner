@@ -144,6 +144,7 @@ export function intentPlaceholderProblem(c: StageContext): string | null {
 
 export const intentStage: StageDef = {
   id: 'intent',
+  startsTask: true,
   skill: 'sdlc-intent',
   title: 'Цель витка',
   // Bash обязателен: скилл заводит ветку витка `sdlc/<slug>` и пересчитывает

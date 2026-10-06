@@ -1,0 +1,286 @@
+{
+  "run": {
+    "slug": "run-20261002-devstral-silent-contract",
+    "model": "ollama:devstral-small-2",
+    "task": "silent-contract",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:devstral-small-2",
+      "explore": "ollama:devstral-small-2",
+      "ask": "ollama:devstral-small-2",
+      "plan": "ollama:devstral-small-2",
+      "chunk": "ollama:devstral-small-2",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:devstral-small-2"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T08:12:50.879Z",
+    "finishedAt": "2026-10-02T08:15:11.894Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "проверки готовности прогона 1 не пройдены: гейты ✅; границы задачи ✅; приёмка ✅ (5 пунктов, 3 [edge]); процедуры проверки ✅; инварианты ❌; ответы на блокирующие вопросы ✅; плейсхолдеры ✅",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 11
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 19466,
+          "outputTokens": 557,
+          "cacheReadTokens": 15449,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 258301
+        },
+        "durationMs": 140457,
+        "requestDurationsMs": [
+          6633,
+          11324,
+          13786,
+          19234,
+          39764,
+          44227,
+          1071,
+          40185,
+          43010,
+          28414,
+          10662
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 3,
+        "approvals": 1,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:de6ad098-3ca0-4e29-946d-94e9ed9556da",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-devstral-silent-contract\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Какого типа должен быть пятый параметр в вызов bill?"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "Как должен выглядеть новый тест в тестовом наборе?"
+          },
+          {
+            "id": "intent-open-2",
+            "question": "Каковы значения в ключе files_to_touch?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11261,
+        "userChars": 3956,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-0786ed31-2713-4726-90d3-7621d184aa51-1",
+        "questionId": "intent-open-0",
+        "text": "Какого типа должен быть пятый параметр в вызов bill?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-0786ed31-2713-4726-90d3-7621d184aa51-1",
+        "questionId": "intent-open-1",
+        "text": "Как должен выглядеть новый тест в тестовом наборе?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-0786ed31-2713-4726-90d3-7621d184aa51-1",
+        "questionId": "intent-open-2",
+        "text": "Каковы значения в ключе files_to_touch?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e78a5c6373a68f86059524d61c1493b3d337d284db42edfea1594a64bb3464af",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "39d175e787ace4472d5128fb60c5038860c2bb4d6c7614be4b9bbf4a29aef13a",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "e318e42d64e7e3d0447701fc1caadd0bdfc4fe89bc5a989006bdcee1a4cc9428",
+    "state": "finished",
+    "capturedAt": "2026-10-02T08:15:11.912Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-02T08:15:11.890Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "0a66cb6e92d78641cc2f16b315d2386fccc911f23d7ec4ae4cc051d5db4649b4",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "87038dc35f00f504fc1d85449403aa18b7327bb8f06a5ec102b0ea48aeef4301",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "5e3507f1446508c4f7ca8fb321d5c3d426f6cd686cc4a2efffbc272e2899b811",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "365709535f5bfe1ef7d9ea04186c85b62f520fa0b9b97891fe225a6d808c6761",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

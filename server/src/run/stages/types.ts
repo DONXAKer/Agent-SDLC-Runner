@@ -14,6 +14,7 @@ import type { EcosystemLine } from '../../explore/view.ts';
 import type { GatesFile } from '../../gates/gatesFile.ts';
 import type { TraceLabel } from '../../provider/rawLog.ts';
 import type { ExploreState } from './explore.ts';
+import type { ReviewScanDecision } from '../reviewRoute.ts';
 import type { VerifyState } from './verify/state.ts';
 import type { CommitOutcome } from '../commitByRuntime.ts';
 import type { ChunkEvidenceMetric, Decision, EventSink, PolicyContext, PreparedPrompt, Question, RunEvent, RunMetrics, StageId, ToolName, Usage, Verdict } from '@sdlc-runner/shared';
@@ -131,6 +132,13 @@ export interface StageHost {
   spentBefore(currency: string): number;
   /** Основной маршрут этапа 6 (`profile.routes.verify`). */
   verifyRoute(): ResolvedRoute;
+  /**
+   * Маршрут независимого скана ревью и право его находок ронять вердикт
+   * (`run/reviewRoute.ts::decideReviewScan`): `reviewModel` из конфига раннера либо
+   * маршрут этапа verify; `blocking: false` — скан той же моделью, что исполнитель,
+   * и его находки справочные (advisory).
+   */
+  reviewScan(): ReviewScanDecision;
   /** Маршруты ансамбля этапа 6, первый — основной (`profile.ensemble.verify`). */
   ensembleRoutes(): readonly ResolvedRoute[];
   /** Числа витка (`Run.metrics`). */
@@ -153,6 +161,8 @@ export interface StageHost {
   /** Вердикт этапа 6 с учётом попытки в метриках витка (`Run.computeStageVerdict`). */
   /** Считает вердикт попытки; `null` — посчитать не из чего (свежего вердикта нет). */
   computeStageVerdict(noProgress: boolean): Verdict | null;
+  /** Новый реальный прогон Verify; повторный расчёт в нём остаётся идемпотентным. */
+  beginVerification(): void;
   /** Профиль витка: маршруты этапов и ансамбли. */
   profile(): ResolvedProfile;
 }
@@ -209,6 +219,12 @@ export interface StageModule {
   missingSubagentsNote?: string;
   /** Закрывать ли этап, как только артефакт готов (`ExecRequest.closeOnFinalizeReady`); умолчание — да. */
   closeOnFinalizeReady?: boolean;
+  /** Чтения этого этапа подтверждают источники проработки. */
+  tracksPreparationReads?: boolean;
+  /** Переиспользование одобрений по проверенному результату субагента. */
+  subagentResult?(host: StageHost, agent: string, response: string, seeded: readonly SeededArtifact[]): string | null;
+  /** Независимое ревью требует ограниченного ремонта результата этапа. */
+  repairFeedback?(host: StageHost): string | null;
   /** Инициализация формата нового витка до проверки входа. */
   initialize?(host: StageHost, opts: { requirement?: string; preparationVersion?: 1 | 2 | 3 }): void;
   /** Хуки одного прохода этапа; локальное состояние прохода — в замыкании. */
@@ -242,6 +258,10 @@ export interface StageInvocation {
   extraNotDone?(): string[];
   /** Шаг рантайма до создания исполнителя этапа. */
   beforeExecutor?(): Promise<void>;
+  /** Stage-owned setup after execution hooks exist, before the model runs. */
+  beforeModel?(hooks: ExecHooks, seeded: SeededArtifact[]): void | Promise<void>;
+  /** Recognizes a location confirmation already covered by the approved plan. */
+  locationAlreadyApproved?(questions: readonly Question[]): boolean;
   /**
    * Ответ человека на `AskHuman` МОДЕЛИ этого этапа — что рантайм делает с ним сам (этап 3
    * пишет строку в таблицу «Вопросы и ответы»). Строка — пометка к ответу инструмента.
@@ -321,6 +341,8 @@ export interface Precondition {
 
 export interface StageDef {
   id: StageId;
+  /** Allows selecting the execution mode when creating a new task. */
+  startsTask?: boolean;
   /** Каталог скилла в `runner.skillsDir`, откуда берётся тело системного промпта. */
   skill: string;
   title: string;

@@ -17,7 +17,9 @@ import { planClarificationProblem, planRequirementsProblem } from '../plan.ts';
 import type { StageDef, StageModule } from '../types.ts';
 import { runEnsembleReviewers } from './ensemble.ts';
 import { RECONCILE_GATE, REVIEW_GATE, attemptEvidenceFact, diffStillMatchesTree, gateReportBlock, runVerifyGates } from './gates.ts';
-import { applyRecords, autofillVerification, topUpClaims, verifyGaps } from './records.ts';
+import { applyRecords, autofillVerification, topUpClaims, verifyGaps, finishGuidedVerification } from './records.ts';
+import { readGuided } from '../../guidedState.ts';
+import { routeKey } from '../../reviewRoute.ts';
 import { acceptReviewText, reviewerBlock, runReviewFill, runReviewerDirectly } from './reviewer.ts';
 import { writeReviewJson } from './reviewJson.ts';
 
@@ -105,9 +107,14 @@ export const verifyModule: StageModule = {
     // закрытых вопросов по хункам. Одно место выбора, чтобы гейт ревью и вход этапа
     // ставились по одному и тому же прогону.
     preTurn: async (prompt, agents, hooks) => {
+      // Маршрут скана — `reviewScan`: отдельный `reviewModel` из конфига раннера либо
+      // маршрут этапа verify. Рецензент, отличный от исполнителя, остаётся блокирующим;
+      // скан той же моделью не пропускается, но его находки справочные (advisory) —
+      // саморевью уровнем вердикта не является (норма verify, guided.md).
+      const scan = host.reviewScan();
       const reviewText =
-        route.flow === 'loop' && route.reviewFill
-          ? await runReviewFill(host, route)
+        scan.route.flow === 'loop' && scan.route.reviewFill
+          ? await runReviewFill(host, scan.route, scan.blocking)
           : await runReviewerDirectly(host, prompt, agents, hooks);
 
       // R1.1: конвейер `reviewFill`, прошедший ПОЛНОСТЬЮ, закрывает разбор diff'а сам —
@@ -131,7 +138,7 @@ export const verifyModule: StageModule = {
         host.verifyState.reviewFillComplete;
 
       return {
-        block: reviewText === null ? null : reviewerBlock(reviewText),
+        block: reviewText === null ? null : reviewerBlock(reviewText, scan.blocking),
         skip: skipModelTurn
           ? {
               ok: true,
@@ -158,12 +165,13 @@ export const verifyModule: StageModule = {
       // дозаполнение считает оставшиеся плейсхолдеры, а маршруты ансамбля снимают копию
       // канонического отчёта — оба обязаны видеть уже внесённые пункты и находки.
       await applyRecords(host);
+      finishGuidedVerification(host);
     },
 
     // Дозаполнение отчёта приёмки по полям (замер r9: рецензенту 14B при лимите 40 не
     // хватало ходов именно на оформление отчёта). До ансамбля: дополнительные маршруты
     // снимают копию канонического отчёта, и она обязана быть полной.
-    formFinish: () => ({
+    formFinish: () => readGuided(host.paths) ? null : ({
       path: host.paths.verificationReport(host.chunk(), host.attempt()),
       forced: false,
       extraBlock: null,
@@ -275,12 +283,16 @@ export const verifyModule: StageModule = {
     // повторяется при каждом запуске, а устаревший результат прошлой попытки иначе висел бы
     // заметкой этапа (`Run.envNotes`) и после починки среды.
     resetOnEnter: () => {
+      host.beginVerification();
       host.verifyState.lastPreflightBlockers = [];
     },
 
     // Рецензент, вызванный моделью через `Task`, проходит те же планки, что прямой прогон.
+    // Ревью той же моделью, что исполнитель (маршрут этапа совпадает с chunk), — справочное:
+    // находки принимаются advisory и вердикт не роняют (норма verify, guided.md).
     reviewAccepted: (text) => {
-      const accepted = acceptReviewText(host, text, 'Task');
+      const selfReview = routeKey(host.verifyRoute()) === routeKey(host.profile().routes.chunk);
+      const accepted = acceptReviewText(host, text, 'Task', { advisory: selfReview });
       if (accepted.ok) return true;
       host.emit({
         type: 'warning',

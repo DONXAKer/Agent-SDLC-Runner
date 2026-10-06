@@ -20,6 +20,7 @@ import { anchorFound, renderRecords } from '../../verifyReport.ts';
 import type { ClaimRecord } from '../../verifyReport.ts';
 import type { StageDef, StageHost } from '../types.ts';
 import { evidenceHaystack } from './records.ts';
+import { routeKey } from '../../reviewRoute.ts';
 
 /**
  * Пункты, в которых основной маршрут не уверен: `⚠` — «доказательство держится на
@@ -228,9 +229,16 @@ export async function runEnsembleReviewers(
     // пункт `⚠`. Запись напрямую, как у узкого маршрута: канонический файл — рабочая копия
     // ансамбля, а не артефакт, который правит модель.
     if (!narrowed && (verify.claimRecords.size > 0 || verify.findingRecords.length > 0)) {
+      // Записи пришли через общий `onRecord` и помечены по основному маршруту —
+      // перепомечаем по автору ЭТОГО: блокирующими остаются только находки рецензента,
+      // не совпадающего с исполнителем (маршрутом chunk).
+      const findings = verify.findingRecords.map((f) => ({
+        ...f,
+        advisory: routeKey(other) === routeKey(host.profile().routes.chunk),
+      }));
       const { text } = renderRecords(readArtifact(canonical).text, {
         claims: [...verify.claimRecords.values()],
-        findings: verify.findingRecords,
+        findings,
         titles: new Map([...host.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)] as const)),
       });
       writeArtifact(canonical, text);

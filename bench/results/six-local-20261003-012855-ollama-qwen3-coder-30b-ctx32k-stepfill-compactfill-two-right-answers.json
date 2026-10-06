@@ -1,0 +1,556 @@
+{
+  "run": {
+    "slug": "six-local-20261003-012855-ollama-qwen3-coder-30b-ctx32k-stepfill-compactfill-two-right-answers",
+    "model": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "explore": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "ask": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "plan": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "chunk": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill",
+      "verify": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill-selfreview",
+      "handoff": "ollama:qwen3-coder-30b-ctx32k-stepfill-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T22:28:58.188Z",
+    "finishedAt": "2026-10-02T22:43:50.534Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 11,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "modelRequests": 17
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "шаг 3 адресован src/index.ts, но его действие описывает src/hold.ts; перепиши действие для файла карточки.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 66
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 22255,
+          "outputTokens": 1908,
+          "cacheReadTokens": 17274,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 299865
+        },
+        "durationMs": 130255,
+        "requestDurationsMs": [
+          42254,
+          43160,
+          44642,
+          2370,
+          13331,
+          28339,
+          28667,
+          40225,
+          42084,
+          10319,
+          4485
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 97417,
+          "outputTokens": 7849,
+          "cacheReadTokens": 76818,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 471863
+        },
+        "durationMs": 480043,
+        "requestDurationsMs": [
+          55215,
+          26326,
+          5347,
+          2710,
+          3549,
+          2793,
+          3162,
+          44861,
+          3392,
+          5037,
+          3918,
+          6638,
+          10290,
+          5665,
+          292980
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 483675,
+          "outputTokens": 5504,
+          "cacheReadTokens": 462688,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 564008
+        },
+        "durationMs": 280368,
+        "requestDurationsMs": [
+          9713,
+          12611,
+          27227,
+          2389,
+          3634,
+          4643,
+          2893,
+          6485,
+          8058,
+          1227,
+          2996,
+          4192,
+          3549,
+          7198,
+          10646,
+          1391,
+          2565,
+          4812,
+          2917,
+          6931,
+          9391,
+          2497,
+          3821,
+          4979,
+          3151,
+          6926,
+          11284,
+          2318,
+          3524,
+          4748,
+          1603,
+          4934,
+          7276,
+          1430,
+          2773,
+          8173,
+          1227,
+          2465,
+          19155,
+          8145,
+          7594,
+          39118,
+          40928,
+          42359,
+          1605,
+          41403,
+          45162,
+          1464,
+          2325,
+          3519,
+          4346,
+          8692,
+          10914,
+          2616,
+          6946,
+          8926,
+          3438,
+          7381,
+          8886,
+          3945,
+          7616,
+          10723,
+          3415,
+          5815,
+          7471,
+          1569
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 2,
+        "approvals": 1,
+        "waitMs": 12
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 17
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 13
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 9
+      },
+      {
+        "artifact": "plan.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:1a15cd37-0a4d-449a-a0fb-f25cd71a1288",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-012855-ollama-qwen3-coder-30b-ctx32k-stepfill-compactfill-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 10
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:c782ae90-415c-4ec3-96a3-152b9af831fd",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-012855-ollama-qwen3-coder-30b-ctx32k-stepfill-compactfill-two-right-answers\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "explore",
+        "requestId": "explore:9dfab659-b311-48b0-806b-fae4aea01d2d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-012855-ollama-qwen3-coder-30b-ctx32k-stepfill-compactfill-two-right-answers\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 9
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:65260e85-0a8c-4879-8aee-19e896f17413",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-012855-ollama-qwen3-coder-30b-ctx32k-stepfill-compactfill-two-right-answers\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "plan",
+        "requestId": "form:52925051-57dc-4851-8689-9529119f7fc4",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\six-local-20261003-012855-ollama-qwen3-coder-30b-ctx32k-stepfill-compactfill-two-right-answers\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "В каком виде должен возвращаться результат функции `moveHold` — как изменённый объект исходной брони или как новый объект с сохранением ссылки на старый?"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "Какой из двух описанных способов переноса брони (изменение слота у существующей брони или создание новой с тем же ID и сроком) является более предпочтительным в контексте текущей архитектуры проекта?"
+          }
+        ],
+        "answeredFrom": "noise",
+        "tag": "noise.arch"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11546,
+        "userChars": 4193,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 9765,
+        "userChars": 16276,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 19497,
+        "userChars": 19676,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-e20d6610-0548-467a-a2bc-9648530771a0-1",
+        "questionId": "intent-open-0",
+        "text": "В каком виде должен возвращаться результат функции `moveHold` — как изменённый объект исходной брони или как новый объект с сохранением ссылки на старый?"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-e20d6610-0548-467a-a2bc-9648530771a0-1",
+        "questionId": "intent-open-1",
+        "text": "Какой из двух описанных способов переноса брони (изменение слота у существующей брони или создание новой с тем же ID и сроком) является более предпочтительным в контексте текущей архитектуры проекта?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e9f3bb01ef3223ae728b7d4a7b9d5da7e0b3cf7f99807b180ec9021afe4eda3d",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "c51f45f8f00895a696178bb5eb7762474ace9547e5942a0620b5aef1acf86522",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 480000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "c37658a8f3372d0ead150927a321965ca1ef62249b495790dd8388c70c1e12b4",
+    "state": "finished",
+    "capturedAt": "2026-10-02T22:43:50.568Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "plan",
+      "at": "2026-10-02T22:43:50.532Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "d1015060ae23c22770825efe91d0ee1d746d84dd378b732adb799fddbde60ea3",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "c07bdfca97b8004de3a99f8c1b93142ae9a0948825cff49053c3889f126e9ecf",
+        "placeholders": 6,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "edfecfa18c0b9957e4886b5999fff4fff4d7ec367ea6b5ea3ecce309275115cd",
+        "placeholders": 9,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "cf8ada2529e3a5e4f272f552475dd975829e42505695fa8487c2bea0b0f924ca",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "44494e3f40e0d45f6ca37081a82a0e356a65f2ff9653dd6e4cc8b711b9da32de",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "c96387b3af783642bceba8688d53a5e42a38a0da966df39c9fa02280f6cc3bab",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

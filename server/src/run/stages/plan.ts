@@ -13,6 +13,7 @@ import {
   syncCanonicalPreparation,
 } from '../../artifacts/preparation.ts';
 import { reviewPreparation } from '../preparationReview.ts';
+import { readGuided } from '../guidedState.ts';
 
 import type { NormalizedCall } from '@sdlc-runner/shared';
 
@@ -24,6 +25,7 @@ import {
   appendFilesToTouch,
   excludedFromPlanPaths,
   extractFilesToTouch,
+  forbiddenCodePaths,
   filesToTouchDirectories,
   seedFilesToTouch,
   removeFilesFromTouch,
@@ -72,6 +74,7 @@ export function filesToTouchProblem(c: StageContext): string | null {
     return `files_to_touch перечисляет каталоги вместо файлов: ${[...new Set(directories)].join(', ')}; укажи конкретный файл, который будет создан`;
   }
   if (extractFilesToTouch(plan.text).length > 0) return null;
+  if (readGuided(c.paths) && plan.text.includes('<!-- guided:no-change -->')) return null;
   return (
     `в files_to_touch плана нет ни одного пути: без него PlanScope выключится молча на ` +
     `этапе 5, и запись перестанет быть ограниченной планом. Впиши хотя бы один путь строкой ` +
@@ -103,24 +106,41 @@ export function extractExplicitExportPaths(requests: readonly string[]): string[
   ))];
 }
 
-export function intentNewTestPath(intentText: string, projectRoot: string, originalRequests: readonly string[] = []): string | null {
+export function intentNewTestPath(intentText: string, projectRoot: string, originalRequests: readonly string[] = [], planText = ''): string | null {
   const requestText = originalRequests.join('\n');
   const existingTestsForbidden = /(?:не\s+(?:меня\p{L}*|изменя\p{L}*|модифицир\p{L}*|трога\p{L}*).{0,60}(?:существующ\p{L}*.{0,20})?(?:тест|test\/)|(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)\s+не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*))/iu
-    .test(section(intentText, 'Чего не делаем') + '\n' + requestText);
+    .test(section(intentText, 'Чего не делаем') + '\n' + requestText) ||
+    /существующ\p{L}*\s+тест\p{L}*[^\n.]{0,80}без\s+(?:правки|изменений)/iu
+      .test((section(intentText, 'Чего не делаем') + '\n' + requestText).replace(/[*`_]/gu, ''));
   const requiresNewTestFile =
     /нов\p{L}*\s+тест\p{L}*.{0,80}(?:отдельн\p{L}*\s+)?файл|тест\p{L}*.{0,80}(?:отдельн\p{L}*\s+)?нов\p{L}*\s+файл|(?:отдельн\p{L}*\s+)?нов\p{L}*\s+файл.{0,80}тест/iu.test(intentText + '\n' + requestText) ||
     // If Intent forbids editing existing tests but names a test path or requires test
     // coverage, planning against an existing file would make the task impossible.
     (existingTestsForbidden && /(?:test\/|тест\p{L}*)/iu.test(intentText + '\n' + requestText));
   if (!requiresNewTestFile) return null;
+  const testName = /(?:\.test\.[a-z0-9]+|_test\.go|(?:^|\/)test_[^/]+\.py)$/iu;
+  const safeNewTest = (path: string): boolean => testName.test(path) && !path.startsWith('/') &&
+    !/^[a-z]:/iu.test(path) && !path.split('/').includes('..') && !existsSync(join(projectRoot, path));
+  // A literal filename requested by the user takes precedence over project conventions.
+  const explicit = [...requestText.matchAll(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]+/giu)]
+    .map(match => match[0]).find(safeNewTest);
+  if (explicit !== undefined) return explicit;
+  const intentTest = extractIntentImplementationPaths(intentText).find(safeNewTest);
+  if (intentTest !== undefined) return intentTest;
+  const examples = readTree(projectRoot).files.filter((file) => file.kind === 'test').map((file) => file.path.replace(/\\/gu, '/'));
+  const planned = extractFilesToTouch(planText).map(path => path.replace(/\\/gu, '/')).find(path => safeNewTest(path) &&
+    examples.some(example => example.slice(0, example.lastIndexOf('/') + 1) === path.slice(0, path.lastIndexOf('/') + 1)));
+  if (planned !== undefined) return planned;
   const implementation = section(intentText, 'Что делаем');
-  const symbol = /(?:функц(?:ия|ию|ии)?|function)\s+([A-Za-z_$][\w$]*)/iu.exec(implementation)?.[1] ??
-    /(?:функц(?:ия|ию|ии)?|function)\s+[`']?([A-Za-z_$][\w$]*)/iu.exec(intentText + '\n' + requestText)?.[1];
+  const functionName = /(?:функц(?:ия|ию|ии|ией|иею)|function)\s+[`']?([A-Za-z_$][\w$]*)/iu;
+  // Prefer the positive implementation scope. Excluded functions are not test targets.
+  const symbol = functionName.exec(implementation)?.[1] ??
+    functionName.exec(requestText)?.[1] ??
+    functionName.exec(section(intentText, 'Приёмочный лист'))?.[1];
   if (symbol === undefined) return null;
   // Infer the new test target from this project's existing test naming pattern.
   // If the repository offers no recognizable convention, let the plan author
   // choose a path instead of assuming TypeScript, a `test/` directory, or a suffix.
-  const examples = readTree(projectRoot).files.filter((file) => file.kind === 'test').map((file) => file.path.replace(/\\/gu, '/'));
   const conventions: { directory: string; makeName: (index: number) => string; extension: string }[] = [];
   for (const example of examples) {
     const slash = example.lastIndexOf('/');
@@ -167,11 +187,7 @@ export function intentImplementationPathsProblem(
 /** Reject explicit no-touch boundaries and cards whose action is aimed at another Intent target. */
 export function intentPlanBoundaryProblem(intentText: string, planText: string, projectRoot?: string): string | null {
   const excluded = section(intentText, 'Чего не делаем');
-  const forbidden = new Set<string>();
-  for (const line of excluded.split(/\r?\n/u)) {
-    if (!/не\s+(?:измен\p{L}*|меня\p{L}*|модифицир\p{L}*|трога\p{L}*)/iu.test(line)) continue;
-    for (const match of line.matchAll(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12}/giu)) forbidden.add(match[0]);
-  }
+  const forbidden = new Set(forbiddenCodePaths(excluded));
   const touched = extractFilesToTouch(planText);
   const forbiddenTouched = touched.filter((path) => forbidden.has(path));
   if (forbiddenTouched.length > 0) {
@@ -213,7 +229,7 @@ export function preparePlanImplementationCards(
   const paths = extractIntentImplementationPaths(intentText);
   const symbol = /(?:функц(?:ия|ию|ии)?|function)\s+([A-Za-z_$][\w$]*)/iu.exec(implementation)?.[1];
   const checks = acceptanceChecksFromIntent(intentText);
-  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests);
+  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests, planText);
   const testCandidates = testPath === null ? [] : [testPath];
   const mandatory = [...new Set([...paths, ...additionalRequiredPaths, ...(testPath === null ? [] : [testPath])])];
   const planned = new Set(extractFilesToTouch(planText).map((path) => path.replace(/\\/gu, '/')));
@@ -254,14 +270,20 @@ export function preparePlanImplementationCards(
       const next = nextHeading.exec(text)?.index ?? text.indexOf('\n## ', testStart);
       const end = next < 0 ? text.length : next;
       let card = text.slice(testStart, end);
-      const assertions = testableChecks.map((check) =>
-        `${check.id}: ${check.behavior}; ${check.procedure}; ожидаемо: ${check.expected}`,
-      );
-      card = card.replace(
-        /^(-\s*действие:\s*).*$/mu,
-        `$1Добавить поведенческие тесты: ${assertions.join('. ')}.`,
-      );
+      const claimIds = testableChecks.map(check => check.id).join(', ');
+      card = card.replace(/^(-\s*действие:\s*)(.*)$/mu, (line, prefix: string, value: string) =>
+        !value.trim() || /[‹›]/u.test(value) || /^Добавить поведенческие тесты:/u.test(value) || /^(?:добавить|создать|написать)\s+тесты[.!]?$/iu.test(value.trim())
+          ? `${prefix}Добавить поведенческие тесты для ${claimIds}; использовать полные процедуры и ожидаемые результаты из приёмочного листа.`
+          : line);
       card = card.replace(/^(-\s*закрывает:\s*).*$/mu, `$1${testableChecks.map((check) => check.id).join(', ')}`);
+      card = card.replace(/^(-\s*проверка:\s*)(.*)$/mu, (line, prefix: string, value: string) =>
+        !value.trim() || /[‹›]/u.test(value)
+          ? `${prefix}Прогнать тестовую команду проекта и все сценарии ${claimIds} из приёмочного листа · ожидаемо: все сценарии ${claimIds} проходят; существующие тесты остаются зелёными.`
+          : line);
+      card = card.replace(/^(-\s*контракт:\s*)(.*)$/mu, (line, prefix: string, value: string) =>
+        !value.trim() || /[‹›]/u.test(value)
+          ? `${prefix}н/п — тестовый файл проверяет согласованные требования и не меняет публичный интерфейс.`
+          : line);
       text = text.slice(0, testStart) + card + text.slice(end);
     }
   }
@@ -314,7 +336,7 @@ export function enforceIntentTestFileTarget(
   projectRoot: string,
   originalRequests: readonly string[] = [],
 ): { text: string; path: string | null; changed: boolean } {
-  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests);
+  const testPath = intentNewTestPath(intentText, projectRoot, originalRequests, planText);
   if (testPath === null) return { text: planText, path: null, changed: false };
   let text = planText;
   const boundaries = section(intentText, 'Чего не делаем');
@@ -535,7 +557,9 @@ export function planCallersProblem(
 ): string | null {
   const plan = planText ?? readArtifact(c.paths.plan).text;
   const steps = extractExplicitSteps(plan).filter(
-    (step) => step.contractChange !== null && !/^н\s*\/\s*п\b/i.test(step.contractChange),
+    // Без `\b`: граница слова не работает рядом с кириллической «п», и фильтр «н/п»
+    // молча не срабатывал (тот же класс бага, что в explore/symbols.ts).
+    (step) => step.contractChange !== null && !/^н\s*\/\s*п/i.test(step.contractChange),
   );
   if (steps.length === 0) return null;
   const index = indexOverride ?? readTree(c.paths.projectRoot);
@@ -913,6 +937,14 @@ export const planStage: StageDef = {
 };
 
 export const planModule: StageModule = {
+  tracksPreparationReads: true,
+  repairFeedback: (host) => {
+    if (readGuided(host.paths) === null) return null;
+    const review = preparation(host.paths)?.review;
+    const problem = preparationReviewProblem(host.paths);
+    return problem && review?.completed && review.issues.length > 0
+      ? `Независимое ревью вернуло план на ремонт: ${problem}` : null;
+  },
   def: planStage,
   runtimeFacts: [{ id: 'indexed-callers', purpose: 'вызывающие экспортируемых символов из файлов files_to_touch', freshness: 'live' }],
   formFillExecutor: true,
@@ -1070,6 +1102,9 @@ export const planModule: StageModule = {
       // проверке находка (см. filesToTouchProblem).
       const intentText = readArtifact(host.paths.intent).text;
       let currentPlanForIntent = readArtifact(host.paths.plan);
+      if (readGuided(host.paths) && currentPlanForIntent.text.includes('<!-- guided:no-change -->') && extractFilesToTouch(currentPlanForIntent.text).length === 0) {
+        return readinessResult.ready ? null : readinessResult.checks;
+      }
       if (currentPlanForIntent.exists) {
         const enforcedTest = enforceIntentTestFileTarget(
           currentPlanForIntent.text,

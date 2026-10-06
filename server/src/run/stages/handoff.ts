@@ -29,6 +29,10 @@ import { commitByRuntime } from '../commitByRuntime.ts';
 import type { HandoffFacts } from '../formAutofill.ts';
 import { autofillHandoff } from '../formAutofill.ts';
 import { postmortemBlock } from '../postmortem.ts';
+import { readGuided } from '../guidedState.ts';
+import { autofillGuidedHandoff } from '../guidedHandoff.ts';
+import { readReport } from '../../verdict/collect.ts';
+import type { ReviewV1 } from './verify/reviewValidate.ts';
 import { markCommitted, readRunVerdict, stalePatchReason } from '../verdictStore.ts';
 import { diffStillMatchesTree } from './verify/gates.ts';
 import { runNamedGate } from './chunk/evidence.ts';
@@ -226,6 +230,33 @@ async function handoffFacts(host: StageHost, aborted: boolean): Promise<HandoffF
   };
 }
 
+function guidedHandoffFacts(host: StageHost, text: string): string {
+  if (!readGuided(host.paths) || readRunVerdict(host.paths, host.chunk(), host.attempt())?.passed !== true) return text;
+  const report = readArtifact(host.paths.verificationReport(host.chunk(), host.attempt()));
+  if (!report.exists) return text;
+  const parsed = readReport(report.text);
+  const names = new Map((host.gatesFile()?.rows ?? []).map(g => [gateKey(g.name), g.name]));
+  const reviewHistory: { path: string; findings: string[] }[] = [];
+  for (let chunk = 1; chunk <= host.chunk(); chunk++) {
+    const attempts = chunk === host.chunk() ? host.attempt() : host.metrics().attemptsByChunk.find(row => row.chunk === chunk)?.attempts ?? 0;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const path = host.paths.chunkReview(chunk, attempt);
+      const review = readArtifact(path);
+      if (!review.exists) return text; // Missing history is not evidence of no findings.
+      try {
+        const value = JSON.parse(review.text) as ReviewV1;
+        if (![value.findings, value.scope, value.invariants, value.regressions].every(Array.isArray)) return text;
+        reviewHistory.push({ path: basename(path), findings: [...value.findings, ...value.scope, ...value.invariants, ...value.regressions]
+          .map(f => `${f.summary} (${f.evidence.map(e => `${e.path}:${e.anchor}`).join('; ')})`) });
+      } catch { return text; }
+    }
+  }
+  return autofillGuidedHandoff(text, { loop: loopSectionCount(text), attempt: host.attempt(),
+    reviewHistory,
+    claims: [...host.verifyState.claimRecords.values()],
+    gates: [...parsed.gateStatuses].map(([key, status]) => ({ name: names.get(key) ?? key, status })) });
+}
+
 /**
  * Следующий виток той же задачи дописывает в handoff НОВУЮ секцию «## Виток ‹K› — ‹дата›»
  * (`SDLC.md` → «Раскладка артефактов»: handoff дописывается новой секцией на виток, а не
@@ -416,7 +447,11 @@ export const handoffModule: StageModule = {
   mechanicalJobs: (host: StageHost, opts) => [
     {
       path: host.paths.handoff,
-      fill: async (t) => autofillHandoff(t, await handoffFacts(host, opts?.abortHandoff === true)),
+      fill: async (t) => {
+        const filled = autofillHandoff(t, await handoffFacts(host, opts?.abortHandoff === true));
+        const text = guidedHandoffFacts(host, filled.text);
+        return { text, filled: filled.filled + (text === filled.text ? 0 : 1) };
+      },
     },
   ],
   checksBranchOnEntry: true,
@@ -512,6 +547,12 @@ export const handoffModule: StageModule = {
           `рантайм подставил честный дефолт «Кто утвердил» в ${repaired} запис(ях) о ` +
           `дефекте — вопрос не был задан или остался без ответа`,
       });
+    },
+    afterForm: async () => {
+      const report = readArtifact(host.paths.handoff);
+      if (!report.exists) return;
+      const text = guidedHandoffFacts(host, report.text);
+      if (text !== report.text) host.writeAutofilled(host.paths.handoff, text, []);
     },
     formFinish: () => ({
       path: host.paths.handoff,

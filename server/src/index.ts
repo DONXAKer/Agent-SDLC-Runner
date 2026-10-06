@@ -8,6 +8,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { preparationSummary } from './artifacts/preparation.ts';
+import { guidedSummary } from './run/guidedState.ts';
 
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
@@ -443,6 +444,7 @@ function summaryOf({ run, currentStage, stageStartedAt }: LiveRun): RunSummary {
     profile: run.profile.name,
     currency: profileCurrency(run.profile.routes),
     status: run.status,
+    awaitingSince: run.awaitingSince,
     stage: currentStage,
     chunk: run.chunk,
     attempt: run.attempt,
@@ -558,6 +560,8 @@ app.get('/api/runs/:id', async (req, reply) => {
 
   const { run, currentStage } = live;
   const detail: RunDetail = {
+    executionMode: guidedSummary(run.paths) === null ? 'legacy' : 'guided',
+    guided: guidedSummary(run.paths),
     preparation: preparationSummary(run.paths),
     runId: run.id,
     serverNow: Date.now(),
@@ -685,11 +689,15 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
     prompt?: { system?: unknown; user?: unknown };
     requirement?: string;
     preparationVersion?: 1 | 2 | 3;
+    executionMode?: 'legacy' | 'guided';
     extra?: string;
     abortHandoff?: boolean;
   };
 
   let editedPrompt: { system: string; user: string } | null = null;
+  if (body.executionMode !== undefined && body.executionMode !== 'legacy' && body.executionMode !== 'guided') {
+    return reply.code(400).send({ error: 'executionMode должен быть legacy или guided' });
+  }
   if (body.preparationVersion !== undefined && body.preparationVersion !== 1 && body.preparationVersion !== 2 && body.preparationVersion !== 3) {
     return reply.code(400).send({ error: 'preparationVersion должна быть 1, 2 или 3' });
   }
@@ -714,6 +722,7 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
     .runStage(stage, {
       ...(body.requirement === undefined ? {} : { requirement: body.requirement }),
       ...(body.preparationVersion === undefined ? {} : { preparationVersion: body.preparationVersion }),
+      ...(body.executionMode === undefined ? {} : { executionMode: body.executionMode }),
       ...(body.extra === undefined ? {} : { extra: body.extra }),
       ...(body.abortHandoff === true ? { abortHandoff: true } : {}),
       ...(editedPrompt === null

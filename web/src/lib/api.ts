@@ -133,6 +133,7 @@ export const api = {
     body: {
       prompt?: { system: string; user: string };
       requirement?: string;
+      executionMode?: 'legacy' | 'guided';
       extra?: string;
       /** Объявленный оператором обрыв витка: handoff оформляется без зелёного вердикта. */
       abortHandoff?: boolean;

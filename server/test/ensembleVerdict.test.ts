@@ -25,6 +25,11 @@ import type { LoadedConfig } from '../src/config/load.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../src/config/schema.ts';
 import { Run } from '../src/run/Run.ts';
 import { STAGE_ORDER } from '@sdlc-runner/shared';
+import { verifyModule } from '../src/run/stages/verify/index.ts';
+import type { StageHost } from '../src/run/stages/types.ts';
+import { readRunVerdict, writeRunVerdict } from '../src/run/verdictStore.ts';
+import { readArtifact } from '../src/artifacts/artifact.ts';
+import { writeVerdictSection } from '../src/run/verifyAutofill.ts';
 
 const roots: string[] = [];
 after(() => {
@@ -189,6 +194,39 @@ function makeRun(reports: string[]): Run {
 }
 
 describe('вердикт по отчётам всех маршрутов ансамбля', () => {
+  it('средовые повторы одного номера: третий Verify эскалирует и пишет согласованные улики', () => {
+    const run = makeRun([report('✅', '✅').replace('| Сборка | ✅', '| Сборка | ⏭')]);
+    const host = (run as unknown as { host: StageHost }).host;
+    mkdirSync(host.runner().agentsDir, { recursive: true });
+    writeFileSync(join(host.runner().agentsDir, 'sdlc-reviewer.md'), '---\nname: sdlc-reviewer\ndescription: test\ntools: Read\n---\nReview code.\n');
+    host.verifyState.diffFactMatchesTree = true;
+    host.verifyState.evidenceFact = null;
+    host.verifyState.reviewerRan = true;
+    host.verifyState.lastGateResults = ['Сборка', 'Тесты', 'Scope: файлы вне плана', 'Анти-обход тест-гейта', 'Ревью независимым агентом'].map(name => ({
+      name, status: name === 'Сборка' ? '⏭' : '✅', command: null,
+      exitCode: name === 'Сборка' ? 127 : 0, lastLine: '', durationMs: 0,
+      envBlocked: name === 'Сборка', missingTool: name === 'Сборка' ? 'java: command not found' : null,
+    }));
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      verifyModule.begin!(host, host.verifyRoute()).resetOnEnter?.();
+      const verdict = run.computeStageVerdict();
+      ok(verdict);
+      strictEqual(verdict.action, cycle === 3 ? 'escalate' : 'blocked_env', verdict.reasons.join('; '));
+      writeRunVerdict(run.paths, run.chunk, run.attempt, verdict);
+      strictEqual(readRunVerdict(run.paths, 1, 1)?.action, verdict.action);
+      strictEqual(run.computeStageVerdict()?.action, verdict.action);
+      strictEqual(run.iterations.length, cycle);
+      strictEqual(run.attempt, 1);
+    }
+    ok(run.advanceProblem('attempt')?.includes('escalate'));
+    ok(readArtifact(run.paths.iterations).text.includes('среда не восстановлена за 3'));
+    const copy = writeVerdictSection('## Вердикт\n\n- **passed:** true\n- **action:** continue\n- **По каким условиям упал:** н/п\n', run.lastVerdict!);
+    ok(copy.text.includes('escalate'));
+    ok(copy.text.includes('false'));
+    ok(copy.text.includes('среда не восстановлена за 3'));
+    ok(run.advanceProblem('attempt')?.includes('Восстанови среду и повтори Verify'));
+    strictEqual(run.escalation.kind, 'none', 'средовая эскалация не считается провалом пункта исполнителем');
+  });
   it('красный второго рецензента роняет вердикт, хотя первый сказал ✅', () => {
     // Порядок именно такой: зелёный лежит в КАНОНИЧЕСКОМ файле. Прежний вердикт читал
     // только его и объявлял виток зелёным на дефектном патче.

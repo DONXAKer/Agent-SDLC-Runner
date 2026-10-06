@@ -178,3 +178,19 @@ export function resolveStartableProfile(
   if (problems.length > 0) throw new ProfileError(problems);
   return profile;
 }
+
+/**
+ * Маршрут отдельного рецензента из `RunnerConfig.reviewModel`. Живёт вне профиля:
+ * настройка едина на раннер, а не на проект/этап. Этап маршрута — `verify`: флаги
+ * ручек (`reviewFill`, `claimFill`, …) берутся из записи модели в `config/models.json`,
+ * как у любого маршрута этапа 6.
+ *
+ * Неизвестный id — `ProfileError` со списком проблем, как у маршрутов профиля:
+ * рецензент «не той» модели хуже отказа на загрузке.
+ */
+export function resolveReviewRoute(models: ModelsConfig, modelId: string): ResolvedRoute {
+  const problems: string[] = [];
+  const route = resolveRoute('verify', modelId, models, problems);
+  if (route === null || problems.length > 0) throw new ProfileError(problems);
+  return route;
+}

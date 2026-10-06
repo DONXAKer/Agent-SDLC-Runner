@@ -21,6 +21,20 @@ const NEXT_HEADING_RE = /^#{1,6}\s/m;
 /** Строка, с которой начинается перечисление исключённых путей. */
 const EXCLUDED_RE = /^.*Из задачи исключено/im;
 
+/** Whole-file no-touch rules; an API/behavior constraint leaves implementation edits available. */
+export function forbiddenCodePaths(boundaries: string): string[] {
+  const forbidden = new Set<string>();
+  for (const line of boundaries.split(/\r?\n/u)) {
+    const constraintLine = line.replace(/^\s*[-*]\s*не\s+трогаем\s+(?=не\s+)/iu, '');
+    const negativeAction = /не\s+(?:измен\p{L}*|меня\p{L}*|модифицир\p{L}*|трога\p{L}*|перепис\p{L}*)/iu.exec(constraintLine);
+    if (negativeAction === null) continue;
+    const actionTail = constraintLine.slice(negativeAction.index + negativeAction[0].length);
+    if (/^\s+(?:(?:публичн\p{L}*\s+)?(?:интерфейс\p{L}*|сигнатур\p{L}*|контракт\p{L}*|схем\p{L}*|структур\p{L}*|логик\p{L}*|поведен\p{L}*|формат\p{L}*|тип\p{L}*)(?=$|[\s:,(])|\p{L}+(?:\s+\p{L}+){0,2}\s+в\s+файл\s+(?=$|[«"'`\w]))/iu.test(actionTail)) continue;
+    for (const match of constraintLine.matchAll(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,12}/giu)) forbidden.add(match[0]);
+  }
+  return [...forbidden];
+}
+
 /**
  * Артефакты витка, названные КОРОТКИМ именем: в прозе плана они поминаются постоянно
  * («список совпадает с „Что придётся тронуть“ из `intent.md`»), и без этого списка такое
@@ -70,10 +84,13 @@ function clean(s: string): string {
  * серия `test21`, 2026-09-17): `ministral` вписал в `files_to_touch` куски сигнатуры вызова
  * вместо путей — `/sendNotification.*to,phone,text/` и `/logEvent/;logEvent` — оба приняты
  * старой проверкой (есть `/`), оба отклонены политикой `pathScope` уже на этапе `chunk`, на
- * ход дороже. Список — не полный алфавит «плохих» символов, а ровно то, что уже наблюдалось
- * в мусоре: регэксп-мета (`*`) и разделители перечисления/аргументов (`,` `;`).
+ * ход дороже. Это не полный алфавит «плохих» символов: здесь регэксп-мета, разделители
+ * перечисления/аргументов и знаки, недопустимые в Windows-пути или похожие на синтаксис поля.
  */
-const NOT_PATH_CHARS = /[*,;]/;
+// `?` is not valid in a Windows file name and commonly appears in optional
+// property/signature fragments (for example `opts.issuer?`). Treating that
+// punctuation as a path expanded the write allowlist with a symbol name.
+const NOT_PATH_CHARS = /[*,;?<>|"]/;
 
 /** Похоже ли на путь, а не на номер строки, прозу или имя символа. */
 function looksLikePath(raw: string): boolean {

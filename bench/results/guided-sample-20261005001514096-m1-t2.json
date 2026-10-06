@@ -1,0 +1,1008 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 331007,
+    "remainingMs": 1468993,
+    "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+    "currentItem": null,
+    "stopReason": "Три предложения подряд не изменяют код; требуется пересмотреть гипотезу",
+    "items": [
+      {
+        "id": "work-1",
+        "title": "implement: implement\nupdate: update\nre-export: re-export",
+        "files": [
+          "src/validate.ts",
+          "test/validateCustomer.test.ts",
+          "src/index.ts"
+        ],
+        "claims": [
+          "claim-1",
+          "claim-2",
+          "claim-3",
+          "claim-4",
+          "claim-5",
+          "claim-6",
+          "claim-7"
+        ],
+        "dependsOn": [],
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "checks": [
+          "registered project gates"
+        ],
+        "status": "failed",
+        "attempts": 2,
+        "repartitioned": false
+      }
+    ],
+    "observations": [
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:20:49.061Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "9837ec5a37b8f02c679a88d56f0f380c6136cae0c5477e62a7ba38763033b487",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "Невалидный JSON-ответ",
+        "kind": "format",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:21:00.598Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "9837ec5a37b8f02c679a88d56f0f380c6136cae0c5477e62a7ba38763033b487",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "Синтаксис черновика test\\validateCustomer.test.ts: Expression expected. Файл не записан; исправь SEARCH/REPLACE.",
+        "kind": "conflict",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:21:17.481Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "9837ec5a37b8f02c679a88d56f0f380c6136cae0c5477e62a7ba38763033b487",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "SEARCH не уникален в src/index.ts",
+        "kind": "conflict",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:21:20.764Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "8b77826e07bd154016a63e0a220066f8e249fbe05e058ba4ae78dbfce2cd7911",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "Сборка: модулей загружено: 7 из 7\nok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nok   validate.ts\nмодулей загружено: 7 из 7\n\nТесты: }\n▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (0.6104ms)\n  ✔ форма счёта — ровно пять полей (0.5899ms)\n✔ сборка счёта (2.0123ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (0.9702ms)\n  ✔ подытог — сумма по позициям (0.2523ms)\n  ✔ пустой счёт — нулевой подытог (0.142ms)\n✔ позиции счёта (2.6782ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (1.1744ms)\n  ✔ сумма и разность (0.1956ms)\n  ✔ разность не уходит ниже нуля (0.098ms)\n  ✔ процент округляется половиной вверх (0.1161ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.2599ms)\n✔ деньги (4.909ms)\n▶ validateCustomer\n  ✔ claim-1: both email and phone invalid – returns [\"email\",\"phone\"] (1.0555ms)\n  ✔ claim-2: invalid email only – returns [\"email\"] (0.1606ms)\n  ✔ claim-3: email contains spaces – returns [\"email\"] (0.1418ms)\n  ✔ claim-4: domain starts with dot – returns [\"email\"] (0.1504ms)\n  ✔ claim-5: phone starts with +7 and 10 digits – no errors (0.1135ms)\n  ✖ claim-6: phone format 8 + 10 digits – no errors (0.7895ms)\n  ✔ claim-7: function is pure – original object unchanged (0.1263ms)\n✖ validateCustomer (4.4011ms)\nℹ tests 17\nℹ suites 4\nℹ pass 16\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 214.7588\n\n✖ failing tests:\n\ntest at test\\validateCustomer.test.ts:40:3\n✖ claim-6: phone format 8 + 10 digits – no errors (0.7895ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  '[\"phone\"]' !== '[]'\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-4XsmFm/test/validateCustomer.test.ts:42:5)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Suite.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Suite.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: '[\"phone\"]',\n    expected: '[]',\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n",
+        "kind": "check",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:22:41.445Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "290577767158a27b79fcf5d7afe4b6821897ff91760fe19bbfbc39ee883eb60c",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "Сборка: модулей загружено: 7 из 7\nok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nok   validate.ts\nмодулей загружено: 7 из 7\n\nТесты: ℹ duration_ms 211.04\n▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (0.675ms)\n  ✔ форма счёта — ровно пять полей (0.6571ms)\n✔ сборка счёта (2.1823ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (0.8252ms)\n  ✔ подытог — сумма по позициям (0.2008ms)\n  ✔ пустой счёт — нулевой подытог (0.1032ms)\n✔ позиции счёта (2.4609ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (0.8799ms)\n  ✔ сумма и разность (0.1477ms)\n  ✔ разность не уходит ниже нуля (0.1472ms)\n  ✔ процент округляется половиной вверх (0.1657ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.9075ms)\n✔ деньги (3.3944ms)\n▶ validateCustomer\n  ✔ claim-1: both email and phone invalid – returns [\"email\",\"phone\"] (1.2161ms)\n  ✔ claim-2: invalid email only – returns [\"email\"] (0.1898ms)\n  ✔ claim-3: email contains spaces – returns [\"email\"] (0.1528ms)\n  ✔ claim-4: domain starts with dot – returns [\"email\"] (1.0455ms)\n  ✔ claim-5: phone starts with +7 and 10 digits – no errors (0.2901ms)\n  ✔ claim-6: phone format 8 + 10 digits – no errors (0.4745ms)\n  ✔ claim-7: function is pure – original object unchanged (0.1687ms)\n✔ validateCustomer (5.0976ms)\nℹ tests 17\nℹ suites 4\nℹ pass 17\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 211.04\n",
+        "kind": "check",
+        "passed": true
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:23:12.240Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "290577767158a27b79fcf5d7afe4b6821897ff91760fe19bbfbc39ee883eb60c",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "Группа возвращена на исправление после красного Verify",
+        "kind": "check",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:23:17.092Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "290577767158a27b79fcf5d7afe4b6821897ff91760fe19bbfbc39ee883eb60c",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "Предложение не изменяет код; объясни no_change или исправь предложение.\nПоследняя красная проверка:\n## Что не сошлось в прошлой попытке\n\nНиже — факты прошлого прогона, посчитанные рантаймом, и отдельной подписанной\nстрокой под пунктом — слова рецензента там, где они есть. Рецензент тоже может\nошибиться в диагнозе — сверь его слова с кодом сам, прежде чем чинить по ним: из\nпоследней строки вывода гейта диагноз ошибки не следует.\n\nПодтверждённых расхождений из ревью: 1. Каждое роняет вердикт само по себе, даже если пункта приёмки на это поведение нет.\nНаходки ревью (слова рецензента; место — как он его назвал):\n- Оси «Последствий шагов»: «Совместимость и данные» — в плане объявлена затронутой, но заявленный исход не покрывает: добавлен публичный экспорт validateCustomer — src/index.ts",
+        "kind": "conflict",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:23:21.226Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "290577767158a27b79fcf5d7afe4b6821897ff91760fe19bbfbc39ee883eb60c",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "Предложение не изменяет код; объясни no_change или исправь предложение.\nПоследняя красная проверка:\n## Что не сошлось в прошлой попытке\n\nНиже — факты прошлого прогона, посчитанные рантаймом, и отдельной подписанной\nстрокой под пунктом — слова рецензента там, где они есть. Рецензент тоже может\nошибиться в диагнозе — сверь его слова с кодом сам, прежде чем чинить по ним: из\nпоследней строки вывода гейта диагноз ошибки не следует.\n\nПодтверждённых расхождений из ревью: 1. Каждое роняет вердикт само по себе, даже если пункта приёмки на это поведение нет.\nНаходки ревью (слова рецензента; место — как он его назвал):\n- Оси «Последствий шагов»: «Совместимость и данные» — в плане объявлена затронутой, но заявленный исход не покрывает: добавлен публичный экспорт validateCustomer — src/index.ts",
+        "kind": "conflict",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:23:27.685Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "290577767158a27b79fcf5d7afe4b6821897ff91760fe19bbfbc39ee883eb60c",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "SEARCH не уникален в src/index.ts",
+        "kind": "conflict",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T00:23:29.959Z",
+        "inputRevision": "5ee4f29b59eeba7b8aae8c83bc7e24c5fee7dc37e75f94121675f73061fcb129",
+        "codeRevision": "290577767158a27b79fcf5d7afe4b6821897ff91760fe19bbfbc39ee883eb60c",
+        "prediction": "['email','phone']\narrays match per claim; for claim-5, expect [] when phone '+71234567890' is valid\nindex exports validateCustomer",
+        "result": "Предложение не изменяет код; объясни no_change или исправь предложение.\nПоследняя красная проверка:\n## Что не сошлось в прошлой попытке\n\nНиже — факты прошлого прогона, посчитанные рантаймом, и отдельной подписанной\nстрокой под пунктом — слова рецензента там, где они есть. Рецензент тоже может\nошибиться в диагнозе — сверь его слова с кодом сам, прежде чем чинить по ним: из\nпоследней строки вывода гейта диагноз ошибки не следует.\n\nПодтверждённых расхождений из ревью: 1. Каждое роняет вердикт само по себе, даже если пункта приёмки на это поведение нет.\nНаходки ревью (слова рецензента; место — как он его назвал):\n- Оси «Последствий шагов»: «Совместимость и данные» — в плане объявлена затронутой, но заявленный исход не покрывает: добавлен публичный экспорт validateCustomer — src/index.ts",
+        "kind": "conflict",
+        "passed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-sample-20261005001514096-m1-t2",
+    "model": "ollama:gpt-oss-20b-effort-low-rf",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-effort-low-rf",
+      "explore": "ollama:gpt-oss-20b-effort-low-rf",
+      "ask": "ollama:gpt-oss-20b-effort-low-rf",
+      "plan": "ollama:gpt-oss-20b-effort-low-rf",
+      "chunk": "ollama:gpt-oss-20b-effort-low-rf",
+      "verify": "ollama:gpt-oss-20b-effort-low-rf",
+      "handoff": "ollama:gpt-oss-20b-effort-low-rf"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-05T00:17:58.348Z",
+    "finishedAt": "2026-10-05T00:23:30.776Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "Исследование собрано из ответов по файлам; пути закреплены рантаймом",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "План собран из связанных шагов; независимая проверка выполняется рантаймом",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 4
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "guided: группы проверены; окончательная приёмка на verify; применено 4",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 9
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается его записями, добором по пунктам приёмки и дозаполнением по полям, без второго свободного прохода по тому же diff'у",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 2,
+        "ok": false,
+        "note": "guided: Три предложения подряд не изменяют код; требуется пересмотреть гипотезу; применено 0",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 4
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 12518,
+          "outputTokens": 1650,
+          "cacheReadTokens": 9804,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 44769
+        },
+        "durationMs": 29447,
+        "requestDurationsMs": [
+          2896,
+          4503,
+          5614,
+          2284,
+          5952,
+          12329,
+          11196
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 10083,
+          "outputTokens": 2525,
+          "cacheReadTokens": 6119,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 45390
+        },
+        "durationMs": 45481,
+        "requestDurationsMs": [
+          3535,
+          7180,
+          5031,
+          9239,
+          5788,
+          6231,
+          4589,
+          3797
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 53443,
+          "outputTokens": 3824,
+          "cacheReadTokens": 15672,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 79003
+        },
+        "durationMs": 79932,
+        "requestDurationsMs": [
+          11858,
+          8800,
+          9045,
+          15832,
+          10545,
+          5588,
+          7185,
+          4776,
+          5374
+        ]
+      },
+      {
+        "stage": "chunk",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 78615,
+          "outputTokens": 7645,
+          "cacheReadTokens": 56467,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 143069
+        },
+        "durationMs": 147161,
+        "requestDurationsMs": [
+          10245,
+          3979,
+          11522,
+          13723,
+          3137,
+          2703,
+          17603,
+          54239,
+          8290,
+          4830,
+          4113,
+          6441,
+          2253
+        ]
+      },
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 47355,
+          "outputTokens": 839,
+          "cacheReadTokens": 14153,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 37409
+        },
+        "durationMs": 29075,
+        "requestDurationsMs": [
+          2855,
+          7255,
+          8310,
+          6124,
+          8990,
+          3875
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "claim",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [
+      {
+        "chunk": 1,
+        "attempts": 2
+      }
+    ],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      },
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 151
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 278
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 239
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 339
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 218
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 102
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 51
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 56
+      }
+    ],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 8
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 3
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 12
+      },
+      {
+        "stage": "chunk",
+        "questions": 0,
+        "approvals": 4,
+        "waitMs": 13
+      },
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 3
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": [
+      {
+        "chunk": 1,
+        "attempt": 1,
+        "testsStatus": "✅",
+        "treeChanged": true,
+        "scopeViolation": false
+      },
+      {
+        "chunk": 1,
+        "attempt": 2,
+        "testsStatus": "✅",
+        "treeChanged": false,
+        "scopeViolation": false
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:33d12df5-8f7c-4be3-b436-3256ad473433",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261005001514096-m1-t2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "explore",
+        "requestId": "guided-explore:8fcb6da8-2796-4426-bd14-ef2b99a5258c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261005001514096-m1-t2\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "guided-plan:977411e4-4e1d-4edf-9585-3c68bd31c490",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-4XsmFm\\.sdlc\\guided-sample-20261005001514096-m1-t2\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "plan",
+        "requestId": "guided-plan:b33b6627-816c-4e77-a0b8-aab38b56cb56",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-4XsmFm\\.sdlc\\guided-sample-20261005001514096-m1-t2\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "guided-plan:bb14c9bd-db82-4046-bd8f-5ab6bc8ee9b1",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-4XsmFm\\.sdlc\\guided-sample-20261005001514096-m1-t2\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:045eb8c0-805f-44a0-a706-3a326a7d05d6",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-4XsmFm\\src\\validate.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:3c518259-c363-4531-afb3-87f1147e7910",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-4XsmFm\\test\\validateCustomer.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:7c6458ad-688a-4ce8-bcb4-8910f91e43b0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-4XsmFm\\src\\index.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:c9660c58-0bd0-4cd4-b2d0-5d69c0c30af0",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-4XsmFm\\src\\validate.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-4XsmFm\\.sdlc\\guided-sample-20261005001514096-m1-t2\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4677,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 7666,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 7478,
+        "userChars": 24357,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 13394,
+        "userChars": 9353,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 11975,
+        "userChars": 22430,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 12722,
+        "userChars": 22694,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 8,
+    "pass": 8,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: lineTotal существует до витка и считает верно."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: subtotal на эталонном наборе: 2×333 + 1×334 = 1000."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-2): Валидный покупатель: нарушений нет."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-2): Две собаки — нарушение email (ровно одна @)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-2): Домен без точки — нарушение email."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "ok 6 - Pr4 [precision] (claim-3): Короткий телефон — нарушение phone (+7 и ровно 10 цифр)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr5",
+        "category": "precision",
+        "label": "ok 7 - Pr5 [precision] (claim-3): Формат через восьмёрку — валиден (8 и ровно 10 цифр)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr6",
+        "category": "precision",
+        "label": "ok 8 - Pr6 [precision] (claim-2): Оба поля неверны — оба кода, в фиксированном порядке: email раньше phone."
+      }
+    ],
+    "errorText": null
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": true,
+      "detail": "8 из 8 скрытых тестов зелёные"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "a54fd4e0538a9c04d42539a84e94d9dd35448792bb843044f48005b64b29b329",
+      "configHash": "74185aa9b33b10ce5097e7d6a5509ef31a4d983e60449307b9e14a0add19ad3c",
+      "localEndpoints": {},
+      "inputHash": "a1a5f690f3674e52eb958ba980d5776571240f03107c727aea76c259312aaa9b",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "c93ea7fd2c77c86c487abeedecebd6c68867f60262d63fce750e4dbb17c179bb",
+    "state": "finished",
+    "capturedAt": "2026-10-05T00:23:31.024Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "chunk",
+      "at": "2026-10-05T00:23:30.773Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/chunk-1-attempt-1-steps.md",
+        "sha256": "d48bc877ba562ae893df7255276f8b8ecaf9879acde808ab892c10996490264b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/chunk-1-attempt-2-steps.md",
+        "sha256": "7e903f43ec8a8d5f060c8f1a4e084c16072fe03cf9d5ba069831e233f97eae29",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/iterations.md",
+        "sha256": "b70573bad77b8b47bddea71e1f1c0985bf8ea7a4fdb5bc08c49fbfc470fab49f",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "1d1c7c4bbdc2b50262be9601111a1ce7051d0274017cb96af9625ac103e31d17",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "b2f82724ccce9a88575efffd1ea655b5dbeeac271b03d9ebccd109c0199ab0e7",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "3df81d0ee6cc224c0687c9673f90ba5a25300f00feacd62701138f37bf771b39",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "8943247ef2c94c65d48722bbf33aba1c56fea11ebf2d588b22b325b5063e4b4f",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "f7d5ca0bd1c4df207046a3cfb1073372a3f1aa60dd6c8043099269bf4c19308d",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "716c6f621490a5eb918b0a4d9c03b297061c966414744d1f441af3331f9751cc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "b74e239fea55015d18e7eae958ce019f5531df687869e3b8e7b5a4dd21a619f4",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "verification-report-1-attempt-1.md",
+        "sha256": "c80719b90221c94c85dd68c72a055720ba76a1bcd9172bedb2e3c82875f604c8",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

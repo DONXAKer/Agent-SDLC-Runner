@@ -126,6 +126,8 @@ export interface RunSummary {
   waiting: number;
   /** Момент старта текущего этапа, epoch ms — для «выполняется X мин». `null` — этап не идёт. */
   stageStartedAt: number | null;
+  /** Начало текущего ожидания оператора, epoch ms; null — ожидания нет. */
+  awaitingSince?: number | null;
 }
 
 /**
@@ -229,10 +231,18 @@ export interface ChunkEvidenceMetric {
   /** Дерево изменилось за попытку — `false` означает «правки не было» (`TreeChange`). */
   treeChanged: boolean;
   /**
-   * Хотя бы один из двух Scope-гейтов («файлы вне плана», «пути плана без правок») уже
-   * красный на этом chunk'е — тем же детерминированным кодом, что и на этапе 6, без LLM.
+   * Гейт «Scope: файлы вне плана» уже красный на этом chunk'е — тем же
+   * детерминированным кодом, что и на этапе 6, без LLM. Именно нарушение области:
+   * красный «пути плана без правок» сюда НЕ входит (он краснеет и при нуле применённых
+   * правок — это не нарушение scope, см. `planPathsUntouched`).
    */
   scopeViolation: boolean;
+  /**
+   * Гейт «Scope: пути плана без правок» красный: планные пути не получили правок.
+   * Отдельный сигнал от `scopeViolation`, чтобы «нет правок» не шумело как нарушение
+   * области. Отсутствует в метриках, записанных до появления флага.
+   */
+  planPathsUntouched?: boolean;
 }
 
 /** Трение витка о человека по этапам: сколько раз этап ждал решения или ответа. */
@@ -377,6 +387,8 @@ export interface PreparationSummary {
 }
 
 export interface RunDetail extends RunSummary {
+  executionMode?: import('./guided.ts').ExecutionMode;
+  guided?: import('./guided.ts').GuidedSummary | null;
   preparation?: PreparationSummary | null;
   projectRoot: string;
   /**

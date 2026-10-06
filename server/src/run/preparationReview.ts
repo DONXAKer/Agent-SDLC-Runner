@@ -37,6 +37,17 @@ export function parsePreparationReview(text: string): string[] {
   });
 }
 
+export function preparationReviewResponseFormat(kind: 'scenarios' | 'issues'): Record<string, unknown> {
+  const sentence = { type: 'string', minLength: 1, maxLength: 1000 };
+  const item = kind === 'scenarios'
+    ? { type: 'object', properties: { scenario: sentence, incorrectBehavior: sentence, basis: sentence },
+        required: ['scenario', 'incorrectBehavior', 'basis'], additionalProperties: false }
+    : { type: 'object', properties: { issue: sentence, basis: sentence, location: sentence, counterexample: sentence },
+        required: ['issue', 'basis', 'location', 'counterexample'], additionalProperties: false };
+  return { type: 'json_schema', json_schema: { name: `preparation_review_${kind}`, strict: true,
+    schema: { type: 'object', properties: { [kind]: { type: 'array', items: item } }, required: [kind], additionalProperties: false } } };
+}
+
 export function parseIndependentScenarios(text: string): { scenario: string; incorrectBehavior: string; basis: string }[] {
   const value = parseReviewJson(text);
   if (typeof value !== 'object' || value === null || !('scenarios' in value) || !Array.isArray(value.scenarios) ||
@@ -55,24 +66,61 @@ export async function reviewPreparation(host: StageHost, hooks: ExecHooks): Prom
   if (state === null) return null;
   const fingerprint = preparationFingerprint(host.paths);
   if (state.review?.completed && state.review.fingerprint === fingerprint && reviewSourcesCurrent(host.paths, state.review)) return preparationReviewProblem(host.paths);
-  const route = { ...host.verifyRoute(), formFill: false, reviewFill: false, stepFill: false, exploreFill: false };
+  // Маршрут рецензента — тот же, что у скана этапа 6 (`reviewScan`): отдельный
+  // `reviewModel` из конфига раннера, если задан, иначе маршрут verify. На вердикт это
+  // ревью не влияет ни при каком маршруте — это внутренний фильтр качества плана.
+  const route = { ...host.reviewScan().route, formFill: false, reviewFill: false, stepFill: false, exploreFill: false };
   const signal = host.signal();
   const reviewHooks: ExecHooks = {
     ...hooks,
     onUsage: (usage) => host.accountOffPathUsage('plan', usage, route.providerDef.currency),
-    onToolRequest: async () => ({ allowed: false, reason: 'проверка проработки выполняется без инструментов', by: 'policy' }),
+    // The reviewer gets the original sources in its prompt and may verify a citation
+    // with bounded read-only tools. Never let this independent pass write or execute.
+    onToolRequest: async (_call, meta) => ['Read', 'Glob', 'Grep'].includes(meta.toolName)
+      ? ({ allowed: true, updatedInput: null, by: 'policy' })
+      : ({ allowed: false, reason: 'independent preparation review is read-only', by: 'policy' }),
     onAskHuman: async () => ({}),
     onRecord: () => 'запись недоступна; верни результат текстом',
   };
-  const run = async (system: string, user: string) => {
+  const run = async (system: string, user: string, kind: 'scenarios' | 'issues' = system.includes('"scenarios"') ? 'scenarios' : 'issues') => {
+    system = `ФАЗА: ДО РЕАЛИЗАЦИИ. Chunk ещё не запускался. Исходники — базовое состояние, а план — будущие действия. Отсутствие запланированного нового файла, экспорта или теста в текущем коде ожидаемо и не является дефектом плана. Проверяй, предусмотрены ли нужное действие и проверка в карточках плана. Не требуй уже выполненного изменения до реализации.\nСверяй каждую пару procedure/expected из Intent с исходным запросом: корректный вход не должен ошибочно ожидать отказ, некорректный — успех. План не отменяет ошибку требования или ожидаемого результата в Intent.\nYou may use Read, Glob, or Grep only to verify source evidence. These tools are read-only and limited to the project. Do not request writes, shell commands, or human input. Return the requested JSON after checking.\n\n${system}${kind === 'issues' ? '\nФормат: {"issues":[{"issue":"конкретный пропуск плана","basis":"цитата исходного требования","location":"заголовок карточки/секции и дословная цитата из ПЛАНА","counterexample":"неверное поведение, допускаемое именно этим планом"}]}. Для замечания о тесте сверь его проверку И ожидаемый результат. Не называй отсутствие слова дефектом, если конкретная проверка уже ловит ошибочное поведение. Пустой список: {"issues":[]}.' : ''}`;
+    let capturedAnswer = '';
+    let invalidCapturedAnswer: unknown = null;
+    const runHooks: ExecHooks = {
+      ...reviewHooks,
+      onToolRequest: async (call, meta) => {
+        if (meta.toolName === 'Write' && typeof meta.rawInput['content'] === 'string') {
+          const content = meta.rawInput['content'] as string;
+          try {
+            parseReviewJson(content);
+            capturedAnswer = content;
+          } catch (error) {
+            // A model may try to write an artifact instead of returning the
+            // requested review JSON. Never treat arbitrary file content as a
+            // completed review; keep the protocol failure visible instead.
+            invalidCapturedAnswer = error;
+          }
+          return { allowed: false, reason: 'Answer text captured; writes are disabled for independent review.', by: 'policy' };
+        }
+        return reviewHooks.onToolRequest(call, meta);
+      },
+    };
     const prompt = { system, user, tools: [], editedByOperator: false, presetNote: null };
     host.emit({ type: 'model_exchange', runId: host.id, stage: 'plan', question: user, answer: 'независимая проверка проработки: запрос подготовлен' });
-    const result = await host.executorFor('plan', route, false).run({
-      prompt, cwd: host.projectRoot, model: route.model, allowedTools: [], readOnlyDirs: [], subagents: [], mcp: null,
-      finishGuard: null, salvageFromText: null, maxTurns: 1, maxBudgetUsd: host.maxBudgetUsd,
+    const reviewRoute = { ...route, params: { ...(route.params ?? {}), response_format: preparationReviewResponseFormat(kind) } };
+    const result = await host.executorFor('plan', reviewRoute, false).run({
+      prompt, cwd: host.projectRoot, model: route.model, allowedTools: ['Read', 'Glob', 'Grep'],
+      readOnlyDirs: [host.projectRoot], subagents: [], mcp: null,
+      finishGuard: null, salvageFromText: null, maxTurns: 6, maxBudgetUsd: host.maxBudgetUsd,
       spentUsdBefore: host.spentBefore(route.providerDef.currency ?? 'USD'), signal,
-    }, reviewHooks);
-    if (!result.ok || result.finalText.trim() === '' || signal.aborted) throw new Error(result.note ?? 'независимая проверка не завершена');
+    }, runHooks);
+    if (signal.aborted) throw new Error('independent review cancelled');
+    if (capturedAnswer.trim() !== '') return capturedAnswer;
+    if (!result.ok || result.finalText.trim() === '') {
+      throw new Error(invalidCapturedAnswer === null
+        ? result.note ?? 'независимая проверка не завершена'
+        : `independent review wrote non-JSON content: ${String(invalidCapturedAnswer)}`);
+    }
     return result.finalText;
   };
   const exploration = readArtifact(host.paths.explorationReport).text;
@@ -93,7 +141,8 @@ export async function reviewPreparation(host: StageHost, hooks: ExecHooks): Prom
   }
   sources.push(`Границы независимого чтения: ${sources.length} из ${candidates.length} адресованных файлов; индекс пропустил ${index.skipped.files} файлов. Неподтверждённый существенный факт укажи как неизвестное.`);
   const answers = extractHumanFacts(readArtifact(host.paths.clarificationReport).text).map((fact) => `${fact.question}\n${fact.answer}`).join('\n\n');
-  const original = ['Исходные запросы (дословно):', ...state.requests, 'Ответы человека:', answers, 'Факты исследования; выводы автора могут быть ошибочны:', facts, 'Исходники, прочитанные рантаймом:', ...sources].join('\n\n');
+  const requestContext = ['Исходные запросы (дословно):', ...state.requests, 'Ответы человека:', answers].join('\n\n');
+  const original = [requestContext, 'Факты исследования; выводы автора могут быть ошибочны:', facts, 'Базовые исходники ДО реализации, прочитанные рантаймом:', ...sources].join('\n\n');
   let independent = '';
   try {
     if (state.requests.length === 0) throw new Error('исходный запрос не сохранён: вернись к intent и передай формулировку задачи');
@@ -111,7 +160,7 @@ export async function reviewPreparation(host: StageHost, hooks: ExecHooks): Prom
       // исходом повторно сверяем только найденные замечания с задачей и точным текстом плана.
       const adjudication = await run(
         'Ты — арбитр замечаний, предыдущий критик мог ошибиться. Для каждого замечания проверь исходный запрос и конкретные шаги/проверки плана. Поле incorrectBehavior описывает ошибочную реализацию, а не поведение плана. Оставь замечание только если план действительно допускает указанный дефект. Удали всё, что запрос прямо запрещает, что уже покрыто планом/проверкой, или где критик неверно прочёл сценарий. Не добавляй новых замечаний. Верни только JSON {"issues": ["подтверждённый пропуск, цитата задачи, место плана, контрпример"]}; если замечания не подтверждаются — {"issues":[]}.',
-        [original, 'Независимые сценарии:', independent, 'Требования:', readArtifact(host.paths.intent).text,
+        [requestContext, 'Независимые сценарии:', independent, 'Требования:', readArtifact(host.paths.intent).text,
           'План:', readArtifact(host.paths.plan).text, 'Замечания для проверки:', JSON.stringify(issues)].join('\n\n'),
       );
       issues = parsePreparationReview(adjudication);

@@ -10,7 +10,7 @@ import { initializePreparation, preparation, preparationContext, isPreparationV2
 import { commitTargets } from '../src/run/commitByRuntime.ts';
 import { claimsMinimum, isSmallContour } from '../src/run/stages/preconditions.ts';
 import { readinessRun1, readinessRun2 } from '../src/run/readinessChecks.ts';
-import { reviewPreparation, parseIndependentScenarios, parsePreparationReview } from '../src/run/preparationReview.ts';
+import { reviewPreparation, parseIndependentScenarios, parsePreparationReview, preparationReviewResponseFormat } from '../src/run/preparationReview.ts';
 import { decisionState } from '../src/run/stageInfo.ts';
 import { stageById } from '../src/run/stages/index.ts';
 import { seedPreparationForms } from '../src/run/preparationForms.ts';
@@ -90,6 +90,29 @@ describe('версионированная проработка', () => {
     deepStrictEqual(countClaims(requirements), { rows: 1, edges: 0 });
     ok(requirementProblem(requirements.replace('Вывод полной таблицы вместо пустого результата', '')));
     ok(requirementProblem(requirements.replace('## Основания и сценарии', '## Другая секция')));
+  });
+  it('гейт оснований называет конкретные требования и незаполненные поля', () => {
+    const unknown = requirementProblem(requirements.replace('Вывод полной таблицы вместо пустого результата | claim-1 |', 'Вывод полной таблицы вместо пустого результата | claim-9 |'));
+    ok(unknown?.includes('claim-9: основание для несуществующего требования'), unknown ?? '');
+    ok(unknown?.includes('нет основания, сценария и контрпримера: claim-1'), unknown ?? '');
+    const duplicate = requirementProblem(requirements.replace('## Инварианты', '| Запрос | Повторная зона | Повторный контрпример | claim-1 |\n## Инварианты'));
+    ok(duplicate?.includes('claim-1: дубль основания'), duplicate ?? '');
+    const empty = requirementProblem(requirements.replace('| Неизвестная зона missing |', '|  |'));
+    ok(empty?.includes('claim-1: заполни сценарий'), empty ?? '');
+    const canonical = {
+      documentHash: sourceHash(requirements),
+      acceptance: [{ id: 'claim-1', behavior: 'b', procedure: 'p', expected: 'e' }],
+      basis: [{ id: 'claim-1', basis: 'основание', scenario: 'сценарий', counterexample: 'контрпример' }],
+      constraints: { inScope: [], outOfScope: [], invariants: [], assumptions: [], questions: [] },
+    };
+    strictEqual(requirementProblem(requirements, canonical), null);
+    ok(requirementProblem(requirements, { ...canonical, basis: [{ id: 'claim-9', basis: 'о', scenario: 'с', counterexample: 'к' }] })
+      ?.includes('claim-9: основание для несуществующего требования'));
+    ok(requirementProblem(requirements, { ...canonical, basis: [...canonical.basis, ...canonical.basis] })
+      ?.includes('claim-1: дубль основания'));
+    ok(requirementProblem(requirements, { ...canonical, basis: [{ id: 'claim-1', basis: '', scenario: 'с', counterexample: '' }] })
+      ?.includes('claim-1: заполни основание, контрпример'));
+    ok(requirementProblem(requirements, { ...canonical, basis: [] })?.includes('нет основания, сценария и контрпримера: claim-1'));
   });
   it('передаёт модели только добавочный контекст этапа, а не копии всех артефактов', () => {
     const p = fixture();
@@ -196,7 +219,7 @@ describe('версионированная проработка', () => {
     writeFileSync(join(root, 'src/list.ts'), 'export function list() {}\n', 'utf8');
     const canonicalIntent = [
       '# Задача: фильтр', '## Коротко', 'Фильтрация списка.', '## Зачем', 'Убрать несовпадающие элементы.',
-      '## Что делаем', 'Добавить фильтр.', '## Чего не делаем', 'Не менять формат результата.',
+      '## Что делаем', 'Добавить фильтр.', '## Чего не делаем', 'Не менять формат результата в src/list.ts.', 'Не менять src/locked.ts.',
       '## Инварианты', 'Стабильный порядок элементов.',
       '## Приёмочный лист',
       '| ID | Пункт | Как проверить (процедура + критерий) |',
@@ -224,6 +247,8 @@ describe('версионированная проработка', () => {
     strictEqual(result.canonical?.requirements?.constraints.invariants[0], 'Стабильный порядок элементов.');
     strictEqual(result.canonical?.plan?.filesToTouch.includes('src/list.ts'), true);
     ok(result.canonical?.plan?.fileRoles.some((item) => item.path === 'src/list.ts' && item.roles.includes('target')));
+    strictEqual(result.canonical?.plan?.fileRoles.find((item) => item.path === 'src/list.ts')?.roles.includes('forbidden'), false);
+    strictEqual(result.canonical?.plan?.fileRoles.find((item) => item.path === 'src/locked.ts')?.roles.includes('forbidden'), true);
     strictEqual(result.canonical?.plan?.steps[0]?.claims[0], 'claim-1');
     strictEqual(requirementProblem(canonicalIntent, result.canonical?.requirements), null);
     writeArtifact(p.intent, canonicalIntent.replace('пустой список.', 'все зоны'));
@@ -274,10 +299,19 @@ describe('независимая критика плана', () => {
     return {
       paths: p, id: 'test', projectRoot: root, emit: () => {}, signal: () => new AbortController().signal,
       verifyRoute: () => ({ flow: 'loop', model: 'strong', providerDef: { currency: 'USD' } }),
+      reviewScan: () => ({ route: { flow: 'loop', model: 'strong', provider: 'test', providerDef: { currency: 'USD' } }, blocking: true }),
       maxBudgetUsd: 10, spentBefore: () => 0, accountOffPathUsage: () => {},
       executorFor: (_stage: string, _route: unknown, preparationForms: boolean) => {
         preparationModes.push(preparationForms);
-        return { run: async (req: ExecRequest) => { captured.push(req); return { ok: true, finalText: answers.shift() ?? '', usage: emptyUsage() }; } };
+        return { run: async (req: ExecRequest, hooks: ExecHooks) => {
+          captured.push(req);
+          const answer = answers.shift() ?? '';
+          if (answer.startsWith('WRITE:')) {
+            await hooks.onToolRequest({} as never, { requestId: 'review-write', toolName: 'Write', rawInput: { content: answer.slice(6) }, callerTools: ['Write'] });
+            return { ok: false, finalText: '', note: 'write denied', usage: emptyUsage() };
+          }
+          return { ok: true, finalText: answer, usage: emptyUsage() };
+        } };
       },
     } as unknown as StageHost;
   }
@@ -289,12 +323,15 @@ describe('независимая критика плана', () => {
     writeArtifact(p.clarificationReport, '## Уточнённое требование и подход\nСЕКРЕТ_ИНТЕРПРЕТАЦИИ');
     strictEqual(await reviewPreparation(reviewer(p, ['{"scenarios":[{"scenario":"Перенос","incorrectBehavior":"Меняется id","basis":"Запрос требует сохранить id"}]}', '{"issues":[]}'], captured, preparationModes), {} as ExecHooks), null);
     strictEqual(captured.length, 2);
+    ok(captured[1]!.prompt.system.includes('ФАЗА: ДО РЕАЛИЗАЦИИ'));
+    ok(captured[1]!.prompt.system.includes('дословная цитата из ПЛАНА'));
     ok(!captured[0]!.prompt.user.includes('Реализовать фильтр'));
     ok(!captured[0]!.prompt.user.includes('СЕКРЕТ_АВТОРСКОЙ_ПРИЁМКИ'));
     ok(!captured[0]!.prompt.user.includes('СЕКРЕТ_ИНТЕРПРЕТАЦИИ'));
     ok(captured[0]!.prompt.user.includes("### src/index.ts\nexport { listFilter } from './list.ts';"), 'first review pass receives original-request sources even if the author map omitted them');
     ok(captured[1]!.prompt.user.includes('"scenario":"Перенос"'));
-    deepStrictEqual(captured[0]!.allowedTools, []);
+    deepStrictEqual(captured[0]!.allowedTools, ['Read', 'Glob', 'Grep']);
+    deepStrictEqual(captured[0]!.readOnlyDirs, [root]);
     deepStrictEqual(captured[0]!.subagents, []);
     deepStrictEqual(preparationModes, [false, false], 'independent review must use the ordinary loop executor');
   });
@@ -304,6 +341,8 @@ describe('независимая критика плана', () => {
     const problem = await reviewPreparation(reviewer(p, ['{"scenarios":[]}', JSON.stringify({ issues: [finding] }), JSON.stringify({ issues: [finding] })], captured), {} as ExecHooks);
     ok(problem?.includes('exit 1'));
     strictEqual(captured.length, 3, 'непустые замечания должны пройти арбитраж');
+    ok(!captured[2]!.prompt.user.includes('Базовые исходники ДО реализации'));
+    ok(captured[2]!.prompt.system.includes('Не требуй уже выполненного изменения'));
     throws(() => approvePreparation(p, 'Алексей', new Date()), /требует исправлений/);
   });
   it('ошибка формата и изменение источника после проверки не дают зелёный результат', async () => {
@@ -315,5 +354,28 @@ describe('независимая критика плана', () => {
     ok(preparationReviewProblem(p));
     throws(() => parsePreparationReview('{"issues":[false]}'));
     throws(() => parseIndependentScenarios('{"scenarios":[{"scenario":"x"}]}'));
+  });
+  it('uses closed JSON schemas for each independent review response', () => {
+    const scenarios = preparationReviewResponseFormat('scenarios') as { json_schema: { strict: boolean; schema: { required: string[]; properties: Record<string, { items: { required?: string[]; additionalProperties?: boolean } }> } } };
+    strictEqual(scenarios.json_schema.strict, true);
+    deepStrictEqual(scenarios.json_schema.schema.required, ['scenarios']);
+    deepStrictEqual(scenarios.json_schema.schema.properties.scenarios!.items.required, ['scenario', 'incorrectBehavior', 'basis']);
+    strictEqual(scenarios.json_schema.schema.properties.scenarios!.items.additionalProperties, false);
+    const issues = preparationReviewResponseFormat('issues') as { json_schema: { schema: { required: string[] } } };
+    deepStrictEqual(issues.json_schema.schema.required, ['issues']);
+  });
+  it('uses JSON submitted via a denied Write as an answer candidate without executing the write', async () => {
+    const p = fixture(); const captured: ExecRequest[] = [];
+    const result = await reviewPreparation(reviewer(p, ['{"scenarios":[]}', 'WRITE:{"issues":[]}'], captured), {} as ExecHooks);
+    strictEqual(result, null);
+    strictEqual(preparation(p)!.review!.completed, true);
+    strictEqual(captured.length, 2);
+  });
+  it('rejects artifact Markdown submitted via a denied Write as a review answer', async () => {
+    const p = fixture(); const captured: ExecRequest[] = [];
+    const result = await reviewPreparation(reviewer(p, ['{"scenarios":[]}', 'WRITE:<!-- sdlc-template: plan v1 -->\n# Plan'], captured), {} as ExecHooks);
+    ok(result?.includes('non-JSON content'));
+    strictEqual(preparation(p)!.review!.completed, false);
+    strictEqual(captured.length, 2);
   });
 });

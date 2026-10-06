@@ -431,7 +431,7 @@ async function runIntentWithStub(root: string, events: RunEvent[]): Promise<{ ok
     const run = makeRun(root, events, {
       providerDef: { flow: 'loop', kind: 'openai-compat', baseUrl: `http://127.0.0.1:${port}` },
     });
-    const outcome = await run.runStage('intent');
+    const outcome = await run.runStage('intent', { preparationVersion: 1 });
     return { ok: outcome.ok };
   } finally {
     stub.close();

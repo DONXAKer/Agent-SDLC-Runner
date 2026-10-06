@@ -1,0 +1,407 @@
+{
+  "run": {
+    "slug": "run-20261002-devstral-freeship-offload",
+    "model": "ollama:devstral-small-2",
+    "task": "freeship",
+    "fixtureDir": "fixture",
+    "mode": {
+      "kind": "all"
+    },
+    "profileLabel": "контроль на подписке Claude (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:devstral-small-2",
+      "explore": "ollama:devstral-small-2",
+      "ask": "ollama:devstral-small-2",
+      "plan": "ollama:devstral-small-2",
+      "chunk": "ollama:devstral-small-2",
+      "verify": "claude-sdk:opus",
+      "handoff": "ollama:devstral-small-2"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "handoff"
+    ],
+    "startedAt": "2026-10-02T07:55:44.785Z",
+    "finishedAt": "2026-10-02T08:12:37.604Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 12,
+        "closedBy": "runtime"
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "ответ обрезан лимитом длины, который выставил сам рантайм: история этапа не уместилась в окно, max_tokens садился на пол на 3 ходах — это предел окна, а не отказ модели — рескью дозаполнением не закрыл бланк: заполнение по полям: в тексте заполнено 20, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "turns": 7,
+        "modelRequests": 20
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 27241,
+          "outputTokens": 795,
+          "cacheReadTokens": 22259,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 346200
+        },
+        "durationMs": 202924,
+        "requestDurationsMs": [
+          6299,
+          9758,
+          15686,
+          19351,
+          42717,
+          59088,
+          21613,
+          43928,
+          45060,
+          39642,
+          38977,
+          4092
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 166490,
+          "outputTokens": 2656,
+          "cacheReadTokens": 115531,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 1140989
+        },
+        "durationMs": 808699,
+        "requestDurationsMs": [
+          25500,
+          7834,
+          4754,
+          4601,
+          9390,
+          97810,
+          190754,
+          114970,
+          22764,
+          30793,
+          36210,
+          7461,
+          12633,
+          21258,
+          53326,
+          59977,
+          97899,
+          4169,
+          50245,
+          93819,
+          6442,
+          58404,
+          68258,
+          6697,
+          11565,
+          18990,
+          7961,
+          16520
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 8,
+        "reminders": 1
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 1,
+        "approvals": 1,
+        "waitMs": 15
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 12
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      },
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 4
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:d15537bf-45d9-48c6-839b-98467c1a0f7e",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-devstral-freeship-offload\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 8
+      },
+      {
+        "stage": "explore",
+        "requestId": "loop:31ba3486-5dfb-40b3-b418-ee8c1a2dc874",
+        "kind": "subagent",
+        "toolName": "Task",
+        "targets": [],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 1
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:c92cdf98-9400-4070-85e2-0660eaabf443",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-devstral-freeship-offload\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "explore",
+        "requestId": "form:db7b7629-4dad-4f4f-8bfa-718a6ab91b8c",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\run-20261002-devstral-freeship-offload\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "Как должен называться файл с новым модулем для правила льготы?"
+          }
+        ],
+        "answeredFrom": "fallback",
+        "tag": null
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Task",
+        "kind": "subagent"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11266,
+        "userChars": 5341,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 10536,
+        "userChars": 10092,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-7d0b7649-3960-41ec-84af-d9909b4229d3-1",
+        "questionId": "intent-open-0",
+        "text": "Как должен называться файл с новым модулем для правила льготы?"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e78a5c6373a68f86059524d61c1493b3d337d284db42edfea1594a64bb3464af",
+      "configHash": "f575cd65a93795efeff882bb7caf132baa210b2444c0f6219d68452d98028c51",
+      "localEndpoints": {},
+      "inputHash": "4cc84a0e52a93b43c4c78998888747a30564c996575d5b3aa3bb9ec376dda554",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 10800000
+    },
+    "workspaceHash": "7b408bdc3e76b08b87db336f490fc7ab9228a48f0f5f54c322d85f7d632fdc7f",
+    "state": "finished",
+    "capturedAt": "2026-10-02T08:12:37.627Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-02T08:12:37.601Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "158c1717e9e99d279f9665a306268b400877cb9fd5ae3ab30eb31efc4ba461f8",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "07f2bb4938409a6e1bf4fb5ae5eabcd45ec7a54573e9f9afc05051edbc49d254",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "8266cdfd510dc8df9c81ff688b0780506bd17c33f2f390be086b61c67ae9b0e8",
+        "placeholders": 4,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "0ef6431632a5ab6a8f94e08d91c3e3d59fcfca5cb66437b0469d751c31add55a",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "53d755ab88bff062b59437e37cdb78e3f8987bb12073567b1869fa90dbd9883f",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

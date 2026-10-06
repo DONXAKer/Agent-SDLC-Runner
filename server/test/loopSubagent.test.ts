@@ -243,7 +243,8 @@ describe('модель субагента во флоу loop', () => {
     } as unknown as ChatProvider;
     const exec = new LoopExecutor({ provider: p, maxResultBytes: 1000, readRangeRequiredAboveBytes: 1000, bashTimeoutMs: 1000, temperature: null });
     await exec.run(request({ subagents: [locator] }), hooks(emptySeen()));
-    ok(systems.some((system) => system.includes('его отсутствие сейчас ожидаемо')));
+    ok(systems.some((system) => /Отсутствие запланированной новой функции или нового теста ожидаемо/u.test(system)));
+    ok(systems.some((system) => system.includes('Сообщи расхождение только при отсутствующей необходимой опоре')));
   });
 
   it('алиас Claude Code (`model: opus`) не уходит провайдеру — НЕ-рецензент идёт на модели этапа', async () => {

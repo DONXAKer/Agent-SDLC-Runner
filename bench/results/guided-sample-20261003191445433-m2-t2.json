@@ -1,0 +1,300 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:granite4.2-8b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 193984,
+    "remainingMs": 1606016,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": []
+  },
+  "run": {
+    "slug": "guided-sample-20261003191445433-m2-t2",
+    "model": "ollama:granite4.2-8b-ctx32k-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "explore": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "ask": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "plan": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "chunk": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "verify": "ollama:granite4.2-8b-ctx32k-compactfill",
+      "handoff": "ollama:granite4.2-8b-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-03T19:27:47.683Z",
+    "finishedAt": "2026-10-03T19:31:02.309Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Исследование src/index.ts не подготовлено: Исправь формат предыдущего ответа: Expected ',' or ']' after array element in JSON at position 2854 (line 7 column 14)\n{\n  \"fact\": \"Файл src/index.ts экспортирует функцию bill(number, customer, lines, config?) без параметра opts. Функция вызывает buildInvoice(number, customer, lines, config). Типы BillingConfig, Invoice, resolveConfig импортируются. По задаче bill должен принимать opts?.dueDays как пятый параметр-объект, вычислять dueDays по приоритету opts?.dueDays → resolveConfig().defaultDueDays → 14, и передавать dueDays в Invoice (через buildInvoice). Файл src/config.ts содержит BillingConfig и resolveConfig, который уже читает конфиг без прямых обращений к DEFAULT_CONFIG. Файл invoice.ts (не показан) содержит buildInvoice, который создает Invoice с полем dueDays. Текущий src/index.ts не имеет opts и не вычисляет dueDays.\",\n  \"impact\": \"Нужно изменить bill в src/index.ts, чтобы он принимал opts объект с dueDays?, вычислял dueDays как opts?.dueDays ?? resolveConfig().defaultDueDays ?? 14, и передавал dueDays в buildInvoice. Однако сигнатура buildInvoice неизвестна (не показан invoice.ts). Предположительно buildInvoice должен принимать dueDays (например, как отдельный параметр или в config). Изменение должно сохранять совместимость: если buildInvoice уже принимает config и другие данные, то bill может передать dueDays либо в config, либо как отдельный параметр, в зависимости от реализации buildInvoice. В любом случае bill должен вычислить dueDays и передать его. Это необходимо для реализации приоритета dueDays.\",\n  \"change\": \"export function bill(\\n  number: string,\\n  customer: Customer,\\n  lines: readonly Line[],\\n  config?: Partial<BillingConfig>,\\n  opts?: { dueDays?: number },\\n): Invoice {\\n  const dueDays = opts?.dueDays ?? resolveConfig().defaultDueDays ?? 14;\\n  return buildInvoice(number, customer, lines, config, { dueDays });\\n}\",\n  \"reuse\": \"Используем resolveConfig() для получения defaultDueDays; dueDays вычисляется по приоритету opts → конфиг → встроенный 14. Передаём dueDays в buildInvoice через объект { dueDays } (предположительно buildInvoice принимает такой объект или может обработать dueDays из config). Это согласуется с контрактом задачи.\",\n  \"risks\": [\"Если buildInvoice в invoice.ts не принимает параметр dueDays или объект { dueDays }, вызов buildInvoice(number, customer, lines, config, { dueDays }) вызовет ошибку синтаксиса или отсутствия параметра. Нужно уточнить сигнатуру buildInvoice. Однако по контракту Invoice получает dueDays, значит buildInvoice должен быть изменён соответствующим образом (это часть задачи). В рамках исследования изменение src/index.ts требует согласования с изменением invoice.ts; риск осуществления без совместного изменения invoice.ts — но это обычное требование задачи. Поэтому риск фиксирован: изменение корректно следует контракту, если invoice.ts будет обновлен так, чтобы buildInvoice принимал dueDays (например, как отдельный параметр или через config).\",\n  \"questions\": []\n}",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 4
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 18277,
+          "outputTokens": 2246,
+          "cacheReadTokens": 14428,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 106643
+        },
+        "durationMs": 51715,
+        "requestDurationsMs": [
+          13787,
+          14285,
+          20150,
+          12649,
+          14576,
+          27746,
+          3458
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 20227,
+          "outputTokens": 5874,
+          "cacheReadTokens": 11538,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 142224
+        },
+        "durationMs": 142288,
+        "requestDurationsMs": [
+          9519,
+          20294,
+          87280,
+          25131
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:aaef0fd7-e3f3-45af-9b79-254f43154858",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261003191445433-m2-t2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4802,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 15265,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "e61b49de62a9f6dcb24112a903fbfb81341b07884a44a99f9a382f68dc231b58",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "478ede4ad07c21228fa410a45a2990735a0c67286ac906eb5b772b5c6d3675d4",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 900000
+    },
+    "workspaceHash": "23a38b8569786c17dfc272537b3f1bc94a2d214b5b008151396edada8ba8d93e",
+    "state": "finished",
+    "capturedAt": "2026-10-03T19:31:02.330Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-03T19:31:02.306Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "b8a0ff9da76cbb3ff03239557ae3d4f979f0e73244fcccf5240db52f872370bd",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "1bebb39f4c81758eb84e9393c81ca8a4c7dfad1a5cc54fb96d864475be91cbca",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "f8ad6a7075b15ddc660ad9bc2709a2200f40e9286b15f53cc10bc60ff68dd874",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "5967028690ef207203f7dd7d195ef725fd276a2c8a1a6375a12ca710e10f62ad",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

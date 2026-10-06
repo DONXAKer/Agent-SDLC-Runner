@@ -739,7 +739,7 @@ export async function runPreflight(opts: BenchOptions, deps: Partial<PreflightDe
       const layout = await checkLayout(d, ctx.config, opts);
       if (layout !== null) checks.push(layout);
     }
-    if (checks.every((c) => c.ok)) {
+    if (checks.every((c) => c.ok) && opts.executionMode !== 'guided') {
       checks.push(...(await checkModel(d, ctx.config, opts)));
     }
   }

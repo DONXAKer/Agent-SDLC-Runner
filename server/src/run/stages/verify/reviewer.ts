@@ -24,6 +24,9 @@ import { REVIEW_GATE } from './gates.ts';
 import { acceptRecord } from './records.ts';
 import { readBaseline } from '../chunk/evidence.ts';
 import { reviewBaselineContext } from '../../reviewBaseline.ts';
+import { guidedSourceHunks } from '../../guidedState.ts';
+import { readGuided, guidedReviewContext } from '../../guidedState.ts';
+import { preparation } from '../../../artifacts/preparation.ts';
 
 /**
  * Все шесть осей канона — свободному ходу рецензента, тем же приёмом и по той же причине,
@@ -101,18 +104,23 @@ export function reviewAxes(planText: string | null): AxisAsk[] {
  * раз не нужно — иначе дешёвая модель тратит ходы на повторное ревью, которое уже
  * состоялось (а анти-цикл на `Task` ×3 её же и обрывает).
  */
-export function reviewerBlock(text: string): string {
-  return [
-    '## Отчёт независимого рецензента (прогон рантайма, этот этап)',
-    '',
-    'Ревью уже проведено: рецензент запущен рантаймом на отдельном маршруте, твоего рассказа',
-    'о работе он не получал. Повторно звать субагента `Task` не надо — перенеси находки в',
-    '§2–§5 отчёта приёмки и учти их в статусах пунктов. Своим мнением находки не отменяй:',
-    'расхождение, названное рецензентом, роняет вердикт, даже если пункта приёмки на это',
-    'поведение нет.',
-    '',
-    text,
-  ].join('\n');
+export function reviewerBlock(text: string, blocking = true): string {
+  const intro = blocking
+    ? [
+        'Ревью уже проведено: рецензент запущен рантаймом на отдельном маршруте, твоего рассказа',
+        'о работе он не получал. Повторно звать субагента `Task` не надо — перенеси находки в',
+        '§2–§5 отчёта приёмки и учти их в статусах пунктов. Своим мнением находки не отменяй:',
+        'расхождение, названное рецензентом, роняет вердикт, даже если пункта приёмки на это',
+        'поведение нет.',
+      ]
+    : [
+        'Скан ревью уже выполнен рантаймом, твоего рассказа о работе он не получал. Повторно',
+        'звать субагента `Task` не надо. Скан выполнила та же модель, что и исполнитель, поэтому',
+        'его находки — СПРАВОЧНЫЕ (advisory): перенеси их в отчёт отдельно, но своим мнением не',
+        'отменяй — вердикт они не роняют по построению: его считает рантайм из гейтов, сверки',
+        'diff с деревом и проверок честности.',
+      ];
+  return ['## Отчёт рецензента (прогон рантайма, этот этап)', '', ...intro, '', text].join('\n');
 }
 
 /**
@@ -125,12 +133,16 @@ export function reviewerBlock(text: string): string {
  * так называет проверенные файлы. Неполный конвейер (упавшие запросы) гейт не зеленит.
  *
  * `null` — ревью не состоялось: патча нет, либо прогон отменён до первого вопроса.
+ *
+ * `blocking: false` — конвейер идёт той же моделью, что исполнитель (`reviewScan`):
+ * находки принимаются справочными (advisory) и вердикт не роняют.
  */
-export async function runReviewFill(host: StageHost, route: ResolvedRoute): Promise<string | null> {
+export async function runReviewFill(host: StageHost, route: ResolvedRoute, blocking = true): Promise<string | null> {
   const signal = host.aborterSignal();
   if (signal === undefined) return null;
   const diff = readArtifact(host.paths.chunkDiff(host.chunk(), host.attempt()));
-  if (!diff.exists || diff.text.trim() === '') {
+  const sources = diff.exists && diff.text.trim() === '' ? guidedSourceHunks(host.paths) : [];
+  if (!diff.exists || (diff.text.trim() === '' && sources.length === 0)) {
     host.emit({
       type: 'warning',
       runId: host.id,
@@ -142,7 +154,9 @@ export async function runReviewFill(host: StageHost, route: ResolvedRoute): Prom
   const plan = readArtifact(host.paths.plan);
   const axes = reviewAxes(plan.exists ? plan.text : null).map((r) => ({ name: r.name, affected: r.affected, outcomeRaw: r.outcomeRaw }));
   const intent = readArtifact(host.paths.intent);
-  const taskContext = [intent.exists ? [...host.intentClaimLines(intent.text).values()].join('\n') : '',
+  const taskContext = [readGuided(host.paths) ? (preparation(host.paths)?.requests ?? []).join('\n\n') : '',
+    intent.exists ? [...host.intentClaimLines(intent.text).values()].join('\n') : '',
+    readGuided(host.paths) ? guidedReviewContext(host.paths) : '',
     reviewBaselineContext(host.paths.projectRoot, diff.text, readBaseline(host))].filter(Boolean).join('\n\n');
   const limits = host.limits();
 
@@ -152,6 +166,7 @@ export async function runReviewFill(host: StageHost, route: ResolvedRoute): Prom
     params: route.params,
     taskContext,
     diff: diff.text,
+    ...(sources.length ? { sourceHunks: sources } : {}),
     axes,
     // Тот же потолок, что у среза патча в поклаймовом доборе: фрагмент конкурирует за
     // то же окно локальной модели.
@@ -163,7 +178,8 @@ export async function runReviewFill(host: StageHost, route: ResolvedRoute): Prom
 
   // Находки проходят тем же приёмом, что записи модели: проверка ссылки, рендер
   // рантайма, гейт одобрения. Второго места, знающего форму записи, не появляется.
-  for (const call of result.findings) acceptRecord(host, call);
+  // Скан той же моделью, что исполнитель, — справочный: находки помечаются advisory.
+  for (const call of result.findings) acceptRecord(host, call, { advisory: !blocking });
 
   // Оба конвейера обязаны дойти до конца — не только хунки. Докстринг
   // `skipTurnAfterReviewFill` определяет «конвейер прошёл целиком» как «все хунки И все
@@ -239,7 +255,11 @@ export async function runReviewerDirectly(
   const axisBlock = axisVerificationBlock(planForAxes.exists ? planForAxes.text : null);
   const userWithAxes = axisBlock === null ? prompt.user : `${prompt.user}\n\n${axisBlock}`;
 
-  const route = host.verifyRoute();
+  // Маршрут скана — `reviewScan`: отдельный `reviewModel` из конфига раннера либо
+  // маршрут этапа verify, как прежде. `blocking: false` — скан той же моделью, что
+  // исполнитель: его находки принимаются справочными (advisory).
+  const scan = host.reviewScan();
+  const route = scan.route;
   try {
     const runOnce = async (user: string) => host.executorFor('verify', route).run(
       {
@@ -275,18 +295,20 @@ export async function runReviewerDirectly(
 
     // Контракт ответа (`implementations/runner-contract` методологии, `verify-review-v1`):
     // JSON-блок со статусом по КАЖДОМУ пункту задачи и адресными находками. Один
-    // repair-запрос с названными ошибками; второй невалидный ответ — гейт остаётся `⏭`.
+    // До двух repair-запросов с названными ошибками; затем гейт остаётся `⏭`.
     // Прежде ответ судился регулярками по markdown: хватало якоря из патча и упоминания
     // id, и «оформитель» проходил планку пересказом (code-review-all 2026-09-23).
-    let accepted = result.ok && text !== '' ? acceptReviewText(host, text, 'рантайм') : { ok: false as const, why: 'пусто' };
-    if (result.ok && text !== '' && !accepted.ok && !signal.aborted) {
+    let accepted = result.ok && text !== '' ? acceptReviewText(host, text, 'рантайм', { advisory: !scan.blocking }) : { ok: false as const, why: 'пусто' };
+    const rejectedTexts: string[] = [];
+    for (let repair = 1; repair <= 2 && result.ok && text !== '' && !accepted.ok && !signal.aborted; repair += 1) {
+      rejectedTexts.push(text);
       host.emit({
         type: 'warning',
         runId: host.id,
         stage: 'verify',
-        message: `ответ рецензента не по контракту verify-review-v1: ${accepted.why} — один повторный запрос`,
+        message: `ответ рецензента не по контракту verify-review-v1: ${accepted.why} — повторный запрос ${repair} из 2`,
       });
-      // Repair — ОДИН запрос (норма методологии, `runner-contract/README.md`), поэтому он
+      // Каждый repair — полный ответ, поэтому он
       // обязан назвать всё, что от ответа требуется, а не только то, что в нём сломано:
       // список допустимых id и путей патча — то же самое, чем ответ будет судиться повторно
       // (`reviewInputs`, единый источник с планкой), плюс минимальный скелет JSON. Прежде
@@ -308,7 +330,8 @@ export async function runReviewerDirectly(
         2,
       );
       const retry = await runOnce(
-        `${userWithAxes}\n\n## Повтор: ответ не по контракту\n\nПрошлый ответ не принят целиком, ошибки: ${accepted.why}.\n\n` +
+        `${userWithAxes}\n\n## Повтор ${repair} из 2: ответ не по контракту\n\nПрошлый ответ не принят целиком, ошибки: ${accepted.why}.\n\n` +
+          `Исправь оформление, сохрани найденные дефекты и неопределённости. Предыдущий ответ (справочно):\n${text.slice(0, 12000)}\n\n` +
           `Допустимые id пунктов приёмки (ровно эти, не больше и не меньше): ${[...claimIds].join(', ')}.\n` +
           `Пути патча этой попытки (ссылки evidence обязаны называть один из них — либо ` +
           `intent.md/plan.md/gates.md для находок про артефакты): ${[...patchPaths].join(', ') || '(патч пуст)'}.\n\n` +
@@ -324,12 +347,15 @@ export async function runReviewerDirectly(
         // чтобы два статуса одного пункта не читались как равноправные (code-review-all
         // 2026-09-23).
         const judged = retry.finalText.trim();
-        accepted = acceptReviewText(host, judged, 'рантайм, повтор');
-        text =
-          `${judged}\n\n## Первый ответ рецензента (не по контракту — только для справки; ` +
-          `итог — ответ выше)\n\n${text}`;
-        result = { ...retry, finalText: text };
+        accepted = acceptReviewText(host, judged, 'рантайм, повтор', { advisory: !scan.blocking });
+        text = judged;
       }
+      result = retry;
+    }
+    if (rejectedTexts.length > 0) {
+      text += rejectedTexts.map((previous, index) =>
+        `\n\n## Отклонённый ответ рецензента ${index + 1} (не по контракту — только для справки; итог — ответ выше)\n\n${previous}`,
+      ).join('');
     }
     if (!result.ok || text === '') {
       // Причина обязана быть НАЗВАНА, а не сведена к «пусто»: живой прогон дал
@@ -395,7 +421,7 @@ export function reviewInputs(host: StageHost): { claimIds: Set<string>; patchPat
  * модели (`acceptRecord`: сверка ссылки с патчем, рендер рантайма), и запоминается для
  * `.chunk-N-attempt-K-review.json`. `ok: false` — ответ не принят, причина названа.
  */
-export function acceptReviewText(host: StageHost, text: string, source: string): { ok: true } | { ok: false; why: string } {
+export function acceptReviewText(host: StageHost, text: string, source: string, opts?: { advisory?: boolean }): { ok: true } | { ok: false; why: string } {
   const { claimIds, patchPaths } = reviewInputs(host);
   const v = parseReviewText(text, claimIds, patchPaths);
   // Прежде — только первые 6 ошибок: repair-запрос строится ИЗ `why`, и обрезанный список
@@ -417,7 +443,7 @@ export function acceptReviewText(host: StageHost, text: string, source: string):
   ];
   for (const [field, section] of sections) {
     for (const f of review[field]) {
-      acceptRecord(host, { kind: 'record_finding', section, text: f.summary, evidence: refs(f.evidence) });
+      acceptRecord(host, { kind: 'record_finding', section, text: f.summary, evidence: refs(f.evidence) }, opts);
     }
   }
   host.verifyState.reviewJson = review;

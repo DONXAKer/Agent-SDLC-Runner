@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import type { RunnerConfig } from '../src/config/schema.ts';
+import { EXPLORE_REQUEST_TIMEOUT_DEFAULT_MS, exploreChatTimeoutMs } from '../src/config/limits.ts';
 import {
   OPERATOR_PLACEHOLDER,
   expandUserPath,
@@ -101,6 +102,26 @@ describe('runner.local.json поверх runner.json', () => {
       // Остальные значения не потерялись вместе с блоком.
       strictEqual(r.limits.maxToolResultBytes, 60000);
     });
+  });
+
+  it('потолок запроса этапа explore: умолчание 120 с, локальное значение побеждает, не выше chatTimeoutMs', () => {
+    withEnv('SDLC_OPERATOR', undefined, () => {
+      const r = runnerFrom(configDir(null));
+      strictEqual(r.limits.exploreRequestTimeoutMs, EXPLORE_REQUEST_TIMEOUT_DEFAULT_MS);
+      strictEqual(exploreChatTimeoutMs(r.limits), EXPLORE_REQUEST_TIMEOUT_DEFAULT_MS);
+      const local = runnerFrom(configDir({ limits: { exploreRequestTimeoutMs: 30000 } }));
+      strictEqual(exploreChatTimeoutMs(local.limits), 30000);
+    });
+    // Общий потолок ниже — запрос этапа не может быть длиннее него.
+    strictEqual(
+      exploreChatTimeoutMs({ chatTimeoutMs: 60_000, exploreRequestTimeoutMs: 120_000 } as RunnerConfig['limits']),
+      60_000,
+    );
+    // Незаданное поле (конфиг мимо загрузчика) — то же умолчание, без undefined в таймауте.
+    strictEqual(
+      exploreChatTimeoutMs({ chatTimeoutMs: 600_000 } as RunnerConfig['limits']),
+      EXPLORE_REQUEST_TIMEOUT_DEFAULT_MS,
+    );
   });
 });
 

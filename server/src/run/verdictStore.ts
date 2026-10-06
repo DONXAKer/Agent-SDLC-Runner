@@ -152,7 +152,7 @@ export function stalePatchReason(paths: WitokPaths, chunk: number, attempt: numb
   if (v.committedSha !== null) return null;
   return v.patchSha === patchShaOf(paths, chunk, attempt)
     ? null
-    : `патч попытки ${attempt} изменён после вердикта этапа 6 — повтори verify`;
+    : `патч попытки ${attempt} изменён после вердикта этапа 6 — повтори verify для проверки текущего патча; при красном вердикте перейди к новой попытке`;
 }
 
 /**

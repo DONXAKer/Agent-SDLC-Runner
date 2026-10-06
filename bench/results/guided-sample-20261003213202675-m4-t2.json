@@ -1,0 +1,320 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:ministral3-14b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 300389,
+    "remainingMs": 1499611,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": []
+  },
+  "run": {
+    "slug": "guided-sample-20261003213202675-m4-t2",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "two-right-answers",
+    "fixtureDir": "fixtures/booking",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-03T21:56:49.235Z",
+    "finishedAt": "2026-10-03T22:01:50.239Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; ответ на поле отклонён: поле приемочный лист: acceptance: используй уникальные ID формата claim-N; будет повторный запрос с причиной; ответ на поле отклонён: поле основания и сценарии: basis должен быть валидным JSON-массивом; верни только массив объектов; будет повторный запрос с причиной; ответ на поле отклонён: поле приемочный лист: acceptance должен быть валидным JSON-массивом; верни только массив объектов; будет повторный запрос с причиной; ответ на поле отклонён: поле основания и сценарии: basis должен быть валидным JSON-массивом; верни только массив объектов; будет повторный запрос с причиной",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 11
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Исследование src/hold.ts не подготовлено: Исправь формат предыдущего ответа: Bad control character in string literal in JSON at position 913 (line 12 column 59)\n```json\n{\n  \"fact\": {\n    \"makeHold(id: string, slot: Slot, now: Date): Hold\": {\n      \"description\": \"Функция создаёт новый объект Hold, который привязывает идентификатор `id` к слоту, но с контрактом на то, что слот **начинается после текущего момента времени** (`instantOf(slot.startIso) > now`). Созданная бронь имеет неизменный `id` и значение `expiresIso`, равное `startIso` слота.\",\n      \"contract\": {\n        \"arguments\": {\n          \"id\": \"Непустая строка. При проверке.trim === '' выбрасывает `RangeError('идентификатор брони пуст')`.\",\n          \"slot\": \"Слот не должен уже начаться: если `slot.startIso` в прошлом (относительно `now`), выбрасывает ошибку `RangeError`.\",\n          \"now\": \"Используется для текущего временного среза, отражает правила валидности брони (например, нельзя забронировать уже начатый слот).\"\n        },\n        \"result\": {\n          \"description\": \"Возвращает объект Hold с полями:\n            - `id` (от исходного аргумента),\n            - `slot` (новый снимок объекта слота со свойствами `startIso`, `endIso`),\n            - `expiresIso` (заполняется `slot.startIso`, время истечения брони совпадает с началом слота).\"\n        },\n        \"effects\": {\n          \"mutability\": \"Создаёт новый объект и **не изменяет ни один внешний ресурс** (нет побочных эффектов по изменению `hold` elsewhere).\",\n          \"idempotency\": \"Невидима при повторном вызове на одно и то же состояние.\"\n        }\n      }\n    },\n    \"isActive(hold: Hold, now: Date): boolean\": {\n      \"description\": \"Проверка: действует ли бронь на момент времени `now`.\",\n      \"contract\": {\n        \"arguments\": null,\n        \"result\": {\n          \"description\": {\n            \"condition\": \"`true`, если `now` <= время из `hold.expiresIso` (с включительной границей), иначе `false`.\"\n          }\n        },\n        \"effects\": null\n      }\n    },\n    \"interface Hold: { id: string, slot: Slot, expiresIso: string }\": {\n      \"description\": \"Описание иммутабельного объекта. Все поля зафиксированы при создании.\",\n      \"mutability\": \"Нет методов сеттеров или модификаторов; поле `id` — ключ сущности, `expiresIso` задаётся один раз и не зависит от изменений слота.\"\n    }\n  },\n  \"impact\": \"\n  Выявленное ограничение кодовой базы указывает несколько ключевых факторов для задачи переноса брони (moveHold):\\\n    - **Внутренняя иммутабельность `Hold`**: Наличие отсутствия сеттеров или методов для динамических изменений делает невозможной корректировку какого-либо поля (кроме копирования при создании нового объекта). Таким образом:\n      - Изменения полей через прямой доступ или мутации **запрещен** (нет методов для этого в коде).\n      - Копирования, как основа переноса, требует генерации нового объекта Hold с сохранением всех остальных свойств (`id`, `expiresIso`), кроме `slot`.\n    - **Сохранение иммутабельности в логике тестов `src/hold.test.ts`**: В тестах создаются новые объекты при переносе и валидируется отсутствие изменений в оригинале (например, проверки на то, что ID и `expiresIso` остаются прежними при вызове функций).\n    - **Структурная зависимость логики от `makeHold`** — это способ создания новых объектов `Hold` (текущее решение для создания брони) с контрактом на копирование и проверки в `makeHold`. Локальные изменения брони (с сохранением старых полей) будут проходить через аналогичный механизм.\n\n  Таким образом, в условиях текущей архитектуры перенос **требует создания Нового объекта с прежними значениями `id` и `expiresIso` и только изменёнными значениями `slot**. Вопрос о возможности мутации (изменении) объекта `Hold`, сохраняя его `id`, не изучен — архитектуре проекта это противоречит (исключения есть только при инициализации через функцию `makeHold`). Также проверки правильности изменения слота (включая время) переносятся на контекст задачи диспетчера.\n  \",\n\n  \"change\": \"\n    {\\\n      \\\"type\\\": \\\"function-add\\\",\\\n      \\\"method\\\": {\\\n        \\\"name\\\": \\\"moveHold\\\",\\\n        \\\"arguments\\\": \\\"(hold: Hold, newSlot: Slot) => Hold\\\",\\\n        \\\"contract\\\": {\\\n          \\\"description\\\": \\\"Приняв бронь с неким Slot на новый Slot, создать новый иммутабельный объект Hold с прежними: id, expiresIso.\\\",\\\n          \\\"assumptions\\\": {\\\n            \\\"slot-mutability\\\": \\\"Новый слот не должен быть временно или форматно некорректным, если не предусмотрена отдельная логика проверки.\\\",\\\n            \\\"effects\\\": \\\"Нет модификации состояния исходного объекта (в отличие от `makeHold`, который может выбрасывать исключения при нарушении временного контекста).\\\"\\n          }\\\n        },\\\n        \\\"implementation\\\": {\\\n          \\\"code\\\": \\\"\\\n            \\\"export function moveHold(hold: Hold, newSlot: Slot): Hold {\\\\\n              return {\\\\\n               id: hold.id,\\\\\n               slot: { ...newSlot },  // Копирование свойств слота,\\\\\n               expiresIso: hold.expiresIso \\\\\n              };\\\\\n            }\\\\\n            \\\"\\\"\\\n        },\\\n        \\\"export\\\": true\"\n      }\n    }\n    \",\n  \"reuse\": \"\n    Следует скопировать существующую фабричную логику создания объектов вида `Hold` из функции `makeHold`, где происходит генерация нового объекта, а также сохранить неизменный `id`, как это зафиксировано при вызове `makeHold` для новых экземпляров. Пример из тестов по обработке состояний: новый объект создаётся только с перезаписью временной метки без изменений остальных полей брони. Для переноса также требуется инициализировать объект с обновлённым `slot` и не изменёнными остальными значениями.\n  \",\n  \"risks\": [\n    {\"description\": \"**Текущая реализация не проверяет наличие пересечений брони и изменения его `expiresIso` или `startIso`. Нарушение временной модели может вызвать перекрытия или непротестированные состояния. Хотя по задаче такая проверка не нужна, риском является то, что логическая граница временных слотов будет нарушена, если `endIso` нового слота меньше какого-то значения.\"},\n\n    {\"description\": \"**Реализация не использует `now`, а также проверки на корректность времени нового слота и переназначения логики брони при истечении. Прямая корреляция с бизнес-правилами диспетчера по перебросу броней на историческую временную шкалу отсутствует.\"}\n  ],\n  \"questions\": [\n    {\"question\": \"Существуют ли в бизнес-логике **ограничения на `expiresIso` при изменении слота**? Например, если новая дата истечения брони не должна превышать дату/время изначального слота. В настоящее время контракт по переносу предполагает единственно корректное использование `expiresIso` по аналогии с `makeHold`.\",\n    \"blocking\": true\n    },\n    {\"question\": \"Как диспетчерам или другим модулям передаётся обновлённая информация о переносе брони (логирование, события)? Нужно ли вводить новую асинхронную логику для отслеживания статуса изменения состояния броней по идентификатору?\",\n    \"blocking\": false\n    }\n  ]\n}\n```",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 2
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 21677,
+          "outputTokens": 4691,
+          "cacheReadTokens": 17762,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 206842
+        },
+        "durationMs": 168326,
+        "requestDurationsMs": [
+          1874,
+          8585,
+          12282,
+          9882,
+          18519,
+          44170,
+          19885,
+          30774,
+          26481,
+          13662,
+          20736
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 8713,
+          "outputTokens": 3542,
+          "cacheReadTokens": 3435,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 132026
+        },
+        "durationMs": 132086,
+        "requestDurationsMs": [
+          60473,
+          71553
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 10
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "exploration-report.md",
+        "placeholders": 12
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:f765b590-294a-42c7-90e5-fe470c5bca85",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261003213202675-m4-t2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:674b8271-4ec7-4bf9-97fc-664fc69aabd5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261003213202675-m4-t2\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4744,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 14589,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "cc1fbd7e5c8b544feab385826f0f34894a352db50fc001bb76ce15513e6044f8",
+      "configHash": "eb33c47feb152b6fb0c80014fa3c42ec18ae8f6f511107447fd9b720fef53d99",
+      "localEndpoints": {},
+      "inputHash": "0631e69676ba36b61de3235acd6857989eacc7e44e6d213045cd3db15330bdd7",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 900000
+    },
+    "workspaceHash": "5ed4476964bbcd19c5dd68dcd45474209242b1d538c6081c98d9333bac929901",
+    "state": "finished",
+    "capturedAt": "2026-10-03T22:01:50.256Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-03T22:01:50.236Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "b79703e958c55242803fbbcbff9de6b0f95243585e0e9c068929251ba46490fb",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "b0e090be1d056e0b473ab31803f1da2ca09d9b5a2aedb1699289cafe3a676fef",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "3d6bd45e2d68575374727434dd09d3dbacff085f6cd8c1023aadb3050a5e5924",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "e008fadb3636e0b98b0c1625dd197ac9764717e4fe43c80137185a9b1e038b07",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -45,6 +45,7 @@ export interface AxisAsk {
 }
 
 export interface ReviewFillInput {
+  sourceHunks?: Hunk[];
   provider: ChatProvider;
   model: string;
   params: Record<string, unknown> | null;
@@ -430,9 +431,9 @@ const REVIEW_PARALLEL = 3;
  * не объединяются — разбиение по хункам защищает recall, а не время (докстринг модуля).
  */
 export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResult> {
-  const hunks = splitHunks(i.diff);
+  const hunks = i.sourceHunks ?? splitHunks(i.diff);
   const slices = sliceHunks(hunks, i.hunkBudgetBytes);
-  const system = systemPrompt(i.taskContext);
+  const system = systemPrompt(i.taskContext) + (i.sourceHunks ? '\nПравок нет. Показаны текущие исходники. Проверь существующее поведение по требованиям; не считай показанный код новым изменением.' : '');
   const findings: NormalizedCall[] = [];
   let hunksAnswered = 0;
   let axesAnswered = 0;

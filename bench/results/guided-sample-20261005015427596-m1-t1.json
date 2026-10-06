@@ -1,0 +1,906 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 187066,
+    "remainingMs": 1612934,
+    "inputRevision": "633b3c42f05106d348b1420f09d52436c625ae22411381f4ae9862e52516377e",
+    "currentItem": null,
+    "stopReason": "Три предложения подряд не изменяют код; требуется пересмотреть гипотезу",
+    "items": [
+      {
+        "id": "work-1",
+        "title": "declare & implement: declare & implement\nre-export: re-export\ncreate: create",
+        "files": [
+          "src/issue-limits.ts",
+          "src/index.ts",
+          "test/issue.test.ts"
+        ],
+        "claims": [
+          "claim-1",
+          "claim-2",
+          "claim-3",
+          "claim-4",
+          "claim-5",
+          "claim-6",
+          "claim-7"
+        ],
+        "dependsOn": [],
+        "prediction": "issue('wh-spb','AZ-123',61,0).ok===false\nimport {DAILY_ISSUE_LIMIT,issue} from './index';\nboth imports succeed",
+        "checks": [
+          "SKU ${sku} не найден",
+          "registered project gates"
+        ],
+        "status": "failed",
+        "attempts": 1,
+        "repartitioned": false
+      }
+    ],
+    "observations": [
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T01:57:07.921Z",
+        "inputRevision": "633b3c42f05106d348b1420f09d52436c625ae22411381f4ae9862e52516377e",
+        "codeRevision": "783c92cb73016ee47c224b15032a24eaaf7462e8348f361e1268479ba49fc263",
+        "prediction": "issue('wh-spb','AZ-123',61,0).ok===false\nimport {DAILY_ISSUE_LIMIT,issue} from './index';\nboth imports succeed",
+        "result": "Сборка: модулей загружено: 6 из 6\nok   index.ts\nok   issue-limits.ts\nok   keys.ts\nok   report.ts\nok   reserve.ts\nok   stock.ts\nмодулей загружено: 6 из 6\n\nТесты: ℹ duration_ms 156.723\n▶ issue\n  ✔ DAILY_ISSUE_LIMIT contains correct limits for all warehouses (1.3664ms)\n  ✔ issue rejects when SKU not present on warehouse (0.2989ms)\n  ✔ issue rejects when issuedToday+qty exceeds daily limit (0.1284ms)\n  ✔ issue allows when issuedToday+qty equals daily limit (0.1255ms)\n  ✔ issue allows when issuedToday+qty below daily limit (0.1179ms)\n  ✔ issue does not check existing reserves (0.1279ms)\n✔ issue (3.4739ms)\n▶ резерв\n  ✔ ставится, когда остатка хватает (1.4653ms)\n  ✔ остатка впритык хватает — граница включающая (0.1061ms)\n  ✔ на единицу больше остатка — отказ с причиной (0.1319ms)\n  ✔ неизвестная позиция — отказ, не исключение (0.1009ms)\n  ✔ позиция уже в резерве — второй резерв не ставится (0.0987ms)\n  ✔ нецелое или неположительное количество — отказ (0.0952ms)\n✔ резерв (3.6937ms)\n▶ ключ записи\n  ✔ склад и позиция через разделитель (0.1374ms)\n  ✔ резерв без записи — ноль (0.1157ms)\n✔ ключ записи (0.3963ms)\n▶ поиск по таблице остатков\n  ✔ находит запись по складу и коду позиции (0.9765ms)\n  ✔ при дубликате действует первая запись (0.1092ms)\n  ✔ неизвестная позиция — null, а не исключение (0.1243ms)\n  ✔ код склада с границы пакета распознаётся (0.1047ms)\n  ✔ таблица заполнена для каждого склада (0.1016ms)\n✔ поиск по таблице остатков (2.2588ms)\n▶ остатки по складам\n  ✔ stockOf раскладывает позицию по складам, отсутствие — 0 (0.1492ms)\n  ✔ totalQty суммирует по всем складам с учётом правила первой записи (0.1331ms)\n  ✔ пустой набор — нулевой остаток (0.1094ms)\n✔ остатки по складам (0.5794ms)\n▶ отчёт по складу\n  ✔ одна строка на позицию, при дубликате — количество первой записи (0.2031ms)\n✔ отчёт по складу (0.2919ms)\nℹ tests 23\nℹ suites 6\nℹ pass 23\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 156.723\n",
+        "kind": "check",
+        "passed": true
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T01:57:37.156Z",
+        "inputRevision": "633b3c42f05106d348b1420f09d52436c625ae22411381f4ae9862e52516377e",
+        "codeRevision": "783c92cb73016ee47c224b15032a24eaaf7462e8348f361e1268479ba49fc263",
+        "prediction": "issue('wh-spb','AZ-123',61,0).ok===false\nimport {DAILY_ISSUE_LIMIT,issue} from './index';\nboth imports succeed",
+        "result": "Группа возвращена на исправление после красного Verify",
+        "kind": "check",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T01:57:45.009Z",
+        "inputRevision": "633b3c42f05106d348b1420f09d52436c625ae22411381f4ae9862e52516377e",
+        "codeRevision": "783c92cb73016ee47c224b15032a24eaaf7462e8348f361e1268479ba49fc263",
+        "prediction": "issue('wh-spb','AZ-123',61,0).ok===false\nimport {DAILY_ISSUE_LIMIT,issue} from './index';\nboth imports succeed",
+        "result": "Предложение не изменяет код; объясни no_change или исправь предложение.\nПоследняя красная проверка:\n## Что не сошлось в прошлой попытке\n\nНиже — факты прошлого прогона, посчитанные рантаймом, и отдельной подписанной\nстрокой под пунктом — слова рецензента там, где они есть. Рецензент тоже может\nошибиться в диагнозе — сверь его слова с кодом сам, прежде чем чинить по ним: из\nпоследней строки вывода гейта диагноз ошибки не следует.\n\nПодтверждённых расхождений из ревью: 1. Каждое роняет вердикт само по себе, даже если пункта приёмки на это поведение нет.\nНаходки ревью (слова рецензента; место — как он его назвал):\n- Оси «Последствий шагов»: «Совместимость и данные» — в плане объявлена затронутой, но заявленный исход не покрывает: new public exports DAILY_ISSUE_LIMIT, issue — src/index.ts",
+        "kind": "conflict",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T01:57:48.407Z",
+        "inputRevision": "633b3c42f05106d348b1420f09d52436c625ae22411381f4ae9862e52516377e",
+        "codeRevision": "783c92cb73016ee47c224b15032a24eaaf7462e8348f361e1268479ba49fc263",
+        "prediction": "issue('wh-spb','AZ-123',61,0).ok===false\nimport {DAILY_ISSUE_LIMIT,issue} from './index';\nboth imports succeed",
+        "result": "Предложение не изменяет код; объясни no_change или исправь предложение.\nПоследняя красная проверка:\n## Что не сошлось в прошлой попытке\n\nНиже — факты прошлого прогона, посчитанные рантаймом, и отдельной подписанной\nстрокой под пунктом — слова рецензента там, где они есть. Рецензент тоже может\nошибиться в диагнозе — сверь его слова с кодом сам, прежде чем чинить по ним: из\nпоследней строки вывода гейта диагноз ошибки не следует.\n\nПодтверждённых расхождений из ревью: 1. Каждое роняет вердикт само по себе, даже если пункта приёмки на это поведение нет.\nНаходки ревью (слова рецензента; место — как он его назвал):\n- Оси «Последствий шагов»: «Совместимость и данные» — в плане объявлена затронутой, но заявленный исход не покрывает: new public exports DAILY_ISSUE_LIMIT, issue — src/index.ts",
+        "kind": "conflict",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-05T01:57:52.868Z",
+        "inputRevision": "633b3c42f05106d348b1420f09d52436c625ae22411381f4ae9862e52516377e",
+        "codeRevision": "783c92cb73016ee47c224b15032a24eaaf7462e8348f361e1268479ba49fc263",
+        "prediction": "issue('wh-spb','AZ-123',61,0).ok===false\nimport {DAILY_ISSUE_LIMIT,issue} from './index';\nboth imports succeed",
+        "result": "Предложение не изменяет код; объясни no_change или исправь предложение.\nПоследняя красная проверка:\n## Что не сошлось в прошлой попытке\n\nНиже — факты прошлого прогона, посчитанные рантаймом, и отдельной подписанной\nстрокой под пунктом — слова рецензента там, где они есть. Рецензент тоже может\nошибиться в диагнозе — сверь его слова с кодом сам, прежде чем чинить по ним: из\nпоследней строки вывода гейта диагноз ошибки не следует.\n\nПодтверждённых расхождений из ревью: 1. Каждое роняет вердикт само по себе, даже если пункта приёмки на это поведение нет.\nНаходки ревью (слова рецензента; место — как он его назвал):\n- Оси «Последствий шагов»: «Совместимость и данные» — в плане объявлена затронутой, но заявленный исход не покрывает: new public exports DAILY_ISSUE_LIMIT, issue — src/index.ts",
+        "kind": "conflict",
+        "passed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-sample-20261005015427596-m1-t1",
+    "model": "ollama:gpt-oss-20b-effort-low-t02-rf",
+    "task": "zero-change-verify",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-effort-low-t02-rf",
+      "explore": "ollama:gpt-oss-20b-effort-low-t02-rf",
+      "ask": "ollama:gpt-oss-20b-effort-low-t02-rf",
+      "plan": "ollama:gpt-oss-20b-effort-low-t02-rf",
+      "chunk": "ollama:gpt-oss-20b-effort-low-t02-rf",
+      "verify": "ollama:gpt-oss-20b-effort-low-t02-rf",
+      "handoff": "ollama:gpt-oss-20b-effort-low-t02-rf"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-05T01:54:45.232Z",
+    "finishedAt": "2026-10-05T01:57:53.665Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "Исследование собрано из ответов по файлам; пути закреплены рантаймом",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "План собран из связанных шагов; независимая проверка выполняется рантаймом",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "guided: группы проверены; окончательная приёмка на verify; применено 3",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      },
+      {
+        "stage": "verify",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается его записями, добором по пунктам приёмки и дозаполнением по полям, без второго свободного прохода по тому же diff'у",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 2,
+        "ok": false,
+        "note": "guided: Три предложения подряд не изменяют код; требуется пересмотреть гипотезу; применено 0",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      }
+    ],
+    "finalVerdict": {
+      "passed": false,
+      "action": "retry",
+      "reasons": [
+        "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+        "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+        "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+      ]
+    },
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 19782,
+          "outputTokens": 1455,
+          "cacheReadTokens": 10289,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 44132
+        },
+        "durationMs": 28367,
+        "requestDurationsMs": [
+          2671,
+          4528,
+          5906,
+          3044,
+          5841,
+          13994,
+          1157,
+          6993
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 14731,
+          "outputTokens": 2030,
+          "cacheReadTokens": 6882,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 36506
+        },
+        "durationMs": 36591,
+        "requestDurationsMs": [
+          5043,
+          4197,
+          5321,
+          3720,
+          3682,
+          5716,
+          3901,
+          4926
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 35959,
+          "outputTokens": 1955,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 45365
+        },
+        "durationMs": 45980,
+        "requestDurationsMs": [
+          18878,
+          6182,
+          8315,
+          6991,
+          5001
+        ]
+      },
+      {
+        "stage": "chunk",
+        "runs": 2,
+        "usage": {
+          "inputTokens": 57864,
+          "outputTokens": 2289,
+          "cacheReadTokens": 43439,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 45305
+        },
+        "durationMs": 48502,
+        "requestDurationsMs": [
+          14539,
+          5284,
+          9841,
+          7829,
+          3377,
+          4438
+        ]
+      },
+      {
+        "stage": "verify",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 51052,
+          "outputTokens": 778,
+          "cacheReadTokens": 16886,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 33376
+        },
+        "durationMs": 27695,
+        "requestDurationsMs": [
+          2883,
+          4480,
+          5981,
+          6789,
+          8719,
+          4524
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 1,
+      "red": 1
+    },
+    "redByCause": [
+      {
+        "kind": "claim",
+        "count": 1
+      }
+    ],
+    "attemptsByChunk": [
+      {
+        "chunk": 1,
+        "attempts": 2
+      }
+    ],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "verify",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 0,
+        "reminders": 0
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Сборка",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 131
+      },
+      {
+        "gate": "Тесты",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 232
+      },
+      {
+        "gate": "Scope: файлы вне плана",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 216
+      },
+      {
+        "gate": "Анти-обход тест-гейта",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 328
+      },
+      {
+        "gate": "Ревью независимым агентом",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 0
+      },
+      {
+        "gate": "Scope: пути плана без правок",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 220
+      },
+      {
+        "gate": "Scope: нетракованные файлы",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 106
+      },
+      {
+        "gate": "Секреты в diff",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 51
+      },
+      {
+        "gate": "Ответы человека в коде",
+        "runs": 1,
+        "red": 0,
+        "skippedWhileEnabled": 0,
+        "durationMs": 51
+      }
+    ],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 5
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 4
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 10
+      },
+      {
+        "stage": "chunk",
+        "questions": 0,
+        "approvals": 3,
+        "waitMs": 8
+      },
+      {
+        "stage": "verify",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 3
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": [
+      {
+        "chunk": 1,
+        "attempt": 1,
+        "testsStatus": "✅",
+        "treeChanged": true,
+        "scopeViolation": false
+      },
+      {
+        "chunk": 1,
+        "attempt": 2,
+        "testsStatus": "✅",
+        "treeChanged": false,
+        "scopeViolation": false
+      }
+    ]
+  },
+  "finalVerdict": {
+    "passed": false,
+    "action": "retry",
+    "reasons": [
+      "подтверждённых расхождений из ревью: 1 — каждое роняет вердикт, даже если пункта приёмки на это поведение нет",
+      "сверка с деревом: рецензент не подтвердил совпадение патча, но рантайм сверил сам — патч совпадает",
+      "посевом не проверялись гейты: Сборка, Тесты, Scope: файлы вне плана, Анти-обход тест-гейта, Ревью независимым агентом, Scope: пути плана без правок, Scope: нетракованные файлы, Секреты в diff, Ответы человека в коде, Проверка предусловий публикации, Бюджет итераций — их способность ловить дефекты не подтверждена, и «зелёный» от них слабее, чем выглядит"
+    ]
+  },
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:a9f714bc-bd0b-4887-80a2-7fbfa7c7ae4d",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261005015427596-m1-t1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "explore",
+        "requestId": "guided-explore:e3c171e7-a0a0-49b5-ae73-b93f92e9a82a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261005015427596-m1-t1\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "guided-plan:0998590c-eae5-44a0-9090-48e610e70918",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-54egs0\\.sdlc\\guided-sample-20261005015427596-m1-t1\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 6
+      },
+      {
+        "stage": "plan",
+        "requestId": "guided-plan:978121bc-2797-4658-800b-3f0f08c45862",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-54egs0\\.sdlc\\guided-sample-20261005015427596-m1-t1\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:f3ca36d8-c764-4c8b-a162-a53dd9535af4",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-54egs0\\src\\issue-limits.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:b4540360-cc77-4c05-a704-93a3c0c33528",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-54egs0\\src\\index.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "chunk",
+        "requestId": "guided:4890d60f-75d7-43e0-96bf-f220271a2e25",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-54egs0\\test\\issue.test.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 2
+      },
+      {
+        "stage": "verify",
+        "requestId": "records-0",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-54egs0\\.sdlc\\guided-sample-20261005015427596-m1-t1\\verification-report-1-attempt-1.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "verify",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6584,
+        "userChars": 4898,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6048,
+        "userChars": 7560,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 7478,
+        "userChars": 32177,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 13394,
+        "userChars": 11753,
+        "editedByOperator": false
+      },
+      {
+        "stage": "verify",
+        "systemChars": 11975,
+        "userChars": 24515,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 12722,
+        "userChars": 21799,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 7,
+    "pass": 7,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: findEntry существует до витка: wh-msk GH-555 → 120 — позиция, на которой построены кейсы лимита."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: Резерв впритык: wh-msk BX-770 = 12, qty 12 → ok. Строка-якорь посева живёт именно здесь — кейс сторожит, что виток её не сдвинул."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-1): Ровно лимит — можно: wh-msk лимит 100, выдано 0, qty 100 → ok (граница включающая). Остаток GH-555 = 120 ≥ 100, так что проверка остатка, если модель её добавила, кейс не роняет."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-1): На единицу сверх лимита: wh-msk, выдано 0, qty 101 → отказ (остаток 120 хватает — отказ именно по лимиту)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-1): Накопленная выдача на ДРУГОМ складе: wh-vld лимит 25, выдано 20, qty 5 → 25 = лимит → ok. Ловит модель, зашившую 100 на все склады."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "ok 6 - Pr4 [precision] (claim-1): Накопленная выдача сверх лимита: wh-vld, выдано 20, qty 6 → 26 > 25 → отказ."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr5",
+        "category": "precision",
+        "label": "ok 7 - Pr5 [precision] (claim-2): Позиции на складе нет: wh-vld BX-770 → отказ, а не выдача несуществующего."
+      }
+    ],
+    "errorText": null
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": true,
+      "detail": "расхождений diff/дерево рантайм не отмечал"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": true,
+      "detail": "7 из 7 скрытых тестов зелёные"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "3e33dffe17402c410d76c64b0028f0d39ea25068",
+      "sourceHash": "dee26e5884d0e0d8bc1b088516be888e28081e1363e86c7ebb0a8d95d26484f2",
+      "configHash": "e2a127819469aa04e8a99261313737ef9140e36085af22acbc4ef52fbdbeb3fe",
+      "localEndpoints": {},
+      "inputHash": "e42dbcecb4b20cbc9e77f845fec8ae0e946653107fac59243b10bfaf1136820b",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "adff46e8ab8e58e0422aca5ac82f43a9419e52892527c49c37f23ff51bf4e821",
+    "state": "finished",
+    "capturedAt": "2026-10-05T01:57:53.887Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "chunk",
+      "at": "2026-10-05T01:57:53.662Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/chunk-1-attempt-1-steps.md",
+        "sha256": "3758cc10f466b6a03a50e8a7f67e487acdf8ac80949e7350c10aef3d438d2822",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/chunk-1-attempt-2-steps.md",
+        "sha256": "2e68a7e642295eec9fe387a1e51ab7136ced682b2cc25a8abb40e32d9079cedf",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/iterations.md",
+        "sha256": "0139ef40728a41c65848a999ad346cd04e418c18f018fc91c2af249bca750bf2",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "697e8d1e01388e77d3e462df52cce8ff2b15d957a53f855dfb809f9d86916da0",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "112c8068054731c951161c4e378b848a12d0aabe69abb6a687224e90c1b669df",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "03a4235cc0fe764e28bd90caec5e1e7de3cf7a4896cea12ac16d904e86287e48",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "2f21abe766816ef24a11229dbc77bcefd31569adc2e40aa57846ac32331b9505",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "e16a77423230002bf370d8940d4355fa2896972b21519454c03c2b9f8d4f1787",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "39114a31a29dc7f3a1ec3a11f706f9882824f362b77c278ce84a3f3308fa3761",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "e3e949e56657f295b8fa7ffae78c80493172321a18af0485330cefba715e9013",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "verification-report-1-attempt-1.md",
+        "sha256": "8ff5c944039308357871d48ae7e8f3aaa8eb0e59cc08bf0d8441e98d90578924",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

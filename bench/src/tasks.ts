@@ -102,6 +102,11 @@ export const TASK_DEFS = [
 
   familyTask('bug-by-symptom', 'billing-bug'),
   familyTask('wrong-diagnosis', 'billing-bug'),
+
+  // Holdout-набор (2026-10-06): задачи, не использовавшиеся при отладке guided-флоу.
+  // Успех ячейки model×task на них — воспроизводимость ≥2/3 повторов, не одиночный pass.
+  familyTask('holdout-winter-surcharge', 'fleet'),
+  familyTask('holdout-trailer-rule', 'fleet'),
 ] as const satisfies readonly TaskDef[];
 
 /** Литеральный union id задач — выводится из реестра, а не переписывается рядом с ним. */

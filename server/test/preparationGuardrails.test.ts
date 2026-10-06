@@ -9,10 +9,14 @@ import {
   initializePreparation,
   preparationExploreEvidenceProblem,
   preparationPlanEvidenceProblem,
+  preparationReferencedCodePaths,
   recordPreparationRead,
 } from '../src/artifacts/preparation.ts';
 import { planStepsProblem } from '../src/run/stages/plan.ts';
 import { writeArtifact } from '../src/artifacts/artifact.ts';
+import { renderGuidedPlan } from '../src/exec/GuidedPlanExecutor.ts';
+import { AXES } from '../src/artifacts/planAxes.ts';
+import { extractFilesToTouch } from '../src/artifacts/planFiles.ts';
 
 const roots: string[] = [];
 after(() => { for (const root of roots) rmSync(root, { recursive: true, force: true }); });
@@ -53,6 +57,32 @@ describe('preparation source evidence guard', () => {
     strictEqual(preparationPlanEvidenceProblem(paths, plan), null);
     source(root, 'test/hold.test.ts', 'changed');
     ok(preparationPlanEvidenceProblem(paths, plan)?.includes('test/hold.test.ts'));
+  });
+
+  it('does not treat an explicitly new implementation target as a source citation', () => {
+    const { paths } = fixture('РџРёР»РѕС‚');
+    const plan = renderGuidedPlan({ approach: 'Create src/new-rule.ts for the new behavior.',
+      steps: [{ id: 1, file: 'src/new-rule.ts', isNew: true, symbol: 'newRule', action: 'Implement the requested behavior',
+        claims: ['claim-1'], check: 'run the test', expected: 'passes', contract: 'preserved', dependsOn: [] }],
+      excluded: [], axes: AXES.map(name => ({ name, affected: false, reason: 'unchanged', outcome: 'invariant' })), changes: 'none', callers: [] },
+    'new-rule', [{ id: 'claim-1', behavior: 'new behavior', procedure: 'run the test', expected: 'passes' }]);
+    strictEqual(preparationReferencedCodePaths('Create src/new-rule.ts').join(','), 'src/new-rule.ts');
+    strictEqual(preparationReferencedCodePaths(plan).join(','), 'src/new-rule.ts');
+    strictEqual(extractFilesToTouch(plan).join(','), 'src/new-rule.ts');
+    strictEqual(preparationPlanEvidenceProblem(paths, plan), null);
+  });
+
+  it('resolves a literal relative re-export against cited existing source files', () => {
+    const { root, paths } = fixture('Add src/new-rule.ts and export from src/index.ts.');
+    source(root, 'src/index.ts');
+    recordPreparationRead(paths, 'explore', 'src/index.ts', 'source');
+    const plan = "## Подход\nAdd src/new-rule.ts and in src/index.ts: export { rule } from './new-rule.ts';\n## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| src/new-rule.ts | add |\n| src/index.ts | export |";
+    strictEqual(preparationPlanEvidenceProblem(paths, plan), null);
+    ok(preparationPlanEvidenceProblem(paths, plan.replace('./new-rule.ts', './missing.ts'))?.includes('missing.ts'));
+    source(root, 'src/new-rule.ts');
+    ok(preparationPlanEvidenceProblem(paths, plan)?.includes('src/new-rule.ts'));
+    recordPreparationRead(paths, 'explore', 'src/new-rule.ts', 'source');
+    strictEqual(preparationPlanEvidenceProblem(paths, plan), null);
   });
 });
 

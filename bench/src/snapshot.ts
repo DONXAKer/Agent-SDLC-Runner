@@ -145,6 +145,18 @@ export function startStageAfter(point: unknown): StageId | null {
 }
 
 /**
+ * Этап старта измеряемого прогона со снимка. `--stage` может запросить более поздний
+ * этап и должен пропустить промежуточные контрольные маршруты; `--all` продолжает сразу
+ * после снимка. Ранний запрошенный этап невозможен на корректном снимке.
+ */
+export function startStageForMeasurement(nextStage: StageId, requestedStage?: StageId): StageId {
+  if (requestedStage !== undefined && STAGE_ORDER.indexOf(requestedStage) > STAGE_ORDER.indexOf(nextStage)) {
+    return requestedStage;
+  }
+  return nextStage;
+}
+
+/**
  * Первый измеряемый этап прогона со снимка: первый из `measured`, не раньше этапа старта.
  * `null` — измеряемые этапы все уже пройдены снимком, и прогону нечего мерить.
  */

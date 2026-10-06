@@ -28,7 +28,9 @@ export type Task = TaskId;
 
 export interface BenchOptions {
   /** Формат проработки; стенд по умолчанию сохраняет исторический v1. */
-  preparationVersion?: 1 | 2;
+  preparationVersion?: 1 | 2 | 3;
+  executionMode?: 'legacy' | 'guided';
+  strictQuestions?: boolean;
   /** Stop the measurement at this stage, without executing downstream routes. */
   stopAfterStage?: StageId;
   mode: BenchMode;
@@ -233,7 +235,9 @@ ${taskListForUsage()}
                         ключ снимает и поэтапные потолки конфига, включая verify
   --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
-  --preparation-version <1|2>  версия проработки новых задач (стенд: 1; Runner: 2)
+  --preparation-version <1|2|3> версия проработки (стенд: 1; guided: 3)
+  --execution-mode <legacy|guided> текущий флоу или проверяемые группы одной локальной модели
+  --strict-questions             отвечать только по банку бизнес-фактов, без fallback
   --repeat <n>          серия из n одинаковых прогонов (слаги <slug>-s1…-sn, сводка с медианой)
   --no-raw-log          живой прогон без сырого дампа запросов в bench/traces/raw
   --keep-workspace      не удалять рабочую копию в tmp
@@ -270,7 +274,9 @@ function positiveNumber(raw: string, what: string): number {
 }
 
 export function parseArgs(argv: readonly string[]): BenchOptions {
-  let preparationVersion: 1 | 2 | undefined;
+  let preparationVersion: 1 | 2 | 3 | undefined;
+  let executionMode: 'legacy' | 'guided' | undefined;
+  let strictQuestions = false;
   let mode: BenchMode | null = null;
   let model: string | null = null;
   let task: Task = 'oversize';
@@ -438,11 +444,21 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
       }
       case '--preparation-version': {
         const value = next(i, key);
-        if (value !== '1' && value !== '2') throw new OptionsError('--preparation-version: ожидается 1 или 2');
-        preparationVersion = value === '1' ? 1 : 2;
+        if (value !== '1' && value !== '2' && value !== '3') throw new OptionsError('--preparation-version: ожидается 1, 2 или 3');
+        preparationVersion = Number(value) as 1 | 2 | 3;
         i++;
         break;
       }
+      case '--execution-mode': {
+        const value = next(i, key);
+        if (value !== 'legacy' && value !== 'guided') throw new OptionsError('--execution-mode: ожидается legacy или guided');
+        executionMode = value;
+        i++;
+        break;
+      }
+      case '--strict-questions':
+        strictQuestions = true;
+        break;
       case '--capture-inputs':
         captureInputs = true;
         break;
@@ -517,6 +533,12 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   }
 
   const resolvedMode: BenchMode = mode ?? { kind: 'all' };
+  if ([stageTimeoutMs, runTimeoutMs, probeTimeoutMs ?? 1].some(value => value > 2_147_483_647)) {
+    throw new OptionsError('таймаут превышает максимальный таймер Node; единица параметра — минуты');
+  }
+  if (executionMode === 'guided' && (resolvedMode.kind !== 'all' || (preparationVersion !== undefined && preparationVersion !== 3) || fromSnapshot !== null || Object.keys(controlOverrides).length > 0)) {
+    throw new OptionsError('guided требует --all, preparation-version 3, новую задачу и одну модель без control overrides');
+  }
   if (stopAfterStage !== undefined) {
     if (makeSnapshot !== null || probe || preflightOnly) throw new OptionsError('--stop-after-stage несовместим со снимком или пробой');
     if (resolvedMode.kind === 'stage' && STAGE_ORDER.indexOf(stopAfterStage) < STAGE_ORDER.indexOf(resolvedMode.stage)) {
@@ -534,6 +556,8 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     ...(stopAfterStage === undefined ? {} : { stopAfterStage }),
     mode: resolvedMode,
     ...(preparationVersion === undefined ? {} : { preparationVersion }),
+    ...(executionMode === undefined ? {} : { executionMode }),
+    ...(strictQuestions ? { strictQuestions: true } : {}),
     model: resolvedModel,
     task,
     slug: slug ?? `bench-${task}-${(resolvedModel || 'dry').replace(/[^\w.-]+/g, '-')}-${modeTag}`,

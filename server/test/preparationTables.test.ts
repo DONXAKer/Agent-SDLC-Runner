@@ -65,5 +65,9 @@ describe('preparation JSON table rendering', () => {
     ok(result.text.includes('| ID | Пункт | Как проверить'));
     ok(result.text.includes('| request | move hold | new id | claim-1 |'));
     ok(!result.text.includes('sdlc-json:acceptance'));
+    ok(result.text.includes('\n# Основания и сценарии\n'), 'рендер не склеивает следующую секцию с последней строкой таблицы');
+    const repeated = normalizePreparationTables(result.text, true);
+    strictEqual(repeated.problem, null);
+    strictEqual(repeated.text, result.text, 'повторный finishGuard не меняет требования и их отпечаток');
   });
 });
