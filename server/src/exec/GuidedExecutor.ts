@@ -201,7 +201,7 @@ export function guidedActionResponseFormat(files: readonly GuidedFileCard[], spl
   return { type: 'json_schema', json_schema: { name: 'guided_action', strict: true, schema } };
 }
 
-const SYSTEM = `Выполни одну группу согласованного плана. Отвечай только JSON, без вызовов инструментов.
+const SYSTEM = `Выполни одну группу согласованного плана. Отвечай ТОЛЬКО целым JSON-объектом с полем "action". Не используй поле toolCalls, не вызывай внешние инструменты — все действия описываются внутри JSON через ops.
 Изменения запрашивай операциями над символами: рантайм сам находит символ в файле и применяет правку. Никогда не воспроизводи существующие байты файла и не составляй фрагменты для байтовой замены.
 {"action":"patch","prediction":"что проверка должна показать","ops":[<операции>]}
 Операции (file — путь из files; symbol/anchor — ТОЛЬКО имя из списка symbols карточки файла):
