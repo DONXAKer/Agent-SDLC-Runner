@@ -128,7 +128,7 @@ export function guidedPlanRepairPaths(intent: string, requests: readonly string[
   return [...new Set([...required, ...inspected, ...planned])].filter(file => {
     const path = guardedPath(cwd, file);
     if (/(?:^|\/)tests?\//iu.test(file.replace(/\\/gu, '/')) && readArtifact(path).exists) return false;
-    return intentPlanBoundaryProblem(intent, `## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| ${escapeCell(file)} | ремонт цели |\n`, cwd) === null;
+    return intentPlanBoundaryProblem(intent, `## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| ${escapeCell(file)} | ремонт цели |\n`, cwd).problem === null;
   });
 }
 
@@ -148,9 +148,9 @@ export function guidedPlanTargetProblem(plan: z.infer<typeof Plan>, intent: stri
   // This projection checks targets only; acceptance membership is validated separately.
   const claims = [...new Set(plan.steps.flatMap(step => step.claims))].map(id => ({ id, behavior: '', procedure: '', expected: '' }));
   const boundary = intentPlanBoundaryProblem(intent, renderGuidedPlan(plan, 'validation', claims, { deferCoverageUntilRuntimeCards: true }), cwd);
-  if (boundary === null) return null;
-  const addressed = plan.steps.filter(step => boundary.includes(step.file)).map(step => `шаг ${step.id}`).join(', ');
-  return `${addressed ? `${addressed}: ` : ''}${boundary} Удали запрещённые карточки через removeSteps и добавь отдельный новый тест; не переименовывай старый тест.`;
+  if (boundary.problem === null) return null;
+  const addressed = plan.steps.filter(step => boundary.problem!.includes(step.file)).map(step => `шаг ${step.id}`).join(', ');
+  return `${addressed ? `${addressed}: ` : ''}${boundary.problem} Удали запрещённые карточки через removeSteps и добавь отдельный новый тест; не переименовывай старый тест.`;
 }
 
 /** Факт карты вызывающих, пред-заполненный рантаймом из индекса проекта. */
@@ -740,7 +740,7 @@ steps/files_to_touch содержат только файлы реализаци
         let rendered = addRequirementsHash(renderGuidedPlan(impactedPlan, this.o.slug, requirements.acceptance, { deferCoverageUntilRuntimeCards: true }),
           resolvedRequirementsHash(intentText, clarificationText));
         const prepared = preparePlanImplementationCards(rendered, intentText,
-          req.cwd, [], state?.requests ?? []);
+          req.cwd, extractExplicitExportPaths(state?.requests ?? []), state?.requests ?? []);
         runtimeRequiredPaths = [...new Set([...runtimeRequiredPaths, ...prepared.paths])];
         if (prepared.text !== rendered) {
           hooks.onWarn(`Runtime добавил карточки для обязательных файлов: ${prepared.paths.join(', ')}`);
@@ -763,7 +763,8 @@ steps/files_to_touch содержат только файлы реализаци
         const runtimeFieldsProblem = guidedPlanFieldsProblem(candidate);
         if (runtimeFieldsProblem) throw new Error(runtimeFieldsProblem);
         validateGuidedPlanCoverage(candidate, requirements.acceptance);
-        const problem = intentPlanBoundaryProblem(intentText, rendered, req.cwd) ?? preparationPlanEvidenceProblem(this.o.paths, rendered);
+        const boundary = intentPlanBoundaryProblem(intentText, rendered, req.cwd);
+        const problem = boundary.problem ?? preparationPlanEvidenceProblem(this.o.paths, rendered);
         if (problem !== null) { feedback = validationFeedback = problem; record(problem); hooks.onWarn(problem); continue; }
         const archived = archiveReplacedGuidedPlan(this.o.paths, rendered);
         if (archived) hooks.onWarn(`Предыдущий неутверждённый план сохранён целиком в ${archived}; новая редакция будет записана отдельно`);

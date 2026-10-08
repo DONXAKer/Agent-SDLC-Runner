@@ -184,26 +184,43 @@ export function intentImplementationPathsProblem(
     : `в «Что делаем» названы файлы реализации, отсутствующие в files_to_touch: ${missing.join(', ')}; добавь шаг на каждый такой файл`;
 }
 
-/** Reject explicit no-touch boundaries and cards whose action is aimed at another Intent target. */
-export function intentPlanBoundaryProblem(intentText: string, planText: string, projectRoot?: string): string | null {
+export interface IntentPlanBoundaryResult {
+  problem: string | null;
+  /** Paths named in «Что делаем» that are referenced by a step's action but missing from files_to_touch. */
+  addPaths: string[];
+}
+
+/**
+ * Reject explicit no-touch boundaries. A step whose action names another Intent target is no
+ * longer rejected: the missing path is collected in `addPaths` so the runtime can expand the
+ * plan instead of burning a model turn on a boundary error.
+ */
+export function intentPlanBoundaryProblem(intentText: string, planText: string, projectRoot?: string): IntentPlanBoundaryResult {
   const excluded = section(intentText, 'Чего не делаем');
   const forbidden = new Set(forbiddenCodePaths(excluded));
   const touched = extractFilesToTouch(planText);
   const forbiddenTouched = touched.filter((path) => forbidden.has(path));
   if (forbiddenTouched.length > 0) {
-    return `files_to_touch нарушает явную границу «Чего не делаем»: ${forbiddenTouched.join(', ')}; удали эти пути и их карточки.`;
+    return {
+      problem: `files_to_touch нарушает явную границу «Чего не делаем»: ${forbiddenTouched.join(', ')}; удали эти пути и их карточки.`,
+      addPaths: [],
+    };
   }
   const existingTestsForbidden = /(?:не\s+делаем|не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*)).{0,80}(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)|(?:существующ\p{L}*.{0,20})?(?:тест\p{L}*|test\/)\s+не\s+(?:меня\p{L}*|изменя\p{L}*|трога\p{L}*)/iu
     .test(section(intentText, 'Чего не делаем'));
   if (existingTestsForbidden && projectRoot !== undefined) {
     const editedExistingTests = touched.filter((path) => /^test\//iu.test(path) && existsSync(join(projectRoot, path)));
     if (editedExistingTests.length > 0) {
-      return `files_to_touch включает существующие тесты, которые Intent запрещает менять: ${editedExistingTests.join(', ')}; оставь только новый файл тестов.`;
+      return {
+        problem: `files_to_touch включает существующие тесты, которые Intent запрещает менять: ${editedExistingTests.join(', ')}; оставь только новый файл тестов.`,
+        addPaths: [],
+      };
     }
   }
 
   const targets = extractIntentImplementationPaths(intentText);
   const steps = extractExplicitSteps(planText);
+  const addPaths: string[] = [];
   for (const target of targets) {
     if (target.startsWith('test/')) continue; // a test legitimately references the source it exercises
     const step = steps.find((candidate) => candidate.file.replace(/\\/gu, '/') === target);
@@ -211,10 +228,10 @@ export function intentPlanBoundaryProblem(intentText: string, planText: string, 
     const action = `${step.title} ${step.action}`.replace(/\\/gu, '/').toLowerCase();
     const otherTarget = targets.find((path) => path !== target && action.includes(path.toLowerCase()));
     if (otherTarget !== undefined && !/(?:экспорт\p{L}*|export)/iu.test(action)) {
-      return `шаг ${step.n} адресован ${target}, но его действие описывает ${otherTarget}; перепиши действие для файла карточки.`;
+      addPaths.push(otherTarget);
     }
   }
-  return null;
+  return { problem: null, addPaths: [...new Set(addPaths)] };
 }
 
 /** Prepare mandatory Intent targets and editable per-file cards before the plan model starts. */
@@ -814,7 +831,7 @@ function preparationReviewReady(host: StageHost): boolean {
     planStepsProblem(ctx) === null &&
     planStepSampleTextProblem(ctx) === null &&
     planTouchDiscrepancyProblem(ctx) === null &&
-    intentPlanBoundaryProblem(readArtifact(host.paths.intent).text, plan.text, ctx.paths.projectRoot) === null &&
+    intentPlanBoundaryProblem(readArtifact(host.paths.intent).text, plan.text, ctx.paths.projectRoot).problem === null &&
     intentImplementationPathsProblem(readArtifact(host.paths.intent).text, plan.text, extractExplicitExportPaths(requests)) === null &&
     preparationPlanEvidenceProblem(host.paths, plan.text) === null &&
     axisProblems(host).length === 0;
@@ -1144,12 +1161,12 @@ export const planModule: StageModule = {
       }
       const filesProblem = filesToTouchProblem(host.ctx());
       if (filesProblem !== null) return filesProblem;
-      const boundaryProblem = intentPlanBoundaryProblem(
+      const boundary = intentPlanBoundaryProblem(
         intentText,
         readArtifact(host.paths.plan).text,
         host.ctx().paths.projectRoot,
       );
-      if (boundaryProblem !== null) return boundaryProblem;
+      if (boundary.problem !== null) return boundary.problem;
       const intentPathProblem = intentImplementationPathsProblem(
         intentText,
         readArtifact(host.paths.plan).text,

@@ -168,11 +168,15 @@ const issue = { problem: 'Запрет противоречит сериализ
 ], source: { file: 'request-1', lines: [1, 1] } };
 test('contract review requires anchored line references; repair touches only addressed sections', () => {
   const issues = parseIntentContractReview(JSON.stringify({ issues: [issue] }), intent, [source]);
-  assert.throws(() => parseIntentContractReview('{}', intent, [source]));
-  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, source: { file: 'request-9', lines: [1, 1] } }] }), intent, [source]));
-  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, source: { file: 'request-1', lines: [1, 5] } }] }), intent, [source]));
-  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, quotes: [{ section: 'Что делаем', lines: [3, 9] }] }] }), intent, [source]));
-  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, quotes: [{ section: 'Инварианты', lines: [1, 1] }] }] }), intent, [source]));
+  // Completely malformed review still throws; tolerant clamping only applies to valid issues.
+  assert.throws(() => parseIntentContractReview('{}', intent, [source]), /Invalid input|expected array/);
+  // Invalid source/section references are skipped rather than burning a repair turn.
+  assert.deepStrictEqual(parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, source: { file: 'request-9', lines: [1, 1] } }] }), intent, [source]), []);
+  const clampedSource = parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, source: { file: 'request-1', lines: [1, 5] } }] }), intent, [source]);
+  assert.deepStrictEqual(clampedSource[0]!.source.lines, [1, 1]);
+  const clampedQuote = parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, quotes: [{ section: 'Что делаем', lines: [3, 9] }] }] }), intent, [source]);
+  assert.deepStrictEqual(clampedQuote[0]!.quotes[0]!.lines, [3, 3]);
+  assert.deepStrictEqual(parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, quotes: [{ section: 'Инварианты', lines: [1, 1] }] }] }), intent, [source]), []);
   const rendered = renderIntentContractIssue(issues[0]!, intent, [source]);
   assert.equal(rendered.quotes[0]!.quote, 'serialize пишет только sku');
   assert.ok(rendered.sourceQuote.includes('serialize пишет только sku, code в выводе нет.'));

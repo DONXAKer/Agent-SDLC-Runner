@@ -8,6 +8,7 @@ import { resolvedRequirementsHash } from './resolvedRequirements.ts';
 import { intentSections } from './intentSections.ts';
 import { claimIdOf } from './claims.ts';
 import { parseTables, columnIndex, escapeCell } from '../md/table.ts';
+import { parseGuidedJson } from '../exec/guidedJson.ts';
 import { extractHumanFacts } from './humanFacts.ts';
 import { extractFilesToTouch, forbiddenCodePaths } from './planFiles.ts';
 import { extractExplicitSteps } from './planSteps.ts';
@@ -404,7 +405,50 @@ function canonicalizeMarkdownClaimTables(intent: string): string | null {
 }
 
 /** Convert model-authored JSON arrays into Markdown tables owned by the Runner. */
-export function normalizePreparationTables(intent: string, required = false): PreparationTableNormalization {
+function clampLineRange(lines: readonly unknown[], max: number): [number, number] {
+  const nums = lines.map(v => typeof v === 'number' && Number.isFinite(v) ? Math.trunc(v) : NaN).filter(n => !Number.isNaN(n));
+  if (nums.length < 2) return [1, Math.min(1, max)];
+  const start = Math.max(1, Math.min(nums[0]!, max));
+  const end = Math.max(start, Math.min(nums[1]!, max));
+  return [start, end];
+}
+
+function lenientAcceptanceRow(row: unknown): Record<string, string> | null {
+  if (typeof row !== 'object' || row === null) return null;
+  const r = row as Record<string, unknown>;
+  const id = String(r.id ?? '').replace(/`/gu, '').trim();
+  const behavior = String(r.behavior ?? '').trim();
+  const procedure = String(r.procedure ?? '').trim();
+  const expected = String(r.expected ?? '').trim();
+  if (!/^claim-\d+$/u.test(id) || behavior === '' || (procedure === '' && expected === '')) return null;
+  return { id, behavior, procedure, expected: expected || procedure, };
+}
+
+function lenientBasisRow(row: unknown, requests: readonly string[]): Record<string, string> | null {
+  if (typeof row !== 'object' || row === null) return null;
+  const r = row as Record<string, unknown>;
+  const id = String(r.id ?? '').replace(/`/gu, '').trim();
+  const scenario = String(r.scenario ?? '').trim();
+  const counterexample = String(r.counterexample ?? '').trim();
+  if (!/^claim-\d+$/u.test(id) || (scenario === '' && counterexample === '')) return null;
+  const rawBasis = r.basis;
+  let basis = '';
+  if (typeof rawBasis === 'string') {
+    basis = rawBasis.trim();
+  } else if (typeof rawBasis === 'object' && rawBasis !== null && !Array.isArray(rawBasis)) {
+    const b = rawBasis as Record<string, unknown>;
+    const file = String(b.file ?? 'request-1');
+    const index = Number(/^request-(\d+)$/u.exec(file)?.[1]);
+    const request = Number.isInteger(index) && index >= 1 ? requests[index - 1] ?? requests[0] : requests[0];
+    const requestLabel = request === requests[0] ? 'request-1' : file;
+    const max = Math.max(1, (request ?? '').split('\n').length);
+    const [start, end] = clampLineRange(Array.isArray(b.lines) ? b.lines : [], max);
+    basis = `${requestLabel}:L${start}-L${end}`;
+  }
+  return { id, basis: basis || 'н/п — источник не удалось проверить', scenario, counterexample };
+}
+
+export function normalizePreparationTables(intent: string, required = false, requests: readonly string[] = []): PreparationTableNormalization {
   const specs: { kind: PreparationTableKind; fields: string[]; headers: string[] }[] = [
     { kind: 'acceptance', fields: ['id', 'behavior', 'procedure', 'expected'], headers: ['ID', 'Пункт', 'Как проверить (процедура + критерий)'] },
     { kind: 'basis', fields: ['id', 'basis', 'scenario', 'counterexample'], headers: ['Основание', 'Сценарий', 'Контрпример', 'ID'] },
@@ -413,7 +457,7 @@ export function normalizePreparationTables(intent: string, required = false): Pr
   let changed = false;
   if (required && !intent.includes('sdlc-json:acceptance:start') && !intent.includes('sdlc-json:basis:start')) {
     const legacy = canonicalizeMarkdownClaimTables(intent);
-    if (legacy !== null) return normalizePreparationTables(legacy, true);
+    if (legacy !== null) return normalizePreparationTables(legacy, true, requests);
   }
   const rendered = new Map<PreparationTableKind, Record<string, string>[]>();
   let foundMarkers = 0;
@@ -425,14 +469,20 @@ export function normalizePreparationTables(intent: string, required = false): Pr
     const payload = (match[1] ?? '').trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
     let rows: unknown;
     try { rows = JSON.parse(payload); } catch {
-      return { text, changed, problem: `Сформируй блок ${spec.kind} как JSON-массив объектов с полями: ${spec.fields.join(', ')}.` };
+      // Пробуем более толерантный парсер; если и он не справился — сообщаем об ошибке
+      // до перехода к другому блоку, чтобы модель получала одну находку за раз.
+      try { rows = parseGuidedJson(payload); } catch {
+        return { text, changed, problem: `JSON-блок ${spec.kind} должен содержать непустой JSON-массив объектов с полями: ${spec.fields.join(', ')}.` };
+      }
     }
-    if (!Array.isArray(rows) || rows.length === 0 || rows.some((row) =>
-      typeof row !== 'object' || row === null || spec.fields.some((field) => typeof (row as Record<string, unknown>)[field] !== 'string' || !(row as Record<string, string>)[field]!.trim()) ||
-      Object.keys(row as object).length !== spec.fields.length)) {
-      return { text, changed, problem: `JSON-блок ${spec.kind} должен быть непустым массивом объектов с обязательными строковыми полями: ${spec.fields.join(', ')}. Лишние поля запрещены.` };
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { text, changed, problem: `JSON-блок ${spec.kind} должен быть непустым массивом объектов с полями: ${spec.fields.join(', ')}.` };
     }
-    const typedRows = rows as Record<string, string>[];
+    const parser = spec.kind === 'acceptance' ? lenientAcceptanceRow : (row: unknown) => lenientBasisRow(row, requests);
+    const typedRows = rows.map(parser).filter((row): row is Record<string, string> => row !== null);
+    if (typedRows.length === 0) {
+      return { text, changed, problem: `JSON-массив ${spec.kind} не содержит валидных строк; проверь поля ${spec.fields.join(', ')}.` };
+    }
     const ids = typedRows.map((row) => row.id!);
     if (ids.some((id) => !/^claim-\d+$/u.test(id)) || new Set(ids).size !== ids.length) {
       return { text, changed, problem: `В JSON-блоке ${spec.kind} укажи уникальные ID формата claim-N.` };

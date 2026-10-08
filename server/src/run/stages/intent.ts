@@ -251,7 +251,7 @@ export const intentModule: StageModule = {
         const state = preparation(host.paths);
         if (state?.structuredTablesRequired === true && state.structuredTablesRendered !== true) {
           const artifact = readArtifact(host.paths.intent);
-          const normalized = normalizePreparationTables(artifact.text, true);
+          const normalized = normalizePreparationTables(artifact.text, true, state?.requests ?? []);
           if (normalized.problem !== null) return normalized.problem;
           if (!normalized.changed) return 'Верни JSON-маркеры acceptance и basis с корректными объектами, чтобы Runner мог построить таблицы.';
           host.writeAutofilled(host.paths.intent, normalized.text, []);

@@ -39,36 +39,36 @@ it('rejects a plan that touches a forbidden file or points a target card at anot
     'Не изменять src/slots.ts и существующие тесты.',
   ].join('\n');
   const forbiddenPlan = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| src/slots.ts | изменить |';
-  ok(intentPlanBoundaryProblem(intent, forbiddenPlan)?.includes('src/slots.ts'));
+  ok(intentPlanBoundaryProblem(intent, forbiddenPlan).problem?.includes('src/slots.ts'));
   const wrongCard = [
     '### Шаг 1 — Реализовать функцию',
     '- файл: src/index.ts (существующий)',
     '- символ: moveHold',
     '- действие: добавить функцию в src/hold.ts',
   ].join('\n');
-  ok(intentPlanBoundaryProblem(intent, wrongCard)?.includes('действие описывает src/hold.ts'));
-  strictEqual(intentPlanBoundaryProblem(intent, [
+  deepStrictEqual(intentPlanBoundaryProblem(intent, wrongCard), { problem: null, addPaths: ['src/hold.ts'] });
+  deepStrictEqual(intentPlanBoundaryProblem(intent, [
     '### Шаг 1 — Экспортировать функцию',
     '- файл: src/index.ts (существующий)',
     '- символ: moveHold',
     '- действие: экспортировать src/hold.ts из src/index.ts',
-  ].join('\n')), null);
+  ].join('\n')), { problem: null, addPaths: [] });
 });
 
 it('rejects edits to existing tests when Intent permits only a new test file', () => {
   const intent = '## Чего не делаем\nне делаем: изменение существующих тестов; нужен тест в новом файле.\n';
   const plan = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| test/hold.test.ts | добавить проверку |\n';
   const root = join(process.cwd(), '..', 'bench', 'fixtures', 'booking');
-  ok(intentPlanBoundaryProblem(intent, plan, root)?.includes('test/hold.test.ts'));
-  strictEqual(intentPlanBoundaryProblem(intent,
-    '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| test/moveHold.test.ts | создать новый тест |\n', root), null);
+  ok(intentPlanBoundaryProblem(intent, plan, root).problem?.includes('test/hold.test.ts'));
+  deepStrictEqual(intentPlanBoundaryProblem(intent,
+    '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| test/moveHold.test.ts | создать новый тест |\n', root), { problem: null, addPaths: [] });
 });
 
 it('distinguishes an export structure constraint from a whole-file prohibition', () => {
   const plan = '## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| src/index.ts | реэкспорт функции |';
-  strictEqual(intentPlanBoundaryProblem('## Чего не делаем\nНе меняем структуру экспорта из src/index.ts помимо реэкспорта rule.\n', plan), null);
-  ok(intentPlanBoundaryProblem('## Чего не делаем\nНе меняем src/index.ts.\n', plan)?.includes('src/index.ts'));
-  ok(intentPlanBoundaryProblem('## Чего не делаем\nНе меняем src/index.ts кроме test/rule.test.ts.\n', plan)?.includes('src/index.ts'));
+  deepStrictEqual(intentPlanBoundaryProblem('## Чего не делаем\nНе меняем структуру экспорта из src/index.ts помимо реэкспорта rule.\n', plan), { problem: null, addPaths: [] });
+  ok(intentPlanBoundaryProblem('## Чего не делаем\nНе меняем src/index.ts.\n', plan).problem?.includes('src/index.ts'));
+  ok(intentPlanBoundaryProblem('## Чего не делаем\nНе меняем src/index.ts кроме test/rule.test.ts.\n', plan).problem?.includes('src/index.ts'));
 });
 
 it('recognizes implementation nouns used by compact Intent wording', () => {

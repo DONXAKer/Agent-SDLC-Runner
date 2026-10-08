@@ -66,28 +66,30 @@ export function intentContractSections(intent: string): Record<string, string> {
   return Object.fromEntries(ranges(intent).filter(range => Section.safeParse(range.name).success)
     .map(range => [range.name, intent.slice(range.start, range.end)]));
 }
-function checkLines(lines: readonly [number, number], text: string, label: string): void {
+function clampLines(lines: readonly [number, number], text: string): [number, number] {
   const count = text.split('\n').length;
-  if (lines[0] < 1 || lines[1] < lines[0] || lines[1] > count) {
-    throw new Error(`Проверка контракта: ${label} — диапазон строк за пределами 1-${count}`);
-  }
+  const start = Math.max(1, Math.min(lines[0], count));
+  const end = Math.max(start, Math.min(lines[1], count));
+  return [start, end];
 }
 export function parseIntentContractReview(answer: string, intent: string, requests: readonly string[]): IntentContractIssue[] {
-  const issues = Review.parse(parseGuidedJson(answer)).issues;
+  const raw = Review.parse(parseGuidedJson(answer)).issues;
   const sections = intentContractSections(intent);
-  for (const issue of issues) {
+  const clamped: IntentContractIssue[] = [];
+  for (const issue of raw) {
     const index = Number(/^request-(\d+)$/u.exec(issue.source.file)?.[1]);
-    if (!Number.isInteger(index) || index < 1 || index > requests.length) {
-      throw new Error(`Проверка контракта: основание ссылается на непоказанный источник (допустимы ${requests.map((_, i) => `request-${i + 1}`).join(', ') || '— источники не показаны'})`);
-    }
-    checkLines(issue.source.lines, requests[index - 1]!, `основание request-${index}`);
+    if (!Number.isInteger(index) || index < 1 || index > requests.length) continue;
+    const sourceLines = clampLines(issue.source.lines, requests[index - 1]!);
+    const quotes: IntentContractIssue['quotes'] = [];
     for (const quote of issue.quotes) {
       const text = sections[quote.section];
-      if (text === undefined) throw new Error(`Проверка контракта: секция ${quote.section} не найдена в Intent`);
-      checkLines(quote.lines, text, `цитата секции ${quote.section}`);
+      if (text === undefined) continue;
+      quotes.push({ section: quote.section, lines: clampLines(quote.lines, text) });
     }
+    if (quotes.length === 0) continue;
+    clamped.push({ ...issue, source: { ...issue.source, lines: sourceLines }, quotes });
   }
-  return issues;
+  return clamped;
 }
 /** Материализовать ссылки issue в дословные цитаты — для ремонтного промпта и журнала. */
 export function renderIntentContractIssue(issue: IntentContractIssue, intent: string, requests: readonly string[]):

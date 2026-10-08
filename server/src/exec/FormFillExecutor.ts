@@ -473,11 +473,11 @@ function structuredClaimJsonProblem(field: SchemaField, answer: string, currentA
       }
       const lines = ref.lines;
       const count = requests[index - 1]!.split('\n').length;
-      if (!Array.isArray(lines) || lines.length !== 2 || !lines.every(n => Number.isInteger(n)) ||
-        (lines[0] as number) < 1 || (lines[1] as number) < (lines[0] as number) || (lines[1] as number) > count) {
-        return `basis: lines — диапазон строк источника request-${index} в пределах 1-${count} (с 1, включительно)`;
+      // Рантайм подожмёт диапазон при рендеринге; здесь достаточно, что это массив из двух чисел.
+      if (!Array.isArray(lines) || lines.length !== 2 || !lines.every(n => Number.isInteger(n))) {
+        return `basis: lines — массив из двух целых чисел [с, по]`;
       }
-      if ((lines[1] as number) - (lines[0] as number) + 1 > 12) return 'basis: диапазон шире 12 строк; укажи точный фрагмент с основанием';
+      if ((lines[1] as number) - (lines[0] as number) + 1 > 120) return 'basis: диапазон слишком широк; укажи точный фрагмент';
     }
   }
   const ids = (rows as Record<string, string>[]).map((row) => row.id!);
