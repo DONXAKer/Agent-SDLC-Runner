@@ -10,7 +10,7 @@ import { WitokPaths } from '../src/artifacts/paths.ts';
 import type { ChatProvider } from '../src/provider/ChatProvider.ts';
 import { ProviderEnvError } from '../src/provider/ChatProvider.ts';
 import type { ExecHooks, ExecRequest } from '../src/exec/StageExecutor.ts';
-import { GuidedExecutor, guidedActionResponseFormat, parseGuidedReply, parseGuidedTurn, simulateOps, restoreTransaction } from '../src/exec/GuidedExecutor.ts';
+import { GuidedExecutor, guidedActionResponseFormat, parseGuidedReply, parseGuidedTurn, simulateOps, restoreTransaction, summarizeFailedAssertions } from '../src/exec/GuidedExecutor.ts';
 import { GuidedOpError } from '../src/exec/symbolOps.ts';
 import { accountGuidedTime, appendGuidedJournalFacts, guidedInputRevision, guidedImplementationHashes, guidedReviewContext, guidedSourceHunks, initGuided, readGuided, saveGuided, workItems } from '../src/run/guidedState.ts';
 import { guidedRetryFiles, observedImplementationContext } from '../src/run/guidedExecutor.ts';
@@ -1331,4 +1331,24 @@ test('untouched plan paths are not a scope violation when the tree is unchanged'
   assert.deepEqual(chunkScopeSignals(gate('✅'), gate('❌')), { scopeViolation: false, planPathsUntouched: true });
   assert.deepEqual(chunkScopeSignals(gate('❌'), gate('✅')), { scopeViolation: true, planPathsUntouched: false });
   assert.deepEqual(chunkScopeSignals(null, null), { scopeViolation: false, planPathsUntouched: false });
+});
+
+
+test('summarizeFailedAssertions extracts actual/expected from node:test spec output', () => {
+  const output = `Тесты: }\n▶ validateCustomer\n  ✔ Valid customer passes validation (1.5467ms)\n  ✖ Email with domain starting with dot returns email violation (0.8622ms)\n  ✔ Email with domain ending with dot returns email violation (0.1041ms)\n✖ validateCustomer (4.6559ms)\nℹ tests 22\nℹ suites 4\nℹ pass 21\nℹ fail 1\nℹ duration_ms 196.9343\n\n✖ failing tests:\n\ntest at test\\validateCustomer.test.ts:31:3\n✖ Email with domain starting with dot returns email violation (0.8622ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n  + []\n  - [\n  -   'email'\n  - ]\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-JF9Un1/test/validateCustomer.test.ts:32:5)\n  {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: [],\n    expected: [ 'email' ],\n    operator: 'deepStrictEqual',\n    diff: 'simple'\n  }`;
+  const brief = summarizeFailedAssertions(output);
+  assert.ok(!brief.includes('✖ validateCustomer (4.6559ms)'), 'suite-level failure without details is skipped');
+  assert.match(brief, /Email with domain starting with dot returns email violation/);
+  assert.match(brief, /actual \[\], expected \[ 'email' \]/);
+});
+
+test('summarizeFailedAssertions extracts not ok lines from TAP-style output', () => {
+  const output = `ok 1 - R1 [regression]: lineTotal exists.\nnot ok 3 - Pr1 [precision] (claim-2): Валидный покупатель: нарушений нет.\nnot ok 4 - Pr2 [precision] (claim-2): Две собаки — нарушение email (ровно одна @).\nok 8 - R2 [regression]: subtotal correct.`;
+  const brief = summarizeFailedAssertions(output);
+  assert.equal(brief, `- Pr1 [precision] (claim-2): Валидный покупатель: нарушений нет.\n- Pr2 [precision] (claim-2): Две собаки — нарушение email (ровно одна @).`);
+});
+
+test('summarizeFailedAssertions falls back to original output when no failure pattern is found', () => {
+  const output = 'Сборка: модулей загружено: 7 из 7\nok   config.ts';
+  assert.equal(summarizeFailedAssertions(output), output);
 });

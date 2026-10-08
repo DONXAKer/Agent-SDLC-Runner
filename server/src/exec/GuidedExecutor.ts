@@ -67,6 +67,77 @@ export function parseGuidedTurn(answer: Pick<ChatTurn, 'text' | 'toolCalls'>): z
   return Reply.parse(value);
 }
 
+/**
+ * Сжимает вывод тестового раннера (node:test spec/tap) до списка упавших проверок
+ * с actual/expected. Если распознать не удалось, возвращает исходный текст.
+ */
+export function summarizeFailedAssertions(output: string): string {
+  const clean = output.replace(/\u001b\[[0-9;]*m/gu, '');
+  const lines = clean.split(/\r?\n/);
+  const failures = new Map<string, string>();
+  const isCounter = (l: string) => /^\s*ℹ\s+(tests|suites|pass|fail|cancelled|skipped|todo|duration_ms)\b/.test(l);
+  const isRecapHeader = (l: string) => /^\s*✖ failing tests:\s*$/.test(l);
+  const failureHeader = (l: string) => {
+    const spec = /^\s*✖\s+(.+?)\s*(?:\(\d+(?:\.\d+)?ms\))?\s*$/.exec(l);
+    const tap = /^\s*not ok\s+\d+\s*-?\s*(.+)$/.exec(l);
+    return spec ? { name: spec[1]!.trim(), kind: 'spec' as const } : tap ? { name: tap[1]!.trim(), kind: 'tap' as const } : null;
+  };
+  const summarizeBlock = (block: string[]): string | null => {
+    const actualLine = block.find((l) => /^\s*actual:\s*/.test(l));
+    const expectedLine = block.find((l) => /^\s*expected:\s*/.test(l));
+    if (actualLine !== undefined && expectedLine !== undefined) {
+      const actual = actualLine.replace(/^\s*actual:\s*/, '').replace(/,\s*$/, '').trim();
+      const expected = expectedLine.replace(/^\s*expected:\s*/, '').replace(/,\s*$/, '').trim();
+      if (actual !== '' || expected !== '') return `actual ${actual}, expected ${expected}`;
+    }
+    const diffIdx = block.findIndex((l) => /\+\s*actual\s*-\s*expected/.test(l));
+    if (diffIdx >= 0) {
+      const actualParts: string[] = [];
+      const expectedParts: string[] = [];
+      for (let k = diffIdx + 1; k < block.length; k++) {
+        const l = block[k]!;
+        if (l.trim() === '') break;
+        const ma = /^\s*\+\s*(.*)$/.exec(l);
+        const me = /^\s*-\s*(.*)$/.exec(l);
+        if (ma) actualParts.push(ma[1]!);
+        else if (me) expectedParts.push(me[1]!);
+        else break;
+      }
+      if (actualParts.length > 0 || expectedParts.length > 0) {
+        const a = actualParts.join(' ').trim() || '(empty)';
+        const e = expectedParts.join(' ').trim() || '(empty)';
+        return `actual ${a}, expected ${e}`;
+      }
+    }
+    return null;
+  };
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i]!;
+    if (isRecapHeader(line)) { i++; while (i < lines.length && (failureHeader(lines[i]!) || isCounter(lines[i]!) || lines[i]!.trim() === '')) i++; continue; }
+    const header = failureHeader(line);
+    if (header) {
+      const { name, kind } = header;
+      i++;
+      const block: string[] = [];
+      while (i < lines.length && !failureHeader(lines[i]!) && !isRecapHeader(lines[i]!) && !isCounter(lines[i]!)) {
+        block.push(lines[i]!);
+        i++;
+      }
+      const summary = summarizeBlock(block);
+      if (summary) {
+        failures.set(name, summary);
+      } else if (kind === 'tap' || block.some((l) => /AssertionError|'test failed'|FAIL/.test(l))) {
+        failures.set(name, failures.get(name) ?? '');
+      }
+      continue;
+    }
+    i++;
+  }
+  if (failures.size === 0) return output;
+  return [...failures.entries()].map(([name, summary]) => (summary ? `- ${name}: ${summary}` : `- ${name}`)).join('\n');
+}
+
 export interface GuidedFileCard { path: string; hash: string; symbols: readonly string[]; isNew: boolean; ownedNewContent?: string; barrel?: boolean; }
 
 /** Ollama отклоняет схему с пустым enum; пустой список символов деградирует в строку с паттерном. */
@@ -599,8 +670,9 @@ export class GuidedExecutor implements StageExecutor {
             const scoped = item.files.filter(file => checked.repairFiles!.includes(file));
             if (scoped.length) { draftFiles = scoped; draftIndex = 0; draftOps = []; }
           }
-          feedback = `Ожидалось: ${item.prediction}\nНаблюдение: ${checked.result}\n${priorFailure === checked.result ? 'Та же ошибка повторилась: пересмотри гипотезу и прочитай зависимости.' : 'Установи причину расхождения и исправь.'}`;
-          priorFailure = checked.result;
+          const brief = summarizeFailedAssertions(checked.result);
+          feedback = `Ожидалось: ${item.prediction}\nНаблюдение: ${brief}\n${priorFailure === brief ? 'Та же ошибка повторилась: пересмотри гипотезу и прочитай зависимости.' : 'Установи причину расхождения и исправь.'}`;
+          priorFailure = brief;
           if (item.attempts === 3 && !item.repartitioned) {
             item.repartitioned = true; focused = true; needSplit = true;
             observe(item, 'repartition', 'Запрошено новое разбиение; осталось не более трёх циклов проверки группы');
