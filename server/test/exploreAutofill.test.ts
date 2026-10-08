@@ -124,4 +124,9 @@ describe('плейсхолдеры без решений человека', () =
     strictEqual(countPlaceholdersExceptDecisions(text), 1);
     strictEqual(countPlaceholdersExceptDecisions('- **Подтвердил:** ‹имя›\n'), 0);
   });
+  it('необязательное поле вида "‹...› / нет" считается заполненным', () => {
+    strictEqual(countPlaceholdersExceptDecisions('- Отклонено: ‹что и почему› / нечего\n'), 0);
+    strictEqual(countPlaceholdersExceptDecisions('- Открыто: ‹строки› / нет\n'), 0);
+    strictEqual(countPlaceholdersExceptDecisions('- Открыто: ‹строки› / ‹ещё›\n'), 2);
+  });
 });

@@ -304,6 +304,10 @@ export function countPlaceholdersExceptDecisions(text: string): number {
     const line = text.slice(lineStart, lineEndIdx < 0 ? text.length : lineEndIdx);
     if (isDecisionLine(line)) continue;
     if (/^\s+\S/.test(line) && continuationOfDecision(text, lineStart)) continue;
+    // Optional-field syntax: "‹...› / нет", "‹...› / нечего" or "‹...› / н/п" means the field is intentionally empty.
+    const afterInLine = line.slice(r.end - lineStart);
+    const re = /^\s*\/\s*(?:нет|нечего|н\s*\/\s*п)(?!\p{L})/iu;
+    if (re.test(afterInLine)) continue;
     n++;
   }
   return n;

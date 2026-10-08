@@ -118,9 +118,14 @@ export function applyGuidedPlanRepair(plan: z.infer<typeof Plan>, raw: unknown, 
 }
 
 /** Target repair is bounded by inspected source paths and task-required new files. */
-export function guidedPlanRepairPaths(intent: string, requests: readonly string[], inspected: readonly string[], cwd: string): string[] {
+export function guidedPlanRepairPaths(intent: string, requests: readonly string[], inspected: readonly string[], cwd: string, planned: readonly string[] = []): string[] {
   const required = guidedRequiredImplementationPaths(intent, requests, cwd);
-  return [...new Set([...required, ...inspected])].filter(file => {
+  // planned — файлы карточек самого плана: они уже внутри files_to_touch кандидата, но могли
+  // не попасть ни в «Что делаем», ни в readEvidence, и тогда адресный ремонт не мог даже
+  // сохранить прежнюю цель шага («цель src/keys.ts не разрешена для ремонта»,
+  // guided-sample-20261006205009382). Фильтр ниже по-прежнему отсекает запрещённые intent'ом
+  // пути и существующие тесты, так что шире files_to_touch множество не становится.
+  return [...new Set([...required, ...inspected, ...planned])].filter(file => {
     const path = guardedPath(cwd, file);
     if (/(?:^|\/)tests?\//iu.test(file.replace(/\\/gu, '/')) && readArtifact(path).exists) return false;
     return intentPlanBoundaryProblem(intent, `## files_to_touch\n| Путь | Что делаем |\n|---|---|\n| ${escapeCell(file)} | ремонт цели |\n`, cwd) === null;
@@ -601,7 +606,8 @@ steps/files_to_touch содержат только файлы реализаци
       }
       const repairFocus = axesProblem ? 'axes' as const : targetProblem && repairTargets.length ? 'target' as const : repairTargets.length ? 'steps' as const : /«Подход»/u.test(feedback) ? 'approach' as const : undefined;
       const allowedTargetPaths = repairFocus === 'target' ? guidedPlanRepairPaths(readArtifact(this.o.paths.intent).text,
-        state?.requests ?? [], (state?.readEvidence ?? []).map(e => e.path), req.cwd) : undefined;
+        state?.requests ?? [], (state?.readEvidence ?? []).map(e => e.path), req.cwd,
+        (candidate?.steps ?? []).map(step => step.file)) : undefined;
       const targetPaths = allowedTargetPaths ? new Map(targetOwners.map(id => [id, allowedTargetPaths] as const)) : undefined;
       const protectedStepIds = candidate?.steps.filter(step => runtimeRequiredPaths.includes(step.file) &&
         candidate!.steps.filter(other => other.file === step.file).length === 1).map(step => step.id) ?? [];

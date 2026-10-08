@@ -7,7 +7,7 @@ import { emptyUsage } from '@sdlc-runner/shared';
 import { GuidedExecutor, simulateOps } from '../src/exec/GuidedExecutor.ts';
 import { GuidedOpError } from '../src/exec/symbolOps.ts';
 import { applyGuidedPlanRepair, guidedPlanRepairPaths, guidedPlanRepairResponseFormat, renumberGuidedPlan, GuidedPlanExecutor } from '../src/exec/GuidedPlanExecutor.ts';
-import { applyIntentContractRepair, parseIntentContractReview } from '../src/exec/intentContractReview.ts';
+import { applyIntentContractRepair, parseIntentContractReview, renderIntentContractIssue } from '../src/exec/intentContractReview.ts';
 import { FormFillExecutor } from '../src/exec/FormFillExecutor.ts';
 import { WitokPaths } from '../src/artifacts/paths.ts';
 import { initGuided } from '../src/run/guidedState.ts';
@@ -122,6 +122,15 @@ test('target repair paths exclude forbidden files and existing tests, retaining 
   assert.deepEqual(allowed, ['src/commands.ts']);
 });
 
+test('target repair paths retain plan step files missing from intent and read evidence', t => {
+  // src/keys.ts — легитимный файл карточки плана: не назван в «Что делаем» и не читался
+  // разведкой, но адресный ремонт обязан уметь сохранить его как прежнюю цель шага.
+  const { root } = fixture(t); mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src/keys.ts'), '// source');
+  const allowed = guidedPlanRepairPaths('## Чего не делаем\nНе меняем существующие тесты.\n', [], [], root, ['src/keys.ts']);
+  assert.deepEqual(allowed, ['src/keys.ts']);
+});
+
 test('Plan executor switches an invalid target to bounded target repair with real source declarations', async t => {
   const { root, paths } = fixture(t); mkdirSync(join(root, 'src'));
   writeFileSync(join(root, 'src/wrong.ts'), 'export const old = 1;\n');
@@ -152,14 +161,21 @@ test('Plan executor switches an invalid target to bounded target repair with rea
 
 const source = 'serialize пишет только sku, code в выводе нет. Старые тесты не менять.';
 const intent = '# Задача\n- **Ветка:** sdlc/test\n## Что делаем\nserialize пишет только sku\n\n## Чего не делаем\nНе удаляем code из сериализации\n\n## Приёмочный лист\nclaim-1: serialize не пишет code\n';
+// Рецензия адресует строки ссылками, а не байтовыми цитатами: секции «Что делаем» и
+// «Чего не делаем» — однострочные, источник request-1 тоже.
 const issue = { problem: 'Запрет противоречит сериализации', quotes: [
-  { section: 'Что делаем', quote: 'serialize пишет только sku' }, { section: 'Чего не делаем', quote: 'Не удаляем code из сериализации' },
-], sourceQuote: 'serialize пишет только sku, code в выводе нет.' };
-test('contract review requires anchored quotations; repair touches only addressed sections', () => {
-  const issues = parseIntentContractReview(JSON.stringify({ issues: [issue] }), intent, source);
-  assert.throws(() => parseIntentContractReview('{}', intent, source));
-  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, sourceQuote: 'invented' }] }), intent, source));
-  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, quotes: [{ section: 'Что делаем', quote: 'invented' }] }] }), intent, source));
+  { section: 'Что делаем', lines: [1, 1] }, { section: 'Чего не делаем', lines: [1, 1] },
+], source: { file: 'request-1', lines: [1, 1] } };
+test('contract review requires anchored line references; repair touches only addressed sections', () => {
+  const issues = parseIntentContractReview(JSON.stringify({ issues: [issue] }), intent, [source]);
+  assert.throws(() => parseIntentContractReview('{}', intent, [source]));
+  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, source: { file: 'request-9', lines: [1, 1] } }] }), intent, [source]));
+  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, source: { file: 'request-1', lines: [1, 5] } }] }), intent, [source]));
+  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, quotes: [{ section: 'Что делаем', lines: [3, 9] }] }] }), intent, [source]));
+  assert.throws(() => parseIntentContractReview(JSON.stringify({ issues: [{ ...issue, quotes: [{ section: 'Инварианты', lines: [1, 1] }] }] }), intent, [source]));
+  const rendered = renderIntentContractIssue(issues[0]!, intent, [source]);
+  assert.equal(rendered.quotes[0]!.quote, 'serialize пишет только sku');
+  assert.ok(rendered.sourceQuote.includes('serialize пишет только sku, code в выводе нет.'));
   const result = applyIntentContractRepair(intent, JSON.stringify({ sections: [{ section: 'Чего не делаем', content: 'Не меняем старые тесты' }] }), issues);
   assert.ok(result.includes('serialize пишет только sku')); assert.ok(result.includes('claim-1: serialize не пишет code'));
   assert.ok(!result.includes('Не удаляем code')); assert.ok(result.includes('- **Ветка:** sdlc/test'));
@@ -190,7 +206,7 @@ test('Intent blocks malformed review, exhausted repairs, write denial and exhaus
     const provider = { name: 'failure-spy', async chat(req: any) {
       if (scenario === 'malformed') return turn({});
       if (req.params.response_format.json_schema.name === 'intent_contract_review') return turn({ issues: [{ ...issue,
-        quotes: [{ section: 'Что делаем', quote: 'serialize пишет только sku' }], problem: 'ещё противоречие' }] });
+        quotes: [{ section: 'Что делаем', lines: [1, 1] }], problem: 'ещё противоречие' }] });
       repairs++; return turn({ sections: [{ section: 'Что делаем', content: `serialize пишет только sku\nУточнение ${repairs}` }] });
     } } as ChatProvider;
     const h = hooks(); if (scenario === 'denied') h.onToolRequest = async () => ({ allowed: false, updatedInput: null, reason: 'denied', by: 'policy' });

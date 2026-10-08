@@ -83,6 +83,15 @@ export interface OpenAiCompatOptions {
    */
   retryDelayMs?: number;
   /**
+   * Канал предупреждений оператора (лента прогона — `Run.emit('warning')` на боевых
+   * маршрутах). Сюда уходит, например, факт снятия reasoning/thinking-параметров после
+   * отказа сервера «does not support thinking» — адаптация под модель обязана быть
+   * видимой, молчаливая подмена параметра замера недопустима. Не задан —
+   * `process.emitWarning`: предупреждение не пропадает и у потребителей без ленты
+   * (проба модели, тесты).
+   */
+  onWarn?: (message: string) => void;
+  /**
    * Умолчание потолка длины ответа для этого провайдера (`ProviderDef.maxTokens`).
    * Не задано — общее число `DEFAULT_MAX_TOKENS`. `ModelDef.params.max_tokens`
    * перекрывает и то, и другое.
@@ -374,6 +383,47 @@ function objectEnd(text: string, start: number): number {
 const CHAT_RETRIES = 2;
 const CHAT_RETRY_DELAY_MS = 3_000;
 
+/**
+ * Отказ сервера «модель не умеет thinking» (живой текст Ollama: `"<модель>" does not
+ * support thinking`, серия `ministral3-14b-instruct-ctx32k-compactfill`, 2026-10-05: все 6
+ * прогонов профиля упали мгновенно — рантайм слал `reasoning_effort` модели без его
+ * поддержки). Матч строго по разобранному полю `error` тела (плоская строка Ollama или
+ * `error.message` структурной формы), не по сырому телу: подстрока в чужой цитате внутри
+ * 400 не должна запускать повтор — тот же принцип, что у `ENGINE_UNAVAILABLE_SUBSTRINGS`.
+ */
+const THINKING_UNSUPPORTED = /\bdoes not support (thinking|reasoning)\b/i;
+
+function thinkingUnsupportedReason(text: string): string | null {
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown };
+    const err = parsed.error;
+    const message =
+      typeof err === 'string'
+        ? err
+        : typeof err === 'object' && err !== null && typeof (err as { message?: unknown }).message === 'string'
+          ? (err as { message: string }).message
+          : null;
+    return message !== null && THINKING_UNSUPPORTED.test(message) ? message : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Поля тела запроса, управляющие рассуждением модели, — у разных серверов разные ключи. */
+const REASONING_PARAM_KEYS = ['reasoning_effort', 'reasoning', 'think', 'thinking'] as const;
+
+/** Снять reasoning/thinking-параметры с тела запроса. Возвращает имена снятых ключей. */
+function stripReasoningParams(body: Record<string, unknown>): string[] {
+  const removed: string[] = [];
+  for (const key of REASONING_PARAM_KEYS) {
+    if (key in body) {
+      delete body[key];
+      removed.push(key);
+    }
+  }
+  return removed;
+}
+
 /** Сетевые коды, которые чинятся повтором (включая моргнувший маршрут VPN/Wi-Fi).
  *  ENOTFOUND (опечатка в BASE_URL) — постоянный, повтором не чинится. */
 const TRANSIENT_NET_CODES = new Set([
@@ -478,15 +528,16 @@ export class OpenAiCompatProvider implements ChatProvider {
       'content-type': 'application/json',
       ...(this.o.apiKey === null ? {} : { authorization: `Bearer ${this.o.apiKey}` }),
     };
-    const payload = JSON.stringify(body);
+    let payload = JSON.stringify(body);
+    const isThinkingUnsupported = (t: string): boolean => /does not support thinking/iu.test(t);
+    const params = req.params ?? {};
+    const paramsWithoutReasoning = Object.fromEntries(
+      Object.entries(params).filter(([k]) => !['reasoning_effort', 'thinking', 'reasoning', 'think'].includes(k)));
+    const bodyWithoutReasoning = { ...body };
+    applyParams(bodyWithoutReasoning, paramsWithoutReasoning);
 
     // Перемежающийся отказ агрегатора — среда, а не модель, и один такой ответ не должен
-    // валить этап (замер: три прогона подряд встали на intent из-за 503 полза-апстрима,
-    // при том что проба и повтор той же выборки проходили). Транзиентным считается и
-    // HTTP 5xx/429, и СЕТЕВОЙ обрыв (ECONNRESET — postJson сигналит им reject'ом): рвущий
-    // соединение апстрим — тот же класс, ради которого ретрай и заведён. 4xx кроме 429 не
-    // повторяются — они про запрос. Пауза отменяема, и отмена оператора отчитывается
-    // отменой, а не «HTTP 503» (ревью, К16).
+    let triedWithoutReasoning = false;
     let status = 0;
     let text = '';
     for (let attempt = 1; ; attempt++) {
@@ -522,6 +573,15 @@ export class OpenAiCompatProvider implements ChatProvider {
         if (req.signal.aborted) {
           throw new Error(`${this.name}: запрос отменён во время паузы повтора (после сетевого сбоя ${code})`);
         }
+        continue;
+      }
+      if (status === 400 && !triedWithoutReasoning && isThinkingUnsupported(text)) {
+        // Некоторые модели Ollama падают на любом thinking-параметре (reasoning_effort и т.п.).
+        // Раз профиль не требует размышлений, повторяем без них один раз, честно предупредив.
+        triedWithoutReasoning = true;
+        for (const k of ['reasoning_effort', 'thinking', 'reasoning', 'think']) delete body[k];
+        applyParams(body, paramsWithoutReasoning);
+        payload = JSON.stringify(body);
         continue;
       }
       const transient = status === 429 || status >= 500;

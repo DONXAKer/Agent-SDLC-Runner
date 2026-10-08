@@ -99,3 +99,33 @@ describe('таймаут одного запроса', () => {
     ok(Date.now() - started < 5000, 'таймаут не сработал или запрос пошёл на повторы');
   });
 });
+
+describe('fallback: unsupported thinking', () => {
+  it('повтор без reasoning-параметров при HTTP 400 "does not support thinking"', async () => {
+    let calls = 0;
+    const server = createServer((req, res) => {
+      let raw = '';
+      req.on('data', (c) => (raw += c));
+      req.on('end', () => {
+        calls++;
+        const body = JSON.parse(raw);
+        if (calls === 1) {
+          ok(body['reasoning_effort'] === 'low', 'первая попытка должна содержать reasoning_effort');
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: '"test-model" does not support thinking', type: 'invalid_request_error' } }));
+        } else {
+          strictEqual(body['reasoning_effort'], undefined);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    servers.push(server);
+    const address = server.address() as AddressInfo;
+    const provider = new OpenAiCompatProvider({ name: 'stub', baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: null, timeoutMs: 2000 });
+    const result = await provider.chat(request({ reasoning_effort: 'low' }));
+    strictEqual(result.text, 'ok');
+    strictEqual(calls, 2);
+  });
+});

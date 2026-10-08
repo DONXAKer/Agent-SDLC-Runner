@@ -440,8 +440,16 @@ export function normalizePreparationTables(intent: string, required = false): Pr
     rendered.set(spec.kind, typedRows);
     // Таблицу рисует рантайм, значит ячейка однострочна по построению: перенос строки
     // в значении (многострочная цитата основания, scenario модели) ломает разбор таблицы
-    // дальше по гейтам — escapeCell покрывает только «|».
-    const cell = (value: string): string => escapeCell(value.replace(/[\r\n]+/gu, ' '));
+    // дальше по гейтам — escapeCell покрывает только «|». А цитата основания — фрагмент
+    // строки запроса, обрезанный окном lines:[from,to]: обрезка может разорвать inline-код,
+    // и нечётное число «`» оставляет splitRow внутри code span до конца строки — вся строка
+    // таблицы схлопывается в одну ячейку, и ID требования теряется (живой отказ этапа
+    // intent, guided-sample-20261006205009382 m1-t2-r3). Дословность на границе окна уже
+    // нарушена обрезкой, поэтому рендер закрывает code span добивкой кавычки.
+    const cell = (value: string): string => {
+      const flat = value.replace(/[\r\n]+/gu, ' ');
+      return escapeCell(flat.split('`').length % 2 === 1 ? flat : `${flat}\``);
+    };
     const markdownRows = [
       `| ${spec.headers.map(escapeCell).join(' | ')} |`,
       `|${spec.headers.map(() => '---').join('|')}|`,

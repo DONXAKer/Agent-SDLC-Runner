@@ -25,7 +25,13 @@ export function splitRow(line: string): string[] {
       continue;
     }
     if (ch === '`') {
-      inCode = !inCode;
+      // Закрытые пары inline-code не должны резать ячейку; непарный trailing backtick
+      // (обрезанное inline-code в цитате) не должен открывать span на всю оставшуюся строку.
+      if (inCode) {
+        inCode = false;
+      } else if (line.indexOf('`', i + 1) >= 0) {
+        inCode = true;
+      }
       cur += ch;
       continue;
     }
