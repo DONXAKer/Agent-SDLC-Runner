@@ -56,7 +56,7 @@ export interface PreparationState {
     version: 1;
     entries: {
       id: string; question: string; origin: string[]; requestHash: string;
-      status: 'source' | 'engineering' | 'context' | 'human' | 'protocol' | 'answered';
+      status: 'source' | 'engineering' | 'context' | 'human' | 'protocol' | 'answered' | 'deferred';
       answer: string; reason: string; options: string[];
       sourceHashes: Record<string, string>; citations: { source: string; quote: string }[];
     }[];
@@ -80,7 +80,7 @@ export function preparation(paths: WitokPaths): PreparationState | null {
     const journal = state.questionJournal;
     if (!journal || journal.version !== 1 || !Array.isArray(journal.entries) || !journal.entries.every(entry =>
       entry && ['id', 'question', 'requestHash', 'answer', 'reason'].every(field => typeof entry[field as keyof typeof entry] === 'string') &&
-      ['source', 'engineering', 'context', 'human', 'protocol', 'answered'].includes(entry.status) &&
+      ['source', 'engineering', 'context', 'human', 'protocol', 'answered', 'deferred'].includes(entry.status) &&
       Array.isArray(entry.origin) && entry.origin.every(value => typeof value === 'string') &&
       Array.isArray(entry.options) && entry.options.every(value => typeof value === 'string') &&
       entry.sourceHashes && typeof entry.sourceHashes === 'object' && !Array.isArray(entry.sourceHashes) && Object.values(entry.sourceHashes).every(value => typeof value === 'string') &&

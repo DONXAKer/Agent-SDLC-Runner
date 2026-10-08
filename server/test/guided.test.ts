@@ -375,18 +375,18 @@ test('rejected new-file code remains visible after a read and is never written b
   assert.equal(result.ok,true,result.note); assert.equal(calls,3); assert.match(readFileSync(join(root,'a.ts'),'utf8'),/async/);
 });
 
-test('empty truncation keeps reasoning effort and raises the token cap instead', async t => {
+test('empty truncation falls back to no_change instead of burning the turn budget', async t => {
   const { root, paths } = fixture(t); const seen: Array<{ effort: unknown, max: number }> = [];
   const model = { name:'reasoning-spy', async chat(req: any) {
     seen.push({ effort: req.params.reasoning_effort, max: req.params.max_tokens });
-    return {text:seen.length === 1 ? '' : JSON.stringify({action:'no_change',reason:'no changes required'}),toolCalls:[],
-      finishReason:seen.length === 1 ? 'max_tokens' : 'end_turn',usage:emptyUsage()};
+    return {text: '', toolCalls:[], finishReason:'max_tokens', usage:emptyUsage()};
   }} as unknown as ChatProvider;
   const result = await new GuidedExecutor({paths,items:[item(['a.ts'])],provider:model,params:{reasoning_effort:'medium'},inputRevision:()=> 'r',
     requirements:'preserve',sources:'',contextWindow:16000,check:async()=>({passed:true,result:'pass'})}).run(request(root),hooks());
   assert.equal(result.ok,true,result.note);
-  assert.deepEqual(seen.map(s => s.effort),['medium','medium']);
-  assert.ok(seen[1]!.max > seen[0]!.max); assert.equal(result.modelRequests,2);
+  assert.equal(result.modelRequests,1);
+  assert.equal(seen.length,1);
+  assert.equal(seen[0]!.effort,'medium');
 });
 
 test('native transport arguments use the same guided schema without granting tools', () => {
@@ -918,7 +918,9 @@ test('source answers require a cited range inside the shown source and never bec
   const host = { paths, slug: 'case', writeAutofilled: (path: string, text: string) => writeArtifact(path, text) } as unknown as StageHost;
   const h = hooks(); h.onAskHuman = async () => { throw new Error('protocol failure is not a business question'); };
   const options = { provider: provider([{ kind: 'source', source: 'request-1', lines: [2, 5], answer: '6000' }]), params: null, contextWindow: 16384 };
-  assert.equal((await new GuidedAskExecutor(host, options).run(request(root), h)).ok, false);
+  const bad = await new GuidedAskExecutor(host, options).run(request(root), h);
+  assert.equal(bad.ok, true, 'auto-origin protocol failures are deferred instead of blocking');
+  assert.equal(preparation(paths)?.questionJournal?.entries[0]?.status, 'deferred');
   assert.equal(extractHumanFacts(readFileSync(paths.clarificationReport, 'utf8')).length, 0);
   assert.ok(!readFileSync(paths.clarificationReport, 'utf8').includes('6000'));
   const second = fixture(t);
@@ -968,7 +970,9 @@ test('engineering choices persist on resume and are revalidated after source cha
   assert.equal((await new GuidedAskExecutor(host, options).run(request(root), h)).modelRequests, 0);
   const state = preparation(paths)!;
   savePreparation(paths, { ...state, requests: ['Комментарии к DAILY_ISSUE_LIMIT должны дословно цитировать требования.'] });
-  assert.equal((await new GuidedAskExecutor(host, options).run(request(root), h)).ok, false);
+  const revalidated = await new GuidedAskExecutor(host, options).run(request(root), h);
+  assert.equal(revalidated.ok, true, 'revalidation failures on auto-origin questions are deferred');
+  assert.equal(preparation(paths)?.questionJournal?.entries[0]?.status, 'deferred');
   assert.ok(readFileSync(paths.intent, 'utf8').includes('[ ] [блокирующий]'));
 });
 

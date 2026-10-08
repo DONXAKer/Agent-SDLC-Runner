@@ -30,7 +30,7 @@ export function closeGuidedQuestions(text: string, answers: ReadonlyMap<string, 
 }
 
 type Entry = NonNullable<PreparationState['questionJournal']>['entries'][number];
-const resolved = (entry: Entry): boolean => ['source', 'engineering', 'answered'].includes(entry.status);
+const resolved = (entry: Entry): boolean => ['source', 'engineering', 'answered', 'deferred'].includes(entry.status);
 
 /** Runtime classifies candidates before delivering missing business decisions. */
 export class GuidedAskExecutor implements StageExecutor {
@@ -189,7 +189,17 @@ human: {kind,missingDecision,options:[вариант1,вариант2],consequen
           flush();
         }
       }
-      if (!done && entry.status !== 'context') { entry.status = 'protocol'; entry.reason = `Не удалось разрешить кандидат в пределах бюджета: ${entry.reason}`; }
+      if (!done && entry.status !== 'context') {
+        const autoOrigin = entry.origin.some(o => o === 'intent' || o === 'explore');
+        if (entry.status === 'protocol' && autoOrigin) {
+          entry.status = 'deferred';
+          entry.answer = 'не удалось автоматически обосновать; передано в план';
+          entry.reason = `Не удалось разрешить автоматически за 4 попытки: ${entry.reason}`;
+        } else {
+          entry.status = 'protocol';
+          entry.reason = `Не удалось разрешить кандидат в пределах бюджета: ${entry.reason}`;
+        }
+      }
       flush();
     }
     const human = [...entries.values()].filter(e => e.status === 'human' && !answers.has(key(e.question)));

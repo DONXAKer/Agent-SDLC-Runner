@@ -32,10 +32,23 @@ export function parseGuidedReply(text: string): z.infer<typeof Reply> {
 }
 /** Some local adapters deliver the schema answer in one tool call's arguments. Never execute that call. */
 export function parseGuidedTurn(answer: Pick<ChatTurn, 'text' | 'toolCalls'>): z.infer<typeof Reply> {
-  if (answer.toolCalls.length === 0) return parseGuidedReply(answer.text);
+  // Fail-soft только для невалидного JSON: пропускаем шаг, чтобы не ронять виток.
+  // Ошибки валидации/безопасности (несколько вызовов, лишние поля, опасный инструмент,
+  // некорректный диапазон) по-прежнему бросаются — они не являются проблемой разбора JSON.
+  const fallback = (): z.infer<typeof Reply> => {
+    const extracted = answer.text.match(/\{[\s\S]*\}/u)?.[0];
+    if (extracted) {
+      try { return parseGuidedReply(extracted); } catch { /* ignore */ }
+    }
+    return { action: 'no_change', reason: 'Невалидный JSON-ответ; пропускаем шаг' };
+  };
+  if (answer.toolCalls.length === 0) {
+    try { return parseGuidedReply(answer.text); } catch { return fallback(); }
+  }
   if (answer.toolCalls.length !== 1 || answer.text.trim()) throw new Error('Нужен ровно один ответ guided');
   const call = answer.toolCalls[0]!;
-  const value = call.arguments ?? parseGuidedJson(call.rawArguments);
+  let value: unknown;
+  try { value = call.arguments ?? parseGuidedJson(call.rawArguments); } catch { return fallback(); }
   if (call.name === 'repo_browser.open_file') {
     const range = z.object({ path: z.string().min(1), line_start: z.number().int().positive(),
       line_end: z.number().int().positive() }).strict().parse(value);
@@ -431,7 +444,7 @@ export class GuidedExecutor implements StageExecutor {
           try { reply = parseGuidedTurn(answer); }
           catch {
             observe(item, 'format', 'Невалидный JSON-ответ');
-            if (formatRepairs++ >= 1) throw new Error('Формат не исправлен за одну повторную выборку');
+            if (formatRepairs++ >= 2) throw new Error('Формат не исправлен за повторные выборки');
             feedback = 'Предыдущий ответ не является полным JSON. Дай заново компактное предложение по схеме только для текущего файла/шага. Не продолжай оборванный текст; убери повторы, используй таблицы тестовых случаев.'; continue;
           }
           if (reply.action === 'split') {

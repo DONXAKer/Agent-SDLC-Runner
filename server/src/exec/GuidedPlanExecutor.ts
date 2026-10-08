@@ -228,6 +228,65 @@ export function renumberGuidedPlan(plan: z.infer<typeof Plan>): z.infer<typeof P
   }) })) };
 }
 
+/** Нормализованный путь для группировки карточек. */
+function normalizedFile(file: string): string {
+  return file.replace(/\\/gu, '/').replace(/^\.\//u, '').toLowerCase();
+}
+
+/** Объединить несколько карточек, покрывающих один файл, в одну.
+ *
+ * Методология требует «один файл — одна карточка», но модели естественно разделяют
+ * реализацию и тесты одного файла. Вместо того чтобы тратить попытки ремонта на
+ * объединение, рантайм делает это сам. */
+export function mergeDuplicatePlanSteps(plan: z.infer<typeof Plan>): z.infer<typeof Plan> {
+  const groups = new Map<string, z.infer<typeof Step>[]>();
+  for (const step of plan.steps) {
+    const key = normalizedFile(step.file);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(step);
+  }
+  const merged: z.infer<typeof Step>[] = [];
+  const idMap = new Map<number, number>();
+  for (const step of plan.steps) {
+    const key = normalizedFile(step.file);
+    const group = groups.get(key)!;
+    if (group.length === 1) { merged.push(step); continue; }
+    const survivor = group.reduce((a, b) => (a.id < b.id ? a : b));
+    if (step.id !== survivor.id) { idMap.set(step.id, survivor.id); continue; }
+    const unique = (values: string[]): string => {
+      const filtered = values.map(v => v.trim()).filter(v => v.length > 0 && !/^н\s*\/\s*п\s*—/iu.test(v));
+      const set = [...new Set(filtered)];
+      return set.length ? set.join('; ') : (values.find(v => v.trim().length > 0) ?? '');
+    };
+    const newName = (s: string): string | null => {
+      const m = /^(?:новый|new):\s*([A-Za-z_$][\w$]*)$/iu.exec(s.trim());
+      return m?.[1] ?? null;
+    };
+    const symbols = group.map(s => s.symbol);
+    const newNames = [...new Set(symbols.map(newName).filter((n): n is string => n !== null))];
+    // Для нового символа схема требует одно имя; если их несколько, берём самый частый/первый,
+    // остальные упоминаем в action.
+    let symbol = symbols.find(s => s.trim().length > 0) ?? '';
+    if (newNames.length === 1) symbol = `новый: ${newNames[0]!}`;
+    else if (newNames.length > 1) symbol = `новый: ${newNames[0]!}`;
+    let action = unique(group.map(s => s.action));
+    if (newNames.length > 1) {
+      action += (action ? '; ' : '') + `также затрагивает символы: ${newNames.slice(1).join(', ')}`;
+    }
+    const check = unique(group.map(s => s.check));
+    const expected = unique(group.map(s => s.expected));
+    const contract = unique(group.map(s => s.contract));
+    const claims = [...new Set(group.flatMap(s => s.claims))];
+    merged.push({ ...survivor, symbol, action, check, expected, contract, claims });
+  }
+  // Перенаправить зависимости на survivor'ов и удалить дубли.
+  const fixed = merged.map(step => ({
+    ...step,
+    dependsOn: [...new Set(step.dependsOn.map(dep => idMap.get(dep) ?? dep))],
+  }));
+  return renumberGuidedPlan({ ...plan, steps: fixed });
+}
+
 export function guidedPlanRepairTargets(plan: z.infer<typeof Plan> | null, feedback: string): number[] {
   const addressed = new Set([...feedback.matchAll(/(?:шаг(?:е|а|и)?|\bstep)\s*[#№]?\s*(\d+)/giu)].map(match => Number(match[1])));
   // Consolidating duplicate cards necessarily edits the retained owner card too.
@@ -594,7 +653,12 @@ steps/files_to_touch содержат только файлы реализаци
       req.signal.throwIfAborted();
       const repairMode: boolean = candidate !== null;
       const axesProblem = /Нужны все шесть осей|Ось «Совместимость и данные»/iu.test(feedback);
-      const merge = guidedDuplicateMerge(candidate, feedback);
+      let merge = guidedDuplicateMerge(candidate, feedback);
+      if (merge) {
+        candidate = mergeDuplicatePlanSteps(candidate!);
+        record();
+        merge = null;
+      }
       const targetProblem = !axesProblem && !merge && /символ .*не найден|цель .*не разрешена|files_to_touch нарушает|существующие тесты|отсутствует в files_to_touch/iu.test(feedback);
       const repairTargets = axesProblem ? [] : merge ? [merge.owner.id, ...merge.remove] : guidedPlanRepairTargets(candidate, feedback);
       const targetOwners = [...repairTargets];
@@ -659,6 +723,7 @@ steps/files_to_touch содержат только файлы реализаци
         // before rendering so deletions never conflict with the sequential card format.
         parsed = renumberGuidedPlan(parsed);
         parsed = assignGuidedPlanFileState(parsed, req.cwd);
+        parsed = mergeDuplicatePlanSteps(parsed);
         candidate = parsed; record();
         validationFeedback = '';
         const fieldsProblem = guidedPlanFieldsProblem(candidate);
@@ -693,6 +758,7 @@ steps/files_to_touch содержат только файлы реализаци
         // repair request can amend this exact plan instead of starting over.
         rejectedPlan = rendered;
         candidate = incorporateRuntimePlanCards(parsed, rendered);
+        candidate = mergeDuplicatePlanSteps(candidate);
         record();
         const runtimeFieldsProblem = guidedPlanFieldsProblem(candidate);
         if (runtimeFieldsProblem) throw new Error(runtimeFieldsProblem);
