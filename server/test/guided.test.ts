@@ -1352,3 +1352,39 @@ test('summarizeFailedAssertions falls back to original output when no failure pa
   const output = 'Сборка: модулей загружено: 7 из 7\nok   config.ts';
   assert.equal(summarizeFailedAssertions(output), output);
 });
+
+
+test('simulateOps adds .ts extension to bare relative re-export targeting a new file in the same proposal', t => {
+  const { root } = fixture(t);
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'index.ts'), 'export function bill() { return 1; }\n');
+  const changed = simulateOps(root, ['src/validate.ts', 'src/index.ts'], [
+    { op: 'create_file', file: 'src/validate.ts', body: 'export function validateCustomer() { return []; }' },
+    { op: 'insert_after', file: 'src/index.ts', anchor: 'bill', body: "export { validateCustomer } from './validate';" }
+  ]);
+  const index = changed.find(s => relative(root, s.path).replace(/\\/g, '/') === 'src/index.ts');
+  assert.ok(index?.after.includes("export { validateCustomer } from './validate.ts';"), 'extension is added for new file in same proposal');
+});
+
+test('simulateOps adds .ts extension to bare relative import when target exists on disk', t => {
+  const { root } = fixture(t);
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'validate.ts'), 'export const v = 1;');
+  writeFileSync(join(root, 'src', 'commands.ts'), "import { v } from './validate';\nexport const c = v;");
+  const changed = simulateOps(root, ['src/commands.ts'], [
+    { op: 'replace_body', file: 'src/commands.ts', symbol: 'c', body: "import { v } from './validate';\nexport const c = v + 1;" }
+  ]);
+  const commands = changed.find(s => relative(root, s.path).replace(/\\/g, '/') === 'src/commands.ts');
+  assert.ok(commands?.after.includes("import { v } from './validate.ts';"), 'extension is added for existing file on disk');
+});
+
+test('simulateOps leaves bare relative import unchanged when target does not exist', t => {
+  const { root } = fixture(t);
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'commands.ts'), "import { missing } from './missing';\nexport const c = 1;");
+  const changed = simulateOps(root, ['src/commands.ts'], [
+    { op: 'replace_body', file: 'src/commands.ts', symbol: 'c', body: "import { missing } from './missing';\nexport const c = 2;" }
+  ]);
+  const commands = changed.find(s => relative(root, s.path).replace(/\\/g, '/') === 'src/commands.ts');
+  assert.ok(commands?.after.includes("import { missing } from './missing';"), 'bare specifier stays bare when target absent');
+});
