@@ -195,6 +195,8 @@ test('contract review requires anchored line references; repair touches only add
   assert.ok(!result.includes('Не удаляем code')); assert.ok(result.includes('- **Ветка:** sdlc/test'));
   assert.throws(() => applyIntentContractRepair(intent, JSON.stringify({ sections: [{ section: 'Приёмочный лист', content: 'unrequested' }] }), issues));
   assert.throws(() => applyIntentContractRepair(intent, JSON.stringify({ sections: [{ section: 'Чего не делаем', content: '## New section\ntext' }] }), issues));
+  const withSubsection = applyIntentContractRepair(intent, JSON.stringify({ sections: [{ section: 'Чего не делаем', content: '### Алгоритм\nНе меняем старые тесты' }] }), issues);
+  assert.ok(withSubsection.includes('### Алгоритм'));
 });
 
 test('complete Intent review repairs through the write gate then independently rechecks', async t => {

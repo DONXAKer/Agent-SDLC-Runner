@@ -110,7 +110,7 @@ export function applyIntentContractRepair(intent: string, answer: string, issues
     if (!allowed.has(value.section) || seen.has(value.section)) throw new Error('Ремонт контракта меняет неадресованную или повторную секцию');
     seen.add(value.section);
     const range = sections.find(range => range.name === value.section);
-    if (!range || /^#{1,6}\s/mu.test(value.content) || /[‹›]/u.test(value.content) || value.content.split(/\r?\n/u).some(isDecisionLine)) throw new Error('Ремонт контракта содержит новую секцию, решение человека или плейсхолдер');
+    if (!range || /^#{1,2}\s/mu.test(value.content) || /[‹›]/u.test(value.content) || value.content.split(/\r?\n/u).some(isDecisionLine)) throw new Error('Ремонт контракта содержит новую секцию, решение человека или плейсхолдер');
     return { ...range, content: value.content.trim() + '\n\n' };
   });
   for (const edit of edits.sort((a, b) => b.start - a.start)) intent = intent.slice(0, edit.start) + edit.content + intent.slice(edit.end);
