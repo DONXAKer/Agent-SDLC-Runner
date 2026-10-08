@@ -78,6 +78,16 @@ test('sequential drafts and cross-file rename resolve against the simulated stat
   assert.equal(readFileSync(join(root, 'b.ts'), 'utf8').includes('doubled = n'), true, 'simulate only');
 });
 
+test('simulateOps adds explicit .ts extension to bare relative ESM specifiers', t => {
+  const { root } = fixture(t);
+  writeFileSync(join(root, 'validate.ts'), 'export function validateCustomer() { return []; }\n');
+  writeFileSync(join(root, 'index.ts'), 'const placeholder = 1;\n');
+  const snapshots = simulateOps(root, ['index.ts'], [{ op: 'ensure_import' as const, file: 'index.ts', from: './validate', names: ['validateCustomer'] }]);
+  const index = snapshots.find(s => s.path.endsWith('index.ts'));
+  assert.ok(index?.after.includes("from './validate.ts';"));
+  assert.ok(!index?.after.includes("from './validate';"));
+});
+
 test('the next model request receives structured op diagnostics and can repair the named symbol', async t => {
   const { root, paths } = fixture(t); const before = 'export const n = 1;\n'; writeFileSync(join(root, 'a.ts'), before);
   let calls = 0;

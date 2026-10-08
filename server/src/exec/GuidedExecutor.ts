@@ -194,6 +194,32 @@ function importsModule(source: string, fromFile: string, importerFile: string): 
   return false;
 }
 
+const SOURCE_EXTS = ['.ts', '.mts', '.js', '.mjs', '.tsx', '.jsx'];
+
+/** ESM requires an explicit extension, but small models often omit it. Restore the extension
+ * when the target file exists on disk, so `export { x } from './validate'` resolves. */
+function normalizeRelativeSpecifiers(source: string, filePath: string): string {
+  const importerDir = dirname(filePath);
+  const re = /((?:import|export)\b[^'"]*?\sfrom\s+['"])([^'"]+)(['"])/gu;
+  let out = '';
+  let last = 0;
+  for (const match of source.matchAll(re)) {
+    const prefix = match[1]!;
+    const specifier = match[2]!;
+    const suffix = match[3]!;
+    if ((specifier.startsWith('./') || specifier.startsWith('../')) &&
+        !/\.[^./\\]+$/u.test(specifier) && !specifier.endsWith('/')) {
+      const base = resolve(importerDir, specifier);
+      const ext = SOURCE_EXTS.find((e) => existsSync(base + e));
+      if (ext !== undefined) {
+        out += source.slice(last, match.index! + prefix.length) + specifier + ext;
+        last = match.index! + match[0].length - suffix.length;
+      }
+    }
+  }
+  return out + source.slice(last);
+}
+
 /** Simulate the complete proposal before asking approval or modifying any bytes. */
 export function simulateOps(root: string, files: readonly string[], ops: z.infer<typeof SymbolOp>[],
   ownedNewFiles: readonly Snapshot[] = []): Snapshot[] {
@@ -249,6 +275,7 @@ export function simulateOps(root: string, files: readonly string[], ops: z.infer
   }
   const changed = [...snapshots.values()].filter(s => s.before !== s.after);
   for (const file of changed) {
+    file.after = normalizeRelativeSpecifiers(file.after, file.path);
     if (!/\.(?:ts|mts|cts)$/iu.test(file.path)) continue;
     try { stripTypeScriptTypes(file.after, { mode: 'transform', sourceUrl: file.path }); }
     catch (error) {
