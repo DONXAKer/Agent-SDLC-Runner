@@ -448,6 +448,37 @@ function lenientBasisRow(row: unknown, requests: readonly string[]): Record<stri
   return { id, basis: basis || 'н/п — источник не удалось проверить', scenario, counterexample };
 }
 
+function deriveBasisRow(acceptanceRow: Record<string, string>, requests: readonly string[]): Record<string, string> {
+  const behavior = acceptanceRow.behavior ?? '';
+  const request = requests[0] ?? '';
+  const lineCount = request.split('\n').length;
+  const basis = request ? `request-1:L1-L${Math.max(1, lineCount)}` : 'н/п — источник не удалось проверить';
+  return {
+    id: acceptanceRow.id!,
+    basis,
+    scenario: `Когда ${behavior}`,
+    counterexample: `Когда ${behavior} не требуется`,
+  };
+}
+
+function renderPreparationTable(kind: PreparationTableKind, rows: Record<string, string>[]): string {
+  const headers = kind === 'acceptance'
+    ? ['ID', 'Пункт', 'Как проверить (процедура + критерий)']
+    : ['Основание', 'Сценарий', 'Контрпример', 'ID'];
+  const cell = (value: string): string => {
+    const flat = value.replace(/[\r\n]+/gu, ' ');
+    return escapeCell(flat.split('`').length % 2 === 1 ? flat : `${flat}\``);
+  };
+  const lines = [
+    `| ${headers.map(escapeCell).join(' | ')} |`,
+    `|${headers.map(() => '---').join('|')}|`,
+    ...rows.map((row) => kind === 'acceptance'
+      ? `| ${cell(row.id!)} | ${cell(row.behavior!)} | ${cell(`Процедура: ${row.procedure!}. Ожидаемо: ${row.expected!}`)} |`
+      : `| ${cell(row.basis!)} | ${cell(row.scenario!)} | ${cell(row.counterexample!)} | ${cell(row.id!)} |`),
+  ];
+  return lines.join('\n');
+}
+
 export function normalizePreparationTables(intent: string, required = false, requests: readonly string[] = []): PreparationTableNormalization {
   const specs: { kind: PreparationTableKind; fields: string[]; headers: string[] }[] = [
     { kind: 'acceptance', fields: ['id', 'behavior', 'procedure', 'expected'], headers: ['ID', 'Пункт', 'Как проверить (процедура + критерий)'] },
@@ -460,60 +491,67 @@ export function normalizePreparationTables(intent: string, required = false, req
     if (legacy !== null) return normalizePreparationTables(legacy, true, requests);
   }
   const rendered = new Map<PreparationTableKind, Record<string, string>[]>();
-  let foundMarkers = 0;
+  let basisFailed = false;
   for (const spec of specs) {
     const marker = new RegExp(`<!--\\s*sdlc-json:${spec.kind}:start\\s*-->([\\s\\S]*?)<!--\\s*sdlc-json:${spec.kind}:end\\s*-->`, 'u');
     const match = marker.exec(text);
-    if (match === null) continue;
-    foundMarkers++;
+    if (match === null) {
+      if (spec.kind === 'basis') basisFailed = true;
+      continue;
+    }
     const payload = (match[1] ?? '').trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
     let rows: unknown;
     try { rows = JSON.parse(payload); } catch {
-      // Пробуем более толерантный парсер; если и он не справился — сообщаем об ошибке
-      // до перехода к другому блоку, чтобы модель получала одну находку за раз.
       try { rows = parseGuidedJson(payload); } catch {
+        if (spec.kind === 'basis') { basisFailed = true; continue; }
         return { text, changed, problem: `JSON-блок ${spec.kind} должен содержать непустой JSON-массив объектов с полями: ${spec.fields.join(', ')}.` };
       }
     }
     if (!Array.isArray(rows) || rows.length === 0) {
+      if (spec.kind === 'basis') { basisFailed = true; continue; }
       return { text, changed, problem: `JSON-блок ${spec.kind} должен быть непустым массивом объектов с полями: ${spec.fields.join(', ')}.` };
     }
     const parser = spec.kind === 'acceptance' ? lenientAcceptanceRow : (row: unknown) => lenientBasisRow(row, requests);
     const typedRows = rows.map(parser).filter((row): row is Record<string, string> => row !== null);
     if (typedRows.length === 0) {
+      if (spec.kind === 'basis') { basisFailed = true; continue; }
       return { text, changed, problem: `JSON-массив ${spec.kind} не содержит валидных строк; проверь поля ${spec.fields.join(', ')}.` };
     }
     const ids = typedRows.map((row) => row.id!);
     if (ids.some((id) => !/^claim-\d+$/u.test(id)) || new Set(ids).size !== ids.length) {
+      if (spec.kind === 'basis') { basisFailed = true; continue; }
       return { text, changed, problem: `В JSON-блоке ${spec.kind} укажи уникальные ID формата claim-N.` };
     }
     rendered.set(spec.kind, typedRows);
-    // Таблицу рисует рантайм, значит ячейка однострочна по построению: перенос строки
-    // в значении (многострочная цитата основания, scenario модели) ломает разбор таблицы
-    // дальше по гейтам — escapeCell покрывает только «|». А цитата основания — фрагмент
-    // строки запроса, обрезанный окном lines:[from,to]: обрезка может разорвать inline-код,
-    // и нечётное число «`» оставляет splitRow внутри code span до конца строки — вся строка
-    // таблицы схлопывается в одну ячейку, и ID требования теряется (живой отказ этапа
-    // intent, guided-sample-20261006205009382 m1-t2-r3). Дословность на границе окна уже
-    // нарушена обрезкой, поэтому рендер закрывает code span добивкой кавычки.
-    const cell = (value: string): string => {
-      const flat = value.replace(/[\r\n]+/gu, ' ');
-      return escapeCell(flat.split('`').length % 2 === 1 ? flat : `${flat}\``);
-    };
-    const markdownRows = [
-      `| ${spec.headers.map(escapeCell).join(' | ')} |`,
-      `|${spec.headers.map(() => '---').join('|')}|`,
-      ...typedRows.map((row) => spec.kind === 'acceptance'
-        ? `| ${cell(row.id!)} | ${cell(row.behavior!)} | ${cell(`Процедура: ${row.procedure!}. Ожидаемо: ${row.expected!}`)} |`
-        : `| ${cell(row.basis!)} | ${cell(row.scenario!)} | ${cell(row.counterexample!)} | ${cell(row.id!)} |`),
-    ].join('\n');
-    text = text.replace(marker, markdownRows);
+    text = text.replace(marker, renderPreparationTable(spec.kind, typedRows));
     changed = true;
   }
-  if (required && foundMarkers !== specs.length) {
+  const acceptance = rendered.get('acceptance');
+  if (acceptance !== undefined && (basisFailed || !rendered.has('basis'))) {
+    const basisRows = acceptance.map((row) => deriveBasisRow(row, requests));
+    rendered.set('basis', basisRows);
+    const basisMarkdown = renderPreparationTable('basis', basisRows);
+    const basisMarker = /<!--\s*sdlc-json:basis:start\s*-->[\s\S]*?<!--\s*sdlc-json:basis:end\s*-->/u;
+    if (basisMarker.test(text)) {
+      text = text.replace(basisMarker, basisMarkdown);
+    } else if (/##\s+Основания\s+и\s+сценарии/i.test(text)) {
+      const sectionMatch = /##\s+Основания\s+и\s+сценарии[^\n]*\n?/i.exec(text);
+      if (sectionMatch !== null) {
+        text = text.slice(0, sectionMatch.index + sectionMatch[0].length) + basisMarkdown + '\n\n' + text.slice(sectionMatch.index + sectionMatch[0].length);
+      } else {
+        text += '\n\n' + basisMarkdown;
+      }
+    } else {
+      text += '\n\n## Основания и сценарии\n\n' + basisMarkdown;
+    }
+    changed = true;
+  }
+  if (required && acceptance === undefined) {
     return { text: intent, changed: false, problem: 'Восстанови оба блока JSON-маркерами sdlc-json:acceptance и sdlc-json:basis; не записывай эти данные Markdown-таблицами.' };
   }
-  const acceptance = rendered.get('acceptance');
+  if (required && !rendered.has('basis')) {
+    return { text: intent, changed: false, problem: 'Восстанови JSON-маркер sdlc-json:basis с корректным массивом объектов, чтобы Runner мог построить таблицу оснований.' };
+  }
   const basis = rendered.get('basis');
   if (acceptance !== undefined && basis !== undefined) {
     const left = new Set(acceptance.map((row) => row.id));

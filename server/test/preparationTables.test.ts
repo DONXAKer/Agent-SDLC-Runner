@@ -112,4 +112,41 @@ describe('preparation JSON table rendering', () => {
     strictEqual(table.rows[0]!.length, 4);
     strictEqual(table.rows[0]![3], 'claim-5');
   });
+
+  it('derives basis rows from acceptance when basis marker is missing', () => {
+    const request = 'Реализовать moveHold.\nДобавить тест.';
+    const input = template.replace('‹acceptance_json›', JSON.stringify([{ id: 'claim-1', behavior: 'moveHold exists', procedure: 'inspect src/hold.ts', expected: 'function exported' }])).replace(/## Основания и сценарии\n<!-- sdlc-json:basis:start -->\n‹basis_json›\n<!-- sdlc-json:basis:end -->/u, '');
+    const result = normalizePreparationTables(input, true, [request]);
+    strictEqual(result.problem, null);
+    strictEqual(result.changed, true);
+    ok(result.text.includes('## Основания и сценарии'));
+    ok(result.text.includes('| request-1:L1-L2 | Когда moveHold exists | Когда moveHold exists не требуется | claim-1 |'));
+    const table = parseTables(result.text).find((t) => t.section === 'Основания и сценарии');
+    ok(table);
+    strictEqual(table.rows.length, 1);
+    strictEqual(table.rows[0]![3], 'claim-1');
+  });
+
+  it('derives basis rows when basis JSON is empty or unparseable', () => {
+    const request = 'Реализовать moveHold.';
+    const acceptance = JSON.stringify([{ id: 'claim-1', behavior: 'moveHold exists', procedure: 'inspect src/hold.ts', expected: 'function exported' }]);
+    for (const basisJson of ['[]', '{bad json}', JSON.stringify([{ id: 'claim-1' }])]) {
+      const input = template.replace('‹acceptance_json›', acceptance).replace('‹basis_json›', basisJson);
+      const result = normalizePreparationTables(input, true, [request]);
+      strictEqual(result.problem, null, `basis JSON ${basisJson} should fallback`);
+      strictEqual(result.changed, true);
+      ok(result.text.includes('| request-1:L1-L1 | Когда moveHold exists | Когда moveHold exists не требуется | claim-1 |'));
+    }
+  });
+
+  it('keeps an authored basis table when it is valid', () => {
+    const input = template
+      .replace('‹acceptance_json›', JSON.stringify([{ id: 'claim-1', behavior: 'moveHold exists', procedure: 'inspect src/hold.ts', expected: 'function exported' }]))
+      .replace('‹basis_json›', JSON.stringify([{ id: 'claim-1', basis: 'request-1:L1-L1', scenario: 's', counterexample: 'k' }]));
+    const result = normalizePreparationTables(input, true, ['request']);
+    strictEqual(result.problem, null);
+    strictEqual(result.changed, true);
+    ok(result.text.includes('| request-1:L1-L1 | s | k | claim-1 |'));
+    ok(!result.text.includes('Когда moveHold exists'));
+  });
 });
