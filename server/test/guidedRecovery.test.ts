@@ -88,6 +88,22 @@ test('simulateOps adds explicit .ts extension to bare relative ESM specifiers', 
   assert.ok(!index?.after.includes("from './validate';"));
 });
 
+test('simulateOps merges re-exports without touching other barrel exports', t => {
+  const { root } = fixture(t);
+  writeFileSync(join(root, 'a.ts'), 'export const a = 1;\nexport const c = 3;\n');
+  writeFileSync(join(root, 'b.ts'), 'export const b = 2;\n');
+  writeFileSync(join(root, 'validate.ts'), 'export function validateCustomer() { return []; }\n');
+  writeFileSync(join(root, 'index.ts'), "export { a } from './a.ts';\nexport { b } from './b.ts';\n");
+  const snapshots = simulateOps(root, ['index.ts'], [
+    { op: 'ensure_reexport' as const, file: 'index.ts', from: './validate', names: ['validateCustomer'] },
+    { op: 'ensure_reexport' as const, file: 'index.ts', from: './a', names: ['a', 'c'] },
+  ]);
+  const index = snapshots.find(s => s.path.endsWith('index.ts'));
+  assert.ok(index?.after.includes("export { validateCustomer } from './validate.ts';"));
+  assert.ok(index?.after.includes("export { a, c } from './a.ts';"));
+  assert.ok(index?.after.includes("export { b } from './b.ts';"));
+});
+
 test('the next model request receives structured op diagnostics and can repair the named symbol', async t => {
   const { root, paths } = fixture(t); const before = 'export const n = 1;\n'; writeFileSync(join(root, 'a.ts'), before);
   let calls = 0;

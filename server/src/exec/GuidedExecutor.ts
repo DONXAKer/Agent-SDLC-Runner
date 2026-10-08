@@ -67,7 +67,7 @@ export function parseGuidedTurn(answer: Pick<ChatTurn, 'text' | 'toolCalls'>): z
   return Reply.parse(value);
 }
 
-export interface GuidedFileCard { path: string; hash: string; symbols: readonly string[]; isNew: boolean; ownedNewContent?: string; }
+export interface GuidedFileCard { path: string; hash: string; symbols: readonly string[]; isNew: boolean; ownedNewContent?: string; barrel?: boolean; }
 
 /** Ollama отклоняет схему с пустым enum; пустой список символов деградирует в строку с паттерном. */
 const enumOrPattern = (values: readonly string[]): Record<string, unknown> =>
@@ -92,7 +92,7 @@ export function guidedActionResponseFormat(files: readonly GuidedFileCard[], spl
     const withSymbol = (op: string, extra: Record<string, unknown> = {}, requiredExtra: string[] = []) =>
       ({ type: 'object', properties: { op: { const: op }, file: path, symbol, ...extra },
         required: ['op', 'file', 'symbol', ...requiredExtra], additionalProperties: false });
-    if (allow('replace_body')) variants.push(withSymbol('replace_body', { body: { type: 'string', minLength: 1 } }, ['body']));
+    if (allow('replace_body') && file.barrel !== true) variants.push(withSymbol('replace_body', { body: { type: 'string', minLength: 1 } }, ['body']));
     if (allow('insert_after')) variants.push({ type: 'object', properties: { op: { const: 'insert_after' }, file: path, anchor,
       body: { type: 'string', minLength: 1 } }, required: ['op', 'file', 'anchor', 'body'], additionalProperties: false });
     if (allow('insert_before')) variants.push({ type: 'object', properties: { op: { const: 'insert_before' }, file: path, anchor,
@@ -100,6 +100,9 @@ export function guidedActionResponseFormat(files: readonly GuidedFileCard[], spl
     if (allow('rename')) variants.push(withSymbol('rename', { newName: { type: 'string', pattern: '^[A-Za-z_$][\\w$]*$' } }, ['newName']));
     if (allow('delete')) variants.push(withSymbol('delete'));
     if (allow('ensure_import')) variants.push({ type: 'object', properties: { op: { const: 'ensure_import' }, file: path,
+      from: { type: 'string', minLength: 1 }, names: { type: 'array', items: { type: 'string', pattern: '^[A-Za-z_$][\\w$]*$' }, minItems: 1, maxItems: 40 } },
+      required: ['op', 'file', 'from', 'names'], additionalProperties: false });
+    if (file.barrel === true && (repairFocus?.ops === undefined || repairFocus.ops.includes('ensure_reexport'))) variants.push({ type: 'object', properties: { op: { const: 'ensure_reexport' }, file: path,
       from: { type: 'string', minLength: 1 }, names: { type: 'array', items: { type: 'string', pattern: '^[A-Za-z_$][\\w$]*$' }, minItems: 1, maxItems: 40 } },
       required: ['op', 'file', 'from', 'names'], additionalProperties: false });
     return variants;
@@ -131,12 +134,13 @@ const SYSTEM = `Выполни одну группу согласованног�
 Изменения запрашивай операциями над символами: рантайм сам находит символ в файле и применяет правку. Никогда не воспроизводи существующие байты файла и не составляй фрагменты для байтовой замены.
 {"action":"patch","prediction":"что проверка должна показать","ops":[<операции>]}
 Операции (file — путь из files; symbol/anchor — ТОЛЬКО имя из списка symbols карточки файла):
-- {"op":"replace_body","file":"…","symbol":"имя","body":"новое тело или полное объявление символа"}
+- {"op":"replace_body","file":"…","symbol":"имя","body":"новое тело или полное объявление символа"} — недоступно для barrel-файлов (например, index.ts, реэкспортирующих из нескольких модулей)
 - {"op":"insert_after"/"insert_before","file":"…","anchor":"имя существующего символа","body":"новый код"}
 - {"op":"rename","file":"…","symbol":"старое имя","newName":"новое имя"} — ссылки в разрешённых файлах перепишет рантайм
 - {"op":"delete","file":"…","symbol":"имя"}
 - {"op":"create_file","file":"новый путь из плана","body":"всё содержимое"} — только для файла, которого нет на диске
 - {"op":"ensure_import","file":"…","from":"модуль","names":["имя"]} — импорт будет слит с существующим без дублей; не вставляй import/export в body руками, если нужен именно импорт
+- {"op":"ensure_reexport","file":"src/index.ts","from":"./validate.ts","names":["validateCustomer"]} — только для barrel-файлов: добавляет/сливает re-export, не трогая остальные экспорты
 Дай одну реализацию без альтернативных версий и дублей. Пиши компактно: тестовые варианты оформляй таблицей и циклом. Ответ должен завершаться целым JSON.
 В TypeScript сверяй типовые импорты с исходниками проекта; типы импортируй через import type или inline type. Последняя красная проверка в failedCheck остаётся основанием ремонта каждой части группы.
 await допустим только на уровне модуля или внутри async функции/callback. rejectedProposal — твой отклонённый черновик с диагностикой рантайма: исправь конкретную названную операцию, не повторяй её без изменений.
@@ -195,6 +199,13 @@ function importsModule(source: string, fromFile: string, importerFile: string): 
 }
 
 const SOURCE_EXTS = ['.ts', '.mts', '.js', '.mjs', '.tsx', '.jsx'];
+
+/** A barrel file re-exports from several sibling modules; replacing its whole body
+ * reliably destroys unrelated exports on small models. Detect by re-exports count. */
+function isBarrelFile(source: string): boolean {
+  const reExports = [...source.matchAll(/^[ \t]*export\s+[^'"]*?\sfrom\s+['"](\.\.?\/[^'"]+)['"]/gmu)];
+  return reExports.length >= 2;
+}
 
 /** ESM requires an explicit extension, but small models often omit it. Restore the extension
  * when the target file exists on disk, so `export { x } from './validate'` resolves. */
@@ -436,6 +447,7 @@ export class GuidedExecutor implements StageExecutor {
             const shown = focused && text !== null ? text.split('\n').slice(0, 60).join('\n') : text;
             return { path, hash: hash(text), isNew: text === null,
               symbols: text === null ? [] : findSymbols(text).map(decl => decl.qualified).slice(0, 60),
+              barrel: text !== null && isBarrelFile(text),
               content: shown,
               ...(ownedNew && text !== null && text.length <= 6000 ? { ownedNewContent: text } : {}),
               partial: focused && text !== null && text.split('\n').length > 60 };

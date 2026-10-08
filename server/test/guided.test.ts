@@ -138,6 +138,22 @@ test('action schema binds ops to file cards and their shown symbols', () => {
   assert.equal(patch.properties.prediction.maxLength, 600);
 });
 
+test('action schema forbids replace_body on barrel files', () => {
+  const format = guidedActionResponseFormat([
+    { path: 'src/index.ts', hash: 'abc', symbols: ['validateCustomer'], isNew: false, barrel: true },
+    { path: 'src/validate.ts', hash: 'def', symbols: ['validateCustomer'], isNew: false },
+  ]) as any;
+  const patch = format.json_schema.schema.oneOf.find((v: any) => v.properties.action.const === 'patch');
+  const variants = patch.properties.ops.items.oneOf;
+  const byOp = (op: string, file: string) => variants.find((v: any) => v.properties.op.const === op && v.properties.file.const === file);
+  assert.equal(byOp('replace_body', 'src/index.ts'), undefined, 'barrel file cannot be replaced wholesale');
+  assert.ok(byOp('ensure_import', 'src/index.ts'));
+  assert.ok(byOp('ensure_reexport', 'src/index.ts'));
+  assert.ok(byOp('insert_after', 'src/index.ts'));
+  assert.ok(byOp('replace_body', 'src/validate.ts'));
+  assert.equal(byOp('ensure_reexport', 'src/validate.ts'), undefined, 'ensure_reexport is only for barrel files');
+});
+
 test('action schema never emits an empty symbol enum for Ollama compatibility', () => {
   const format = guidedActionResponseFormat([{ path: 'a.ts', hash: 'abc', symbols: [], isNew: false }]) as any;
   assert.ok(!JSON.stringify(format).includes('"enum":[]'));

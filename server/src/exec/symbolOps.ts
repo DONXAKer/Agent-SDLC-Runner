@@ -23,6 +23,7 @@ export const SymbolOp = z.discriminatedUnion('op', [
   z.object({ op: z.literal('delete'), file, symbol: symbolNameSchema }).strict(),
   z.object({ op: z.literal('create_file'), file, body: z.string().min(1) }).strict(),
   z.object({ op: z.literal('ensure_import'), file, from: z.string().min(1), names: z.array(z.string().regex(/^[A-Za-z_$][\w$]*$/u)).min(1).max(40) }).strict(),
+  z.object({ op: z.literal('ensure_reexport'), file, from: z.string().min(1), names: z.array(z.string().regex(/^[A-Za-z_$][\w$]*$/u)).min(1).max(40) }).strict(),
 ]);
 export type SymbolOp = z.infer<typeof SymbolOp>;
 
@@ -304,6 +305,35 @@ export function ensureImport(source: string, from: string, names: readonly strin
   return lines.join('\n');
 }
 
+/** ensure_reexport: слить имена с существующим re-export из того же модуля или вставить новый. */
+export function ensureReexport(source: string, from: string, names: readonly string[]): string {
+  const wanted = [...new Set(names)];
+  const reexportRe = /^[ \t]*export\s+\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]\s*;?[ \t]*$/gmu;
+  for (const match of source.matchAll(reexportRe)) {
+    if (match[2] !== from) continue;
+    const existing = match[1]!.split(',').map(n => n.trim()).filter(Boolean);
+    const missing = wanted.filter(n => !existing.includes(n));
+    if (missing.length === 0) return source;
+    const merged = [...existing, ...missing].join(', ');
+    const replacement = match[0].replace(/\{[^}]*\}/u, `{ ${merged} }`);
+    return source.slice(0, match.index) + replacement + source.slice(match.index! + match[0].length);
+  }
+  const line = `export { ${wanted.join(', ')} } from '${from}';`;
+  const lines = source.split('\n');
+  let lastExport = -1;
+  for (const [index, value] of lines.entries()) {
+    if (/^\s*export\s/u.test(value)) lastExport = index;
+    else if (value.trim() !== '' && !/^\s*\/\//u.test(value) && !/^\s*\/\*/u.test(value) && !/^\s*\*/u.test(value) && lastExport >= 0) break;
+  }
+  if (lastExport >= 0) lines.splice(lastExport + 1, 0, line);
+  else {
+    let at = 0;
+    while (at < lines.length && (/^\s*(\/\/|\/\*|\*|\*\/)/u.test(lines[at]!) || lines[at]!.trim() === '')) at++;
+    lines.splice(at, 0, line);
+  }
+  return lines.join('\n');
+}
+
 const declaresSymbol = (body: string, name: string): boolean =>
   new RegExp(`(?:^|[\\s{;])(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?(?:function|class|interface|type|enum|const|let|var)\\s+${name.replace(/\$/gu, '\\$')}\\b`, 'u').test(body) ||
   new RegExp(`^\\s*(?:async\\s+)?(?:static\\s+)?(?:get\\s+|set\\s+)?${name.replace(/\$/gu, '\\$')}\\s*[(<]`, 'mu').test(body);
@@ -327,6 +357,7 @@ export function applySymbolOp(before: string | null, op: SymbolOp): string {
   }
   if (before === null) fail('missing_declaration', op, `${op.op}: файл ${op.file} не существует; новый файл создаётся только через create_file`);
   if (op.op === 'ensure_import') return ensureImport(before, op.from, op.names);
+  if (op.op === 'ensure_reexport') return ensureReexport(before, op.from, op.names);
   const decls = findSymbols(before);
   const targetName = op.op === 'insert_after' || op.op === 'insert_before' ? op.anchor : op.symbol;
   const resolved = resolveSymbol(decls, targetName);
