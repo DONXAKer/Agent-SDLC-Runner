@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 
 import { normalize } from './normalize.ts';
@@ -30,6 +31,7 @@ export async function writeThroughGate(
   path: string,
   text: string,
   idPrefix: string,
+  expectedBefore?: string,
 ): Promise<GateWriteResult> {
   const rel = relative(req.cwd, path);
   const rawInput = { file_path: rel, content: text };
@@ -45,6 +47,21 @@ export async function writeThroughGate(
     hooks.onFriction('denied');
     hooks.onToolResult({ requestId, ok: false, summary: decision.reason, durationMs: 0 });
     return { ok: false, denied: true, reason: decision.reason };
+  }
+  if (req.signal.aborted) {
+    const reason = 'Запись отменена после одобрения: выполнение прервано';
+    hooks.onToolResult({ requestId, ok: false, summary: reason, durationMs: 0 });
+    return { ok: false, denied: true, reason };
+  }
+  // Одобрение может ждать человека. На диске должен остаться именно проверенный контракт.
+  if (expectedBefore !== undefined) {
+    let current: string | undefined;
+    try { current = readFileSync(path, 'utf8'); } catch { /* удалённый или нечитаемый файл тоже изменился */ }
+    if (current !== expectedBefore) {
+      const reason = 'Документ изменился во время одобрения ремонта; запись отменена';
+      hooks.onToolResult({ requestId, ok: false, summary: reason, durationMs: 0 });
+      return { ok: false, denied: true, reason };
+    }
   }
   const effective =
     decision.updatedInput === null ? call : normalize('Write', decision.updatedInput as Record<string, unknown>);

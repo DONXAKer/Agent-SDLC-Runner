@@ -37,7 +37,7 @@ export function guidedContractRepairFormat(section: string) {
 }
 
 /** Models supply values; only the runtime creates table headers, bullets and citations. */
-export function renderGuidedContractRepair(section: string, answer: string, requests: readonly string[], expectedIds?: readonly string[]): string {
+export function renderGuidedContractRepair(section: string, answer: string, requests: readonly string[], expectedIds?: readonly string[], currentSection?: string): string {
   const parsed = z.object({ section: z.literal(section), values: z.array(valueSchema(section)).min(1).max(24) }).strict().parse(parseGuidedJson(answer));
   const row = (cells: string[]) => `| ${cells.map(escapeCell).join(' | ')} |`;
   if (expectedIds?.length && (section === 'Приёмочный лист' || section === 'Основания и сценарии')) {
@@ -47,12 +47,26 @@ export function renderGuidedContractRepair(section: string, answer: string, requ
   if (section === 'Приёмочный лист') {
     const rows = parsed.values.map(value => Acceptance.parse(value));
     if (new Set(rows.map(value => value.id)).size !== rows.length) throw new Error('Повторный ID приёмки');
+    if (currentSection?.includes('sdlc-json:acceptance:start')) {
+      return currentSection.trim().replace(/(<!--\s*sdlc-json:acceptance:start\s*-->)[\s\S]*?(<!--\s*sdlc-json:acceptance:end\s*-->)/u,
+        (_, start: string, end: string) => `${start}\n${JSON.stringify(rows, null, 2)}\n${end}`);
+    }
     return ['| ID | Пункт | Как проверить (процедура + критерий) |', '|---|---|---|',
       ...rows.map(value => row([value.id, value.behavior, `Процедура: ${value.procedure}. Ожидаемо: ${value.expected}`]))].join('\n');
   }
   if (section === 'Основания и сценарии') {
     const rows = parsed.values.map(value => Basis.parse(value));
     if (new Set(rows.map(value => value.id)).size !== rows.length) throw new Error('Повторный ID основания');
+    // Проверяем ссылки до любого рендера: сохранение JSON не отменяет проверки границ.
+    for (const value of rows) {
+      const text = requests[Number(value.basis.file.slice('request-'.length)) - 1];
+      const [from, to] = value.basis.lines;
+      if (text === undefined || to < from || to > text.split('\n').length) throw new Error('Основание ремонта вне источника');
+    }
+    if (currentSection?.includes('sdlc-json:basis:start')) {
+      return currentSection.trim().replace(/(<!--\s*sdlc-json:basis:start\s*-->)[\s\S]*?(<!--\s*sdlc-json:basis:end\s*-->)/u,
+        (_, start: string, end: string) => `${start}\n${JSON.stringify(rows, null, 2)}\n${end}`);
+    }
     return ['| Основание | Сценарий | Контрпример | ID |', '|---|---|---|---|', ...rows.map(value => {
       const source = Number(value.basis.file.slice('request-'.length)) - 1;
       const text = requests[source]; const [from, to] = value.basis.lines;
