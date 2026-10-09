@@ -99,9 +99,15 @@ test('HTML diagram executes offline, switches stages, filters changed decisions 
     replaceChildren(...children: Element[]) { this.children = children; }
     querySelectorAll(tag: string): Element[] { return this.children.flatMap(child => [...(child.tag === tag ? [child] : []), ...child.querySelectorAll(tag)]); }
   }
+  const question = { questionId: 'plan:decision:2', question: 'Выбрать доступный источник',
+    sourceCatalog: [{ id: 'request-1', kind: 'inline-request', action: 'input' }, { id: 'src', kind: 'directory', action: 'read' }],
+    allowedActions: ['input', 'read', 'blocked'], feedback: { code: 'lookup_failed', error: 'файла нет: гates.md' } };
+  const request = { messages: [{ role: 'user', content: JSON.stringify(question) }] };
   const html = renderRunFlow({ version: 1, slug: 'demo', runId: 'test', entries: [
     { id: 'start-1', at: '', stage: 'plan', invocation: 'one', kind: 'stage_entered', from: 'Рантайм', to: 'Рантайм', payload: {} },
     { id: 'decision', at: '', stage: 'plan', invocation: 'one', kind: 'decision_check', from: 'Гипотеза', to: 'Основания', payload: { decision: 'Исправить источник', changed: true, status: 'ready' } },
+    { id: 'retry-request', at: '', stage: 'plan', invocation: 'one', kind: 'model_request', from: 'Рантайм', to: 'Модель', payload: { requestId: 'retry', request } },
+    { id: 'retry-response', at: '', stage: 'plan', invocation: 'one', kind: 'model_http', from: 'Модель', to: 'Рантайм', payload: { requestId: 'retry', request, response: '{}' } },
     { id: 'start-2', at: '', stage: 'chunk', invocation: 'two', kind: 'stage_entered', from: 'Рантайм', to: 'Рантайм', payload: {} },
     { id: 'file', at: '', stage: 'chunk', invocation: 'two', kind: 'file_change', from: 'До', to: 'После', payload: { path: 'a.ts', before: { text: 'old' }, after: { text: 'new' }, diff: '-old\n+new' } },
   ] });
@@ -113,9 +119,13 @@ test('HTML diagram executes offline, switches stages, filters changed decisions 
     querySelectorAll: () => roots.get('timeline')!.querySelectorAll('details') };
   new Script(/<script>\n([\s\S]*?)<\/script>/.exec(html)![1]!).runInNewContext({ document });
   assert.equal(roots.get('stages')!.querySelectorAll('button').length, 3);
-  assert.equal(roots.get('timeline')!.querySelectorAll('details').length, 4);
+  assert.equal(roots.get('timeline')!.querySelectorAll('details').length, 6);
+  const retry = roots.get('timeline')!.querySelectorAll('details').find(node => node.id === 'entry-retry-request')!;
+  const displayed = retry.querySelectorAll('pre').map(node => node.textContent).join('\n');
+  assert.match(displayed, /inline-request/); assert.match(displayed, /directory/);
+  assert.match(displayed, /allowedActions/); assert.match(displayed, /lookup_failed/); assert.match(displayed, /гates\.md/u);
   roots.get('stages')!.querySelectorAll('button')[1]!.onclick!();
-  assert.equal(roots.get('timeline')!.querySelectorAll('details').length, 2);
+  assert.equal(roots.get('timeline')!.querySelectorAll('details').length, 4);
   roots.get('filter')!.value = 'decision'; roots.get('filter')!.onchange!();
   assert.equal(roots.get('timeline')!.querySelectorAll('details').length, 1);
   assert.match(roots.get('timeline')!.querySelectorAll('details')[0]!.className, /changed/);
