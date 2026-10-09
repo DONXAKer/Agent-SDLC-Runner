@@ -3026,6 +3026,7 @@ export class Run {
           maxTurns: this.maxTurnsFor(stage), maxBudgetUsd: this.project.maxBudgetUsd }, hooks, {
           stage, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'decisionCheck')),
           params: route.params ?? null, contextWindow: route.contextWindow ?? 16384,
+          lookupPolicy: { ...ctx, allowedTools: checkpointTools },
           spent: () => this.spent.spent(route.providerDef.currency ?? 'USD'),
           record: check => {
             this.recordDecisionCheck(check);
