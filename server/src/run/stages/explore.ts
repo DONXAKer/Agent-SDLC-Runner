@@ -14,6 +14,7 @@ import type { ResolvedRoute } from '../../config/schema.ts';
 import { ExploreExecutor } from '../../exec/ExploreExecutor.ts';
 import { GuidedExploreExecutor } from '../../exec/GuidedExploreExecutor.ts';
 import { readGuided } from '../guidedState.ts';
+import { documentFacts } from '../../exec/guidedProtocol.ts';
 import { loadSubagent } from '../../exec/subagents.ts';
 import { cardBudgetPerFile, fileCard, packCards } from '../../explore/cards.ts';
 import type { AuthorClaim } from '../../explore/compare.ts';
@@ -378,6 +379,9 @@ export async function runClaimsBlind(host: StageHost, route: ResolvedRoute, ecos
   const cardBudget = localResultBytes(limits);
   const perCard = cardBudgetPerFile(cardBudget, built.ranked.length);
   const result = await deriveClaimsBlind({
+    ...(readGuided(host.paths) ? { guidedData: { sections: Object.fromEntries(Object.entries(sections).map(([name, text]) => [name, documentFacts(text)])),
+      index: built.ranked.map(r => r.file.path), sources: built.ranked.map(r => ({ path: r.file.path,
+        content: r.file.text.slice(0, perCard), partial: r.file.text.length > perCard })) } } : {}),
     provider: createProvider(route.provider, route.providerDef, exploreChatTimeoutMs(limits), host.trace('explore', 'claimsBlind')),
     model: route.model,
     params: route.params,

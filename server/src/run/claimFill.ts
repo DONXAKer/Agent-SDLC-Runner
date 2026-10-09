@@ -24,6 +24,7 @@ import { normalize } from '../exec/normalize.ts';
 import { ProviderEnvError, type ChatProvider } from '../provider/ChatProvider.ts';
 import { annotateExchange } from '../provider/rawLog.ts';
 import { packForClaim, splitHunks } from './claimEvidence.ts';
+import { guidedFillClaims } from './guidedVerificationProtocol.ts';
 
 export interface ClaimAsk {
   id: string;
@@ -32,6 +33,8 @@ export interface ClaimAsk {
 }
 
 export interface ClaimFillInput {
+  onValidation?: (result: { questionId: string; accepted: boolean; reason: string }) => void;
+  guided?: boolean;
   sourceHunks?: import('./claimEvidence.ts').Hunk[];
   repairIncomplete?: boolean;
   provider: ChatProvider;
@@ -189,6 +192,7 @@ export function parseClaimsCombinedAnswer(
  * модель»).
  */
 export async function fillClaims(i: ClaimFillInput): Promise<ClaimFillResult> {
+  if (i.guided) return guidedFillClaims(i);
   const hunks = i.sourceHunks ?? splitHunks(i.diff);
   const out: NormalizedCall[] = [];
   let envFailure: string | null = null;

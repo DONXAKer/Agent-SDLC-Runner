@@ -10,6 +10,7 @@ import { claimIdOf } from './claims.ts';
 import { parseTables, columnIndex, escapeCell } from '../md/table.ts';
 import { parseGuidedJson } from '../exec/guidedJson.ts';
 import { extractHumanFacts } from './humanFacts.ts';
+import { documentFacts } from '../exec/guidedProtocol.ts';
 import { extractFilesToTouch, forbiddenCodePaths } from './planFiles.ts';
 import { extractExplicitSteps } from './planSteps.ts';
 import { symlinkEscape } from '../approval/symlink.ts';
@@ -29,6 +30,7 @@ export interface PreparationReadEvidence {
   stage: StageId;
 }
 export interface PreparationCanonicalV3 {
+  documents?: Record<string, { documentHash: string; sections: ReturnType<typeof documentFacts> }>;
   requirements?: {
     documentHash: string;
     acceptance: { id: string; behavior: string; procedure: string; expected: string }[];
@@ -299,6 +301,10 @@ export function syncCanonicalPreparation(paths: WitokPaths): void {
   const sourcePaths = (state.readEvidence ?? []).map((entry) => entry.path);
   const allPaths = [...new Set([...sourcePaths, ...targetPaths, ...forbiddenPaths])];
   const canonical: PreparationCanonicalV3 = {
+    documents: Object.fromEntries([paths.intent, paths.readiness, paths.explorationReport, paths.clarificationReport, paths.plan].map(path => {
+      const document = readArtifact(path);
+      return [relative(paths.projectRoot, path).replace(/\\/gu, '/'), { documentHash: sourceHash(document.text), sections: documentFacts(document.text) }];
+    })),
     ...(acceptance.length > 0 && basis.length > 0 ? {
       requirements: {
         documentHash: sourceHash(intent.text), acceptance, basis,

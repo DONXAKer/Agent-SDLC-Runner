@@ -7,6 +7,7 @@ import { escapeCell, h2SectionRanges, parseTables, columnIndex } from '../md/tab
 import type { StageHost } from '../run/stages/types.ts';
 import { normalize } from './normalize.ts';
 import { parseGuidedJson } from './guidedJson.ts';
+import { decisionData } from './guidedProtocol.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { guardedPath } from './GuidedExecutor.ts';
@@ -145,7 +146,7 @@ source: {kind,source,lines:[from,to],answer} — ответ и ссылка на
 engineering: {kind,source,lines:[from,to],category,choice,reason} — обратимая деталь comment/test_name/check_method без изменения поведения. Оформление комментария и способ проверки выбирай по требованиям; не спрашивай человека о стиле. Точные пути и ограничения обязательны.
 context: {kind,path,reason} — нужен исходник проекта. Вопросы о коде сначала исследуй.
 human: {kind,missingDecision,options:[вариант1,вариант2],consequence,reason} — только отсутствующее существенное бизнес-правило: тариф, право доступа. Назови разные последствия вариантов. Ошибка формата и отсутствие выбранного оформления не являются бизнес-неопределённостью. Если источник прямо говорит, что существенное правило неизвестно, требуется человек.`;
-          const messages = [{ role: 'system' as const, content: system }, { role: 'user' as const, content: JSON.stringify({ question: entry.question, sources: selected, feedback }) }];
+          const messages = [{ role: 'system' as const, content: system }, { role: 'user' as const, content: JSON.stringify({ questionId: `ask:${entry.id}`, question: entry.question, sources: selected, feedback, decisionContext: decisionData(req.decisionContext), operatorInput: req.prompt.editedByOperator ? req.prompt.user : null }) }];
           if (estimateMessageTokens(messages) + 1200 > this.resolver.contextWindow) throw new Error('Релевантный контекст не помещается в окно уточнения');
           const started = Date.now();
           const reply = await this.resolver.provider.chat({ model: req.model, messages, tools: [], temperature: null,
@@ -153,6 +154,7 @@ human: {kind,missingDecision,options:[вариант1,вариант2],consequen
           calls++; usage = addUsage(usage, reply.usage); hooks.onUsage(reply.usage, Date.now() - started);
           hooks.onExchange?.({ question: messages[1]!.content, answer: reply.text });
           const value = QuestionResolution.parse(parseGuidedJson(reply.text));
+          hooks.onQuestionValidated?.({ questionId: `ask:${entry.id}`, accepted: true, reason: 'JSON соответствует схеме; основание проверяется по источнику' });
           entry.requestHash = requestHash;
           if (value.kind === 'context') {
             if (/(?:^|[\\/])\.(?:sdlc|git)(?:[\\/]|$)/u.test(value.path)) throw new Error('Контекст должен быть исходником проекта');

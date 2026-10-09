@@ -135,17 +135,17 @@ export const verifyModule: StageModule = {
         route.flow === 'loop' &&
         route.reviewFill &&
         route.skipTurnAfterReviewFill &&
-        host.verifyState.reviewFillComplete;
+        (host.verifyState.reviewFillComplete || readGuided(host.paths) !== null);
 
       return {
         block: reviewText === null ? null : reviewerBlock(reviewText, scan.blocking),
         skip: skipModelTurn
           ? {
-              ok: true,
+              ok: host.verifyState.reviewFillComplete,
               finalText: reviewText ?? '',
               usage: emptyUsage(),
               note:
-                'ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается ' +
+                (host.verifyState.reviewFillComplete ? 'ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается ' : 'reviewFill не завершён; guided не заменяет непроверенный JSON свободным ходом — отчёт закрывается ') +
                 'его записями, добором по пунктам приёмки и дозаполнением по полям, без второго ' +
                 'свободного прохода по тому же diff\'у',
             }

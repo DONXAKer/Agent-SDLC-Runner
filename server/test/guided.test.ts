@@ -881,6 +881,9 @@ test('guided research records the duration of a timed-out request and names it i
 test('task clock excludes paused intervals and survives stale executor snapshots', t => {
   const { paths } = fixture(t);
   const stale = readGuided(paths)!;
+  // Exercise a fixed budget, independently of the machine's current default.
+  stale.budgetMs = 30 * 60_000;
+  saveGuided(paths, stale);
   assert.equal(accountGuidedTime(paths, 1000, true), false);
   assert.equal(accountGuidedTime(paths, 3600000, false), false);
   saveGuided(paths, stale);
@@ -888,6 +891,16 @@ test('task clock excludes paused intervals and survives stale executor snapshots
   assert.equal(accountGuidedTime(paths, 1799000, true), true);
   assert.equal(readGuided(paths)?.remainingMs, 0);
   assert.ok(readGuided(paths)?.stopReason?.includes('30 минут'));
+});
+
+test('task clock reports the actual persisted budget for new and older tasks', t => {
+  const { paths } = fixture(t);
+  for (const minutes of [60, 30]) {
+    const state = readGuided(paths)!; state.budgetMs = minutes * 60_000; state.activeMs = 0; state.stopReason = null;
+    saveGuided(paths, state);
+    assert.equal(accountGuidedTime(paths, state.budgetMs, true), true);
+    assert.equal(readGuided(paths)!.stopReason, `Лимит guided-задачи ${minutes} минут исчерпан`);
+  }
 });
 
 test('guided questions persist literal human facts and close only answered questions', async t => {

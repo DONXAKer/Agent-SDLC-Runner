@@ -146,6 +146,14 @@ export interface BuildPromptInput {
    */
   formFill?: boolean;
   /**
+   * Промпт для предварительной проверки решения в guided-режиме. В этом режиме рантайм сам
+   * задаёт узкие вопросы по полям, поэтому инструкции по заполнению полей (`formFill`) не
+   * должны попадать в тот же промпт, где system требует JSON `{decision,next}`: слабые
+   * модели воспринимают это как конфликт форматов и возвращают `blocked` вместо оценки
+   * готовности (qwen3.8-27b-iq4, v5).
+   */
+  decisionCheck?: boolean;
+  /**
    * Индекс проекта для этапа 2 (`ModelDef.exploreIndex`/`exploreFill`): дерево, символы,
    * файлы-кандидаты, кандидаты на переиспользование и механизмы по осям — считает
    * `stages/explore.ts::exploreIndexFor`, здесь только рендер под потолок флоу (`INDEX_BLOCK_BYTES`).
@@ -951,7 +959,7 @@ export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
       userMessage(i, Buffer.byteLength(system, 'utf8')),
       ...(v2 ? [
         preparationContext(i.ctx.paths, i.stage.id),
-        ...(i.formFill === true ? [preparationFieldInstructions(i.stage.id)] : []),
+        ...(i.formFill === true && i.decisionCheck !== true ? [preparationFieldInstructions(i.stage.id)] : []),
         ...(!preparing ? [preparationInstructions(i.runner.methodologyDir, i.stage.id)] : []),
       ] : []),
     ].filter(Boolean).join('\n\n'),

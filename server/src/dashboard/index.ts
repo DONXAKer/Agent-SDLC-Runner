@@ -10,6 +10,11 @@
  */
 
 import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { symlinkEscape } from '../approval/symlink.ts';
+import { parseEventsFile } from '../eventLog.ts';
+import { flowFromEvents, renderRunFlow } from '../run/runFlow.ts';
 
 import { DASHBOARD_BENCH_PROJECT } from '@sdlc-runner/shared';
 import type {
@@ -159,6 +164,28 @@ function liveFor(project: DashboardProjectRef, slug: string, live: readonly Live
 }
 
 export type Outcome<T> = { ok: T } | { error: string; code: 400 | 404 };
+
+/** Saved detailed diagrams, or an explicitly limited rendering of a historical event log. */
+export function dashboardFlow(source: string, projectKey: string, slug: string,
+  projects: readonly DashboardProjectRef[], benches: readonly BenchIndex[]): Outcome<string> {
+  const bad = badWitokSlug(slug);
+  if (bad !== null) return { error: bad, code: 400 };
+  let root: string; let html: string; let events: string;
+  if (source === 'bench') {
+    const bench = benchFor(benches, projectKey);
+    if (!bench || !bench.has(slug)) return { error: 'Прогон стенда не найден', code: 404 };
+    root = bench.dir; html = join(root, 'traces', slug, 'flow.html'); events = join(root, 'traces', slug, 'events.ndjson');
+  } else if (source === 'ui' || source === 'terminal') {
+    const project = projectByKey(projects, projectKey);
+    if (!project) return { error: 'Проект не найден', code: 404 };
+    root = project.projectRoot; const paths = new WitokPaths(root, slug);
+    html = join(paths.runnerDir, 'flow.html'); events = paths.events;
+  } else return { error: 'Неизвестный источник', code: 400 };
+  for (const path of [html, events]) if (symlinkEscape(root, path, []) !== null) return { error: 'Путь схемы вне разрешённого каталога', code: 400 };
+  if (existsSync(html)) return { ok: readFileSync(html, 'utf8') };
+  if (!existsSync(events)) return { error: 'Схема и лента прогона ещё не записаны', code: 404 };
+  return { ok: renderRunFlow(flowFromEvents(parseEventsFile(events), slug)) };
+}
 
 /**
  * Слаг из адреса становится каталогом `.sdlc/<slug>/` — разделителей и `..` в нём быть не

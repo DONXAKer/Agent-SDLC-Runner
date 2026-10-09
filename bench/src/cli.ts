@@ -7,7 +7,7 @@
  * набор гейтов, несовпавшую ветку, отсутствующий эталон методологии.
  */
 
-import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -757,6 +757,13 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       const traceDir = join(TRACES_DIR, opts.slug);
       mkdirSync(traceDir, { recursive: true });
       copyFileSync(paths.events, join(traceDir, 'events.ndjson'));
+      const flow = join(paths.runnerDir, 'flow');
+      if (existsSync(flow)) cpSync(flow, join(traceDir, 'flow'), { recursive: true });
+      const flowHtml = join(paths.runnerDir, 'flow.html');
+      if (existsSync(flowHtml)) {
+        copyFileSync(flowHtml, join(traceDir, 'flow.html'));
+        console.log(`схема:     ${join(traceDir, 'flow.html')}`);
+      }
       console.log(`трассы:    ${traceDir}`);
     } catch (e) {
       // Прогон уже оплачен и отчёт уже написан: отказ копирования называем, но не роняем им

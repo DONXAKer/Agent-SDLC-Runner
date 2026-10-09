@@ -27,6 +27,7 @@ import { reviewBaselineContext } from '../../reviewBaseline.ts';
 import { guidedSourceHunks } from '../../guidedState.ts';
 import { readGuided, guidedReviewContext } from '../../guidedState.ts';
 import { preparation } from '../../../artifacts/preparation.ts';
+import { decisionData, documentFacts } from '../../../exec/guidedProtocol.ts';
 
 /**
  * Все шесть осей канона — свободному ходу рецензента, тем же приёмом и по той же причине,
@@ -161,6 +162,10 @@ export async function runReviewFill(host: StageHost, route: ResolvedRoute, block
   const limits = host.limits();
 
   const result = await reviewByHunks({
+    guided: readGuided(host.paths) !== null,
+    onValidation: result => host.emit({ type: 'question_validation', runId: host.id, stage: 'verify', ...result }),
+    taskData: { requests: preparation(host.paths)?.requests ?? [], requirements: preparation(host.paths)?.canonical?.requirements,
+      observed: decisionData(guidedReviewContext(host.paths)), baseline: documentFacts(reviewBaselineContext(host.paths.projectRoot, diff.text, readBaseline(host))) },
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'reviewFill')),
     model: route.model,
     params: route.params,

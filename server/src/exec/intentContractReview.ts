@@ -72,19 +72,26 @@ function clampLines(lines: readonly [number, number], text: string): [number, nu
   const end = Math.max(start, Math.min(lines[1], count));
   return [start, end];
 }
-export function parseIntentContractReview(answer: string, intent: string, requests: readonly string[]): IntentContractIssue[] {
+export function parseIntentContractReview(answer: string, intent: string, requests: readonly string[], strictRanges = false): IntentContractIssue[] {
   const raw = Review.parse(parseGuidedJson(answer)).issues;
   const sections = intentContractSections(intent);
   const clamped: IntentContractIssue[] = [];
+  const checkedLines = (lines: [number, number], text: string): [number, number] => {
+    if (strictRanges && (lines[1] < lines[0] || lines[1] > text.split('\n').length)) throw new Error('Основание проверки контракта вне источника');
+    return clampLines(lines, text);
+  };
   for (const issue of raw) {
     const index = Number(/^request-(\d+)$/u.exec(issue.source.file)?.[1]);
-    if (!Number.isInteger(index) || index < 1 || index > requests.length) continue;
-    const sourceLines = clampLines(issue.source.lines, requests[index - 1]!);
+    if (!Number.isInteger(index) || index < 1 || index > requests.length) {
+      if (strictRanges) throw new Error('Неизвестный источник проверки контракта');
+      continue;
+    }
+    const sourceLines = checkedLines(issue.source.lines, requests[index - 1]!);
     const quotes: IntentContractIssue['quotes'] = [];
     for (const quote of issue.quotes) {
       const text = sections[quote.section];
-      if (text === undefined) continue;
-      quotes.push({ section: quote.section, lines: clampLines(quote.lines, text) });
+      if (text === undefined) { if (strictRanges) throw new Error('Неизвестная секция проверки контракта'); continue; }
+      quotes.push({ section: quote.section, lines: checkedLines(quote.lines, text) });
     }
     if (quotes.length === 0) continue;
     clamped.push({ ...issue, source: { ...issue.source, lines: sourceLines }, quotes });

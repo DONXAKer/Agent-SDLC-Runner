@@ -33,12 +33,17 @@ export interface TraceLabel {
   slug: string;
   stage: string;
   /** Режим исполнителя: чем этот запрос является для корпуса — ход цикла, шаг плана, поле бланка. */
-  mode: 'loop' | 'step' | 'formFill' | 'claimFill' | 'reviewFill' | 'planAxisFill' | 'explore' | 'claimsBlind';
+  mode: 'loop' | 'step' | 'formFill' | 'claimFill' | 'reviewFill' | 'planAxisFill' | 'explore' | 'claimsBlind' | 'decisionCheck';
   /** Номер попытки этапа, если он у режима есть. */
   attempt?: number;
+  /** Local run diagram, independent of the optional benchmark raw-log directory. */
+  onExchange?: (exchange: RawExchange) => void;
+  onRequest?: (request: { requestId: string; provider: string; model: string; request: Record<string, unknown>; attempt: number }) => void;
+  onResponse?: (exchange: RawExchange) => void;
 }
 
 export interface RawExchange {
+  requestId?: string;
   provider: string;
   model: string;
   /** Тело запроса как объект — ровно то, что ушло в `JSON.stringify`. */
@@ -134,6 +139,8 @@ function noteLabelFailure(e: unknown): void {
  * дамп после первой же пары.
  */
 export function dumpExchange(label: TraceLabel, x: RawExchange): string | null {
+  try { label.onExchange?.(x); }
+  catch (error) { console.error(`[flow] ${(error as Error).message}`); }
   const base = targetDir();
   if (base === null) return null;
 

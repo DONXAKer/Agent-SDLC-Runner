@@ -13,6 +13,7 @@ import { digest, readGuided, saveGuided, type GuidedState, type Snapshot } from 
 import { estimateMessageTokens } from './contextBudget.ts';
 import { normalize } from './normalize.ts';
 import { parseGuidedJson } from './guidedJson.ts';
+import { decisionData } from './guidedProtocol.ts';
 import { applySymbolOp, findSymbols, renameIdentifier, SymbolOp, GuidedOpError, type OpDiagnostic } from './symbolOps.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 import type { PlanStep } from '../artifacts/planSteps.ts';
@@ -525,7 +526,9 @@ export class GuidedExecutor implements StageExecutor {
               partial: focused && text !== null && text.split('\n').length > 60 };
           });
           const messages: ChatMessage[] = [{ role: 'system', content: SYSTEM }, { role: 'user', content: JSON.stringify({
-            requirements: this.o.requirements, sources: this.o.sources,
+            questionId: `chunk:${item.id}:${calls + 1}`, question: 'Какое следующее проверяемое действие выполняет текущий шаг?',
+            decisionContext: decisionData(req.decisionContext), operatorInput: req.prompt.editedByOperator ? req.prompt.user : null,
+            requirements: decisionData(this.o.requirements), sources: this.o.sources,
             item: drafting ? { ...item, title: draftTitle, files: currentFiles, prediction: activePart!.prediction,
               claims: fileTasks.length ? [...new Set(fileTasks.flatMap(step => step.claims))] : item.claims } : item,
             fileTasks: drafting ? fileTasks : undefined,
@@ -552,7 +555,10 @@ export class GuidedExecutor implements StageExecutor {
           hooks.onUsage(answer.usage, Date.now() - start);
           hooks.onExchange?.({ question: messages[1]!.content, answer: answer.toolCalls.length ? JSON.stringify({ text: answer.text, toolCalls: answer.toolCalls }) : answer.text });
           let reply: z.infer<typeof Reply>;
-          try { reply = parseGuidedTurn(answer); }
+          try {
+            if (req.prompt.guidedProtocol && (answer.toolCalls.length || answer.finishReason === 'max_tokens')) throw new Error('Нужен завершённый JSON действия');
+            reply = req.prompt.guidedProtocol ? parseGuidedReply(answer.text) : parseGuidedTurn(answer);
+            hooks.onQuestionValidated?.({ questionId: `chunk:${item.id}:${calls}`, accepted: true, reason: 'JSON соответствует схеме действия; операции проверяются перед применением' }); }
           catch {
             observe(item, 'format', 'Невалидный JSON-ответ');
             if (formatRepairs++ >= 2) throw new Error('Формат не исправлен за повторные выборки');

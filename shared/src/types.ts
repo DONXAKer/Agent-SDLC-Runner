@@ -485,6 +485,8 @@ export function addUsage(a: Usage, b: Usage): Usage {
 // ---------------------------------------------------------------------------
 
 export interface PreparedPrompt {
+  /** Runtime-owned structured input, independent of document presentation. */
+  guidedProtocol?: boolean;
   /**
    * Нередактируемый блок, который добавляет исполнитель помимо нашего текста.
    * У флоу `sdk` — системный пресет Claude Code; у `loop` — null, там видно всё.
@@ -765,6 +767,7 @@ export type RunEvent =
    * рантаймом по длине.
    */
   | { type: 'model_exchange'; runId: string; stage: StageId; question: string; answer: string }
+  | { type: 'question_validation'; runId: string; stage: StageId; questionId: string; accepted: boolean; reason: string }
   | {
       type: 'tool_request';
       runId: string;

@@ -78,6 +78,25 @@ after(() => {
   for (const r of roots) rmSync(r, { recursive: true, force: true });
 });
 
+it('guided lists travel as JSON items and the runtime renders the document', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-guided-items-')); roots.push(root);
+  const artifact = join(root, 'intent.md'); writeFileSync(artifact, '# Task\n\n## Что делаем\n- ‹пункт›\n');
+  const provider: ChatProvider = { name: 'test', async chat(req) {
+    const input = JSON.parse(req.messages[1]!.content);
+    ok(input.questionId); ok(!req.messages[1]!.content.includes('‹пункт›'));
+    ok(!req.messages[1]!.content.includes('строка бланка'));
+    return { text: JSON.stringify({ items: ['Сохранить заданное поведение'] }), toolCalls: [], finishReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1 } };
+  } };
+  const result = await new FormFillExecutor({ provider, maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000,
+    bashTimeoutMs: 1000, compact: true, stage: 'intent' }).run(request(root, artifact, {
+      prompt: { presetNote: null, system: '', user: JSON.stringify({ data: { requests: ['Сохранить поведение'] } }),
+        tools: [], editedByOperator: false, guidedProtocol: true },
+    }), hooks({ writes: [] }, true));
+  strictEqual(result.ok, true, result.note);
+  ok(readFileSync(artifact, 'utf8').includes('- Сохранить заданное поведение'));
+});
+
 const FORM = ['# Задача', '', '- **Итог:** ‹что должно стать правдой›', '- **Зачем:** ‹почему сейчас›', '- **Ветка:** sdlc/demo', ''].join('\n');
 
 /** Провайдер: отвечает на вопрос о поле готовой строкой по содержимому плейсхолдера. */

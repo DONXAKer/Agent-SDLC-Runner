@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { preparationSummary } from './artifacts/preparation.ts';
 import { guidedSummary } from './run/guidedState.ts';
+import { dashboardFlow } from './dashboard/index.ts';
 
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
@@ -551,6 +552,24 @@ app.get('/api/dashboard/:source/:project/:slug/artifact', (req, reply) => {
   if (bad !== null) return reply.code(400).send({ error: bad });
   const r = dashboardArtifact(source, project, slug, name, dashboardProjects(config.projects.values()), benchIndexes);
   return 'ok' in r ? r.ok : reply.code(r.code).send({ error: r.error });
+});
+
+app.get('/api/dashboard/:source/:project/:slug/flow.html', (req, reply) => {
+  const { source, project, slug } = req.params as { source: string; project: string; slug: string };
+  const result = dashboardFlow(source, project, slug, dashboardProjects(config.projects.values()), benchIndexes);
+  if ('error' in result) return reply.code(result.code).send({ error: result.error });
+  return reply.header('Cache-Control', 'no-store')
+    .header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'")
+    .type('text/html; charset=utf-8').send(result.ok);
+});
+
+app.get('/api/runs/:id/flow.html', (req, reply) => {
+  const { id } = req.params as { id: string };
+  const live = liveRun(id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+  return reply.header('Cache-Control', 'no-store')
+    .header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'")
+    .type('text/html; charset=utf-8').send(live.run.flowHtml());
 });
 
 app.get('/api/runs/:id', async (req, reply) => {

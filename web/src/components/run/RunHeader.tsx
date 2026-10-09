@@ -58,6 +58,8 @@ export function RunHeader({
         {statusLabel(detail.status, detail.stage)}
       </span>
       <span className="rounded bg-neutral-800 px-2 py-0.5 text-xs">профиль: {detail.profile}</span>
+      <a href={`/api/runs/${encodeURIComponent(detail.runId)}/flow.html`} target="_blank" rel="noreferrer"
+        className="text-xs text-sky-400 hover:text-sky-300">Схема прогона</a>
       <span className="text-xs text-neutral-500">
         chunk {detail.chunk} · попытка {detail.attempt} из {detail.attemptBudget}
         {/* Близость к прошлой попытке — число, а не вывод: утверждение «diff почти тот

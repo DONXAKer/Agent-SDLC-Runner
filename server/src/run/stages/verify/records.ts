@@ -150,6 +150,8 @@ export async function topUpClaims(host: StageHost, route: ResolvedRoute, system:
 
   const limits = host.limits();
   const { calls, envFailure } = await fillClaims({
+    guided: readGuided(host.paths) !== null,
+    onValidation: result => host.emit({ type: 'question_validation', runId: host.id, stage: 'verify', ...result }),
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill')),
     model: route.model,
     params: route.params,

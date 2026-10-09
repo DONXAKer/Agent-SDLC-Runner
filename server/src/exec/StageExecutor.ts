@@ -12,6 +12,7 @@
 import type { ArtifactKey, Decision, NormalizedCall, PreparedPrompt, ToolName, Usage } from '@sdlc-runner/shared';
 
 export interface ExecHooks {
+  onQuestionValidated?: (result: { questionId: string; accepted: boolean; reason: string }) => void;
   /** Текст ассистента по мере поступления. */
   onText: (text: string) => void;
   onThinking: (text: string) => void;
@@ -183,6 +184,8 @@ export interface McpAccess {
 
 export interface ExecRequest {
   prompt: PreparedPrompt;
+  /** Checked approach and new evidence, also consumed by executors with their own narrow prompts. */
+  decisionContext?: string;
   /** Корень целевого проекта — рабочий каталог агента. */
   cwd: string;
   model: string;

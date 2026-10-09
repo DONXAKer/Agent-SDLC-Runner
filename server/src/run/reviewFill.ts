@@ -36,6 +36,7 @@ import { normalize } from '../exec/normalize.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { annotateExchange } from '../provider/rawLog.ts';
 import { packForClaim, splitHunks, topFileForClaim, type Hunk } from './claimEvidence.ts';
+import { guidedReview } from './guidedVerificationProtocol.ts';
 
 /** Строка осей плана, как её видит конвейер: имя, затронута ли по плану, исход как есть. */
 export interface AxisAsk {
@@ -45,6 +46,9 @@ export interface AxisAsk {
 }
 
 export interface ReviewFillInput {
+  onValidation?: (result: { questionId: string; accepted: boolean; reason: string }) => void;
+  guided?: boolean;
+  taskData?: unknown;
   sourceHunks?: Hunk[];
   provider: ChatProvider;
   model: string;
@@ -433,6 +437,7 @@ const REVIEW_PARALLEL = 3;
 export async function reviewByHunks(i: ReviewFillInput): Promise<ReviewFillResult> {
   const hunks = i.sourceHunks ?? splitHunks(i.diff);
   const slices = sliceHunks(hunks, i.hunkBudgetBytes);
+  if (i.guided) return guidedReview(i, slices, DEFECT_CHECKLIST, axisHint);
   const system = systemPrompt(i.taskContext) + (i.sourceHunks ? '\nПравок нет. Показаны текущие исходники. Проверь существующее поведение по требованиям; не считай показанный код новым изменением.' : '');
   const findings: NormalizedCall[] = [];
   let hunksAnswered = 0;

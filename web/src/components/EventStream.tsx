@@ -116,6 +116,11 @@ function PlainEvent({ e, currency }: { e: RunEvent; currency?: string }): JSX.El
         </div>
       );
 
+    case 'question_validation':
+      return <div className={e.accepted ? 'text-neutral-400' : 'text-red-400'}>
+        {e.accepted ? '✓ JSON' : '✗ JSON'} {e.questionId}: {e.reason}
+      </div>;
+
     // `tool_request` сюда не попадает: `groupEvents` заворачивает КАЖДЫЙ запрос в
     // группу `kind: 'tool'` (множество `requests` строится из тех же событий) — здесь
     // случай не нужен. Осиротевшими бывают только их `resolved`/`result` — см. ниже.

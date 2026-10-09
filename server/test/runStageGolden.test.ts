@@ -26,14 +26,19 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, describe, it } from 'node:test';
 
-import type { RunEvent, StageId } from '@sdlc-runner/shared';
-import { STAGE_ORDER } from '@sdlc-runner/shared';
+import type { PolicyContext, RunEvent, StageId } from '@sdlc-runner/shared';
+import { STAGE_ORDER, emptyUsage } from '@sdlc-runner/shared';
+import type { ExecRequest, StageExecutor } from '../src/exec/StageExecutor.ts';
 
 import { AskGate } from '../src/approval/askGate.ts';
 import { ApprovalGate } from '../src/approval/gate.ts';
 import type { LoadedConfig } from '../src/config/load.ts';
 import type { ProjectConfig, ResolvedProfile, ResolvedRoute } from '../src/config/schema.ts';
 import { Run } from '../src/run/Run.ts';
+import { readGuided } from '../src/run/guidedState.ts';
+import { readFlowTrace } from '../src/run/runFlow.ts';
+import { evaluate } from '../src/policy/index.ts';
+import { normalize as normalizeTool } from '../src/exec/normalize.ts';
 import { envRetryCount } from '../src/run/envRetryBudget.ts';
 import { readRunVerdict } from '../src/run/verdictStore.ts';
 import { parseIterations, readIterationsText } from '../src/run/iterationsLog.ts';
@@ -217,7 +222,7 @@ async function startModel(queues: Queues, root: string): Promise<{ baseUrl: stri
         tools?: { function: { name: string } }[];
       };
       const system = parsed.messages.find((m) => m.role === 'system')?.content ?? '';
-      const stage = /СКИЛЛ (\w+):/.exec(system)?.[1] ?? 'вне этапа';
+      const stage = /СКИЛЛ (\w+):/.exec(system)?.[1] ?? /Проверка предварительного решения \((\w+)\)/u.exec(system)?.[1] ?? 'вне этапа';
       requests.push({
         stage,
         messages: parsed.messages.length,
@@ -404,6 +409,9 @@ function sdlcFiles(root: string): Record<string, string> {
     if (!existsSync(d)) return;
     for (const name of readdirSync(d).sort()) {
       const p = join(d, name);
+      // Detailed flow archives are derived diagnostics, tested separately from stage artifacts.
+      const rel = relative(dir, p).replace(/\\/g, '/');
+      if (rel === '.runner/flow' || rel === '.runner/flow.html') continue;
       if (statSync(p).isDirectory()) walk(p);
       // Лента и метрики — производные от событий и времени: лента уже сравнивается целиком.
       else if (!/^\.events\.ndjson$|^metrics\.(json|md)$/.test(name)) out[relative(dir, p).replace(/\\/g, '/')] = readFileSync(p, 'utf8');
@@ -424,6 +432,80 @@ function compareWithGolden(name: string, actual: unknown): void {
   ok(existsSync(file), `нет эталона ${file} — снять: UPDATE_GOLDEN=1 node --test test/runStageGolden.test.ts`);
   deepStrictEqual(actual, JSON.parse(readFileSync(file, 'utf8')));
 }
+
+it('guided: blocked initial decision stops before execution and exports actual model transfers', async () => {
+  const root = makeProject(); const events: RunEvent[] = [];
+  const stub = await startModel({ intent: [{ text: JSON.stringify({ decision: 'Нужно уточнить бизнес-правило', evidence: [],
+    uncertainties: ['Лимит отсутствует в запросе'], next: { action: 'blocked', reason: 'Нет основания выбрать лимит' } }) }] }, root);
+  try {
+    const run = makeRun(root, stub.baseUrl, events);
+    const result = await run.runStage('intent', { executionMode: 'guided', preparationVersion: 3, requirement: 'Добавить проверку лимита' });
+    strictEqual(result.ok, false); strictEqual(result.modelRequests, 1);
+    strictEqual(stub.requests.length, 1);
+    strictEqual(readGuided(run.paths)?.decisionChecks?.at(-1)?.status, 'blocked');
+    const html = join(run.paths.runnerDir, 'flow', run.id, 'index.html'); ok(existsSync(html));
+    const trace = readFlowTrace(join(run.paths.runnerDir, 'flow', run.id, 'trace.ndjson'));
+    strictEqual(trace.entries.filter(e => e.kind === 'model_request').length, 1);
+    strictEqual(trace.entries.filter(e => e.kind === 'model_http').length, 1);
+    strictEqual(trace.entries.filter(e => e.kind === 'decision_check').length, 1);
+    ok(events.some(e => e.type === 'stage_done' && !e.ok));
+    ok(run.flowHtml().includes('flow-data'));
+  } finally { stub.close(); }
+});
+
+it('flow archive: real Run policy protects old and current copies from verify and tool-using claims', async () => {
+  const root = makeProject(); const events: RunEvent[] = [];
+  const stub = await startModel({}, root);
+  try {
+    const run = makeRun(root, stub.baseUrl, events);
+    const old = join(run.paths.runnerDir, 'flow', 'previous', 'trace.ndjson');
+    mkdirSync(dirname(old), { recursive: true }); writeFileSync(old, '{"request":"Закрытый авторский лист"}\n');
+    const seam = run as unknown as { executorFor: () => StageExecutor; policyContext: (stage: StageId) => PolicyContext };
+    const current = join(run.paths.runnerDir, 'flow', run.id, 'trace.ndjson');
+    for (const path of [old, current, join(run.paths.runnerDir, 'flow.html')]) {
+      strictEqual(evaluate(normalizeTool('Read', { file_path: path }), seam.policyContext('verify')).ok, false);
+    }
+    let checked = false;
+    seam.executorFor = () => ({ flow: 'loop', async run(req, hooks) {
+      for (const path of [old, current]) {
+        const rawInput = { file_path: path }; const call = normalizeTool('Read', rawInput);
+        const meta = { requestId: path, toolName: 'Read', rawInput, callerTools: req.allowedTools };
+        const visible = await hooks.onToolRequest(call, meta); strictEqual(visible.allowed, true);
+        const hidden = await hooks.onToolRequest(call, { ...meta, caller: 'sdlc-claims' });
+        strictEqual(hidden.allowed, false);
+        if (!hidden.allowed) ok(hidden.reason.includes('закрыто'), hidden.reason);
+      }
+      checked = true;
+      return { ok: false, finalText: '', usage: emptyUsage(), note: 'test stop', modelRequests: 0 };
+    } });
+    await run.runStage('intent', { preparationVersion: 1, requirement: 'Добавить проверку лимита' });
+    strictEqual(checked, true);
+  } finally { stub.close(); }
+});
+
+it('guided: grounded checkpoint forwards its decision and shares the turn budget with the executor', async () => {
+  const root = makeProject(); const events: RunEvent[] = [];
+  const stub = await startModel({ intent: [{ text: JSON.stringify({ decision: 'Проверить текущий код', evidence: [],
+    uncertainties: ['Неизвестна текущая реализация'], next: { action: 'read', path: 'src/app.js', offset: 1, limit: 20, reason: 'Прочитать исходник' } }) },
+    { text: JSON.stringify({ decision: 'Исследовать лимит без выдуманного значения',
+    evidence: [{ source: 'lookup-1', lines: [2, 2] }], uncertainties: [],
+    next: { action: 'proceed', reason: 'Запрос задаёт направление исследования' } }) }] }, root);
+  try {
+    const run = makeRun(root, stub.baseUrl, events); const received: ExecRequest[] = [];
+    // Replace only the executor at the test seam, keeping the real Run lifecycle and provider.
+    const seam = run as unknown as { executorFor: () => StageExecutor; maxTurnsFor: (stage: StageId) => number };
+    seam.executorFor = () => ({ flow: 'loop', async run(req) {
+      received.push(req); return { ok: false, finalText: 'Остановлено тестом после передачи входа', note: 'test stop', usage: emptyUsage(), modelRequests: 0 };
+    } });
+    const result = await run.runStage('intent', { executionMode: 'guided', preparationVersion: 3, requirement: 'Добавить проверку лимита' });
+    strictEqual(received.length, 1);
+    ok(received[0]!.decisionContext?.includes('Исследовать лимит'));
+    ok(received[0]!.decisionContext?.includes('export const version = 1;'));
+    strictEqual(received[0]!.maxTurns, seam.maxTurnsFor('intent') - 2);
+    strictEqual(result.modelRequests, 2);
+    strictEqual(readGuided(run.paths)?.decisionChecks?.at(-1)?.status, 'ready');
+  } finally { stub.close(); }
+});
 
 /**
  * Один сценарий: проект, модель с очередями ответов и шаги витка. Шаг возвращает результат

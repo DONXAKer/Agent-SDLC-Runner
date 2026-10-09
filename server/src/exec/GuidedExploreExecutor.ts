@@ -4,6 +4,7 @@ import { escapeCell } from '../md/table.ts';
 import { estimateMessageTokens } from './contextBudget.ts';
 import { writeThroughGate } from './gateWrite.ts';
 import { parseGuidedJson } from './guidedJson.ts';
+import { decisionData } from './guidedProtocol.ts';
 import type { ExploreExecutorOptions } from './ExploreExecutor.ts';
 import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './StageExecutor.ts';
 
@@ -117,7 +118,8 @@ change: краткое предлагаемое изменение ЭТОГО ф
             brief: this.o.intent.brief,
             acceptance: this.o.acceptanceChecks ?? this.o.intent.claims.map(claim => `${claim.id}: ${claim.text}`),
           },
-            source: { path, content: source }, feedback }) }];
+            questionId: `explore:${path}`, question: 'Каково существующее поведение этого файла и что оно означает для задачи?',
+            source: { path, content: source }, feedback, decisionContext: decisionData(req.decisionContext), operatorInput: req.prompt.editedByOperator ? req.prompt.user : null }) }];
         const tokens = estimateMessageTokens(messages);
         const window = this.o.contextWindow ?? 16384;
         if (tokens + 3072 > window) return fail(`Исходник ${path} не помещается в контекст исследования; требуется сузить задачу`);
@@ -137,6 +139,7 @@ change: краткое предлагаемое изменение ЭТОГО ф
         this.o.onSourceProvided?.(path, source);
         try {
           parsed = FileResearch.parse(parseGuidedJson(answer.text));
+          hooks.onQuestionValidated?.({ questionId: `explore:${path}`, accepted: true, reason: 'JSON соответствует схеме исследования; документ формирует рантайм' });
           break;
         } catch (error) { feedback = `Дай заново короткий JSON по схеме для текущего файла: ${(error as Error).message.slice(0, 300)}. Не продолжай прошлый ответ, не повторяй инструкции. fact/impact — по 1–3 предложения; остальное — null или короткие списки.`; hooks.onWarn(feedback); }
       }

@@ -34,6 +34,8 @@ import type {
   RunEvent,
   RunStatus,
   StageId,
+  StageDecisionCheck,
+  Question,
   Usage,
   IterationSummary,
   RedCause,
@@ -92,6 +94,11 @@ import { FormFillExecutor } from '../exec/FormFillExecutor.ts';
 import { LoopExecutor } from '../exec/LoopExecutor.ts';
 import { normalize } from '../exec/normalize.ts';
 import { SdkExecutor } from '../exec/SdkExecutor.ts';
+import { checkStageDecision, stageDecisionInstructions, stageDecisionTools } from '../exec/StageDecisionCheck.ts';
+import { RunFlowRecorder, flowReadDenied } from './runFlow.ts';
+import { stageInputs } from './stages/inputs.ts';
+import { guidedPrompt } from './guidedPrompt.ts';
+import { appendGuidedData, documentFacts, decisionData } from '../exec/guidedProtocol.ts';
 import { edgeExampleLines } from '../artifacts/edgeExample.ts';
 import { createProvider } from '../provider/registry.ts';
 import type { TraceLabel } from '../provider/rawLog.ts';
@@ -151,7 +158,7 @@ import { stepFillExecutor } from './stages/chunk/steps.ts';
 import { guidedExecutor } from './guidedExecutor.ts';
 import { GuidedAskExecutor } from '../exec/GuidedAskExecutor.ts';
 import { GuidedPlanExecutor } from '../exec/GuidedPlanExecutor.ts';
-import { accountGuidedTime, initGuided, readGuided } from './guidedState.ts';
+import { accountGuidedTime, digest, guidedBudgetReason, initGuided, readGuided, saveGuided } from './guidedState.ts';
 import { decideReviewScan, routeKey } from './reviewRoute.ts';
 import type { ReviewScanDecision } from './reviewRoute.ts';
 /** Реэкспорт: тесты и прежние импорты берут выбор гейтов шага отсюда. */
@@ -356,6 +363,12 @@ function inSdlcDir(root: string, userPath: string): boolean {
  */
 function withExtra(prompt: PreparedPrompt, block: string | undefined): PreparedPrompt {
   if (block === undefined || block === '' || prompt.user.includes(block)) return prompt;
+  if (prompt.guidedProtocol) {
+    const data = JSON.parse(prompt.user) as Record<string, unknown>;
+    const context = Array.isArray(data.runtimeUpdates) ? data.runtimeUpdates : [];
+    const value = decisionData(block);
+    return { ...prompt, user: appendGuidedData(prompt.user, 'runtimeUpdates', [...context, typeof value === 'string' ? documentFacts(value) : value]) };
+  }
   return { ...prompt, user: `${prompt.user}\n\n${block}` };
 }
 
@@ -404,6 +417,30 @@ export class Run {
   private readonly gate: ApprovalGate;
   private readonly askGate: AskGate;
   private readonly emit: EventSink;
+  private flowRecorder: RunFlowRecorder | null = null;
+  private flow(): RunFlowRecorder {
+    return this.flowRecorder ??= new RunFlowRecorder(this.paths, this.id);
+  }
+  flowHtml(): string { return this.flow().html(); }
+  private recordDecisionCheck(check: StageDecisionCheck): void {
+    const state = readGuided(this.paths);
+    if (!state) throw new Error('Состояние guided исчезло при проверке решения');
+    state.decisionChecks = [...(state.decisionChecks ?? []), check];
+    saveGuided(this.paths, state);
+    this.flow().record('decision_check', check, 'Предварительное решение', 'Проверка оснований', check.stage);
+  }
+  private async askWithFlow(stage: StageId, questions: readonly Question[]): Promise<Record<string, string[]>> {
+    const requestId = `human:${randomUUID()}`;
+    this.flow().record('human_questions', { requestId, questions }, 'Модель / рантайм', 'Человек', stage);
+    try {
+      const answers = await this.askGate.ask({ runId: this.id, stage, questions: [...questions] });
+      this.flow().record('human_answers', { requestId, answers }, 'Человек', 'Рантайм / модель', stage);
+      return answers;
+    } catch (error) {
+      this.flow().record('human_answers', { requestId, ok: false, reason: (error as Error).message }, 'Человек', 'Рантайм', stage);
+      throw error;
+    }
+  }
   /**
    * Вызовы инструментов ТЕКУЩЕЙ ПОПЫТКИ — лента для рантаймных сверок фактов (честность
    * журнала, `verdict/honesty.ts`). Копится обёрткой вокруг `emit` в конструкторе: второго
@@ -477,7 +514,12 @@ export class Run {
       trace: (stage, mode) => this.trace(stage, mode),
       accountOffPathUsage: (stage, usage, currency) => this.accountOffPathUsage(stage, usage, currency),
       syntheticRequestId: (prefix) => `${prefix}-${this.salvageSeq++}`,
-      requestApproval: (req) => this.gate.request(req),
+      requestApproval: async (req) => {
+        this.flow().record('tool_request', { requestId: req.requestId, toolName: req.toolName, rawInput: req.rawInput, call: req.call }, 'Рантайм', 'Политика', req.stage);
+        const decision = await this.gate.request(req);
+        this.flow().record('tool_resolved', { requestId: req.requestId, decision }, 'Политика / человек', 'Рантайм', req.stage);
+        return decision;
+      },
       askHuman: async (stage, questions) => {
         // Тот же переход статуса, что и у модельного `onAskHuman` (ниже по файлу): без
         // него `run.status` остаётся `'running'` на всё время ожидания ответа человека, и
@@ -486,7 +528,7 @@ export class Run {
         // 2026-09-19).
         this.status = 'awaiting';
         try {
-          return await this.askGate.ask({ runId: this.id, stage, questions: [...questions] });
+          return await this.askWithFlow(stage, questions);
         } finally {
           this.status = 'running';
         }
@@ -633,11 +675,16 @@ export class Run {
     this.askGate = o.askGate;
     this.budgetStages = o.budgetStages ?? null;
     this.emit = (e) => {
+      this.flow().event(e);
       if (e.type === 'tool_result' || e.type === 'tool_request') this.attemptToolEvents.push(e);
       // `artifact_written` несёт уже посчитанный грепом `‹` счётчик плейсхолдеров —
       // пересчитывать файл вторым способом значит дать двум местам разойтись.
       if (e.type === 'artifact_written') this.noteArtifactGap(e.path, e.placeholders);
       o.emit(e);
+      if (e.type === 'stage_done' || e.type === 'error') {
+        try { this.flow().writeHtml(); }
+        catch (error) { console.error(`[flow] HTML не записан: ${(error as Error).message}`); }
+      }
     };
     this.paths = new WitokPaths(o.project.projectRoot, o.slug);
     this.restoreMetrics();
@@ -1332,7 +1379,7 @@ export class Run {
    */
   private readDeniedFor(stage: StageId): string[] {
     if (stage !== 'verify') return [];
-    const out: string[] = [];
+    const out: string[] = flowReadDenied(this.paths, this.id);
     for (let attempt = 1; attempt < this.attempt; attempt++) {
       for (const route of this.profile.ensemble.verify.keys()) {
         out.push(relOf(this.ctx, this.paths.verificationReport(this.chunk, attempt, route)));
@@ -1430,7 +1477,9 @@ export class Run {
    * ослеп бы от нашей же записи, и этап, не сделавший ничего, выглядел бы поработавшим.
    */
   private writeAutofilled(path: string, text: string, seeded: { path: string; snapshot?: string }[]): void {
+    this.flow().watch([path]);
     writeArtifact(path, text);
+    this.flow().changes();
     const seed = seeded.find((s) => s.path === path);
     if (seed !== undefined) seed.snapshot = text;
   }
@@ -1646,7 +1695,7 @@ export class Run {
       params: route.params,
       ...(route.contextWindow === undefined ? {} : { contextWindow: route.contextWindow }),
       currency: route.providerDef.currency ?? 'USD',
-      compact: route.compactForms === 'fill' || route.compactForms === 'all',
+      compact: readGuided(this.paths) !== null || route.compactForms === 'fill' || route.compactForms === 'all',
       // Образец граничного пункта — из примера эталона, читается в рантайме:
       // замер 2026-09-04 показал ноль `[edge]` в 4 прогонах из 5, а просьба
       // называла только формат (`artifacts/edgeExample.ts`).
@@ -1877,7 +1926,9 @@ export class Run {
    * попытки; сам дамп выключен, пока не задан `SDLC_RAW_LOG_DIR`.
    */
   private trace(stage: StageId, mode: TraceLabel['mode']): TraceLabel {
-    return { slug: this.slug, stage, mode, attempt: this.attempt };
+    return { slug: this.slug, stage, mode, attempt: this.attempt,
+      onRequest: request => this.flow().record('model_request', { ...request, mode }, 'Рантайм', 'Модель', stage),
+      onResponse: exchange => this.flow().record('model_http', { ...exchange, mode, attempt: this.attempt }, 'Модель', 'Рантайм', stage) };
   }
 
   /**
@@ -1986,7 +2037,7 @@ export class Run {
     // Режим заполнения по полям — только там, где этап и есть заполнение бланка.
     // Explore сюда не входит: его отчёт пишется по результатам разведки субагентами,
     // а не выводится из входов; chunk/verify — тем более.
-    if (this.usesFormFill(stage, route, preparationForms)) {
+    if (this.usesFormFill(stage, route, preparationForms) || (['verify', 'handoff'].includes(stage) && readGuided(this.paths) !== null)) {
       return new FormFillExecutor({
         provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, this.trace(stage, 'formFill')),
         maxResultBytes: localResultBytes(limits),
@@ -2059,7 +2110,7 @@ export class Run {
    * Готовит промпт этапа, не запуская его. Отдельный шаг, потому что оператор вправе
    * отредактировать промпт до отправки — а значит, он должен увидеть его раньше.
    */
-  preparePrompt(stage: StageId, opts: { requirement?: string; extra?: string; preparationVersion?: 1 | 2 | 3 } = {}): PreparedPrompt {
+  preparePrompt(stage: StageId, opts: { requirement?: string; extra?: string; preparationVersion?: 1 | 2 | 3; decisionCheck?: boolean } = {}): PreparedPrompt {
     // Диагноз прошлой попытки попадает уже в собранный промпт, а не подклеивается позже:
     // промпт уходит в шину и редактируется оператором, и всё, что уйдёт в модель, должно
     // быть видно ему до запуска. Проверка на вхождение — от второго экземпляра, когда
@@ -2084,7 +2135,7 @@ export class Run {
     const preparationV2 = isPreparationV2(this.paths) || (stage === 'intent' && opts.preparationVersion !== 1 && !readArtifact(this.paths.intent).exists && !readArtifact(this.paths.plan).exists && !readArtifact(this.paths.explorationReport).exists);
     const structuredPreparation = preparationV2 && route.flow === 'loop' &&
       (stage === 'intent' || stage === 'explore' || stage === 'plan');
-    const prompt = buildPrompt({
+    let prompt = buildPrompt({
       runner: this.config.runner,
       stage: def,
       ctx: this.ctx,
@@ -2103,6 +2154,9 @@ export class Run {
       // Тем же условием, каким выбирается исполнитель: промпт обязан знать, что
       // инструментов в запросах этого этапа не будет.
       formFill: structuredPreparation || (!preparationV2 && stage === 'explore' && usesExploreFill(route)),
+      // Guided decision-check получает промпт без field-инструкций, чтобы system JSON
+      // {decision,next} не конфликтовал с user-инструкциями JSON-массива полей.
+      decisionCheck: opts.decisionCheck === true,
       // Эффективный набор, а не `stage.tools`: урезание `leanTools` обязано быть видно
       // в промпте — панель показывает ровно тот список, с которым уйдёт запрос.
       // MCP-права здесь не нужны: у внешних инструментов своя строка в adapter-блоке.
@@ -2133,9 +2187,7 @@ export class Run {
       // читает и парсит plan.md с диска.
       ...(chunkPlanFiles.length > 0 ? { planFiles: chunkPlanFiles } : {}),
     });
-    if (readGuided(this.paths) && (stage === 'explore' || stage === 'plan' || stage === 'chunk')) {
-      prompt.presetNote = 'guided: исполнитель формирует отдельные JSON-запросы по текущему состоянию. Фактические запросы и ответы доступны в трассе этапа.';
-    }
+    if (readGuided(this.paths)) prompt = guidedPrompt(stage, this.ctx, prompt, opts.requirement, opts.extra);
     this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
     return prompt;
   }
@@ -2407,7 +2459,7 @@ export class Run {
       if ([...Object.values(this.profile.routes), ...Object.values(this.profile.ensemble).flat()].some(r =>
         `${r.provider}:${r.model}` !== guided.modelId || r.flow !== 'loop' ||
         !['localhost', '127.0.0.1', '[::1]'].includes(new URL(r.providerDef.baseUrl ?? 'http://invalid').hostname))) throw new Error('Локальная модель guided-задачи изменена');
-      if (guided.activeMs >= guided.budgetMs) return { ok: false, finalText: '', usage: emptyUsage(), note: 'Лимит guided-задачи 30 минут исчерпан' };
+      if (guided.activeMs >= guided.budgetMs) return { ok: false, finalText: '', usage: emptyUsage(), note: guidedBudgetReason(guided) };
       for (const r of [this.profile.routes.verify, ...this.profile.ensemble.verify]) {
         r.reviewFill = true;
         r.claimFill = true;
@@ -2418,6 +2470,7 @@ export class Run {
     const def = stageById(stage);
     const route = this.profile.routes[stage];
     const abortOpts = opts.abortHandoff === true ? { abortHandoff: true } : {};
+    this.flow().beginStage(stage, { stage, provider: route.provider, model: route.model, chunk: this.chunk, attempt: this.attempt });
     this.currentAbortHandoff = opts.abortHandoff === true;
     this.cancelRequested = false;
     const mod = stageModule(stage);
@@ -2443,6 +2496,9 @@ export class Run {
     }
 
     if (report.skip !== null) {
+      if (guided) this.recordDecisionCheck({ stage, at: new Date().toISOString(), inputRevision: digest(report.skip),
+        decision: 'Пропустить условный этап по проверенным предусловиям', evidence: [{ source: 'runtime-preconditions', quote: report.skip }],
+        uncertainties: [], action: 'proceed', reason: report.skip, status: 'ready', changed: false, checkedBy: 'runtime' });
       // Условный этап закрывается артефактом всегда (`SDLC.md`: «нет артефакта — нет
       // шага»): этап 3 без вопросов оставляет отчёт «по существу пусто», а не пустоту.
       await inv.onSkip?.(report.skip);
@@ -2520,7 +2576,7 @@ export class Run {
     let guidedTick = Date.now();
     const chargeGuided = (): void => {
       const now = Date.now();
-      if (guided && accountGuidedTime(this.paths, now - guidedTick, this.status === 'running')) this.aborter?.abort(new Error('Лимит guided-задачи 30 минут исчерпан'));
+      if (guided && accountGuidedTime(this.paths, now - guidedTick, this.status === 'running')) this.aborter?.abort(new Error(guidedBudgetReason(readGuided(this.paths) ?? guided)));
       guidedTick = now;
     };
     const guidedTimer = guided ? setInterval(() => {
@@ -2581,6 +2637,7 @@ export class Run {
       if (!this.friction.has(stage)) this.friction.set(stage, EMPTY_FRICTION());
 
       const produced = def.produces(this.ctx);
+      this.flow().watch([...produced, ...stageInputs(stage, this.ctx).map(a => a.path), ...(this.planFilesFor(stage) ?? [])]);
       const missingBefore = missingNow(produced);
       const seeded = seedArtifacts(produced, this.config.runner.methodologyDir);
       seedPreparationForms(this.paths, seeded);
@@ -2628,7 +2685,7 @@ export class Run {
               ...(opts.requirement === undefined ? {} : { requirement: opts.requirement }),
               ...(extra === undefined ? {} : { extra }),
             })
-          : withExtra(opts.prompt, appended);
+          : withExtra(guided ? guidedPrompt(stage, this.ctx, opts.prompt, opts.requirement, extra) : opts.prompt, appended);
       if (opts.prompt !== undefined) {
         this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt });
       }
@@ -2670,7 +2727,11 @@ export class Run {
       const reviewerNames = new Set(def.subagents.filter((n) => REVIEWER_AGENTS.includes(n)));
 
       let skippedApprovedLocationAsk = false;
+      // This capability is scoped to the awaited checkpoint, never caller-supplied metadata.
+      const checkpointTools = stageDecisionTools(stage, def.tools);
+      let checkingDecision = false;
       const hooks: ExecHooks = {
+        onQuestionValidated: result => this.emit({ type: 'question_validation', runId: this.id, stage, ...result }),
         onText: (text) => this.emit({ type: 'assistant_text', runId: this.id, stage, text }),
         onThinking: (text) => this.emit({ type: 'thinking', runId: this.id, stage, text }),
         // Потолки размера — лента событий пишется на диск на каждый запрос, а вопрос шага несёт
@@ -2685,6 +2746,7 @@ export class Run {
           }),
 
         onToolRequest: async (call, meta) => {
+          this.flow().record('tool_request', { requestId: meta.requestId, toolName: meta.toolName, rawInput: meta.rawInput, call, caller: meta.caller ?? null }, 'Модель', 'Политика', stage);
           chargeGuided();
           if (guided) this.aborter?.signal.throwIfAborted();
           this.status = 'awaiting';
@@ -2702,7 +2764,7 @@ export class Run {
               // потому, что модель его назвала.
               ctx: {
                 ...ctx,
-                allowedTools: ctx.allowedTools.filter((t) => meta.callerTools.includes(t)),
+                allowedTools: (checkingDecision ? checkpointTools : ctx.allowedTools).filter((t) => meta.callerTools.includes(t)),
                 // Слепота второго агента разведки — конструкцией, не просьбой (`sdlc-explore`
                 // Phase 1, `.claims-lock` терминального hook'а): субагенту `sdlc-claims`
                 // закрыты на чтение задача и отчёт разведки — авторский лист он не видит по
@@ -2711,6 +2773,7 @@ export class Run {
                   ? {
                       readDenied: [
                         ...(ctx.readDenied ?? []),
+                        ...flowReadDenied(this.paths, this.id),
                         this.paths.intent,
                         this.paths.explorationReport,
                         // Готовность обсуждает лист, лента несёт промпты этапов 1–2 с задачей
@@ -2729,8 +2792,10 @@ export class Run {
                 ...(meta.sdk?.sessionDir == null ? {} : { harnessResultsRoot: meta.sdk.sessionDir }),
               },
             });
+            this.flow().record('tool_resolved', { requestId: meta.requestId, decision }, 'Политика / человек', 'Инструмент', stage);
             if (decision.allowed && call.kind === 'read' && mod.tracksPreparationReads === true) {
-              pendingReads.set(meta.requestId, { path: call.path, stage });
+              const read = decision.updatedInput === null ? call : normalize(meta.toolName, decision.updatedInput as Record<string, unknown>);
+              if (read.kind === 'read') pendingReads.set(meta.requestId, { path: read.path, stage });
             }
             // Рецензентом считается ровно тот субагент, чьё определение этап объявил и
             // рантайм прочитал с диска. Подстрока «reviewer» в имени этой планкой не
@@ -2810,6 +2875,10 @@ export class Run {
               writeArtifact(this.paths.plan, updated);
               ctx = this.policyContext(stage);
             }
+            if (decision.allowed) {
+              const effective = decision.updatedInput === null ? call : normalize(meta.toolName, decision.updatedInput as Record<string, unknown>);
+              if (effective.kind === 'write' || effective.kind === 'edit') this.flow().watch([effective.path]);
+            }
             return decision;
           } finally {
             guidedTick = Date.now();
@@ -2818,6 +2887,8 @@ export class Run {
         },
 
         onToolResult: (meta) => {
+          this.flow().record('tool_data', meta, 'Инструмент', 'Модель', stage);
+          this.flow().changes(meta.requestId);
           this.countFriction(stage, 'toolCalls');
           const pendingRead = pendingReads.get(meta.requestId);
           if (pendingRead !== undefined && meta.ok && meta.resultText !== undefined) {
@@ -2871,7 +2942,7 @@ export class Run {
           if (guided) this.aborter?.signal.throwIfAborted();
           this.status = 'awaiting';
           try {
-            return await this.askGate.ask({ runId: this.id, stage, questions: call.questions });
+            return await this.askWithFlow(stage, call.questions);
           } finally {
             guidedTick = Date.now();
             this.status = 'running';
@@ -2941,14 +3012,45 @@ export class Run {
       // навсегда оставался `running`, `stage_done` не приходил, и кнопка запуска в
       // интерфейсе не разблокировалась до перезагрузки страницы.
       // Шаг рантайма до создания исполнителя (слепой лист разведки).
+      let checkedPrompt = prompt;
+      let decisionUsage = emptyUsage();
+      let decisionRequests = 0;
+      let decisionContext: string | undefined;
+      if (guided) {
+        const decisionSignal = this.aborter.signal;
+        let checked: Awaited<ReturnType<typeof checkStageDecision>>;
+        checkingDecision = true;
+        try {
+        checked = await checkStageDecision({ cwd: this.project.projectRoot, model: route.model,
+          prompt, allowedTools: checkpointTools, signal: decisionSignal,
+          maxTurns: this.maxTurnsFor(stage), maxBudgetUsd: this.project.maxBudgetUsd }, hooks, {
+          stage, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'decisionCheck')),
+          params: route.params ?? null, contextWindow: route.contextWindow ?? 16384,
+          spent: () => this.spent.spent(route.providerDef.currency ?? 'USD'),
+          record: check => {
+            this.recordDecisionCheck(check);
+            hooks.onText(`${stage}: ${check.status}: ${check.decision}\n`);
+          },
+        });
+        } finally { checkingDecision = false; }
+        decisionUsage = checked.usage; decisionRequests = checked.modelRequests ?? 0;
+        decisionContext = checked.block ?? undefined;
+        if (!checked.ok) {
+          this.status = 'failed';
+          this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: checked.note });
+          return checked;
+        }
+        checkedPrompt = withExtra(prompt, checked.block ?? '');
+        this.emit({ type: 'prompt_prepared', runId: this.id, stage, prompt: checkedPrompt });
+      }
       await inv.beforeExecutor?.();
 
       const executor = this.executorFor(stage);
 
       // Шаг рантайма до хода модели (независимое ревью verify): его блок подклеивается к
       // промпту хода, а готовый исход, если он есть, заменяет сам ход.
-      const pre = (await inv.preTurn?.(prompt, agents, hooks)) ?? { block: null, skip: null };
-      const stagePrompt = pre.block === null ? prompt : withExtra(prompt, pre.block);
+      const pre = (await inv.preTurn?.(checkedPrompt, agents, hooks)) ?? { block: null, skip: null };
+      const stagePrompt = pre.block === null ? checkedPrompt : withExtra(checkedPrompt, pre.block);
 
       // Последняя находка собственной проверки этапа, выданная стражем. Нужна пересчёту
       // после доборов ниже: переворачивать исход можно, только если этап упал ИМЕННО на
@@ -2974,6 +3076,7 @@ export class Run {
       await inv.beforeModel?.(hooks, seeded);
       const execRequest: ExecRequest = {
           prompt: stagePrompt,
+          ...(decisionContext === undefined ? {} : { decisionContext }),
           cwd: this.project.projectRoot,
           model: route.model,
           allowedTools: this.toolsFor(stage),
@@ -2984,7 +3087,7 @@ export class Run {
           // Спасение напечатанного артефакта: модель составила его правильно, но не
           // записала. Идёт тем же путём, что обычная запись — политика и гейт одобрения.
           salvageFromText: (text) => this.salvageFromText(text, produced, stage),
-          maxTurns: this.maxTurnsFor(stage),
+          maxTurns: this.maxTurnsFor(stage) - decisionRequests,
           maxBudgetUsd: this.project.maxBudgetUsd,
           spentUsdBefore: this.spent.spent(route.providerDef.currency ?? 'USD'),
           // Сигнал прогресса анти-цикла — у этапа свой (записи отчёта verify, принятые правки
@@ -3003,6 +3106,7 @@ export class Run {
           signal: this.aborter.signal,
         };
       let result: StageResult = pre.skip !== null ? pre.skip : await executor.run(execRequest, hooks);
+      this.flow().record('executor_result', result, 'Исполнитель', 'Рантайм', stage);
 
       // Доборы рантайма после хода, до дозаполнения по полям и ансамбля (добор пунктов и
       // записи отчёта verify, добор осей plan): оба обязаны видеть уже внесённое.
@@ -3075,6 +3179,7 @@ export class Run {
           const remainingTurns = execRequest.maxTurns - (result.modelRequests ?? 0);
           if (remainingTurns <= 0) break;
           const repaired = await executor.run({ ...execRequest, maxTurns: remainingTurns }, hooks);
+          this.flow().record('executor_result', repaired, 'Исполнитель', 'Рантайм', stage);
           result = { ...repaired, usage: addUsage(result.usage, repaired.usage), modelRequests: (result.modelRequests ?? 0) + (repaired.modelRequests ?? 0) };
           if (!repaired.ok) break;
           await inv.afterForm?.(prompt, def, agents, hooks);
@@ -3086,6 +3191,7 @@ export class Run {
       // отдаёт пустой вывод, то есть улика подменялась ложным «правок нет») и запускал
       // тест-сьют, который уже некому ждать.
       const cancelled = this.aborter?.signal.aborted === true;
+      if (decisionRequests) result = { ...result, usage: addUsage(decisionUsage, result.usage), modelRequests: decisionRequests + (result.modelRequests ?? result.turns ?? 0) };
 
       // Улики этапа производит рантайм, а не исполнитель (патч и тесты chunk) — и только у
       // неотменённого этапа.
@@ -3130,6 +3236,13 @@ export class Run {
       return outcome;
     } catch (e) {
       const message = (e as Error).message;
+      if (this.cancelRequested && this.aborter?.signal.aborted) {
+        this.status = 'cancelled';
+        this.gate.cancelRun(this.id, 'этап отменён оператором');
+        this.askGate.cancelRun(this.id);
+        this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: 'этап отменён оператором' });
+        return { ok: false, finalText: '', usage: emptyUsage(), note: 'этап отменён оператором' };
+      }
       this.status = 'failed';
       this.gate.cancelRun(this.id, `этап оборван: ${message}`);
       this.askGate.cancelRun(this.id);
@@ -3151,6 +3264,9 @@ export class Run {
       // Снапшот после КАЖДОГО этапа: виток переживает пересоздание `Run`, и метрики
       // обязаны переживать его вместе с ним.
       this.writeMetricsSnapshot();
+      this.flow().changes();
+      try { this.flow().writeHtml(); }
+      catch (error) { console.error(`[flow] HTML не записан: ${(error as Error).message}`); }
     }
   }
 

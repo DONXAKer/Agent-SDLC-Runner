@@ -19,6 +19,7 @@
 
 import http from 'node:http';
 import https from 'node:https';
+import { randomUUID } from 'node:crypto';
 
 import type { Usage } from '@sdlc-runner/shared';
 import { emptyUsage } from '@sdlc-runner/shared';
@@ -540,15 +541,27 @@ export class OpenAiCompatProvider implements ChatProvider {
     let triedWithoutReasoning = false;
     let status = 0;
     let text = '';
+    let requestId = '';
     for (let attempt = 1; ; attempt++) {
       // Собственный таймаут поверх переданного сигнала: локальный сервер, ушедший в своп,
       // не закрывает соединение — этап висел бы до отмены оператором. Свежий на каждую
       // попытку: иначе время, съеденное упавшей, вычиталось бы у повтора.
       const timeout = AbortSignal.timeout(this.o.timeoutMs);
       const signal = AbortSignal.any([req.signal, timeout]);
+      requestId = randomUUID();
+      try { this.o.trace?.onRequest?.({ requestId, provider: this.name, model: req.model, request: JSON.parse(payload) as Record<string, unknown>, attempt }); }
+      catch (error) { console.error(`[flow] ${(error as Error).message}`); }
+      const attemptStarted = Date.now();
+      const observeResponse = (responseStatus: number, response: string): void => {
+        try { this.o.trace?.onResponse?.({ requestId, provider: this.name, model: req.model, request: JSON.parse(payload) as Record<string, unknown>,
+          response, status: responseStatus, durationMs: Date.now() - attemptStarted }); }
+        catch (error) { console.error(`[flow] ${(error as Error).message}`); }
+      };
       try {
         ({ status, text } = await postJson(url, headers, payload, signal));
+        observeResponse(status, text);
       } catch (e) {
+        observeResponse(0, (e as Error).message);
         // Повторяется только транзиентная СЕТЬ. Отмена оператора — не повтор и не сетевой
         // сбой; таймаут попытки — свойство запроса (иначе зависший сервер ждался бы
         // 3×timeoutMs вместо одного); ENOTFOUND и прочие постоянные коды повтором не
@@ -601,6 +614,7 @@ export class OpenAiCompatProvider implements ChatProvider {
       this.o.trace === undefined
         ? null
         : dumpExchange(this.o.trace, {
+            requestId,
             provider: this.name,
             model: req.model,
             request: body,

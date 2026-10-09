@@ -21,6 +21,7 @@ import type { ClaimRecord } from '../../verifyReport.ts';
 import type { StageDef, StageHost } from '../types.ts';
 import { evidenceHaystack } from './records.ts';
 import { routeKey } from '../../reviewRoute.ts';
+import { readGuided } from '../../guidedState.ts';
 
 /**
  * Пункты, в которых основной маршрут не уверен: `⚠` — «доказательство держится на
@@ -62,6 +63,8 @@ export async function narrowRoute(
 ): Promise<void> {
   const limits = host.limits();
   const { calls, envFailure } = await fillClaims({
+    guided: readGuided(host.paths) !== null,
+    onValidation: result => host.emit({ type: 'question_validation', runId: host.id, stage: 'verify', ...result }),
     provider: createProvider(route.provider, route.providerDef, limits.chatTimeoutMs, host.trace('verify', 'claimFill')),
     model: route.model,
     params: route.params,

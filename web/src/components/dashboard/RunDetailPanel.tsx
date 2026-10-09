@@ -56,6 +56,8 @@ export function RunDetailPanel({
           {card.ref.slug}
         </span>
         <span className={`rounded border px-1.5 py-px text-[10px] ${historyStatusTone(card.status)}`}>{historyStatusLabel(card.status)}</span>
+        <a href={`/api/dashboard/${encodeURIComponent(card.ref.source)}/${encodeURIComponent(card.ref.project)}/${encodeURIComponent(card.ref.slug)}/flow.html`}
+          target="_blank" rel="noreferrer" className="text-xs text-sky-400 hover:text-sky-300">Схема прогона</a>
         <CardActions card={card} className="ml-auto flex gap-2" onOpenLive={onOpenLive} onOpenArchive={onOpenArchive} />
       </header>
 

@@ -1,5 +1,22 @@
 /** Runtime-owned progress. A checked item is not yet an accepted task. */
+import type { StageId } from './types.ts';
+
 export type ExecutionMode = 'legacy' | 'guided';
+/** Public, auditable decision summaries; not the model's private reasoning. */
+export interface StageDecisionCheck {
+  stage: StageId;
+  at: string;
+  inputRevision: string;
+  decision: string;
+  evidence: { source: string; quote: string }[];
+  uncertainties: string[];
+  action: 'proceed' | 'read' | 'search' | 'input' | 'question' | 'blocked';
+  reason: string;
+  status: 'ready' | 'collecting' | 'blocked';
+  changed: boolean;
+  checkedBy?: 'model' | 'runtime';
+  observation?: { source: string; ok: boolean; text: string };
+}
 export interface WorkItem {
   id: string;
   title: string;
@@ -35,4 +52,5 @@ export interface GuidedSummary {
   stopReason: string | null;
   items: WorkItem[];
   observations: Observation[];
+  decisionChecks?: StageDecisionCheck[];
 }
