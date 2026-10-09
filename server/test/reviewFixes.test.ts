@@ -69,7 +69,8 @@ describe('пол безопасности', () => {
   });
 
   it('ошибка файловой системы возвращается модели, а не рушит этап', async () => {
-    const r = await executeTool({ kind: 'read', path: '.', range: null }, toolCtx);
+    // Read каталога теперь перечисляет файлы; запись в каталог по-прежнему даёт ошибку ФС.
+    const r = await executeTool({ kind: 'write', path: '.', content: 'cannot replace a directory' }, toolCtx);
     strictEqual(r.ok, false);
     ok(/не удалась|файла нет/i.test(r.text), r.text);
   });

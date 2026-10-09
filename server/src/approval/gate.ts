@@ -15,9 +15,10 @@
 
 import { AUTO_APPROVE_OFF, policyDeny } from '@sdlc-runner/shared';
 import type { AutoApproveRules } from '@sdlc-runner/shared';
+import { statSync } from 'node:fs';
 
 import { evaluate, writeTargetPaths, writeTargetsOf } from '../policy/index.ts';
-import { normalizePlanPath } from '../policy/paths.ts';
+import { normalizePlanPath, relativizeWithin, resolveUserPath } from '../policy/paths.ts';
 import { normalize } from '../exec/normalize.ts';
 import { modeOf } from '../policy/mcp.ts';
 import type {
@@ -443,6 +444,17 @@ export class ApprovalGate {
   private checkAll(call: NormalizedCall, ctx: PolicyContext, opts?: { skipFabricationCheck?: boolean }): PolicyVerdict {
     const verdict = evaluate(call, ctx);
     if (!verdict.ok) return verdict;
+
+    // Read каталога возвращает имена: ограничения независимого ревью действуют и на них.
+    if (call.kind === 'read' && ctx.readDenied?.length) {
+      const directory = resolveUserPath(ctx.projectRoot, call.path);
+      try {
+        if (statSync(directory).isDirectory()) {
+          const denied = ctx.readDenied.find(path => relativizeWithin(directory, resolveUserPath(ctx.projectRoot, path)) !== null);
+          if (denied) return policyDeny('readScope', `перечисление каталога «${call.path}» задело бы закрытый источник «${denied}»`);
+        }
+      } catch { /* Ошибка диска остаётся результатом инструмента, не разрешением читать. */ }
+    }
 
     // Именно `writeTargetPaths`, а не отображаемый список: во втором к пути приклеено
     // «(переменная не развёрнута)», и такой строки на диске нет — проверка на симлинк

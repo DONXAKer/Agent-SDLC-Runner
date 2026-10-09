@@ -208,7 +208,23 @@ function readTool(call: NormalizedCall & { kind: 'read' }, ctx: ToolContext): To
   const abs = resolveUserPath(ctx.projectRoot, call.path);
   if (!existsSync(abs)) return { ok: false, text: `файла нет: ${call.path}` };
 
-  const size = statSync(abs).size;
+  const stat = statSync(abs);
+  if (stat.isDirectory()) {
+    ctx.signal.throwIfAborted();
+    const entries = readdirSync(abs, { withFileTypes: true })
+      .filter(entry => !entry.name.startsWith('.') && !entry.isSymbolicLink())
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const from = call.range === null ? 0 : Math.max(0, call.range.from - 1);
+    const to = call.range?.to ?? from + 80;
+    const rows = entries.slice(from, Math.min(to, from + 80)).map(entry => ({
+      path: rel(ctx.projectRoot, join(abs, entry.name)), kind: entry.isDirectory() ? 'directory' : 'file',
+    }));
+    const render = () => JSON.stringify({ kind: 'directory', path: call.path, entries: rows,
+      offset: from + 1, totalEntries: entries.length, partial: from > 0 || from + rows.length < entries.length });
+    while (rows.length && Buffer.byteLength(render(), 'utf8') > ctx.maxResultBytes) rows.pop();
+    return { ok: true, text: cap(render(), ctx.maxResultBytes) };
+  }
+  const size = stat.size;
   // «С начала и без конца» — это чтение целиком, как бы оно ни было записано. Пока
   // предохранитель смотрел только на `range === null`, модель обходила его одним
   // `offset: 1` без `limit` — и выгребала в контекст весь файл, ради чего проверка и стоит.
