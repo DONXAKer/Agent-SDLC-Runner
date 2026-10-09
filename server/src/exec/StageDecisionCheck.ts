@@ -8,6 +8,7 @@ import { parseGuidedJson } from './guidedJson.ts';
 import { engineeringQuestionAllowed, questionKey } from './guidedQuestions.ts';
 import { projectSourceCatalog } from './guidedSources.ts';
 import { evaluate } from '../policy/index.ts';
+import { directoryReadScope } from '../policy/pathScope.ts';
 import { isWindowsStyle, resolveUserPath } from '../policy/paths.ts';
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import type { ExecHooks, ExecRequest, StageResult } from './StageExecutor.ts';
@@ -100,8 +101,9 @@ export async function checkStageDecision(req: Pick<ExecRequest, 'cwd' | 'model' 
     plannedFiles = input.data?.plannedFiles ?? [];
   }
   const projectCatalog = structured && allowedTools.includes('Read')
-    ? await projectSourceCatalog(req.cwd, req.signal, plannedFiles, path => !options.lookupPolicy ||
-      evaluate({ kind: 'read', path, range: null }, options.lookupPolicy).ok) : { entries: [], partial: false };
+    ? await projectSourceCatalog(req.cwd, req.signal, plannedFiles, (path, kind) => !options.lookupPolicy ||
+      (evaluate({ kind: 'read', path, range: null }, options.lookupPolicy).ok &&
+      (kind !== 'directory' || directoryReadScope(options.lookupPolicy, path).ok))) : { entries: [], partial: false };
   let outputCap = Math.max(1200, Math.min(8192, typeof options.params?.max_tokens === 'number' ? options.params.max_tokens : 4096));
   const finish = (ok: boolean, note: string, block: string | null = null): DecisionCheckResult => ({ ok, note, block, finalText: block ?? '', usage, modelRequests: calls });
   const blocked = (reason: string): DecisionCheckResult => {

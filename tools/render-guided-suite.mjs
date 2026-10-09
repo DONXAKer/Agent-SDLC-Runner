@@ -3,6 +3,7 @@ import { resolve, join } from 'node:path';
 import { Script } from 'node:vm';
 import assert from 'node:assert/strict';
 import { renderRunFlow } from '../server/src/run/runFlow.ts';
+import { guidedSuiteSuccess } from './guided-suite-success.ts';
 
 const directory = resolve(process.argv[2]);
 const manifest = JSON.parse(readFileSync(join(directory, 'suite.json'), 'utf8'));
@@ -22,8 +23,7 @@ for (const [index, run] of manifest.runs.entries()) {
   const baselineFile = resolve(directory, '..', `${baselineSlug}.json`);
   const baseline = existsSync(baselineFile) ? JSON.parse(readFileSync(baselineFile, 'utf8')) : null;
   const before = baseline?.driver.stages.at(-1);
-  const success = result.driver.stopped === 'handoff' && result.finalVerdict?.passed === true && result.hidden?.total > 0 &&
-    result.hidden.pass === result.hidden.total && result.hidden.fail === 0 && result.hidden.skipped === 0 && result.hidden.errorText === null && result.honesty.every(check => check.ok !== false);
+  const success = guidedSuiteSuccess(result);
   const command = { command: process.execPath, args: run.args, codeHash: run.codeHash ?? null, model: run.model, task: run.task };
   report.entries.unshift({ id: 'suite-command', at: run.startedAt, invocation: null, stage: null, kind: 'bench_command', from: 'Серия', to: 'Стенд', payload: command });
   report.entries.push({ id: 'suite-result', at: run.finishedAt, invocation: null, stage: null, kind: 'bench_validation', from: 'Стенд', to: 'Результат', payload: {

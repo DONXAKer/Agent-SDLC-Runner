@@ -146,8 +146,14 @@ test('directory reads and the source catalog preserve independent read scope', a
   const result = await checkStageDecision(f.req, f.hooks, f.options);
   assert.equal(result.ok, false); assert.match(result.note, /readScope/); assert.equal(result.modelRequests, 1);
   const catalog = JSON.parse(f.requests[0]!.messages[1]!.content).sourceCatalog;
+  assert.deepEqual(catalog.find((s: { id: string }) => s.id === 'src'), { id: 'src', kind: 'directory', available: false, action: null });
   assert.equal(catalog.some((s: { id: string }) => s.id === 'src/author.ts'), false);
   assert.equal(catalog.some((s: { id: string }) => s.id === 'src/public.ts'), true);
+  const publicFile = setup(t, [{ ...read(), next: { ...read().next, path: 'src/public.ts' } },
+    { ...ready(), evidence: [{ source: 'lookup-1', quote: 'public code' }] }]);
+  publicFile.req.cwd = f.root; publicFile.root = f.root;
+  gateReads(publicFile, ['src/author.ts']);
+  assert.equal((await checkStageDecision(publicFile.req, publicFile.hooks, publicFile.options)).ok, true);
 });
 
 test('source selection exposes existing files, directories and unavailable planned files distinctly', async t => {
