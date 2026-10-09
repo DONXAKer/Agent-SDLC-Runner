@@ -147,6 +147,17 @@ describe('matchChoice', () => {
     deepStrictEqual(matchChoice(opts, 'мелкий'), { key: 'мелкий', comment: '' });
   });
 
+  it('ключ меню — целое слово внутри ответа (кириллица без \\b)', () => {
+    const opts = [
+      { key: 'полный', text: 'полный', commentSlot: false, free: false },
+      { key: 'мелкий', text: 'мелкий', commentSlot: false, free: false },
+    ];
+    deepStrictEqual(matchChoice(opts, 'мелкий контур'), { key: 'мелкий', comment: 'контур' });
+    deepStrictEqual(matchChoice(opts, 'выбрать полный'), { key: 'полный', comment: 'выбрать' });
+    strictEqual(matchChoice(opts, 'контур'), null);
+    strictEqual(matchChoice(opts, 'полный или мелкий'), null);
+  });
+
   it('свободный вариант — весь ответ становится значением', () => {
     const opts = [
       { key: 'имя дата', text: '‹имя› · ‹дата›', commentSlot: false, free: true },
