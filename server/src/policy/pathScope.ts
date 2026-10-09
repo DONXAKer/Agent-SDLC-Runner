@@ -158,6 +158,12 @@ function deniedSearch(ctx: PolicyContext, hit: string): PolicyVerdict {
   );
 }
 
+/** Перечисление каталога через Read сохраняет те же границы, что поиск имён через Glob. */
+export function directoryReadScope(ctx: PolicyContext, path: string): PolicyVerdict {
+  const hit = deniedInScope(ctx, path, null, 'glob');
+  return hit === null ? POLICY_OK : deniedSearch(ctx, hit);
+}
+
 export function check(call: NormalizedCall, ctx: PolicyContext): PolicyVerdict {
   switch (call.kind) {
     case 'read':

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { flowFromEvents, readFlowTrace, renderRunFlow } from '../server/src/run/runFlow.ts';
 import { parseEventsFile } from '../server/src/eventLog.ts';
+import { guidedSuiteSuccess } from './guided-suite-success.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const id = `guided-recovery-${new Date().toISOString().replace(/\D/g, '')}`;
@@ -79,8 +80,7 @@ for (const [m, model] of models.entries()) for (const [t, task] of tasks.entries
   entry.finishedAt = new Date().toISOString();
   if (sourceHash() !== frozenHash) throw new Error('Исходный код изменился во время запуска; серия не считается зафиксированной');
   const result = loadResult(slug); const hidden = result?.hidden;
-  entry.success = !!result && result.driver.stopped === 'handoff' && result.finalVerdict?.passed === true &&
-    hidden?.total > 0 && hidden.fail === 0 && hidden.pass === hidden.total && hidden.skipped === 0 && hidden.errorText === null && result.honesty.every(check => check.ok !== false);
+  entry.success = guidedSuiteSuccess(result);
   entry.status = entry.success ? 'успех' : result ? 'неуспех' : 'результат отсутствует';
   entry.stopped = result?.driver.stopped ?? null; entry.hidden = hidden ?? null;
   entry.activeMinutes = result?.guided ? Number((result.guided.activeMs / 60000).toFixed(2)) : null;

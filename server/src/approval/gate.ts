@@ -18,7 +18,8 @@ import type { AutoApproveRules } from '@sdlc-runner/shared';
 import { statSync } from 'node:fs';
 
 import { evaluate, writeTargetPaths, writeTargetsOf } from '../policy/index.ts';
-import { normalizePlanPath, relativizeWithin, resolveUserPath } from '../policy/paths.ts';
+import { normalizePlanPath, resolveUserPath } from '../policy/paths.ts';
+import { directoryReadScope } from '../policy/pathScope.ts';
 import { normalize } from '../exec/normalize.ts';
 import { modeOf } from '../policy/mcp.ts';
 import type {
@@ -450,8 +451,8 @@ export class ApprovalGate {
       const directory = resolveUserPath(ctx.projectRoot, call.path);
       try {
         if (statSync(directory).isDirectory()) {
-          const denied = ctx.readDenied.find(path => relativizeWithin(directory, resolveUserPath(ctx.projectRoot, path)) !== null);
-          if (denied) return policyDeny('readScope', `перечисление каталога «${call.path}» задело бы закрытый источник «${denied}»`);
+          const directoryVerdict = directoryReadScope(ctx, call.path);
+          if (!directoryVerdict.ok) return directoryVerdict;
         }
       } catch { /* Ошибка диска остаётся результатом инструмента, не разрешением читать. */ }
     }
