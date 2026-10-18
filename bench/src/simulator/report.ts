@@ -1,6 +1,6 @@
 import type { SimulationCaseResult } from './taskLoop.ts';
 
-export type Suite = 'task-loop' | 'guided' | 'full-flow';
+export type Suite = 'task-loop' | 'guided' | 'full-flow' | 'state-first';
 export interface SimulationReport {
   version: 1;
   kind: 'deterministic-runtime-simulation';

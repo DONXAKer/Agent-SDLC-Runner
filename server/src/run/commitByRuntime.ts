@@ -45,6 +45,7 @@ import { changedPaths, git, isRepo } from '../gates/git.ts';
 import { isWindowsStyle, normalizePlanPath, pathsEqual } from '../policy/paths.ts';
 import { isRuntimeServicePath } from '../artifacts/paths.ts';
 import type { StageHost } from './stages/types.ts';
+import { withRuntimeCommands } from './restrictedCommands.ts';
 
 /** Пересечение изменённого дерева с планом и каталогом витка — чистая функция, легко тестируется. */
 export function commitTargets(
@@ -62,7 +63,8 @@ export function commitTargets(
     // Служебные файлы рантайма (вердикт попытки, лента, снимки, метрики) — состояние этой
     // машины, а не артефакты методологии: в репозиторий проекта они не коммитятся.
     const rest = p.slice(sdlcPrefix.length);
-    return (ci ? rest.toLowerCase() : rest) === 'preparation.json' || !isRuntimeServicePath(rest);
+    const normalized = ci ? rest.toLowerCase() : rest;
+    return ['preparation.json', 'state.json', 'acceptance-checks.md'].includes(normalized) || normalized.startsWith('state-evidence/') || !isRuntimeServicePath(rest);
   });
 }
 
@@ -145,11 +147,11 @@ export async function commitByRuntime(host: StageHost, verdict: 'passed' | 'abor
   const effectiveCommand = typeof updated?.['command'] === 'string' ? updated['command'] : command;
 
   const signal = host.aborterSignal();
-  const result = await runShell(effectiveCommand, {
+  const result = await withRuntimeCommands(() => runShell(effectiveCommand, {
     cwd: host.projectRoot,
     timeoutMs: host.limits().gateTimeoutMs,
     ...(signal === undefined ? {} : { signal }),
-  });
+  }));
   if (result.exitCode !== 0) {
     return { committed: false, sha: null, note: `команда не удалась: ${result.lastLine || `код ${result.exitCode}`}` };
   }

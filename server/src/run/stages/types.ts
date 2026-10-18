@@ -181,6 +181,7 @@ export interface MechanicalJob {
 
 /** Модуль этапа витка: определение и то, чем этап отличается в рантайме. */
 export interface StageModule {
+  canonicalPhase?: 'prepare' | 'implement' | 'verify' | 'deliver';
   def: StageDef;
   /** Runtime-only facts appended to the prompt, declared for audit and dashboard display. */
   runtimeFacts: readonly { id: string; purpose: string; freshness: StageDataFreshness }[];

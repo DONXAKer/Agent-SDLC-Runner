@@ -218,6 +218,7 @@ export const askStage: StageDef = {
 
 export const askModule: StageModule = {
   def: askStage,
+  canonicalPhase: 'prepare',
   runtimeFacts: [],
   formFillExecutor: false,
   leanDocTools: true,

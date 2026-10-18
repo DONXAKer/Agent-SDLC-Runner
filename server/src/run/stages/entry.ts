@@ -18,6 +18,8 @@ import type { GatesFile } from '../../gates/gatesFile.ts';
 import { checkPreconditions, stageById, stageProducing } from './index.ts';
 import type { PreconditionReport, StageContext } from './types.ts';
 import { UNSCRIPTED_GATES } from './verify/gates.ts';
+import { canonicalProblem, readCanonicalState } from '../canonicalState.ts';
+import { acceptanceProblem } from '../independentAcceptance.ts';
 
 /** Этапы, после которых запись ограничена одобренным планом. */
 const PLAN_SCOPED_STAGES: readonly StageId[] = ['chunk', 'verify', 'handoff'];
@@ -53,6 +55,14 @@ export function entryProblems(
   gates: GatesFile | null,
   opts: { abortHandoff?: boolean; withBlame?: boolean; precomputed?: PreconditionReport } = {},
 ): EntryProblem[] {
+  const stateProblem = canonicalProblem(ctx.paths);
+  if (stateProblem) return [{ text: stateProblem, blamed: null }];
+  const canonical = readCanonicalState(ctx.paths)?.state;
+  if (canonical && PLAN_SCOPED_STAGES.includes(stage) && !opts.abortHandoff && canonical.decisions.filter(d => d.kind === 'plan:approval').at(-1)?.value !== 'granted') return [{ text: 'State-first требует канонического одобрения плана человеком', blamed: 'plan' }];
+  if (stage === 'chunk' && readCanonicalState(ctx.paths)) {
+    const acceptance = acceptanceProblem(ctx.paths);
+    if (acceptance) return [{ text: acceptance, blamed: 'plan' }];
+  }
   const withBlame = opts.withBlame ?? true;
   const abortHandoff = opts.abortHandoff === true;
   const report =

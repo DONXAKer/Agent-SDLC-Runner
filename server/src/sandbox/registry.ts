@@ -17,6 +17,7 @@ import { toPosix } from '../policy/paths.ts';
 import { loadSandboxSpec } from './spec.ts';
 import { createDockerSandbox, stopDockerSandbox } from './dockerSandbox.ts';
 import type { SandboxHandle } from './types.ts';
+import { commandsRestricted } from '../run/restrictedCommands.ts';
 
 const active = new Map<string, SandboxHandle>();
 const pending = new Map<string, Promise<SandboxHandle | null>>();
@@ -60,6 +61,7 @@ export async function ensureSandboxFor(
   projectName: string,
   onWarn?: (message: string) => void,
 ): Promise<SandboxHandle | null> {
+  if (commandsRestricted()) return null; // state-first uses disposable containers, never project sockets or warmups
   const root = normalize(projectRoot);
 
   // Дождаться уже идущей остановки ПЕРЕД тем, как смотреть на `active`/`pending`: без этого

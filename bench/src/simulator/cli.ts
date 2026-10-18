@@ -10,17 +10,21 @@ import type { SimulationCaseResult } from './taskLoop.ts';
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const suites: Suite[] = ['task-loop', 'guided', 'full-flow'];
 
-function options(args: string[]): { suites: Suite[]; output: string | null } {
+function options(args: string[]): { suites: Suite[]; output: string | null; image: string | null } {
   let selection: Suite[] = suites;
   let output: string | null = null;
+  let image: string | null = null;
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     const value = args[++i];
-    if (flag === '--suite' && (value === 'all' || suites.includes(value as Suite))) selection = value === 'all' ? suites : [value as Suite];
+    if (flag === '--suite' && (value === 'all' || value === 'state-first' || suites.includes(value as Suite))) selection = value === 'all' ? suites : [value as Suite];
     else if (flag === '--output' && value && !value.startsWith('--')) output = resolve(value);
+    else if (flag === '--docker-image' && value && !value.startsWith('--')) image = value;
     else throw new Error(`Неизвестный аргумент или отсутствует значение: ${flag}. Используй --help.`);
   }
-  return { suites: selection, output };
+  if (selection.includes('state-first') && !image) throw new Error('state-first требует --docker-image <локальный образ Node>');
+  if (image && !selection.includes('state-first')) selection = [...selection, 'state-first'];
+  return { suites: selection, output, image };
 }
 
 function sources(): string {
@@ -32,10 +36,10 @@ function sources(): string {
       const stat = lstatSync(path);
       if (stat.isSymbolicLink()) throw new Error(`Источник симулятора не должен быть симлинком: ${path}`);
       if (stat.isDirectory()) walk(path);
-      else if (/\.(ts|json|md)$/.test(name)) hash.update(relative(repository, path)).update('\0').update(readFileSync(path)).update('\0');
+      else if (/\.(ts|mjs|json|md)$/.test(name)) hash.update(relative(repository, path)).update('\0').update(readFileSync(path)).update('\0');
     }
   };
-  for (const folder of ['server/src', 'shared/src', 'bench/src', 'server/test/fixtures/guided-v4']) walk(join(repository, folder));
+  for (const folder of ['server/src', 'server/methodology', 'shared/src', 'bench/src', 'server/test/fixtures/guided-v4']) walk(join(repository, folder));
   hash.update(readFileSync(join(repository, 'package.json')));
   hash.update(readFileSync(join(repository, 'package-lock.json')));
   return hash.digest('hex');
@@ -43,7 +47,7 @@ function sources(): string {
 
 async function main() {
   if (process.argv.slice(2).includes('--help')) {
-    console.log('npm run bench:simulate -- [--suite all|task-loop|guided|full-flow] [--output новый-или-пустой-каталог]\nБез модели/GPU. Код 0: ожидания выполнены; 1: сценарий не прошёл (включая исключение); 2: ошибка запуска или набора.');
+    console.log('npm run bench:simulate -- [--suite all|task-loop|guided|full-flow|state-first] [--docker-image локальный-образ-Node] [--output новый-или-пустой-каталог]\nБез модели/GPU. State-first требует Docker и явный образ; --docker-image добавляет этот набор к all. Код 0: ожидания выполнены; 1: сценарий не прошёл (включая исключение); 2: ошибка запуска или набора.');
     return;
   }
   const opts = options(process.argv.slice(2));
@@ -70,7 +74,8 @@ async function main() {
         // Импорт после установки SDLC_STATE_DIR: внешнее хранилище вердиктов также одноразовое.
         if (suite === 'task-loop') results = await (await import('./taskLoop.ts')).runTaskLoopScenarios();
         else if (suite === 'guided') results = await (await import('./guided.ts')).runGuidedScenarios();
-        else results = await (await import('./fullFlow.ts')).runFullFlowScenarios();
+        else if (suite === 'full-flow') results = await (await import('./fullFlow.ts')).runFullFlowScenarios();
+        else results = await (await import('./stateFirst.ts')).runStateFirstScenarios(opts.image!);
       } catch (error) {
         results = [{ id: `${suite}-harness-error`, passed: false, expected: 'Стенд выполнил сценарии', actual: 'Ошибка стенда',
           checks: [], errors: [String(error)], trace: [] }];

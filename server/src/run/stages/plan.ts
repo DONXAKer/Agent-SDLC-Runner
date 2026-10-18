@@ -965,6 +965,7 @@ export const planModule: StageModule = {
       ? `Независимое ревью вернуло план на ремонт: ${problem}` : null;
   },
   def: planStage,
+  canonicalPhase: 'prepare',
   runtimeFacts: [{ id: 'indexed-callers', purpose: 'вызывающие экспортируемых символов из файлов files_to_touch', freshness: 'live' }],
   formFillExecutor: true,
   leanDocTools: true,

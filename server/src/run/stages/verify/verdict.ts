@@ -15,6 +15,8 @@ import { computeVerdict } from '../../../verdict/verdict.ts';
 import type { StageHost } from '../types.ts';
 import { REVIEW_GATE, gateResultsForVerdict } from './gates.ts';
 import { checkInvariants } from '../../guidedInvariants.ts';
+import { readCanonicalState } from '../../canonicalState.ts';
+import { reviewFromRecords } from './reviewJson.ts';
 
 /**
  * Тексты для выжимки ретрая — всё уже посчитано этапом 6, здесь только сбор:
@@ -53,7 +55,8 @@ export function stageVerdict(host: StageHost, noProgress: boolean): { verdict: V
   // делает «`✅` только если так сказали все» свойством вердикта. Раньше все рецензенты
   // писали в один файл, и в вердикт попадало мнение записавшего последним.
   const routeCount = Math.max(1, host.ensembleRoutes().length);
-  const reports = Array.from({ length: routeCount }, (_, r) =>
+  const canonical = readCanonicalState(host.paths)?.state;
+  const reports = canonical ? [] : Array.from({ length: routeCount }, (_, r) =>
     readArtifact(host.paths.verificationReport(host.chunk(), host.attempt(), r)).text,
   ).filter((t) => t.trim() !== '');
 
@@ -92,6 +95,21 @@ export function stageVerdict(host: StageHost, noProgress: boolean): { verdict: V
     noProgress,
   });
 
+  if (canonical) {
+    const review = reviewFromRecords(host);
+    const statuses = { passed: '✅', failed: '❌', uncertain: '⚠', manual: 'manual' } as const;
+    const results = gateResultsForVerdict(host);
+    input.gates = results.map(g => ({ name: g.name, status: g.status, inapplicableSignedBy: null, envBlocked: g.envBlocked }));
+    for (const row of gates.rows.filter(g => g.enabled && g.reportsAt === 'этап 6')) {
+      if (!results.some(g => gateKey(g.name) === gateKey(row.name))) input.gates.push({ name: row.name, status: '⏭', inapplicableSignedBy: null });
+    }
+    input.claims = canonical.claims.map(c => ({ id: c.id, status: statuses[review?.claims.find(r => r.id === c.id)?.status ?? 'uncertain'] }));
+    input.confirmedReviewFindings = review?.findings.length ?? 0;
+    input.brokenInvariants = review?.invariants.map(f => f.summary) ?? [];
+    input.regressions = [...(review?.regressions.map(f => f.summary) ?? []), ...(review?.scope.map(f => f.summary) ?? [])];
+    input.enabledGatesMissingFromReport = []; input.unfilledReportFields = 0; input.plannedPathsUntouched = [];
+    if (!host.reviewScan().blocking || !host.verifyState.reviewerRan || !review || review.claims.length !== canonical.claims.length || review.claims.some(c => !canonical.claims.some(s => s.id === c.id))) input.brokenInvariants.push('State-first требует завершённого независимого структурированного ревью');
+  }
   const invariants = checkInvariants(host.paths, host.projectRoot);
   if (!invariants.passed) input.brokenInvariants.push(invariants.result);
   const verdict = computeVerdict(input, disagreements);

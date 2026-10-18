@@ -16,12 +16,14 @@ import { RUNTIME_PROTECTED, exists, granted, intentSectionsIntact, intentTampere
 import { planClarificationProblem, planRequirementsProblem } from '../plan.ts';
 import type { StageDef, StageModule } from '../types.ts';
 import { runEnsembleReviewers } from './ensemble.ts';
-import { RECONCILE_GATE, REVIEW_GATE, attemptEvidenceFact, diffStillMatchesTree, gateReportBlock, runVerifyGates } from './gates.ts';
+import { RECONCILE_GATE, REVIEW_GATE, attemptEvidenceFact, diffStillMatchesTree, gateReportBlock, gateResultsForVerdict, runVerifyGates } from './gates.ts';
 import { applyRecords, autofillVerification, topUpClaims, verifyGaps, finishGuidedVerification } from './records.ts';
 import { readGuided } from '../../guidedState.ts';
 import { routeKey } from '../../reviewRoute.ts';
 import { acceptReviewText, reviewerBlock, runReviewFill, runReviewerDirectly } from './reviewer.ts';
-import { writeReviewJson } from './reviewJson.ts';
+import { writeReviewJson, reviewFromRecords } from './reviewJson.ts';
+import { readCanonicalState, saveCanonicalVerification } from '../../canonicalState.ts';
+import { runIndependentAcceptance } from '../../independentAcceptance.ts';
 
 export const verifyStage: StageDef = {
   id: 'verify',
@@ -92,6 +94,7 @@ export const verifyStage: StageDef = {
 export const verifyModule: StageModule = {
   checksImplementationInvariants: true,
   def: verifyStage,
+  canonicalPhase: 'verify',
   runtimeFacts: [{ id: 'preflight-gates', purpose: 'фактические результаты проверок до начала рецензирования', freshness: 'current-run' }],
   formFillExecutor: false,
   leanDocTools: false,
@@ -133,7 +136,7 @@ export const verifyModule: StageModule = {
       // полям поле-за-полем дороже, чем несколько ходов агентного цикла с батчем правок,
       // замер 2026-09-08) — ручка нужна там, где измеренно помогает, не всем.
       const skipModelTurn =
-        route.flow === 'loop' &&
+        (readCanonicalState(host.paths) !== null) || route.flow === 'loop' &&
         route.reviewFill &&
         route.skipTurnAfterReviewFill &&
         (host.verifyState.reviewFillComplete || readGuided(host.paths) !== null);
@@ -142,11 +145,11 @@ export const verifyModule: StageModule = {
         block: reviewText === null ? null : reviewerBlock(reviewText, scan.blocking),
         skip: skipModelTurn
           ? {
-              ok: host.verifyState.reviewFillComplete,
+              ok: readCanonicalState(host.paths) ? host.verifyState.reviewerRan : host.verifyState.reviewFillComplete,
               finalText: reviewText ?? '',
               usage: emptyUsage(),
               note:
-                (host.verifyState.reviewFillComplete ? 'ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается ' : 'reviewFill не завершён; guided не заменяет непроверенный JSON свободным ходом — отчёт закрывается ') +
+                (readCanonicalState(host.paths) ? 'state-first: документ собирается по структурированным записям ревью — отчёт закрывается ' : host.verifyState.reviewFillComplete ? 'ход модели пропущен: reviewFill прошёл конвейер целиком — отчёт закрывается ' : 'reviewFill не завершён; guided не заменяет непроверенный JSON свободным ходом — отчёт закрывается ') +
                 'его записями, добором по пунктам приёмки и дозаполнением по полям, без второго ' +
                 'свободного прохода по тому же diff\'у',
             }
@@ -208,6 +211,10 @@ export const verifyModule: StageModule = {
       // входе НЕ снимается: отменённый повтор verify иначе оставлял попытку без вердикта, и
       // chunk перезаписывал её улики; от устаревания его страхует привязка к патчу.
       if (fresh !== null) {
+        if (readCanonicalState(host.paths)) {
+          saveCanonicalVerification(host.paths, { chunk: host.chunk(), attempt: host.attempt(), verdict: fresh, gates: gateResultsForVerdict(host), review: reviewFromRecords(host) });
+          finishGuidedVerification(host);
+        }
         writeRunVerdict(host.paths, host.chunk(), host.attempt(), fresh);
         const reportPath = host.paths.verificationReport(host.chunk(), host.attempt());
         const report = readArtifact(reportPath);
@@ -349,6 +356,11 @@ export const verifyModule: StageModule = {
       host.verifyState.reviewFillComplete = false;
 
       const results = await runVerifyGates(host, signal);
+      if (readCanonicalState(host.paths)) {
+        const acceptance = await runIndependentAcceptance(host.paths, host.chunk(), host.attempt(), signal);
+        host.verifyState.lastGateResults.push(acceptance);
+        if (results !== host.verifyState.lastGateResults) results.push(acceptance);
+      }
       return results.length > 0 ? [gateReportBlock(results)] : [];
     },
 

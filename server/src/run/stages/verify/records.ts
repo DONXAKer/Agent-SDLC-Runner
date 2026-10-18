@@ -21,11 +21,13 @@ import { approvedPlanDate } from '../../journalAutofill.ts';
 import { acceptedClaimStatus, anchorFound, renderRecords, verifyReportGaps } from '../../verifyReport.ts';
 import type { SeededArtifact, StageHost } from '../types.ts';
 import { REVIEW_GATE, earlyGateRows, earlyGatesForModel, reportedBy, gateResultsForVerdict } from './gates.ts';
+import { readCanonicalState } from '../../canonicalState.ts';
 
 export function finishGuidedVerification(host: StageHost): void {
-  if (!readGuided(host.paths) || !host.verifyState.reviewFillComplete || !guidedImplementationHashes(host.paths)) return;
+  const canonical = readCanonicalState(host.paths)?.state;
+  if (!canonical && (!readGuided(host.paths) || !host.verifyState.reviewFillComplete || !guidedImplementationHashes(host.paths))) return;
   const gates = host.gatesFile();
-  const base = host.verifyState.verifyPrefill;
+  const base = host.verifyState.verifyPrefill ?? (canonical ? '# Отчёт приёмки\n' : null);
   if (!gates || !base || host.signal().aborted) return;
   const date = /Последнее изменение набора:\*\*\s*([^\r\n]+)/u.exec(readArtifact(host.paths.gates).text)?.[1];
   const header = base.split(/^## Гейты\s*$/mu)[0]!
@@ -34,8 +36,8 @@ export function finishGuidedVerification(host: StageHost): void {
   const text = renderGuidedVerification({ header, gates: gateResultsForVerdict(host),
     requiredGates: gatesExpectedInReport(gates).map(g => ({ name: g.name, runtime: reportedBy(g) === 'runtime' })),
     claims: [...host.verifyState.claimRecords.values()], findings: host.verifyState.findingRecords,
-    titles: new Map([...host.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)])),
-    reviewComplete: host.verifyState.reviewFillComplete, earlyGates: earlyGateRows(host),
+    titles: canonical ? new Map(canonical.claims.map(c => [c.id, c.text])) : new Map([...host.intentClaimLines()].map(([id, line]) => [id, claimTextCell(line)])),
+    reviewComplete: canonical ? host.verifyState.reviewerRan : host.verifyState.reviewFillComplete, earlyGates: earlyGateRows(host),
     scanIndependent: host.reviewScan().blocking });
   host.writeAutofilled(host.paths.verificationReport(host.chunk(), host.attempt()), text, []);
 }

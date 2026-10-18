@@ -647,6 +647,29 @@ app.get('/api/runs/:id', async (req, reply) => {
  * только тогда, когда оно записано в файл с именем и датой. Одобрение, оставшееся в
  * интерфейсе, для следующего этапа не существует.
  */
+app.get('/api/runs/:id/state', async (req, reply) => {
+  const live = liveRun((req.params as { id: string }).id);
+  if (!live) return reply.code(404).send({ error: 'прогон не найден' });
+  try { return { state: live.run.canonicalState() }; }
+  catch (error) { return reply.code(409).send({ error: String(error) }); }
+});
+
+app.post('/api/runs/:id/state/enable', async (req, reply) => {
+  const live = liveRun((req.params as { id: string }).id);
+  if (!live) return reply.code(404).send({ error: 'прогон не найден' });
+  if (live.currentStage) return reply.code(409).send({ error: 'этап выполняется' });
+  try { live.run.enableStateFirst(); return { state: live.run.canonicalState() }; }
+  catch (error) { return reply.code(400).send({ error: String(error) }); }
+});
+
+app.post('/api/runs/:id/acceptance', async (req, reply) => {
+  const live = liveRun((req.params as { id: string }).id);
+  if (!live) return reply.code(404).send({ error: 'прогон не найден' });
+  if (live.currentStage) return reply.code(409).send({ error: 'этап выполняется' });
+  try { return await live.run.registerIndependentAcceptance(req.body); }
+  catch (error) { return reply.code(400).send({ error: String(error) }); }
+});
+
 app.post('/api/runs/:id/decision', async (req, reply) => {
   const { id } = req.params as { id: string };
   const live = liveRun(id);
@@ -724,12 +747,15 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
     requirement?: string;
     preparationVersion?: 1 | 2 | 3;
     executionMode?: 'legacy' | 'guided';
+    stateFirst?: boolean;
     guidedEngineVersion?: 1 | 2 | 3 | 4;
     extra?: string;
     abortHandoff?: boolean;
   };
 
   let editedPrompt: { system: string; user: string } | null = null;
+  if (body.stateFirst !== undefined && typeof body.stateFirst !== 'boolean') return reply.code(400).send({ error: 'stateFirst должен быть boolean' });
+  if (body.stateFirst && !stageById(stage).startsTask) return reply.code(400).send({ error: 'stateFirst выбирается при создании задачи; для старого витка используй /state/enable' });
   if (body.guidedEngineVersion !== undefined && ![1, 2, 3, 4].includes(body.guidedEngineVersion)) {
     return reply.code(400).send({ error: 'guidedEngineVersion должна быть 1, 2, 3 или 4' });
   }
@@ -748,6 +774,10 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
 
   // Схемы инструментов и пометка о скрытом пресете берутся из свежей сборки: оператор
   // правит текст, а не состав инструментов, и presetNote обязан остаться правдой.
+  if (body.stateFirst) {
+    try { live.run.enableStateFirst(); }
+    catch (error) { return reply.code(400).send({ error: String(error) }); }
+  }
   const base = live.run.preparePrompt(stage, body);
 
   live.currentStage = stage;
@@ -758,6 +788,7 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
   // вместе со всеми живыми витками.
   void live.run
     .runStage(stage, {
+      ...(body.stateFirst === undefined ? {} : { stateFirst: body.stateFirst }),
       ...(body.requirement === undefined ? {} : { requirement: body.requirement }),
       ...(body.preparationVersion === undefined ? {} : { preparationVersion: body.preparationVersion }),
       ...(body.executionMode === undefined ? {} : { executionMode: body.executionMode }),

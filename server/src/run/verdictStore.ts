@@ -20,8 +20,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, join } from 'node:path';
 
 import type { Verdict, VerdictAction } from '@sdlc-runner/shared';
 
@@ -29,6 +28,10 @@ import { readArtifact } from '../artifacts/artifact.ts';
 import type { WitokPaths } from '../artifacts/paths.ts';
 import { SDLC_CONSTANTS, assertSameList } from '../config/constants.ts';
 import { parseIterations, readIterationsText } from './iterationsLog.ts';
+import { readCanonicalState, checkStateEvidence, writeCanonicalState } from './canonicalState.ts';
+import { acceptanceFresh } from './independentAcceptance.ts';
+import { canonicalRoot, fileHash, runtimeStateDir } from './protectedStore.ts';
+export { canonicalRoot, runtimeStateDir } from './protectedStore.ts';
 
 const ACTIONS: readonly VerdictAction[] = ['continue', 'retry', 'escalate', 'blocked_env'];
 // Словарь `action` — из `sdlc-constants.json`; порядок там свой, сравнивается множество.
@@ -40,22 +43,6 @@ export interface StoredVerdict extends Verdict {
   patchSha: string | null;
   /** sha локального коммита handoff по этой попытке; `null` — коммита ещё не было. */
   committedSha: string | null;
-}
-
-/** Каталог состояния рантайма этой машины (`SDLC_STATE_DIR`, иначе `~/.sdlc-runner`). */
-export function runtimeStateDir(): string {
-  const dir = process.env['SDLC_STATE_DIR'];
-  return dir !== undefined && dir !== '' ? dir : join(homedir(), '.sdlc-runner');
-}
-
-/**
- * Канонический корень проекта: абсолютный, с прямыми слэшами, на Windows без различия
- * регистра. Ключ вердиктов этой машины и ключ, по которому дашборд сводит несколько имён
- * конфига с одним корнем в один проект (витки на диске у них одни).
- */
-export function canonicalRoot(projectRoot: string): string {
-  const root = resolve(projectRoot).replace(/\\/g, '/');
-  return process.platform === 'win32' ? root.toLowerCase() : root;
 }
 
 /**
@@ -119,6 +106,8 @@ export function writeRunVerdict(paths: WitokPaths, chunk: number, attempt: numbe
 export function markCommitted(paths: WitokPaths, chunk: number, attempt: number, sha: string): void {
   const v = readRunVerdict(paths, chunk, attempt);
   if (v !== null) writeStored(paths, chunk, attempt, { ...v, committedSha: sha });
+  const current = readCanonicalState(paths);
+  if (current) writeCanonicalState(paths, current.state, { committedSha: sha });
 }
 
 /**
@@ -127,6 +116,16 @@ export function markCommitted(paths: WitokPaths, chunk: number, attempt: number,
  * опрашиваются на каждый GET витка.
  */
 export function readRunVerdict(paths: WitokPaths, chunk: number, attempt: number): StoredVerdict | null {
+  try {
+    const current = readCanonicalState(paths);
+    if (current) {
+      if (current.receipt.chunk !== chunk || current.receipt.attempt !== attempt || !current.state.attempts.some(a => a.chunk === chunk && a.number === attempt && a.status !== 'open')) return null;
+      checkStateEvidence(paths, current.state);
+      const passed = current.state.verification.passed && current.receipt.gateHash === fileHash(paths.gates) && acceptanceFresh(paths, chunk, attempt);
+      return { passed, action: passed ? 'continue' : current.state.verification.action === 'continue' ? 'retry' : current.state.verification.action,
+        reasons: passed ? current.receipt.reasons : [...current.receipt.reasons, 'Каноническая проверка или независимая приёмка не подтверждена'], patchSha: current.receipt.patchSha, committedSha: current.receipt.committedSha };
+    }
+  } catch { return null; }
   const file = verdictPath(paths, chunk, attempt);
   if (!existsSync(file)) return null;
   let v: Record<string, unknown>;

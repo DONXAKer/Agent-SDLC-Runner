@@ -20,6 +20,9 @@ import { seedPreparationForms } from './preparationForms.ts';
 import { preparationTools } from './preparationToolPolicy.ts';
 import { recordModelAnswers } from './stages/ask.ts';
 import { randomUUID } from 'node:crypto';
+import { canonicalProblem, initializeCanonicalState, openCanonicalAttempt, readCanonicalState, recordCanonicalDecision, recordLegacyImport, synchronizeStateClaims, writeCanonicalState } from './canonicalState.ts';
+import { registerAcceptance } from './independentAcceptance.ts';
+import { withRestrictedCommands } from './restrictedCommands.ts';
 
 import type {
   NormalizedCall,
@@ -223,6 +226,7 @@ export interface RunOptions {
 }
 
 export interface RunStageOptions {
+  stateFirst?: boolean;
   executionMode?: 'legacy' | 'guided';
   guidedEngineVersion?: 1 | 2 | 3 | 4;
   prompt?: PreparedPrompt;
@@ -392,6 +396,7 @@ function EMPTY_FRICTION(): {
 }
 
 export class Run {
+  private acceptanceRegistrationActive = false;
   readonly id = randomUUID();
   private verdictCycle = randomUUID();
   private recordedVerdictCycle: string | null = null;
@@ -711,8 +716,14 @@ export class Run {
     }
     this.mcpSetup = o.config.mcp.get(o.project.name) ?? EMPTY_MCP;
     this.hub = new McpHub(this.mcpSetup.servers);
-    this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
-    this.attempt = restoreAttemptFromJournal(this.paths.chunkJournal(this.chunk)) ?? this.attempt;
+    if (canonicalProblem(this.paths) === null) {
+      const canonical = readCanonicalState(this.paths);
+      if (canonical) { this.chunk = canonical.receipt.chunk; this.attempt = canonical.receipt.attempt; }
+      else {
+        this.chunk = restoreChunkFromDir(this.paths.dir) ?? this.chunk;
+        this.attempt = restoreAttemptFromJournal(this.paths.chunkJournal(this.chunk)) ?? this.attempt;
+      }
+    }
     // Журнал хранит номер ПОСЛЕДНЕЙ начатой попытки, и виток остаётся на ней, каким бы ни
     // был её вердикт. Сдвиг за красной попыткой при восстановлении обходил `/advance`:
     // после `escalate` получалась «попытка 4 из 3», после `blocked_env` — попытка без патча,
@@ -965,6 +976,11 @@ export class Run {
   }
 
   get lastVerdict(): Verdict | null {
+    if (canonicalProblem(this.paths)) return { passed: false, action: 'retry', reasons: [canonicalProblem(this.paths)!] };
+    if (readCanonicalState(this.paths)) {
+      const current = readRunVerdict(this.paths, this.chunk, this.attempt);
+      return current ? { passed: current.passed, action: current.action, reasons: current.reasons } : null;
+    }
     return this.state.verify.verdict;
   }
 
@@ -1060,6 +1076,9 @@ export class Run {
     chunk?: number;
     attempt?: number;
   }): string {
+    if (this.acceptanceRegistrationActive) throw new Error('Независимая приёмка фиксируется; дождись завершения');
+    const invalidState = canonicalProblem(this.paths);
+    if (invalidState) throw new Error(invalidState);
     if (!isArtifactKey(o.artifact)) {
       throw new Error(`неизвестный артефакт «${o.artifact}»`);
     }
@@ -1097,6 +1116,12 @@ export class Run {
     writeArtifact(path, next);
     if (o.artifact === 'plan' && o.label === DECISION.approval && o.granted) {
       approvePreparation(this.paths, this.config.runner.operator, new Date());
+    }
+    if (readCanonicalState(this.paths)) {
+      if (o.artifact === 'plan' && o.label === DECISION.approval) synchronizeStateClaims(this.paths, readArtifact(this.paths.intent).text, 'plan');
+      const kind = o.artifact === 'plan' && o.label === DECISION.approval ? 'plan:approval' : `${o.artifact}:${o.label}`;
+      recordCanonicalDecision(this.paths, { kind, by: this.config.runner.operator, at: new Date().toISOString(), value: o.granted ? 'granted' : 'denied' });
+      if (note) recordCanonicalDecision(this.paths, { kind: `${kind}:note`, by: this.config.runner.operator, at: new Date().toISOString(), value: note });
     }
     // Одобрение плана снимает снимок секций задачи заново (`SDLC.md` → «Вердикт», восьмое
     // условие): дополнение листа по находке гейта этапа 4 к этому моменту сделано человеком,
@@ -1200,6 +1225,7 @@ export class Run {
     // (`SDLC.md`: retry_instruction = «прогнать гейты в среде X») — в промпт chunk'а не идёт.
     if (blockedByEnv) this.carryForward = null;
     if (!blockedByEnv) this.attempt += 1;
+    openCanonicalAttempt(this.paths, this.chunk, this.attempt);
     this.resetAttemptState();
     this.notePeakAttempt();
     return this.attempt;
@@ -1232,6 +1258,7 @@ export class Run {
   nextChunk(): number {
     this.chunk += 1;
     this.attempt = 1;
+    openCanonicalAttempt(this.paths, this.chunk, this.attempt);
     // Новый chunk — другая работа: причины красного по прошлому к нему не относятся.
     this.carryForward = null;
     this.failedClaimsByAttempt = [];
@@ -1768,7 +1795,7 @@ export class Run {
    * разрешены на этапе», потому что права не выдавал никто.
    */
   private toolsFor(stage: StageId, preparationV2 = isPreparationV2(this.paths)): readonly ToolName[] {
-    const all = stageById(stage).tools;
+    const all = readCanonicalState(this.paths) ? stageById(stage).tools.filter(t => !['Bash', 'McpRead', 'McpWrite'].includes(t)) : stageById(stage).tools;
     // Урезанный набор для модели с `leanTools` — только на этапах-документах. Это
     // ГИПОТЕЗА журнала, а не замер: «сокращение числа инструментов» стоит в списке
     // непробованного (`docs/model-runs.md`), ручка и заведена, чтобы его замерить.
@@ -1785,7 +1812,7 @@ export class Run {
     // моделей стадии сразу, без записи в config/models.json, которую и сравнивает журнал.
     const compactFillRoute = route.compactForms === 'fill' || route.compactForms === 'all';
     const base = preparationTools(leaned, stage, preparationV2, compactFillRoute);
-    if (preparationV2) return base;
+    if (preparationV2 || readCanonicalState(this.paths)) return base;
     const rules = rulesForStage(this.mcpSetup, stage);
     if (rules.length === 0) return base;
 
@@ -1822,6 +1849,7 @@ export class Run {
    * Иначе выключенный редактор превращался бы в непонятный отказ посреди работы.
    */
   private async mcpAccess(stage: StageId): Promise<McpAccess | null> {
+    if (readCanonicalState(this.paths)) return null;
     const rules = rulesForStage(this.mcpSetup, stage);
     this.mcpSelected = [];
     if (rules.length === 0 || this.hub.size === 0) return null;
@@ -2464,7 +2492,40 @@ export class Run {
     await this.hub.close();
   }
 
+  enableStateFirst(): void {
+    if (this.acceptanceRegistrationActive) throw new Error('Независимая приёмка фиксируется');
+    if (this.status === 'running' || this.status === 'awaiting') throw new Error('Этап уже выполняется');
+    if (readCanonicalState(this.paths)) return;
+    initializeCanonicalState(this.paths);
+    if (readArtifact(this.paths.intent).exists) {
+      synchronizeStateClaims(this.paths, readArtifact(this.paths.intent).text, 'intent');
+      recordLegacyImport(this.paths, [this.paths.intent, this.paths.plan, this.paths.verificationReport(this.chunk, this.attempt)]);
+    }
+  }
+
+  canonicalState() { return readCanonicalState(this.paths)?.state ?? null; }
+
+  async registerIndependentAcceptance(input: unknown) {
+    if (this.acceptanceRegistrationActive || this.status === 'running' || this.status === 'awaiting') throw new Error('Этап или фиксация приёмки уже выполняется');
+    const route = this.profile.routes.chunk;
+    this.acceptanceRegistrationActive = true;
+    try { return await registerAcceptance(this.paths, input, this.config.runner.operator, `${route.provider}:${route.model}`); }
+    finally { this.acceptanceRegistrationActive = false; }
+  }
+
   async runStage(stage: StageId, opts: RunStageOptions = {}): Promise<StageResult> {
+    if (this.acceptanceRegistrationActive) throw new Error('Независимая приёмка фиксируется; запуск этапа пока запрещён');
+    if (opts.stateFirst) {
+      if (!stageById(stage).startsTask) throw new Error('stateFirst выбирается при создании задачи');
+      this.enableStateFirst();
+    }
+    const invalidState = canonicalProblem(this.paths);
+    if (invalidState) return { ok: false, finalText: '', usage: emptyUsage(), note: invalidState };
+    if (readCanonicalState(this.paths)) return withRestrictedCommands(this.paths, () => this.runStageInternal(stage, opts));
+    return this.runStageInternal(stage, opts);
+  }
+
+  private async runStageInternal(stage: StageId, opts: RunStageOptions): Promise<StageResult> {
     if (opts.guidedEngineVersion !== undefined && ![1, 2, 3, 4].includes(opts.guidedEngineVersion)) throw new Error('Неизвестная версия движка guided');
     const existingGuided = readGuided(this.paths);
     if (opts.guidedEngineVersion !== undefined && existingGuided && opts.guidedEngineVersion !== (existingGuided.engineVersion ?? 1)) throw new Error('Версия движка закреплена за задачей');
@@ -2522,6 +2583,12 @@ export class Run {
       this.emit({ type: 'error', runId: this.id, stage, message });
       return { ok: false, finalText: '', usage: emptyUsage(), note: message };
     }
+
+    if (mod.canonicalPhase === 'deliver') {
+      const current = readCanonicalState(this.paths);
+      if (current) { current.state.stage = 'handoff'; writeCanonicalState(this.paths, current.state); }
+    }
+    if (mod.canonicalPhase === 'implement' || mod.canonicalPhase === 'verify') openCanonicalAttempt(this.paths, this.chunk, this.attempt, mod.canonicalPhase === 'implement' ? 'chunk' : 'verify');
 
     if (report.skip !== null) {
       if (guided) this.recordDecisionCheck({ stage, at: new Date().toISOString(), inputRevision: digest(report.skip),
@@ -3292,6 +3359,7 @@ export class Run {
 
       chargeGuided();
       if (guided) this.aborter?.signal.throwIfAborted();
+      if (outcome.ok && mod.canonicalPhase === 'prepare') synchronizeStateClaims(this.paths, readArtifact(this.paths.intent).text, stage);
       this.status = outcome.ok ? 'done' : 'failed';
       this.emit({ type: 'stage_done', runId: this.id, stage, ok: outcome.ok, note: outcome.note });
       return outcome;

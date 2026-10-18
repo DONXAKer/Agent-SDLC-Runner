@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs';
 import { checkBash } from '../policy/denyList.ts';
 import { findSandboxForCwd } from '../sandbox/registry.ts';
 import { cap } from '../sandbox/capture.ts';
+import { restrictedCommand } from '../run/restrictedCommands.ts';
 
 export interface ShellResult {
   exitCode: number | null;
@@ -105,6 +106,8 @@ export function runShell(command: string, opts: ShellOptions): Promise<ShellResu
     });
   }
 
+  const restricted = restrictedCommand(command, opts);
+  if (restricted) return restricted;
   const sandbox = findSandboxForCwd(opts.cwd);
   const inDocker = sandbox !== null && sandbox.exec.kind === 'docker';
 

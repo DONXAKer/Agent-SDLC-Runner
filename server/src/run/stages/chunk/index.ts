@@ -101,6 +101,7 @@ export const chunkModule: StageModule = {
   checksImplementationInvariants: true,
   subagentResult: reuseLocatorApproval,
   def: chunkStage,
+  canonicalPhase: 'implement',
   runtimeFacts: [{ id: 'carry-forward', purpose: 'диагнозы и результаты гейтов предыдущей попытки для корректирующей работы', freshness: 'attempt' }],
   formFillExecutor: false,
   leanDocTools: false,

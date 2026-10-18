@@ -440,6 +440,7 @@ export const handoffModule: StageModule = {
   checksImplementationInvariants: true,
   guidedPlaceholderRescue: true,
   def: handoffStage,
+  canonicalPhase: 'deliver',
   runtimeFacts: [
     { id: 'run-postmortem', purpose: 'измеренные расход, длительность и итоги витка', freshness: 'current-run' },
     { id: 'next-steps', purpose: 'долги и условия повторного рассмотрения, выведенные из артефактов витка', freshness: 'current-run' },

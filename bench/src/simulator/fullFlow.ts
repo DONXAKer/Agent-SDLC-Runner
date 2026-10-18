@@ -10,7 +10,7 @@ import { runBench } from '../driver.ts';
 import type { SimulationCaseResult } from './taskLoop.ts';
 import { makeProject, makeRun, GATES, TEMPLATES, INTENT_REPLIES, PLAN_REPLIES, CHUNK_REPLIES, type Reply } from './fullFlowFixture.ts';
 
-async function scriptedModel(queues: Partial<Record<StageId, Reply[]>>, root: string) {
+export async function scriptedModel(queues: Partial<Record<StageId, Reply[]>>, root: string) {
   const errors: string[] = [];
   const trace: unknown[] = [];
   const server = createServer((req, res) => {

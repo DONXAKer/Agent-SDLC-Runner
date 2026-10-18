@@ -468,6 +468,7 @@ export function exploreFillExecutor(host: StageHost, route: ResolvedRoute): Expl
 export const exploreModule: StageModule = {
   tracksPreparationReads: true,
   def: exploreStage,
+  canonicalPhase: 'prepare',
   runtimeFacts: [],
   formFillExecutor: false,
   leanDocTools: false,
