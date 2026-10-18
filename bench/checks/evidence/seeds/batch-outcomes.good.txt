@@ -1,0 +1,2 @@
+export const protocolVersion = 1;
+export async function settleSequentially(items,work) { const out=[]; for(let i=0;i<items.length;i++){try{out.push({ok:true,value:await work(items[i],i)});}catch(error){out.push({ok:false,error});}} return out; }

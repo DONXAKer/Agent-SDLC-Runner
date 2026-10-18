@@ -33,7 +33,7 @@ export interface TraceLabel {
   slug: string;
   stage: string;
   /** Режим исполнителя: чем этот запрос является для корпуса — ход цикла, шаг плана, поле бланка. */
-  mode: 'loop' | 'step' | 'formFill' | 'claimFill' | 'reviewFill' | 'planAxisFill' | 'explore' | 'claimsBlind' | 'decisionCheck';
+  mode: 'loop' | 'step' | 'formFill' | 'claimFill' | 'reviewFill' | 'planAxisFill' | 'explore' | 'claimsBlind' | 'decisionCheck' | 'planJudge' | 'chunkJudge';
   /** Номер попытки этапа, если он у режима есть. */
   attempt?: number;
   /** Local run diagram, independent of the optional benchmark raw-log directory. */

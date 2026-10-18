@@ -1,0 +1,69 @@
+export const protocolVersion = 1;
+
+export function resolveOptions(base, override) {
+  const result = {};
+  
+  // Copy all own enumerable string keys from base to result
+  // We use hasOwnProperty to ensure we only copy own properties, not inherited ones
+  for (const key of Object.keys(base)) {
+    if (!base.hasOwnProperty(key)) {
+      // This shouldn't happen with Object.keys, but just in case
+      continue;
+    }
+    
+    if (key === "__proto__") {
+      Object.defineProperty(result, key, {
+        value: base[key],
+        enumerable: true,
+        writable: true,
+        configurable: true
+      });
+    } else {
+      result[key] = base[key];
+    }
+  }
+  
+  // Process override keys
+  for (const key of Object.keys(override)) {
+    // Skip inherited keys
+    if (!base.hasOwnProperty(key)) {
+      if (override[key] !== undefined) {
+        if (key === "__proto__") {
+          Object.defineProperty(result, key, {
+            value: override[key],
+            enumerable: true,
+            writable: true,
+            configurable: true
+          });
+        } else {
+          result[key] = override[key];
+        }
+      }
+      // If override[key] is undefined, don't add it to result
+    } else {
+      // For keys that exist in base, only override if not undefined
+      if (override[key] !== undefined) {
+        if (key === "__proto__") {
+          Object.defineProperty(result, key, {
+            value: override[key],
+            enumerable: true,
+            writable: true,
+            configurable: true
+          });
+        } else {
+          result[key] = override[key];
+        }
+      }
+      // If override[key] is undefined, keep base value (do nothing)
+    }
+  }
+  
+  // Remove any keys that might have been added from override but are not in base and are undefined
+  for (const key of Object.keys(result)) {
+    if (!base.hasOwnProperty(key) && result[key] === undefined) {
+      delete result[key];
+    }
+  }
+  
+  return result;
+}

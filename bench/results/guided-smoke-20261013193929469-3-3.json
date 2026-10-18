@@ -1,0 +1,407 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 4,
+    "mode": "guided",
+    "modelId": "ollama:ministral3-14b-ctx32k",
+    "budgetMs": 3600000,
+    "activeMs": 386995,
+    "remainingMs": 3213005,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-13T20:11:23.768Z",
+        "inputRevision": "1a56091ef628f1e400abc1fbb622883ddefd8ef38b9a0e79e5978a18a7b2bc6e",
+        "decision": "Предусловия этапа проверены рантаймом; можно предложить следующий результат",
+        "evidence": [],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Смысл ответа будет проверен после предложения; предварительное самоподтверждение модели не требуется",
+        "status": "ready",
+        "changed": false,
+        "checkedBy": "runtime"
+      }
+    ],
+    "workload": {
+      "version": 1,
+      "startedAt": "2026-10-13T20:11:23.536Z",
+      "byPurpose": {
+        "proposal": {
+          "usageEvents": 11,
+          "requests": 11,
+          "inputTokens": 25943,
+          "outputTokens": 2153,
+          "durationMs": 286948
+        },
+        "format-repair": {
+          "usageEvents": 0,
+          "requests": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "durationMs": 0
+        },
+        "semantic-repair": {
+          "usageEvents": 0,
+          "requests": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "durationMs": 0
+        },
+        "context": {
+          "usageEvents": 0,
+          "requests": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "durationMs": 0
+        },
+        "review": {
+          "usageEvents": 3,
+          "requests": 3,
+          "inputTokens": 4918,
+          "outputTokens": 2924,
+          "durationMs": 211928
+        },
+        "unclassified": {
+          "usageEvents": 0,
+          "requests": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "durationMs": 0
+        }
+      },
+      "failures": {},
+      "contextCompactions": 0,
+      "contextOverflows": 0,
+      "unclassifiedUsageEvents": 0,
+      "firstMutation": null
+    },
+    "progress": {
+      "proposed": 5,
+      "observed": 0,
+      "stale": 0,
+      "reused": 0,
+      "units": [
+        {
+          "id": "intent:field:compact::задача: ‹название›||scalar|heading|‹название›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::коротко||multiline|paragraph|‹аудитория и ожидаемый результат›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::зачем||multiline|paragraph|‹какую проблему решаем›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::что делаем||multiline|paragraph|‹наблюдаемое изменение поведения›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        },
+        {
+          "id": "intent:field:compact::чего не делаем||multiline|paragraph|‹явно заданные границы; неизвестное помечай предположением›",
+          "stage": "intent",
+          "status": "proposed",
+          "revision": 1
+        }
+      ],
+      "recoveries": {
+        "intent:field:compact::приемочный лист||multiline|paragraph|‹acceptance_json›": {
+          "failures": 2,
+          "narrowed": false,
+          "stopped": false,
+          "kind": "field",
+          "reason": "Приёмка противоречит запросу или не проверена: claim-1: Ожидаемый результат для email с ровно одной `@` отсутствует, хоть формат и невалиден (пустая локальная часть до `@`). Реакция draft на **`{email: '@example.com', phone: '+7123456789'}`** должна выдать **`['email']** по локальной части, но отсутствует пример для граничного валидного домен/невалидной локальнй части.; основание: Преднамеренная многовариантная проверка на разбор локальной/доменной части. В запросе под номером 2 упомянут только запрет на пробелы и непустость локальной части. Контрпример требует тестировать пустоту локальной части перед `@`.; контрпример: `{email: '@example.com', phone: '81234567890'}` -> **[]** vs ожидание **`['email']`** \nclaim-2: Отсутствует контрпример **`; основание: Форматы локального домена подразумевают два проверяемых момента: ровно одна точка и не допустимы скобки перед/после точки в домене.; контрпример: `{email: 'user@.com', phone: '8123456789'}` → **[]** вместо **`['email']`**\nmissing: 'email' с пробелом не был указан в `procedure`, но в запросе указано правило №2 с запретом пробелов (не упомянуты правила для `claimId: 2`). В случае правильного результата ожидает отсутствие ошибки по пробелам без уточнения в `procedure`.; основание: Полнота проверки соответствует требованиям в требование №2 документа.; контрпример: Пропуск случая: `{email: 'user  @test.com', phone: '81234567890'}` → **[]** без контроля на пробел.\nclaim-3: Код phone ошибки не должен допускать отсутствие символов после 8/+; основание: Телефонная валидация требует наличия ровно 10 цифр только после начального 8/**. Вход **`{email: 'valid@ok.com', phone: '+7-'}`** выдаёт **`[]`** без ошибки на недопустимое окончание.; контрпример: `{email: 'valid@email.com', phone: '8'}` → **[]** должно быть **`['phone']`**, так как отсутствует необходимый блок из 10 цифр после цифры 8.\nclaim-4: Отрицание корректности для `null`-валидации отсутствует. Контр пример показывает неверный ввод в процедуре.; основание: Экспорт тре",
+          "inputHash": "2a0e6f20a0a641da1583442ffcd182d342a709e197e016c0e674b64395bebb57"
+        },
+        "intent:field:compact::основания и сценарии||multiline|paragraph|‹basis_json›": {
+          "failures": 2,
+          "narrowed": false,
+          "stopped": false,
+          "kind": "field",
+          "reason": "Нужен JSON-массив объектов",
+          "inputHash": "a9e72bf74dfb79f6fc752a854a98134592948a55e04523d6be3345e7ff9ce51f"
+        }
+      }
+    }
+  },
+  "run": {
+    "slug": "guided-smoke-20261013193929469-3-3",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 4,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-13T20:11:22.944Z",
+    "finishedAt": "2026-10-13T20:17:50.574Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 14,
+        "failure": {
+          "kind": "contract",
+          "origin": "intent",
+          "retryStage": "intent",
+          "reason": "Intent не готов: незаполненных полей 1; проверка приёмки отклонена",
+          "pendingFields": 1,
+          "reviewStatus": "rejected"
+        }
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 30861,
+          "outputTokens": 5077,
+          "cacheReadTokens": 12762,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 498858
+        },
+        "durationMs": 387022,
+        "requestDurationsMs": [
+          3107,
+          24712,
+          38789,
+          36508,
+          48051,
+          85738,
+          57966,
+          4318,
+          21225,
+          79443,
+          2519,
+          20058,
+          74519,
+          1923
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 3,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 9
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 1
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:17066f33-2e6a-4c85-86ca-fe757ad8eabd",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-smoke-20261013193929469-3-3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:78c25c4e-b401-4216-8a30-c86bf2e8815a",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-smoke-20261013193929469-3-3\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 4874,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "ff1999e6718c252bb20d105ac582bd59dd02424946df2d7a378a5a07268b3015",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "bbdb3228d8b53a063ef198b8502f519f8f0e3c639e99cf7518be7c4179c0e08a",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "0e365d108a78f2977b629878ad5b4f276104b848eeb99a2cbc2d85d87491d1d8",
+    "state": "finished",
+    "capturedAt": "2026-10-13T20:17:50.598Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-13T20:17:50.549Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "8829a9bf317164e51812f720339b4bb67c2081fb871afdda56af5644242589c8",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "16df5be11d3f7b4dc151cd108b49ea16e313f40277aa0101c6e544021ec9d74b",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "f323957193dbe3d87ab25516bbe24aae389f79188eebb0e6d152615ccd53baf3",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

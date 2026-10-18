@@ -1,0 +1,36 @@
+export const protocolVersion = 1;
+
+function assertPair(pair, index) {
+  if (!Array.isArray(pair) || pair.length !== 2) {
+    throw new TypeError(`ranges[${index}] must be a [start, end] pair`);
+  }
+  const [start, end] = pair;
+  if (typeof start !== 'number' || typeof end !== 'number' || !Number.isFinite(start) || !Number.isFinite(end)) {
+    throw new TypeError(`ranges[${index}] endpoints must be finite numbers`);
+  }
+  if (start > end) {
+    throw new TypeError(`ranges[${index}] start must be <= end`);
+  }
+}
+
+export function mergeRanges(ranges) {
+  if (!Array.isArray(ranges)) {
+    throw new TypeError('ranges must be an array of [start, end] pairs');
+  }
+  ranges.forEach((pair, index) => assertPair(pair, index));
+  if (ranges.length === 0) return [];
+  const sorted = ranges
+    .map(([start, end]) => [start, end])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged = [sorted[0].slice()];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    const [start, end] = sorted[i];
+    if (start <= last[1]) {
+      if (end > last[1]) last[1] = end;
+    } else {
+      merged.push([start, end]);
+    }
+  }
+  return merged;
+}

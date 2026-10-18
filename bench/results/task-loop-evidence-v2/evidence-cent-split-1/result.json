@@ -1,0 +1,326 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "cent-split",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-w1Uh3b",
+    "baseCommit": "7799f786f56b9a3352264b0ea45c897ebce2a11e",
+    "contract": {
+      "task": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": true,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/cent-split.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-evidence.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T17:54:08.472Z"
+  },
+  "finishedAt": "2026-10-14T17:55:53.714Z",
+  "result": {
+    "version": 1,
+    "status": "needs_input",
+    "reason": "Human information is required; at least one question has no answer",
+    "finalText": "All checks pass.\n\n**What I did:**\n\n1. **`src/shares.mjs`** — kept the existing `protocolVersion` export and added `splitCents(total, count)`:\n   - Validates `total` is a nonnegative safe integer and `count` is a positive safe integer ≤ 1000; throws `RangeError` otherwise (rejects strings, booleans, floats, `NaN`, out-of-range values).\n   - Computes the split with `Math.floor(total / count)` for the base and `total % count` for the remainder, so the first `remainder` indices each get one extra cent. All arithmetic keeps integer results — no fractional-share rounding.\n\n2. **`test/splitCents.test.mjs`** — 7 executable tests: extra cents to earliest indices (`[4,3,3]`), even splits, zero total, count of 1, exactness at `MAX_SAFE_INTEGER`, and `RangeError` cases for every invalid input category.\n\n**One fix along the way:** my first version used `total / count` (floating-point division) and got `4.33…` shares; replaced with `Math.floor(total / count)`.\n\n**Evidence:** `build` PASS, `test` PASS (7/7, existing baseline test untouched and green), `public-examples` PASS (verified the required export and example `[4,3,3]`).\n\nThe `full-contract` requirement carries no registered check so it shows \"unverified,\" but it is fully satisfied by the implementation and exercised by the test suite (integer shares, sum = total, diff ≤ 1, earliest indices, RangeError contract).\n\n",
+    "usage": {
+      "inputTokens": 37614,
+      "outputTokens": 1612,
+      "cacheReadTokens": 31726,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 103364
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "02e1f59d3002684c87d5dc82fceb766a3499a01afa5f081439246c0f00e7ec83",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "02e1f59d3002684c87d5dc82fceb766a3499a01afa5f081439246c0f00e7ec83",
+        "passed": true,
+        "output": "✔ existing public API (0.6034ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 92.4684\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "5668f3d59f4f8ef6a36b41cc1ed16747fae0a9ea41652f925568621570ac9a48",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "5668f3d59f4f8ef6a36b41cc1ed16747fae0a9ea41652f925568621570ac9a48",
+        "passed": false,
+        "output": "✔ existing public API (0.6518ms)\n✖ splits 10 cents over 3 with extra cents to earliest indices (2.2976ms)\n✔ even split has no extra cents (0.1422ms)\n✔ zero total returns zeros (0.1099ms)\n✔ count of 1 returns the whole total (0.1022ms)\n✖ large total near safe integer limit stays exact (4.4701ms)\n✔ throws RangeError for invalid total or count (0.5346ms)\nℹ tests 7\nℹ suites 0\nℹ pass 5\nℹ fail 2\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 113.8183\n\n✖ failing tests:\n\ntest at test\\splitCents.test.mjs:5:1\n✖ splits 10 cents over 3 with extra cents to earliest indices (2.2976ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    [\n  +   4.333333333333334,\n  +   3.3333333333333335,\n  +   3.3333333333333335\n  -   4,\n  -   3,\n  -   3\n    ]\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-w1Uh3b/test/splitCents.test.mjs:6:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: [ 4.333333333333334, 3.3333333333333335, 3.3333333333333335 ],\n    expected: [ 4, 3, 3 ],\n    operator: 'deepStrictEqual'\n  }\n\ntest at test\\splitCents.test.mjs:21:1\n✖ large total near safe integer limit stays exact (4.4701ms)\n  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n  \n    assert.ok(shares.every(Number.isInteger))\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-w1Uh3b/test/splitCents.test.mjs:24:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: false,\n    expected: true,\n    operator: '=='\n  }\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "5668f3d59f4f8ef6a36b41cc1ed16747fae0a9ea41652f925568621570ac9a48",
+        "passed": false,
+        "output": "✖ V1 [visible] required export and public examples (2.5634ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 86.0972\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\cent-split.visible.mjs:4:1\n✖ V1 [visible] required export and public examples (2.5634ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    [\n  +   4.333333333333334,\n  +   3.3333333333333335,\n  +   3.3333333333333335\n  -   4,\n  -   3,\n  -   3\n    ]\n  \n      at TestContext.<anonymous> (file:///D:/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/Agent-SDLC-Runner/bench/checks/evidence/cent-split.visible.mjs:4:111)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: [ 4.333333333333334, 3.3333333333333335, 3.3333333333333335 ],\n    expected: [ 4, 3, 3 ],\n    operator: 'deepStrictEqual'\n  }\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+        "passed": true,
+        "output": "✔ existing public API (0.9287ms)\n✔ splits 10 cents over 3 with extra cents to earliest indices (1.6624ms)\n✔ even split has no extra cents (0.1121ms)\n✔ zero total returns zeros (0.1021ms)\n✔ count of 1 returns the whole total (0.0985ms)\n✔ large total near safe integer limit stays exact (0.1914ms)\n✔ throws RangeError for invalid total or count (0.3954ms)\nℹ tests 7\nℹ suites 0\nℹ pass 7\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 109.8025\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.2332ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 84.8051\n"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q1",
+        "question": "Остался небольшой вопрос к поведению вне контракта: сейчас splitCents бросает RangeError на нечисловых total/count (строки, null). Нужно ли что-то менять, или допустимо бросать и TypeError на нечислах?",
+        "header": "RangeError",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Оставить так",
+            "description": "Любой невалидный ввод бросает RangeError (текущее поведение)"
+          },
+          {
+            "label": "TypeError для типов",
+            "description": "Для не-числовых аргументов бросать TypeError, для выходящих за диапазон — RangeError"
+          }
+        ]
+      }
+    ],
+    "metrics": {
+      "modelRequests": 8,
+      "writes": 3,
+      "denied": 0,
+      "repairs": 1,
+      "repeatedErrors": 0,
+      "repeatedCheckFailures": 0,
+      "firstEditMs": 54466.6517,
+      "firstCheckMs": 56511.8064,
+      "humanWaitMs": 1.0146999999997206,
+      "activeMs": 104594.05380000001,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "verified",
+        "revision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public examples (1.2332ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 84.8051\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+            "passed": true,
+            "output": "✔ existing public API (0.9287ms)\n✔ splits 10 cents over 3 with extra cents to earliest indices (1.6624ms)\n✔ even split has no extra cents (0.1121ms)\n✔ zero total returns zeros (0.1021ms)\n✔ count of 1 returns the whole total (0.0985ms)\n✔ large total near safe integer limit stays exact (0.1914ms)\n✔ throws RangeError for invalid total or count (0.3954ms)\nℹ tests 7\nℹ suites 0\nℹ pass 7\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 109.8025\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [
+    {
+      "id": "q1",
+      "question": "Остался небольшой вопрос к поведению вне контракта: сейчас splitCents бросает RangeError на нечисловых total/count (строки, null). Нужно ли что-то менять, или допустимо бросать и TypeError на нечислах?",
+      "source": "fallback",
+      "tag": null
+    }
+  ],
+  "changed": [
+    "src/shares.mjs",
+    "test/splitCents.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "pass",
+  "readyWithUnverifiedRequirements": false,
+  "obligations": {
+    "boundaries": true,
+    "questions": false,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": false,
+  "falseSuccess": null,
+  "frozenRevision": "e24acf00d0f07cea0beffbb0e8e8d0f6e8f3ba8445d64bfd8be9ccaf7235069c",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

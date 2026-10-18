@@ -16,7 +16,7 @@
  * поведении которого уверены. Без файла эталона тест падает, а не создаёт его молча.
  */
 
-import { deepStrictEqual, ok, strictEqual } from 'node:assert/strict';
+import { deepStrictEqual, ok, strictEqual, rejects } from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -450,6 +450,24 @@ it('guided: blocked initial decision stops before execution and exports actual m
     strictEqual(trace.entries.filter(e => e.kind === 'decision_check').length, 1);
     ok(events.some(e => e.type === 'stage_done' && !e.ok));
     ok(run.flowHtml().includes('flow-data'));
+  } finally { stub.close(); }
+});
+
+it('guided engine 3 checks prerequisites without asking the model and still runs completion guards', async () => {
+  const root = makeProject(); const events: RunEvent[] = [];
+  const stub = await startModel({}, root);
+  try {
+    const run = makeRun(root, stub.baseUrl, events); let entered = false;
+    const seam = run as unknown as { executorFor: () => StageExecutor };
+    seam.executorFor = () => ({ flow: 'loop', async run(req) {
+      entered = true; ok(req.progress); ok(req.finishGuard?.());
+      return { ok: false, finalText: '', usage: emptyUsage(), note: 'deliberate unfinished task', modelRequests: 0 };
+    } });
+    const result = await run.runStage('intent', { executionMode: 'guided', guidedEngineVersion: 3, preparationVersion: 3, requirement: 'Добавить проверку лимита' });
+    strictEqual(entered, true); strictEqual(result.ok, false); strictEqual(stub.requests.length, 0);
+    strictEqual(readGuided(run.paths)?.engineVersion, 3);
+    strictEqual(readGuided(run.paths)?.decisionChecks?.at(-1)?.checkedBy, 'runtime');
+    await rejects(() => run.runStage('intent', { executionMode: 'guided', guidedEngineVersion: 1 }), /Версия движка/);
   } finally { stub.close(); }
 });
 

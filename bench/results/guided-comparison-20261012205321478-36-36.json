@@ -1,0 +1,381 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx16k",
+    "budgetMs": 3600000,
+    "activeMs": 265202,
+    "remainingMs": 3334798,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T23:36:18.097Z",
+        "inputRevision": "59f7f898e3f017a366d7a8a2ca73404073366a696ecb0ecbf7050d37c20e2304",
+        "decision": "examine src/config.ts",
+        "evidence": [],
+        "uncertainties": [
+          "examine src/config.ts"
+        ],
+        "action": "read",
+        "reason": "examine src/config.ts",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-2",
+          "ok": true,
+          "text": "1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */\n11\t  currency: 'RUB';\n12\t}\n13\t\n14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}\n22\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T23:36:24.643Z",
+        "inputRevision": "59f7f898e3f017a366d7a8a2ca73404073366a696ecb0ecbf7050d37c20e2304",
+        "decision": "Гипотеза по действию",
+        "evidence": [],
+        "uncertainties": [
+          "Гипотеза по действию"
+        ],
+        "action": "read",
+        "reason": "Гипотеза по действию",
+        "status": "collecting",
+        "changed": true,
+        "observation": {
+          "source": "lookup-3",
+          "ok": true,
+          "text": "1\t/**\n2\t * Счёт.\n3\t *\n4\t * Сборка итогового документа из позиций. Порядок слагаемых значим и закреплён: подытог по\n5\t * позициям, дальше — налоги и сборы, каждый отдельным полем, и только потом итог. Любое\n6\t * новое слагаемое встаёт в этот порядок явно, а не «где получилось».\n7\t */\n8\t\n9\timport type { BillingConfig } from './config.ts';\n10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];\n22\t  /** Подытог по позициям, до налогов. */\n23\t  subtotal: Kopeck;\n24\t  /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */\n25\t  total: Kopeck;\n26\t}\n27\t\n28\t/** Собрать счёт из позиций. */\n29\texport function buildInvoice(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде\n36\t  const sub = subtotal(lines);\n37\t  return { number, customer, lines, subtotal: sub, total: sub };\n38\t}\n39\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T23:36:32.367Z",
+        "inputRevision": "59f7f898e3f017a366d7a8a2ca73404073366a696ecb0ecbf7050d37c20e2304",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`.\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про"
+          }
+        ],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Функционал описан в источнике. Не требуется дополнительные данные.",
+        "status": "ready",
+        "changed": true
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T23:40:33.748Z",
+        "inputRevision": "eca41b7ef6c59bc6104f8b4979266a8dc97f31bbb438b23d8c1c38f553872215",
+        "decision": "Решение ещё не получено",
+        "evidence": [],
+        "uncertainties": [
+          "Проверка рантайма: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"decision\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"evidence\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"uncertainties\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"object\",\n    \"path\": [\n      \"next\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  },\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"path\",\n      \"line_start\",\n      \"line_end\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized keys: \\\"path\\\", \\\"line_start\\\", \\\"line_end\\\"\"\n  }\n]"
+        ],
+        "action": "blocked",
+        "reason": "Проверка рантайма: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"decision\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"evidence\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"uncertainties\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"object\",\n    \"path\": [\n      \"next\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  },\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"path\",\n      \"line_start\",\n      \"line_end\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized keys: \\\"path\\\", \\\"line_start\\\", \\\"line_end\\\"\"\n  }\n]",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261012205321478-36-36",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T23:36:07.594Z",
+    "finishedAt": "2026-10-12T23:40:33.786Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; записано через гейт",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 16
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Проверка рантайма: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"decision\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"evidence\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"uncertainties\"\n    ],\n    \"message\": \"Invalid input: expected array, received undefined\"\n  },\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"object\",\n    \"path\": [\n      \"next\"\n    ],\n    \"message\": \"Invalid input: expected object, received undefined\"\n  },\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"path\",\n      \"line_start\",\n      \"line_end\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized keys: \\\"path\\\", \\\"line_start\\\", \\\"line_end\\\"\"\n  }\n]",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 2
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 50220,
+          "outputTokens": 13675,
+          "cacheReadTokens": 1280,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 324476
+        },
+        "durationMs": 249132,
+        "requestDurationsMs": [
+          4814,
+          4854,
+          6525,
+          7706,
+          16854,
+          22384,
+          31849,
+          9899,
+          26721,
+          45445,
+          13204,
+          30366,
+          43158,
+          14299,
+          26008,
+          20405
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 12902,
+          "outputTokens": 714,
+          "cacheReadTokens": 16,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 16345
+        },
+        "durationMs": 16481,
+        "requestDurationsMs": [
+          10128,
+          6217
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 1,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 2,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:776091d0-6209-4b03-89dc-c88c78592324",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261012205321478-36-36\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 7
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      },
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5856,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 170,
+        "userChars": 12614,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "b2a495e20bc507c67e6f00bf0c16659e2e0d61dbb9f9c97e60d5e226c53ffaef",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "2976094830c6f42822e943be399a1d1b750cf4097705ab68bfd21a1cc3b09c28",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "d700ba231227816bbca6007f13ab106f689ffaf8a844ea97ef582a428f8adf0a",
+    "state": "finished",
+    "capturedAt": "2026-10-12T23:40:33.814Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-12T23:40:33.752Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "3737c50757c9882d19a03cd99be8a9cd4dac0f926fb50539473503106191248e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "a4bea339f0db6551828c390b38f675c1cd78f2588ecbd646f1d274163d2c341c",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "7029d46ca01b26c6988e1bd3239f771cab34719e53843ebbbbf63b71c212bf64",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "7ab701fa8205e8267f68b71d38a48ee9e37ff661ace4b0ca67b786d0eac4cc31",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

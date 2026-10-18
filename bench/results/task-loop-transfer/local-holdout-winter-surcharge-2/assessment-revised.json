@@ -1,0 +1,122 @@
+{
+  "gradingVersion": 3,
+  "changed": [
+    "src/index.ts",
+    "src/trip.ts",
+    "test/winter-fuel.test.ts"
+  ],
+  "boundaryViolations": [],
+  "hidden": {
+    "total": 6,
+    "pass": 6,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: fuelMl существует до витка и считает верно: 55 км легкового = 55×76 = 4180 мл → вверх до 100 → 4200."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: rateFor не задевается: truck → 248 дл/100 км из FUEL_RATE_DL_PER_100KM."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-1): Зимняя норма на ровном акте: 100 км грузового — сырой 100×248 = 24800 мл → +15% = 3720 → 28520."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-2): Надбавка округляется половиной вверх: 2 км фургона — сырой 230 мл → 15% = 34.5 → 35 → итог 265 (отбрасывание дало бы 264)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-2): Без актового округления и без округления базы: 13 км фургона — сырой 1495 мл → 15% = 224.25 → 224 → итог 1719, а не 1700/1800 (округление итога до 100) и не 1725 (надбавка от округлённых 1500)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "ok 6 - Pr4 [precision] (claim-3): Неизвестный класс — null, как у fuelMl."
+      }
+    ],
+    "errorText": null
+  },
+  "independent": {
+    "total": 3,
+    "pass": 3,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G1",
+        "category": "contract",
+        "label": "ok 1 - G1 [contract]: raw winter calculation across classes and rounding boundaries"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G2",
+        "category": "contract",
+        "label": "ok 2 - G2 [contract]: unknown class stays explicit"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G3",
+        "category": "contract",
+        "label": "ok 3 - G3 [contract]: required source module exports the function"
+      }
+    ],
+    "errorText": null
+  },
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "behaviorPassed": true
+}

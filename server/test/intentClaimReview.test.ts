@@ -23,3 +23,13 @@ test('claim review must complete a closed schema with known IDs and actual reaso
   throws(() => intentClaimReviewProblems('{"issues":[],"approved":true}', ['claim-1']));
   throws(() => intentClaimReviewProblems('', ['claim-1']));
 });
+
+test('claim review accepts compound claimId lists from the model', () => {
+  const issue = { claimId: 'claim-2, claim-3', problem: 'shared gap', basis: 'request', counterexample: 'input X' };
+  const problems = intentClaimReviewProblems(JSON.stringify({ issues: [issue] }), ['claim-1', 'claim-2', 'claim-3']);
+  equal(problems.length, 2);
+  ok(problems[0]!.startsWith('claim-2:'));
+  ok(problems[1]!.startsWith('claim-3:'));
+  throws(() => intentClaimReviewProblems(JSON.stringify({ issues: [{ ...issue, claimId: 'claim-2, claim-99' }] }),
+    ['claim-1', 'claim-2', 'claim-3']));
+});

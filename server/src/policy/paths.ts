@@ -108,10 +108,27 @@ function repairRepeatedRoot(root: string, rel: string): string {
   return rel;
 }
 
+/**
+ * Ложный абсолютный путь модели (`/src/foo.ts`): с ведущим `/`, но вне корня проекта.
+ * Настоящие абсолютные (`/etc/passwd`, `C:/…`, путь уже под корнем) не трогаем.
+ */
+function coerceFalseAbsolute(root: string, userPath: string): string {
+  const trimmed = userPath.trim();
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || /^[A-Za-z]:/u.test(trimmed)) return trimmed;
+  const abs = lexicalNormalize(trimmed);
+  if (relativizeWithin(root, abs) !== null) return trimmed;
+  const stripped = trimmed.replace(/^\/+/u, '');
+  if (stripped === '' || stripped.includes('..')) return trimmed;
+  // Системные корни POSIX не считаем «путём в проекте».
+  if (/^(etc|usr|var|proc|sys|dev|bin|sbin|tmp|root|home)(\/|$)/iu.test(stripped)) return trimmed;
+  return stripped;
+}
+
 /** Путь пользователя, разрешённый относительно корня проекта. */
 export function resolveUserPath(root: string, userPath: string): string {
-  if (isAbsolute(userPath)) return lexicalNormalize(userPath);
-  const repaired = repairRepeatedRoot(root, toPosix(userPath.trim()));
+  const coerced = coerceFalseAbsolute(root, userPath);
+  if (isAbsolute(coerced)) return lexicalNormalize(coerced);
+  const repaired = repairRepeatedRoot(root, toPosix(coerced.trim()));
   return lexicalNormalize(`${rootWithSlash(root)}${repaired}`);
 }
 

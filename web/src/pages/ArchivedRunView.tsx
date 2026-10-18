@@ -32,13 +32,24 @@ export function ArchivedRunView({
   const [events, setEvents] = useState<RunEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<StageId | null>(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     setEvents(null);
     setError(null);
     setStage(null);
-    api.historyEvents(project, slug).then(setEvents).catch((e: Error) => setError(e.message));
-  }, [project, slug]);
+    const controller = new AbortController();
+    let disposed = false;
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 30000);
+    api.historyEvents(project, slug, controller.signal)
+      .then(value => { if (!disposed) setEvents(value); })
+      .catch((e: Error) => {
+        if (!disposed) setError(timedOut ? 'Сервер не загрузил ленту за 30 секунд. Попробуйте повторить запрос.' : e.message);
+      })
+      .finally(() => clearTimeout(timeout));
+    return () => { disposed = true; clearTimeout(timeout); controller.abort(); };
+  }, [project, slug, reload]);
 
   // Порядок — канонический STAGE_ORDER, отфильтрованный до этапов, реально встретившихся
   // в ленте: виток, оборвавшийся на `plan`, не должен показывать пустые вкладки `chunk`/
@@ -96,6 +107,9 @@ export function ArchivedRunView({
       {error !== null ? (
         <div className={`m-4 whitespace-pre-wrap rounded border p-3 text-sm text-red-200 ${PANEL_TONE.fail}`}>
           {error}
+          <button type="button" onClick={() => setReload(value => value + 1)} className="ml-3 rounded border border-neutral-700 px-2 py-1 text-xs">
+            Повторить загрузку
+          </button>
         </div>
       ) : null}
 

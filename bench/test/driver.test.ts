@@ -36,6 +36,21 @@ describe('attemptCeiling', () => {
   });
 });
 
+it('overall deadline cancels an active stage even when its stage budget is longer', async () => {
+  let release: ((value: StageResult) => void) | undefined;
+  let cancelled = false;
+  const fakeRun = {
+    chunk: 1, attempt: 1, lastVerdict: null,
+    blockerDetails: () => [],
+    runStage: () => new Promise<StageResult>(resolve => { release = resolve; }),
+    cancel: () => { cancelled = true; release?.({ ok: false, finalText: '', usage: emptyUsage(), note: 'cancelled' }); },
+  } as unknown as Run;
+  const result = await runBench({ run: fakeRun, stageTimeoutMs: 1000, runTimeoutMs: 30, attempts: 3 });
+  strictEqual(cancelled, true);
+  strictEqual(result.stopped, 'run-timeout');
+  strictEqual(result.stages.length, 1);
+});
+
 describe('decideAfterStageFailure', () => {
   it('обычный провал (без envFailure) — сразу blocked, повтора нет', () => {
     deepStrictEqual(

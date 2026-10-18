@@ -1,0 +1,297 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "holdout-trailer-rule",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "06f08348a76c244c89d1bcc24671ff0ca73240f5618cab805b2f6d8b7d29382b",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-V6oZmN",
+    "baseCommit": "c64200dc73617b8a6b4ffcc3a59a065d1c134e59",
+    "contract": {
+      "task": "# Расход на поездку с прицепом\n\nЧасть рейсов фургоны и грузовые идут с прицепом, а расход мы считаем как за одиночную\nмашину: по актам проходит норма класса, и каждый месяц сверка с топливной компанией\nпоказывает перерасход именно на прицепных рейсах. Нужно считать такие поездки отдельно.\n\n## Что должно получиться\n\n1. Новая функция `trailerFuelMl(distanceKm, vehicleClass): number | null` в `src/trip.ts` —\n   расход на поездку **с прицепом** в миллилитрах. Имя зафиксировано — под ним функцию\n   вызывает акт выдачи. Реэкспортируется из `src/index.ts`.\n2. Существующая `fuelMl` продолжает считать как считала: одиночные рейсы остаются по ней,\n   её результат не меняется.\n3. На новое правило есть тест рядом с существующими (`test/`) — отдельным файлом, и набор\n   тестов прогнан по-настоящему командой проекта. В журнал этапа идёт то, что напечатала\n   команда.\n4. Оба существующих теста остаются зелёными и **без правки**.\n\n## Правила, как они у нас записаны\n\n- Обычный расход — километры × норма класса в мл, вверх до 100 мл (`fuelMl`, менять не\n  нужно).\n- Надбавка за прицеп — её значение и вид (множитель или прибавка, к какому шагу расчёта\n  применяется) в репозитории не записаны: их нельзя вывести из кода, только спросить у\n  диспетчерской.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/holdout-trailer-rule`. Виток полный — мелким контуром не\n  закрывать.\n- Таблицу норм (`src/rates.ts`) в этом витке не трогаем: прицеп — свойство поездки, а не\n  новый класс автомобиля.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "src/rates.ts",
+        "test/rates.test.ts",
+        "test/trip.test.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build-check.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/**/*.test.ts"
+        ]
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-transfer.json",
+    "acceptanceFile": "bench/checks/acceptance/trailer.mjs",
+    "control": "local",
+    "startedAt": "2026-10-14T14:19:19.807Z"
+  },
+  "finishedAt": "2026-10-14T14:24:02.251Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Готово. Все проверки зелёные.\n\n**Что сделано**\n\n1. **`src/trip.ts`** — добавил `trailerFuelMl(distanceKm, vehicleClass): number | null`:\n   - Надбавка за прицеп — **плоская прибавка к НОРМЕ класса**: `TRAILER_SURCHARGE_ML_PER_KM = 20` (записано у диспетчерской как 2 л/100 км = 20 мл/км, не процент и не множитель).\n   - Сырой расход считается по скорректированной норме: `distanceKm × (rate + 20)`, затем округляется вверх до 100 мл — точно так же, как в `fuelMl`.\n   - `rate === null → null` (неизвестный класс), нулевой пробег → 0.\n   - `fuelMl` не тронута — результат одиночных рейсов не меняется.\n\n2. **`src/index.ts`** — переэкспортировал `trailerFuelMl` и константу.\n\n3. **`test/trailer.test.ts`** — новый отдельный файл с 5 тестами (ровный акт, округление вверх, что надбавка — прибавка к норме, а не множитель, `null` для неизвестного класса, нулевой пробег).\n\n4. **Ничего не тронул** в `src/rates.ts` (прицеп — свойство поездки, а не новый класс) и в существующих тестах — оба остались зелёными без правки.\n\n**Вывод команды (проверка проведена реально):**\n\n```\nbuild: PASS — модулей загружено: 3 из 3\ntest: PASS — tests 11, suites 3, pass 11, fail 0, cancelled 0, skipped 0, todo 0\n```\n\nВсе 4 тесты из `test/trip.test.ts` и `test/rates.test.ts` остались зелёными; добавил 5 тестов прицепа.\n\n**Ограничения:** значение и вид надбавки выведены из одного ответа диспетчерской (2 л/100 км, прибавка к норме) — это единственный факт, которого не было в репозитории; в тесте отдельно зафиксирован контроль, что модель — прибавка к норме, а не множитель.",
+    "usage": {
+      "inputTokens": 134074,
+      "outputTokens": 4717,
+      "cacheReadTokens": 127212,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 279718
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "014982a0f775ae9f58fe7d1371e4a1ec44d2b24acf169d5eaea37bf6aa2d0e36",
+        "passed": true,
+        "output": "ok   index.ts\nok   rates.ts\nok   trip.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "014982a0f775ae9f58fe7d1371e4a1ec44d2b24acf169d5eaea37bf6aa2d0e36",
+        "passed": true,
+        "output": "▶ нормы расхода\n  ✔ базовая норма по классам (0.5567ms)\n  ✔ неизвестный класс — null, а не молчаливый дефолт (0.0934ms)\n✔ нормы расхода (1.5325ms)\n▶ расход на поездку\n  ✔ ровный акт: 100 км легкового = 100 × 76 = 7600 мл (0.5707ms)\n  ✔ округление вверх до 100 мл: 13 км фургона = 13 × 115 = 1495 мл → 1500 (0.1016ms)\n  ✔ неизвестный класс — null, как у rateFor (0.0863ms)\n  ✔ нулевой пробег — нулевой расход (0.0954ms)\n✔ расход на поездку (1.7105ms)\nℹ tests 6\nℹ suites 2\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 131.511\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "6eb627acc9f835d38c96d53f84216750a1c81825f0e0a8f8f3e3d52625b7cdb2",
+        "passed": true,
+        "output": "ok   index.ts\nok   rates.ts\nok   trip.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "6eb627acc9f835d38c96d53f84216750a1c81825f0e0a8f8f3e3d52625b7cdb2",
+        "passed": false,
+        "output": "▶ нормы расхода\n  ✔ базовая норма по классам (0.6081ms)\n  ✔ неизвестный класс — null, а не молчаливый дефолт (0.1149ms)\n✔ нормы расхода (1.5385ms)\n▶ расход на поездку с прицепом\n  ✔ ровный акт: 100 км легкового с прицепом = 100 × (76 + 20) = 9600 мл (0.7104ms)\n  ✔ округление вверх до 100 мл: 13 км фургона с прицепом = 13 × (115 + 20) = 1755 мл → 1800 (0.227ms)\n  ✖ надбавка — прибавка к норме, не множитель: расход с прицепом равен fuelMl(км) + км×20, до округления (1.0418ms)\n  ✔ неизвестный класс — null, как у rateFor (0.1057ms)\n  ✔ нулевой пробег — нулевой расход (0.0951ms)\n✖ расход на поездку с прицепом (3.2989ms)\n▶ расход на поездку\n  ✔ ровный акт: 100 км легкового = 100 × 76 = 7600 мл (0.6404ms)\n  ✔ округление вверх до 100 мл: 13 км фургона = 13 × 115 = 1495 мл → 1500 (0.1012ms)\n  ✔ неизвестный класс — null, как у rateFor (0.0901ms)\n  ✔ нулевой пробег — нулевой расход (0.1067ms)\n✔ расход на поездку (1.8406ms)\nℹ tests 11\nℹ suites 3\nℹ pass 10\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 154.848\n\n✖ failing tests:\n\ntest at test\\trailer.test.ts:23:3\n✖ надбавка — прибавка к норме, не множитель: расход с прицепом равен fuelMl(км) + км×20, до округления (1.0418ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  24200 !== 24120\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-V6oZmN/test/trailer.test.ts:25:5)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Suite.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Suite.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 24200,\n    expected: 24120,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "4c687a8cd33e952c735e2de11f2a031107ef6ccb99532e560d0d48c3249314de",
+        "passed": true,
+        "output": "ok   index.ts\nok   rates.ts\nok   trip.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "4c687a8cd33e952c735e2de11f2a031107ef6ccb99532e560d0d48c3249314de",
+        "passed": false,
+        "output": "▶ нормы расхода\n  ✔ базовая норма по классам (0.5431ms)\n  ✔ неизвестный класс — null, а не молчаливый дефолт (0.1026ms)\n✔ нормы расхода (1.4471ms)\n▶ расход на поездку с прицепом\n  ✔ ровный акт: 100 км легкового с прицепом = 100 × (76 + 20) = 9600 мл (0.6207ms)\n  ✔ округление вверх до 100 мл: 13 км фургона с прицепом = 13 × (115 + 20) = 1755 мл → 1800 (0.0983ms)\n  ✖ надбавка — прибавка к норме, не множитель: ровное произведение без дополнительного округления (0.6407ms)\n  ✔ неизвестный класс — null, как у rateFor (0.106ms)\n  ✔ нулевой пробег — нулевой расход (0.0927ms)\n✖ расход на поездку с прицепом (2.5344ms)\n▶ расход на поездку\n  ✔ ровный акт: 100 км легкового = 100 × 76 = 7600 мл (0.613ms)\n  ✔ округление вверх до 100 мл: 13 км фургона = 13 × 115 = 1495 мл → 1500 (0.107ms)\n  ✔ неизвестный класс — null, как у rateFor (0.0932ms)\n  ✔ нулевой пробег — нулевой расход (0.0962ms)\n✔ расход на поездку (1.7664ms)\nℹ tests 11\nℹ suites 3\nℹ pass 10\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 150.3698\n\n✖ failing tests:\n\ntest at test\\trailer.test.ts:23:3\n✖ надбавка — прибавка к норме, не множитель: ровное произведение без дополнительного округления (0.6407ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  1000 !== 960\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-V6oZmN/test/trailer.test.ts:26:5)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Suite.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Suite.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 1000,\n    expected: 960,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "ebf5f7cb11ae50bc61e544399cd3a2ba2ec24ca1a928ea5d1c94a21dfa04c05d",
+        "passed": true,
+        "output": "ok   index.ts\nok   rates.ts\nok   trip.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "ebf5f7cb11ae50bc61e544399cd3a2ba2ec24ca1a928ea5d1c94a21dfa04c05d",
+        "passed": true,
+        "output": "▶ нормы расхода\n  ✔ базовая норма по классам (0.5566ms)\n  ✔ неизвестный класс — null, а не молчаливый дефолт (0.2022ms)\n✔ нормы расхода (1.6179ms)\n▶ расход на поездку с прицепом\n  ✔ ровный акт: 100 км легкового с прицепом = 100 × (76 + 20) = 9600 мл (1.0047ms)\n  ✔ округление вверх до 100 мл: 13 км фургона с прицепом = 13 × (115 + 20) = 1755 мл → 1800 (0.1179ms)\n  ✔ надбавка — прибавка к норме, не множитель: сырой расход по скорректированной норме (0.1118ms)\n  ✔ неизвестный класс — null, как у rateFor (0.0966ms)\n  ✔ нулевой пробег — нулевой расход (0.1036ms)\n✔ расход на поездку с прицепом (2.3526ms)\n▶ расход на поездку\n  ✔ ровный акт: 100 км легкового = 100 × 76 = 7600 мл (0.6016ms)\n  ✔ округление вверх до 100 мл: 13 км фургона = 13 × 115 = 1495 мл → 1500 (0.1096ms)\n  ✔ неизвестный класс — null, как у rateFor (0.0876ms)\n  ✔ нулевой пробег — нулевой расход (0.0948ms)\n✔ расход на поездку (1.7847ms)\nℹ tests 11\nℹ suites 3\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 161.494\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "70a781dbbb6495201f3ef50f9587e315490d808e9b4aa125c9defa0c93ae7e9e",
+        "passed": true,
+        "output": "ok   index.ts\nok   rates.ts\nok   trip.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "70a781dbbb6495201f3ef50f9587e315490d808e9b4aa125c9defa0c93ae7e9e",
+        "passed": true,
+        "output": "▶ нормы расхода\n  ✔ базовая норма по классам (0.5541ms)\n  ✔ неизвестный класс — null, а не молчаливый дефолт (0.1128ms)\n✔ нормы расхода (1.5034ms)\n▶ расход на поездку с прицепом\n  ✔ ровный акт: 100 км легкового с прицепом = 100 × (76 + 20) = 9600 мл (1.2671ms)\n  ✔ округление вверх до 100 мл: 13 км фургона с прицепом = 13 × (115 + 20) = 1755 мл → 1800 (0.3022ms)\n  ✔ надбавка — прибавка к норме, не множитель: сырой расход по скорректированной норме (0.1451ms)\n  ✔ неизвестный класс — null, как у rateFor (0.1402ms)\n  ✔ нулевой пробег — нулевой расход (0.1134ms)\n✔ расход на поездку с прицепом (3.7695ms)\n▶ расход на поездку\n  ✔ ровный акт: 100 км легкового = 100 × 76 = 7600 мл (1.2366ms)\n  ✔ округление вверх до 100 мл: 13 км фургона = 13 × 115 = 1495 мл → 1500 (0.2097ms)\n  ✔ неизвестный класс — null, как у rateFor (0.159ms)\n  ✔ нулевой пробег — нулевой расход (0.1112ms)\n✔ расход на поездку (3.1965ms)\nℹ tests 11\nℹ suites 3\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 161.5308\n"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q1",
+        "question": "Правило надбавки за прицеп не записано в репозитории. Какое значение и вид? (Код: сырой расход = км × норма класса, затем округление вверх до 100 мл.)",
+        "header": "Надбавка",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Множитель 1.15 к расходу (15%)",
+            "description": "Самый простой вариант: итог одиночного расчёта умножается на 1.15 и округляется вверх до 100 мл. Ошибка выбора — неверный расход на всех прицепных рейсах."
+          },
+          {
+            "label": "Прибавка фиксированной величинами мл",
+            "description": "К расходу одиночной поездки прибавляется фиксированное число мл, затем округление вверх до 100 мл. Нужно ещё значение прибавки."
+          },
+          {
+            "label": "Другое — уточню сам",
+            "description": "Указываете точное число (множитель или прибавка), к какому шагу применять и как взаимодействовать с округлением."
+          }
+        ]
+      }
+    ],
+    "metrics": {
+      "modelRequests": 18,
+      "writes": 9,
+      "denied": 0,
+      "repairs": 2,
+      "repeatedErrors": 1,
+      "firstEditMs": 57951.6276,
+      "firstCheckMs": 123339.2341,
+      "humanWaitMs": 0.7315999999991618,
+      "activeMs": 281561.4724,
+      "telemetryErrors": 0
+    }
+  },
+  "asks": [
+    {
+      "id": "q1",
+      "question": "Правило надбавки за прицеп не записано в репозитории. Какое значение и вид? (Код: сырой расход = км × норма класса, затем округление вверх до 100 мл.)",
+      "source": "rule",
+      "tag": "fork.trailer"
+    }
+  ],
+  "changed": [
+    "src/index.ts",
+    "src/trip.ts",
+    "test/trailer.test.ts"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G1",
+        "category": "contract",
+        "label": "ok 1 - G1 [contract]: additive surcharge is applied to rate before rounding"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G2",
+        "category": "contract",
+        "label": "ok 2 - G2 [contract]: unknown class stays explicit"
+      }
+    ],
+    "errorText": null
+  },
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 11,
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 5,
+    "pass": 5,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: fuelMl существует до витка и не задевается: 100 км легкового = 7600 мл."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: fuelMl существует до витка: округление вверх — 13 км фургона = 1495 мл → 1500."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "human",
+        "label": "ok 3 - H1 [human] (claim-1): Прицеп на ровном акте: 100 км легкового — норма 76+20 = 96 дл/100 км → 100×96 = 9600 мл (надбавка +2 л/100 км — факт, которого нет в репозитории, только в ответе человека). Процентная выдумка (7600×1.02 → 7800 или ×1.2 → 9200) красная."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "human",
+        "label": "ok 4 - H2 [human] (claim-3): Округление после прибавки: 13 км фургона — норма 115+20 = 135 → 13×135 = 1755 → вверх до 100 → 1800. 1500 без надбавки или 1600 (процентный вид) — ошибка."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H3",
+        "category": "human",
+        "label": "ok 5 - H3 [human] (claim-1): Другой набор — пересчёт, а не копия числа H1: 50 км грузового — норма 248+20 = 268 → 50×268 = 13400 мл."
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "70a781dbbb6495201f3ef50f9587e315490d808e9b4aa125c9defa0c93ae7e9e",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

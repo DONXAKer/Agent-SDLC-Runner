@@ -30,6 +30,14 @@ export interface BenchOptions {
   /** Формат проработки; стенд по умолчанию сохраняет исторический v1. */
   preparationVersion?: 1 | 2 | 3;
   executionMode?: 'legacy' | 'guided';
+  guidedEngineVersion?: 1 | 2 | 3 | 4;
+  planCandidates?: 1 | 2 | 3;
+  planJudge?: string;
+  chunkCandidates?: 2 | 3;
+  consumerContext?: boolean;
+  evidenceRepair?: boolean;
+  chunkJudge?: string;
+  chunkCandidateTimeoutMs?: number;
   strictQuestions?: boolean;
   /** Stop the measurement at this stage, without executing downstream routes. */
   stopAfterStage?: StageId;
@@ -235,6 +243,14 @@ ${taskListForUsage()}
                         ключ снимает и поэтапные потолки конфига, включая verify
   --budget <usd>        бюджет витка (умолчание 5); на локальных провайдерах НЕ действует
   --attempts <n>        потолок повторов chunk↔verify (умолчание 3)
+  --guided-engine-version <1|2|3|4> версия guided: 1 прежняя, 2 прогресс, 3 runtime-предусловия, 4 проверенный контракт и инварианты
+  --plan-candidates <1|2|3> эксперимент Plan: один вариант либо выбор среди кандидатов
+  --plan-judge <id>       локальный оценщик для нескольких кандидатов; по умолчанию модель Plan
+  --chunk-candidates <2|3> выбор патча группы Chunk; по умолчанию выключен
+  --consumer-context      эксперимент: контекст прямых потребителей (guided v4)
+  --evidence-repair       эксперимент: ремонт реализации по наблюдениям (guided v4)
+  --chunk-judge <id>      локальный оценщик; по умолчанию модель Chunk
+  --chunk-candidate-seconds <n> лимит времени одного кандидата, по умолчанию 60 секунд
   --preparation-version <1|2|3> версия проработки (стенд: 1; guided: 3)
   --execution-mode <legacy|guided> текущий флоу или проверяемые группы одной локальной модели
   --strict-questions             отвечать только по банку бизнес-фактов, без fallback
@@ -276,6 +292,14 @@ function positiveNumber(raw: string, what: string): number {
 export function parseArgs(argv: readonly string[]): BenchOptions {
   let preparationVersion: 1 | 2 | 3 | undefined;
   let executionMode: 'legacy' | 'guided' | undefined;
+  let guidedEngineVersion: 1 | 2 | 3 | 4 | undefined;
+  let planCandidates: 1 | 2 | 3 | undefined;
+  let planJudge: string | undefined;
+  let chunkCandidates: 2 | 3 | undefined;
+  let consumerContext = false;
+  let evidenceRepair = false;
+  let chunkJudge: string | undefined;
+  let chunkCandidateTimeoutMs: number | undefined;
   let strictQuestions = false;
   let mode: BenchMode | null = null;
   let model: string | null = null;
@@ -449,6 +473,43 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
         i++;
         break;
       }
+      case '--guided-engine-version': {
+        const value = next(i, key);
+        if (!['1', '2', '3', '4'].includes(value)) throw new OptionsError('--guided-engine-version: ожидается 1, 2, 3 или 4');
+        guidedEngineVersion = Number(value) as 1 | 2 | 3 | 4;
+        i++;
+        break;
+      }
+      case '--plan-candidates': {
+        const value = next(i, key);
+        if (!['1', '2', '3'].includes(value)) throw new OptionsError('--plan-candidates: ожидается 1, 2 или 3');
+        planCandidates = Number(value) as 1 | 2 | 3;
+        i++;
+        break;
+      }
+      case '--chunk-candidates': {
+        const value = next(i, key);
+        if (!['2', '3'].includes(value)) throw new OptionsError('--chunk-candidates: ожидается 2 или 3');
+        chunkCandidates = Number(value) as 2 | 3; i++; break;
+      }
+      case '--consumer-context': consumerContext = true; break;
+      case '--evidence-repair': evidenceRepair = true; break;
+      case '--chunk-judge': {
+        chunkJudge = next(i, key);
+        if (!chunkJudge.trim()) throw new OptionsError('--chunk-judge: требуется id модели');
+        i++; break;
+      }
+      case '--chunk-candidate-seconds': {
+        chunkCandidateTimeoutMs = positiveNumber(next(i, key), key) * 1000;
+        if (!Number.isSafeInteger(chunkCandidateTimeoutMs) || chunkCandidateTimeoutMs > 2147483647) throw new OptionsError('Недопустимый таймаут кандидата');
+        i++; break;
+      }
+      case '--plan-judge': {
+        planJudge = next(i, key);
+        if (!planJudge.trim()) throw new OptionsError('--plan-judge: требуется id модели');
+        i++;
+        break;
+      }
       case '--execution-mode': {
         const value = next(i, key);
         if (value !== 'legacy' && value !== 'guided') throw new OptionsError('--execution-mode: ожидается legacy или guided');
@@ -536,9 +597,17 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
   if ([stageTimeoutMs, runTimeoutMs, probeTimeoutMs ?? 1].some(value => value > 2_147_483_647)) {
     throw new OptionsError('таймаут превышает максимальный таймер Node; единица параметра — минуты');
   }
-  if (executionMode === 'guided' && (resolvedMode.kind !== 'all' || (preparationVersion !== undefined && preparationVersion !== 3) || fromSnapshot !== null || Object.keys(controlOverrides).length > 0)) {
-    throw new OptionsError('guided требует --all, preparation-version 3, новую задачу и одну модель без control overrides');
+  if (executionMode === 'guided' && (resolvedMode.kind !== 'all' || (preparationVersion !== undefined && preparationVersion !== 3) ||
+      Object.keys(controlOverrides).some(stage => stage !== 'plan' || planCandidates === undefined))) {
+    throw new OptionsError('guided требует --all, preparation-version 3 и одну модель; control-plan доступен только в явном эксперименте выбора плана');
   }
+  if (guidedEngineVersion !== undefined && executionMode !== 'guided') throw new OptionsError('--guided-engine-version требует --execution-mode guided');
+  if (planCandidates !== undefined && executionMode !== 'guided') throw new OptionsError('--plan-candidates требует --execution-mode guided');
+  if (planJudge !== undefined && planCandidates === undefined) throw new OptionsError('--plan-judge требует --plan-candidates');
+  if (planJudge !== undefined && planCandidates === 1) throw new OptionsError('--plan-judge требует несколько кандидатов');
+  if (chunkCandidates !== undefined && executionMode !== 'guided') throw new OptionsError('--chunk-candidates требует guided');
+  if ((consumerContext || evidenceRepair) && (executionMode !== 'guided' || guidedEngineVersion !== 4)) throw new OptionsError('Эксперименты контекста/ремонта требуют guided v4');
+  if ((chunkJudge !== undefined || chunkCandidateTimeoutMs !== undefined) && chunkCandidates === undefined) throw new OptionsError('Настройки оценщика Chunk требуют --chunk-candidates');
   if (stopAfterStage !== undefined) {
     if (makeSnapshot !== null || probe || preflightOnly) throw new OptionsError('--stop-after-stage несовместим со снимком или пробой');
     if (resolvedMode.kind === 'stage' && STAGE_ORDER.indexOf(stopAfterStage) < STAGE_ORDER.indexOf(resolvedMode.stage)) {
@@ -557,6 +626,14 @@ export function parseArgs(argv: readonly string[]): BenchOptions {
     mode: resolvedMode,
     ...(preparationVersion === undefined ? {} : { preparationVersion }),
     ...(executionMode === undefined ? {} : { executionMode }),
+    ...(guidedEngineVersion === undefined ? {} : { guidedEngineVersion }),
+    ...(planCandidates === undefined ? {} : { planCandidates }),
+    ...(planJudge === undefined ? {} : { planJudge }),
+    ...(chunkCandidates === undefined ? {} : { chunkCandidates }),
+    ...(consumerContext ? { consumerContext } : {}),
+    ...(evidenceRepair ? { evidenceRepair } : {}),
+    ...(chunkJudge === undefined ? {} : { chunkJudge }),
+    ...(chunkCandidateTimeoutMs === undefined ? {} : { chunkCandidateTimeoutMs }),
     ...(strictQuestions ? { strictQuestions: true } : {}),
     model: resolvedModel,
     task,

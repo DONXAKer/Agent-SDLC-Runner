@@ -1,0 +1,213 @@
+{
+  "model": "assistant-session",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Work on the human task within the supplied boundaries. Read relevant code, implement, run checks, repair, then summarize evidence and remaining limitations.\nUse one continuous investigation and implementation loop. No process documents or mandatory plan artifacts are required.\nUse AskHuman only for missing business facts, contradictions, or a required scope change. Never invent missing facts. A question does not grant a scope expansion.\nUse mcp__task__check to run all registered visible checks. Shell commands are unavailable. Checks must pass after your final edit.\nPassing visible checks establishes readiness for review, not proof of all requirements. Compare the patch against every requirement before finishing."
+    },
+    {
+      "role": "user",
+      "content": "Task:\n# Срок оплаты по умолчанию\n\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\nконфигом площадки.\n\n## Что должно получиться\n\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`.\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\n   разу.\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\n   правок существующих тестов нет.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\n  меняются.\n\n\nHuman write boundaries (file or directory prefix):\n[\"src/\",\"test/\",\"README.md\"]\nProtected paths:\n[\"src/money.ts\",\"test/money.test.ts\",\"test/lines.test.ts\",\"package.json\",\"package-lock.json\",\"scripts/\"]\n\nRegistered checks: build, test\nBaseline:\nbuild: PASS\nok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nмодулей загружено: 6 из 6\n\n\ntest: PASS\n▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (0.5873ms)\n  ✔ форма счёта — ровно пять полей (0.5834ms)\n✔ сборка счёта (1.9825ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (0.5234ms)\n  ✔ подытог — сумма по позициям (0.1214ms)\n  ✔ пустой счёт — нулевой подытог (0.0874ms)\n✔ позиции счёта (1.5387ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (0.5689ms)\n  ✔ сумма и разность (0.1227ms)\n  ✔ разность не уходит ниже нуля (0.0871ms)\n  ✔ процент округляется половиной вверх (0.1081ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.161ms)\n✔ деньги (1.9133ms)\nℹ tests 10\nℹ suites 3\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 160.7723\n"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Read",
+      "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Строка, с которой начать (с 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Сколько строк прочитать"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Glob",
+      "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob-шаблон"
+          },
+          "path": {
+            "type": "string",
+            "description": "Каталог поиска; по умолчанию корень проекта"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Grep",
+      "description": "Поиск по содержимому файлов регулярным выражением.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Регулярное выражение"
+          },
+          "path": {
+            "type": "string",
+            "description": "Файл или каталог поиска; по умолчанию корень проекта"
+          },
+          "glob": {
+            "type": "string",
+            "description": "Дополнительный фильтр по именам файлов"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Write",
+      "description": "Create or replace a file inside the human write boundaries. Protected paths and destructive overwrites are rejected.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу"
+          },
+          "content": {
+            "type": "string",
+            "description": "Полное содержимое"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Edit",
+      "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу"
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Фрагмент, который заменяем"
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Чем заменяем"
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Заменить все вхождения"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "AskHuman",
+      "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "Полный текст вопроса"
+                },
+                "header": {
+                  "type": "string",
+                  "description": "Короткая метка, до 12 символов"
+                },
+                "multiSelect": {
+                  "type": "boolean",
+                  "description": "Можно выбрать несколько"
+                },
+                "options": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "description": "Вариант"
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "Что это значит и чем грозит ошибка"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "description"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "question",
+                "header",
+                "multiSelect",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__task__check",
+      "description": "Run all registered visible project checks on the current files.",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "params": null
+}

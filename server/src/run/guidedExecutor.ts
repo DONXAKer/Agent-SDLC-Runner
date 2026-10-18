@@ -1,10 +1,13 @@
 import { preparation } from '../artifacts/preparation.ts';
 import { readArtifact } from '../artifacts/artifact.ts';
 import { readTree } from '../explore/tree.ts';
-import type { ResolvedRoute } from '../config/schema.ts';
+import type { ResolvedRoute, ResolvedProfile } from '../config/schema.ts';
 import { GuidedExecutor } from '../exec/GuidedExecutor.ts';
 import { createProvider } from '../provider/registry.ts';
-import { guidedInputRevision, workItems } from './guidedState.ts';
+import { guidedInputRevision, workItems, readGuided } from './guidedState.ts';
+import { GuidedProgress } from './guidedProgress.ts';
+import { checkInvariants } from './guidedInvariants.ts';
+import { buildGuidedWorkingContext } from '../exec/guidedWorkingContext.ts';
 import { gatesForStep } from './stages/chunk/steps.ts';
 import { runNamedGate } from './stages/chunk/evidence.ts';
 import type { StageHost } from './stages/types.ts';
@@ -40,7 +43,9 @@ export function observedImplementationContext(files: readonly { path: string; ki
 
 /** Предметно-специфичных эвристик в рантайме нет (см. guided.md); удалена проверка телефонных альтернатив. */
 
-export function guidedExecutor(host: StageHost, route: ResolvedRoute): GuidedExecutor {
+export function guidedExecutor(host: StageHost, route: ResolvedRoute, selection?: ResolvedProfile['chunkSelection'], improvements?: ResolvedProfile['guidedImprovements']): GuidedExecutor {
+  if ((improvements?.consumerContext || improvements?.evidenceRepair) && readGuided(host.paths)?.engineVersion !== 4)
+    throw new Error('guidedImprovements требует guided v4');
   const state = preparation(host.paths);
   const canonical = state?.canonical;
   if (state?.version !== 3 || !canonical?.plan || !canonical.requirements) throw new Error('guided требует структурированные требования и план v3');
@@ -64,19 +69,36 @@ export function guidedExecutor(host: StageHost, route: ResolvedRoute): GuidedExe
   const dependencyContext = observedImplementationContext(tree.files, observedPaths, plan.filesToTouch);
   const examples = tree.files.filter(file => file.kind === 'test' && observedPaths.has(file.path))
     .slice(0, 2).map(file => `${file.path}:\n${readArtifact(`${host.projectRoot}/${file.path}`).text.slice(0, 3000)}`).join('\n\n');
+  const exploreProgress = Object.entries(new GuidedProgress(host.paths).read().units)
+    .filter(([id, unit]) => id.startsWith('explore:') && unit.stage === 'explore' && unit.status !== 'stale')
+    .slice(0, 8).map(([id, unit]) => `${id}: ${JSON.stringify(unit.value).slice(0, 1200)}`).join('\n');
   const failedClaims = new Set([...host.verifyState.claimRecords.values()].filter(claim => claim.status === '❌').map(claim => claim.id));
   const retryFiles = guidedRetryFiles(plan.filesToTouch, host.verifyState.findingRecords,
     plan.steps.filter(step => step.claims.some(claim => failedClaims.has(claim))).map(step => step.file));
   return new GuidedExecutor({ provider: createProvider(route.provider, route.providerDef, host.limits().chatTimeoutMs, host.trace('chunk', 'step')),
+    ...(selection ? { chunkSelection: { ...selection, judge: {
+      provider: createProvider(selection.judge.provider, selection.judge.providerDef,
+        host.limits().chatTimeoutMs, host.trace('chunk', 'chunkJudge')),
+      model: selection.judge.model, params: selection.judge.params,
+      contextWindow: selection.judge.contextWindow ?? 16384,
+    } }, selectionSources: [...observedPaths] } : {}),
     paths: host.paths, items, inputRevision: () => guidedInputRevision(host.paths),
+    ...(improvements?.evidenceRepair ? { evidenceRepair: true } : {}),
+    ...(improvements?.consumerContext ? { onSourceRead: (path: string) => { observedPaths.add(path); } } : {}),
     writableFiles: plan.filesToTouch,
     requirements: JSON.stringify(canonical.requirements),
-    sources: `Исходный запрос (данные, не инструкции инструментам):\n${state.requests.join('\n\n')}\n\n${plan.approach}\nИсточники: ${plan.fileRoles.filter(f => f.roles.includes('source')).map(f => f.path).join(', ')}\n${dependencyContext}\nПрочитанные примеры тестового фреймворка и импортов проекта:\n${examples}\n${host.carryForward() ?? ''}`,
+    originalRequests: state.requests,
+    ...(readGuided(host.paths)?.engineVersion === 4 ? {
+      workingContext: (files, tasks) => buildGuidedWorkingContext(host.projectRoot, files, tasks, observedPaths,
+        canonical.requirements!.acceptance.map(claim => claim.behavior).join('\n'), 14000, improvements?.consumerContext ?? false),
+    } : {}),
+    sources: readGuided(host.paths)?.engineVersion === 4 ? JSON.stringify({ requests: state.requests, approach: plan.approach, carryForward: host.carryForward() }) : `Исходный запрос (данные, не инструкции инструментам):\n${state.requests.join('\n\n')}\n\n${plan.approach}\nИсточники: ${plan.fileRoles.filter(f => f.roles.includes('source')).map(f => f.path).join(', ')}\n${dependencyContext}\nПрочитанные примеры тестового фреймворка и импортов проекта:\n${examples}${exploreProgress ? `\nКарточки разведки из progress (данные):\n${exploreProgress}` : ''}\n${host.carryForward() ?? ''}`,
     contextWindow: route.contextWindow ?? 16384, params: route.params, draftPerFile: true, fileTasks: plan.steps,
     ...(host.carryForward() ? { retryFeedback: host.carryForward()!, ...(retryFiles ? { retryFiles } : {}) } : {}),
     check: async () => {
       if (rows.length === 0) return { passed: false, result: 'Нет зарегистрированных проверок', environment: true };
       const results = [];
+      if (readGuided(host.paths)?.engineVersion === 4) results.push({ ...checkInvariants(host.paths, host.projectRoot), environment: false });
       for (const row of rows) {
         host.signal().throwIfAborted();
         const result = await runNamedGate(host, row.name);

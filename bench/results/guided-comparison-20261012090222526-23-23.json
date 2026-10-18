@@ -1,0 +1,579 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:qwen3.8-27b-iq4-ctx32k-gpumax",
+    "budgetMs": 3600000,
+    "activeMs": 487840,
+    "remainingMs": 3112160,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T11:34:18.444Z",
+        "inputRevision": "bfd53a205eb6214d936600235c6b76fe1b605aa4ab5c89792d8c535f48919ea5",
+        "decision": "read",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "{\n  \"data\": {\n    \"requests\": [\n      \"# Срок оплаты по умолчанию\\n\\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\\nконфигом площадки.\\n\\n## Что должно получиться\\n\\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\\n   где `opts.dueDays?: number`.\\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\\n   разу.\\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\\n   правок существующих тестов нет.\\n\\n## Рамки\\n\\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\\n  меняются.\\n\"\n    ],\n    \"artifacts\": [\n      {\n        \"path\": \"C:\\\\Users\\\\Root\\\\AppData\\\\Local\\\\Temp\\\\sdlc-bench-PpGuHQ\\\\.sdlc\\\\gates.md\",\n        \"hash\": \"4cf37c105dc7ce17b2a97cef5aa88cfe6e10d22c260f3552616b00c630b5c4bf\",\n        \"exists\": true,\n        \"sections\": [\n          {\n            \"section\": \"Набор гейтов: billing\",\n            \"values\": [\n              \"_Файл проекта, не витка. Строки не удаляются — только переключаются. Обязательный минимум\",\n              \"помечен «да — минимум»: у этих строк переключателя нет, без любой из них набор не собран и\",\n              \"виток не стартует._\",\n              \"Последнее изменение набора: 2026-09-01\",\n              \"Владелец набора: Бенчмарк\",\n              \"_Обратные кавычки в колонке «Чем реализован» стоят только там, где гейт исполняется командой\",\n              \"(«Сборка» и «Тесты»). Во всех остальных строках их нет намеренно: процитированная в прозе\",\n              \"команда однажды подменила собой встроенную реализацию, и обязательный scope-гейт зеленел\",\n              \"всегда._\"\n            ]\n          },\n          {\n            \"section\": \"Набор\",\n            \"values\": [\n              {\n                \"Гейт\": \"Сборка\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"node scripts/build-check.mjs — загрузка всех модулей src; компиляции нет, проект исполняется напрямую\"\n              },\n              {\n                \"Гейт\": \"Тесты\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"node --test \\\"test/**/*.test.ts\\\" — тот же вызов, что в scripts.test пакета\"\n              },\n              {\n                \"Гейт\": \"Scope: файлы вне плана\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: изменения от базы chunk'а сверяются с files_to_touch, каталог методологии из сверки исключён\"\n              },\n              {\n                \"Гейт\": \"Анти-обход тест-гейта\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: отключённые тесты и удалённые тестовые файлы в изменениях\"\n              },\n              {\n                \"Гейт\": \"Ревью независимым агентом\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"субагент sdlc-reviewer, модель строго сильнее исполнителя этапа 5\"\n              },\n              {\n                \"Гейт\": \"Scope: пути плана без правок\",\n                \"Вкл\": \"да\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: сверка files_to_touch с изменениями в обратную сторону\"\n              },\n              {\n                \"Гейт\": \"Scope: нетракованные файлы\",\n                \"Вкл\": \"да\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: нетракованные файлы вне каталога методологии; игнорируемые git-ом не считаются\"\n              },\n              {\n                \"Гейт\": \"Секреты в diff\",\n                \"Вкл\": \"да\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: ключи, токены и файлы окружения в добавленных строках\"\n              },\n              {\n                \"Гейт\": \"Ответы человека в коде\",\n                \"Вкл\": \"да\",\n                \"Где отчитывается\": \"этап 6\",\n                \"Чем реализован\": \"встроенная реализация: числа и цитаты из ответов человека (clarification-report.md) ищутся в добавленных строках diff\"\n              },\n              {\n                \"Гейт\": \"Проверка предусловий публикации\",\n                \"Вкл\": \"да — минимум\",\n                \"Где отчитывается\": \"этап 7\",\n                \"Чем реализован\": \"встроенная реализация: ветка витка, чистое дерево, отсутствие коммита на главной ветке\"\n              },\n              {\n                \"Гейт\": \"Бюджет итераций\",\n                \"Вкл\": \"да\",\n                \"Где отчитывается\": \"вне витка\",\n                \"Чем реализован\": \"3 попытки на chunk, дальше эскалация\"\n              }\n            ]\n          },\n          {\n            \"section\": \"Долг\",\n            \"values\": [\n              \"_Долг пуст: выключенных строк в наборе нет._\"\n            ]\n          }\n        ]\n      }\n    ],\n    \"plannedFiles\": [],\n    \"runtimeContext\": [\n      {\n        \"section\": \"Факт прогона: ветка рабочего дерева\",\n        \"values\": [\n          \"Рабочее дерево стоит на ветке sdlc/config-default.\",\n          \"Поле «Ветка витка» в intent.md обязано совпасть с этой строкой дословно. Не выводи\",\n          \"имя из путей .sdlc/… и не придумывай по конвенции: Runner сверяет поле с фактическим\",\n          \"состоянием дерева и блокирует этап 4 при расхождении.\"\n        ]\n      }\n    ]"
+          },
+          {
+            "source": "request-1",
+            "quote": "# Срок оплаты по умолчанию\n\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\nконфигом площадки.\n\n## Что должно получиться\n\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`.\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\n   разу.\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\n   правок существующих тестов нет.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\n  меняются."
+          }
+        ],
+        "uncertainties": [
+          "Для подтверждения оснований этапа intent нужно сверить требования с текущими типами BillingConfig, DEFAULT_CONFIG и resolveConfig в src/config.ts."
+        ],
+        "action": "read",
+        "reason": "Для подтверждения оснований этапа intent нужно сверить требования с текущими типами BillingConfig, DEFAULT_CONFIG и resolveConfig в src/config.ts.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */\n11\t  currency: 'RUB';\n12\t}\n13\t\n14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}\n22\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T11:34:35.013Z",
+        "inputRevision": "bfd53a205eb6214d936600235c6b76fe1b605aa4ab5c89792d8c535f48919ea5",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "lookup-1",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/config.ts\",\"range\":{\"from\":1,\"to\":80}}\n1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение"
+          }
+        ],
+        "uncertainties": [
+          "Содержание файла src/config.ts после строки 22 неизвестно из-за обрезанного lookup-1."
+        ],
+        "action": "read",
+        "reason": "Проверить конец файла src/config.ts и наличие других экспортируемых функций/конфигураций после строки 21.",
+        "status": "collecting",
+        "changed": true,
+        "observation": {
+          "source": "lookup-2",
+          "ok": true,
+          "text": "20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}\n22\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T11:34:56.340Z",
+        "inputRevision": "bfd53a205eb6214d936600235c6b76fe1b605aa4ab5c89792d8c535f48919ea5",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "# Срок оплаты по умолчанию\n\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\nконфигом площадки.\n\n## Что должно получиться\n\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`.\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\n   разу.\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\n   правок существующих тестов нет.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\n  меняются.\n"
+          },
+          {
+            "source": "lookup-1",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/config.ts\",\"range\":{\"from\":1,\"to\":80}}\n1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */\n11\t  currency: 'RUB';\n12\t}\n13\t\n14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}"
+          },
+          {
+            "source": "lookup-2",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/config.ts\",\"range\":{\"from\":20,\"to\":29}}\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}\n22\t"
+          }
+        ],
+        "uncertainties": [
+          "Зафиксированы требования (defaultDueDays в BillingConfig, dueDays в Invoice, opts джиссоном fifth arg) и текущее состояние конфигурации — resolveConfig и DEFAULT_CONFIG существуют, defaultDueDays не добавлен. Нужно прочитать src/invoice.ts, чтобы понимать текущее состояние формы счёта, перед тем как планировать точную реализацию."
+        ],
+        "action": "read",
+        "reason": "Зафиксированы требования (defaultDueDays в BillingConfig, dueDays в Invoice, opts джиссоном fifth arg) и текущее состояние конфигурации — resolveConfig и DEFAULT_CONFIG существуют, defaultDueDays не добавлен. Нужно прочитать src/invoice.ts, чтобы понимать текущее состояние формы счёта, перед тем как планировать точную реализацию.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-3",
+          "ok": true,
+          "text": "1\t/**\n2\t * Счёт.\n3\t *\n4\t * Сборка итогового документа из позиций. Порядок слагаемых значим и закреплён: подытог по\n5\t * позициям, дальше — налоги и сборы, каждый отдельным полем, и только потом итог. Любое\n6\t * новое слагаемое встаёт в этот порядок явно, а не «где получилось».\n7\t */\n8\t\n9\timport type { BillingConfig } from './config.ts';\n10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];\n22\t  /** Подытог по позициям, до налогов. */\n23\t  subtotal: Kopeck;\n24\t  /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */\n25\t  total: Kopeck;\n26\t}\n27\t\n28\t/** Собрать счёт из позиций. */\n29\texport function buildInvoice(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде\n36\t  const sub = subtotal(lines);\n37\t  return { number, customer, lines, subtotal: sub, total: sub };\n38\t}\n39\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T11:35:38.590Z",
+        "inputRevision": "bfd53a205eb6214d936600235c6b76fe1b605aa4ab5c89792d8c535f48919ea5",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`.\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\n   разу.\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\n   правок существующих тестов нет."
+          },
+          {
+            "source": "lookup-3",
+            "quote": "1\t/**\n2\t * Счёт.\n3\t *\n4\t * Сборка итогового документа из позиций. Порядок слагаемых значим и закреплён: подытог по\n5\t * позициям, дальше — налоги и сборы, каждый отдельным полем, и только потом итог. Любое\n6\t * новое слагаемое встаёт в этот порядок явно, а не «где получилось».\n7\t */\n8\t\n9\timport type { BillingConfig } from './config.ts';\n10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];"
+          }
+        ],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Запрос содержит полные требования к изменению (срок в днях по умолчанию, опция в вызове, документация, тесты), а просмотренные фрагменты src/config.ts и src/invoice.ts подтверждают текущую реализацию и структуру, в которую нужно вносить изменения. Существенных пробелов для продолжения на текущем этапе нет.",
+        "status": "ready",
+        "changed": false
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T11:39:47.525Z",
+        "inputRevision": "72f7f8ffe9c9ac6ef9374185efc52b26872bcd15eeb1cc1b6f711c147e2e283d",
+        "decision": "read",
+        "evidence": [
+          {
+            "source": "lookup-prefetch-1",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/config.ts\",\"range\":{\"from\":1,\"to\":80}}\n1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */\n11\t  currency: 'RUB';\n12\t}\n13\t\n14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}"
+          }
+        ],
+        "uncertainties": [
+          "Точный формат текущего поля Invoice и структура возвращаемого объекта: известно только из тестов, а не из определения.",
+          "Приоритет opts.dueDays над конфигурацией площадки не подтвержден в исходниках и реализация не прочитана."
+        ],
+        "action": "read",
+        "reason": "Нужно основание для proceed: сигнатура bill и текущее поле Invoice. Прочитаны src/config.ts (BillingConfig без defaultDueDays, DEFAULT_CONFIG=14 не содержит срок) и test/invoice.test.ts (текущая форма 5 полей на L28/L29); непрочитанный src/invoice.ts не является фактом. Требование требует 5-й параметр opts и добавление dueDays, что требует изучения текущей функции биллинга.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];\n22\t  /** Подытог по позициям, до налогов. */\n23\t  subtotal: Kopeck;\n24\t  /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */\n25\t  total: Kopeck;\n26\t}\n27\t\n28\t/** Собрать счёт из позиций. */\n29\texport function buildInvoice(\n30\t  number: string,"
+        }
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T11:40:04.890Z",
+        "inputRevision": "72f7f8ffe9c9ac6ef9374185efc52b26872bcd15eeb1cc1b6f711c147e2e283d",
+        "decision": "read",
+        "evidence": [],
+        "uncertainties": [
+          "Новые данные (lookup-1) показывают начало buildInvoice, но сигнатуру bill и текущее тело построения счёта ещё не видно. Без них нельзя подтвердить план: где подставить dueDays, есть ли уже config/opts аргументы, и как формируется объект Invoice."
+        ],
+        "action": "read",
+        "reason": "Новые данные (lookup-1) показывают начало buildInvoice, но сигнатуру bill и текущее тело построения счёта ещё не видно. Без них нельзя подтвердить план: где подставить dueDays, есть ли уже config/opts аргументы, и как формируется объект Invoice.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-2",
+          "ok": true,
+          "text": "1\t/**\n2\t * Счёт.\n3\t *\n4\t * Сборка итогового документа из позиций. Порядок слагаемых значим и закреплён: подытог по\n5\t * позициям, дальше — налоги и сборы, каждый отдельным полем, и только потом итог. Любое\n6\t * новое слагаемое встаёт в этот порядок явно, а не «где получилось».\n7\t */\n8\t\n9\timport type { BillingConfig } from './config.ts';\n10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];\n22\t  /** Подытог по позициям, до налогов. */\n23\t  subtotal: Kopeck;\n24\t  /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */\n25\t  total: Kopeck;\n26\t}\n27\t\n28\t/** Собрать счёт из позиций. */\n29\texport function buildInvoice(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде\n36\t  const sub = subtotal(lines);\n37\t  return { number, customer, lines, subtotal: sub, total: sub };\n38\t}\n39\t"
+        }
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T11:40:32.479Z",
+        "inputRevision": "72f7f8ffe9c9ac6ef9374185efc52b26872bcd15eeb1cc1b6f711c147e2e283d",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "lookup-2",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/invoice.ts\",\"range\":{\"from\":1,\"to\":80}}\n1\t/**\n2\t * Счёт.\n3\t *\n4\t * Сборка итогового документа из позиций. Порядок слагаемых значим и закреплён: подытог по\n5\t * позициям, дальше — налоги и сборы, каждый отдельным полем, и только потом итог. Любое\n6\t * новое слагаемое встаёт в этот порядок явно, а не «где получилось».\n7\t */\n8\t\n9\timport type { BillingConfig } from './config.ts';\n10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];\n22\t  /** Подытог по позициям, до налогов. */\n23\t  subtotal: Kopeck;\n24\t  /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */\n25\t  total: Kopeck;\n26\t}\n27\t\n28\t/** Собрать счёт из позиций. */\n29\texport function buildInvoice(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде\n36\t  const sub = subtotal(lines);\n37\t  return { number, customer, lines, subtotal: sub, total: sub };\n38\t}"
+          },
+          {
+            "source": "lookup-prefetch-1",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/config.ts\",\"range\":{\"from\":1,\"to\":80}}\n1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */\n11\t  currency: 'RUB';\n12\t}\n13\t\n14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}"
+          },
+          {
+            "source": "lookup-prefetch-3",
+            "quote": "26\t  it('форма счёта — ровно пять полей', () => {\n27\t    const inv = bill('СЧ-2', customer, [{ title: 'Пакет', qty: 1, priceK: 100 }]);\n28\t    deepStrictEqual(Object.keys(inv).sort(), ['customer', 'lines', 'number', 'subtotal', 'total']);\n29\t    strictEqual(inv.number, 'СЧ-2');"
+          }
+        ],
+        "uncertainties": [
+          "Нужно проверить, что палитра и структура публичного экспорта в src/index.ts не требуют корректировки при добавлении пятого параметра opts?"
+        ],
+        "action": "read",
+        "reason": "Требуется проверить публичный контракт bill(), чтобы подтвердить, что сигнатура уже имеет 4 параметра (number, customer, lines, config) и понять, как опциональные opts будут интегрироваться, не ломая существующий экспорт.",
+        "status": "collecting",
+        "changed": true,
+        "observation": {
+          "source": "lookup-3",
+          "ok": true,
+          "text": "1\t/**\n2\t * Публичный контракт пакета.\n3\t *\n4\t * Всё, что вызывают снаружи, проходит через этот файл. Внутренние модули друг на друга\n5\t * ссылаются напрямую, но потребитель знает только отсюда.\n6\t */\n7\t\n8\texport { add, formatRub, percent, rub, subtract } from './money.ts';\n9\texport type { Kopeck } from './money.ts';\n10\t\n11\texport { lineTotal, subtotal } from './lines.ts';\n12\texport type { Line } from './lines.ts';\n13\t\n14\texport type { Customer } from './customer.ts';\n15\t\n16\texport { DEFAULT_CONFIG, resolveConfig } from './config.ts';\n17\texport type { BillingConfig } from './config.ts';\n18\t\n19\texport { buildInvoice } from './invoice.ts';\n20\texport type { Invoice } from './invoice.ts';\n21\t\n22\timport { buildInvoice } from './invoice.ts';\n23\timport type { BillingConfig } from './config.ts';\n24\timport type { Customer } from './customer.ts';\n25\timport type { Invoice } from './invoice.ts';\n26\timport type { Line } from './lines.ts';\n27\t\n28\t/** Точка входа для вызывающих: выставить счёт. */\n29\texport function bill(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  return buildInvoice(number, customer, lines, config);\n36\t}\n37\t"
+        }
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T11:40:54.224Z",
+        "inputRevision": "72f7f8ffe9c9ac6ef9374185efc52b26872bcd15eeb1cc1b6f711c147e2e283d",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "lookup-3",
+            "quote": "28\t/** Точка входа для вызывающих: выставить счёт. */\n29\texport function bill(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  return buildInvoice(number, customer, lines, config);"
+          }
+        ],
+        "uncertainties": [
+          "Не прочитан полный список модулей в src, хотя по каталогу они очевидны; не нужно для текущего действия."
+        ],
+        "action": "read",
+        "reason": "Публичная функция bill (lookup-3, строки 29–36) и внутренняя buildInvoice (lookup-2, строки 29–38) принимают четыре аргумента, а задача требует добавить пятый параметр opts и обновить документацию конфига. Базовый контракт получен; продолжаю исследование. Для подтверждения структуры секции «Конфигурация» читаю README.md.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-4",
+          "ok": true,
+          "text": "1\t# billing\n2\t\n3\tВыставление счетов за товары: позиции, подытог, итог, данные покупателя, конфиг площадки.\n4\t\n5\t## Как устроено\n6\t\n7\t| Модуль | Отвечает за |\n8\t|---|---|\n9\t| `src/money.ts` | Деньги. Всё считается в **копейках** целым числом. Процент округляется **половиной вверх** — правило одно на весь расчёт. |\n10\t| `src/lines.ts` | Позиции счёта: количество × цена, подытог. Скидок и налогов здесь нет — они считаются на сборке счёта. |\n11\t| `src/customer.ts` | Данные покупателя, как они приходят из формы заказа. |\n12\t| `src/config.ts` | Конфигурация площадки. Читается через `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` из модулей нет. |\n13\t| `src/invoice.ts` | Сборка счёта: подытог → слагаемые отдельными полями → итог. |\n14\t| `src/index.ts` | Публичный контракт: снаружи вызывают только его. |\n15\t\n16\t## Единицы и соглашения\n17\t\n18\t- Деньги — копейки, целое число. `rub(249)` → `24900`.\n19\t- Порядок расчёта закреплён: подытог по позициям → слагаемые отдельными полями → итог.\n20\t- Форма `Invoice` — контракт: её сверяют литералом в тестах. Поле добавляется в счёт,\n21\t  только когда ему есть что сказать; поле-заглушка с нулём — это молчаливая смена формы.\n22\t\n23\t## Конфигурация\n24\t\n25\t| Опция | Умолчание | Что задаёт |\n26\t|---|---|---|\n27\t| `currency` | `RUB` | Валюта счетов. |\n28\t\n29\t## Как запускать\n30\t\n31\t```bash\n32\tnode scripts/build-check.mjs      # «сборка»: загрузка всех модулей src\n33\tnode --test \"test/**/*.test.ts\"   # тесты\n34\t```\n35\t\n36\tКомпиляции нет: TypeScript исполняется напрямую, типы снимает Node (нужен 23.6 или новее).\n37\tЗависимостей у пакета нет, `npm install` не требуется.\n38\t"
+        }
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T11:41:40.171Z",
+        "inputRevision": "72f7f8ffe9c9ac6ef9374185efc52b26872bcd15eeb1cc1b6f711c147e2e283d",
+        "decision": "read",
+        "evidence": [
+          {
+            "source": "lookup-3",
+            "quote": "29\texport function bill(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  return buildInvoice(number, customer, lines, config);"
+          }
+        ],
+        "uncertainties": [
+          "Для проверки согласованности сигнатуры с требованием (5-й параметр opts) требуется точное чтение src/index.ts; текущий фрагмент lookup-3 является извлечённым из другого источника и не подтверждён как независимый факт."
+        ],
+        "action": "read",
+        "reason": "Для проверки согласованности сигнатуры с требованием (5-й параметр opts) требуется точное чтение src/index.ts; текущий фрагмент lookup-3 является извлечённым из другого источника и не подтверждён как независимый факт.",
+        "status": "collecting",
+        "changed": true,
+        "observation": {
+          "source": "lookup-6",
+          "ok": true,
+          "text": "26\timport type { Line } from './lines.ts';\n27\t\n28\t/** Точка входа для вызывающих: выставить счёт. */\n29\texport function bill(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  return buildInvoice(number, customer, lines, config);"
+        }
+      },
+      {
+        "stage": "explore",
+        "at": "2026-10-12T11:42:10.269Z",
+        "inputRevision": "72f7f8ffe9c9ac6ef9374185efc52b26872bcd15eeb1cc1b6f711c147e2e283d",
+        "decision": "read",
+        "evidence": [],
+        "uncertainties": [
+          "Проверка рантайма: Диапазон строк вне источника"
+        ],
+        "action": "blocked",
+        "reason": "Проверка рантайма: Диапазон строк вне источника",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261012090222526-23-23",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3.8-27b-iq4-gpumax",
+      "explore": "ollama:qwen3.8-27b-iq4-gpumax",
+      "ask": "ollama:qwen3.8-27b-iq4-gpumax",
+      "plan": "ollama:qwen3.8-27b-iq4-gpumax",
+      "chunk": "ollama:qwen3.8-27b-iq4-gpumax",
+      "verify": "ollama:qwen3.8-27b-iq4-gpumax",
+      "handoff": "ollama:qwen3.8-27b-iq4-gpumax"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T11:34:01.001Z",
+    "finishedAt": "2026-10-12T11:42:10.314Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; Приёмка противоречит запросу или не проверена: missing: В запросе требуется проверить соответствие реального кода (интерфейсов, сигнатур, полей DEFAULT_CONFIG) запросу, но в предоставленные для проверки данные (черновик приёмки/контекс) не включены файлы исходного кода (src/config.ts, src/invoice.ts, README.md, test/), описываемые процедурами. Без содержания этих файлов невозможно верифицировать логические предикаты (наличие поля, значения по умолчанию; основание: В разделе 'Что должно получиться' пункта 4 (всё места, где читается конфиг, остаются согласованными...) и пунктах 1-5 (описание новых полей и функций) есть логическая предпосылка проверки кодовой базы (src/), но в предоставленном черновике (draft) отсутствуют сами файлы исходного кода, на которые ссылаются procedure (src/config.ts, src/invoice.ts, README.md). Черновик содержит только метаданные (с; контрпример: Нет доступа к содержимому src/config.ts для верификации claim-1 и claim-2; нет доступа к src/invoice.ts для верификации claim-3, claim-4, claim-5. Процедура чтения интерфейсов/сигнатур выполнить нельзя, так как файлы отсутствуют в инпуте для проверки.; ответ на поле отклонён: поле основания и сценарии: basis должен быть валидным JSON-массивом; верни только массив объектов; будет повторный запрос с причиной",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 17
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Проверка рантайма: Диапазон строк вне источника",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 61065,
+          "outputTokens": 4248,
+          "cacheReadTokens": 8316,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 365220
+        },
+        "durationMs": 321647,
+        "requestDurationsMs": [
+          16639,
+          16551,
+          21310,
+          23138,
+          19091,
+          7136,
+          13850,
+          22659,
+          8640,
+          14497,
+          85812,
+          20300,
+          5947,
+          49991,
+          3881,
+          30815,
+          4977
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 63269,
+          "outputTokens": 1479,
+          "cacheReadTokens": 2892,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 166839
+        },
+        "durationMs": 167096,
+        "requestDurationsMs": [
+          24226,
+          17340,
+          27569,
+          21723,
+          24269,
+          21637,
+          30076
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 2,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 5,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 2,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 9,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 8
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:c9a50b9c-eb26-42d3-861b-0617119c22dc",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261012090222526-23-23\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:52124c6d-a571-4a30-b961-a4c2e85c7595",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261012090222526-23-23\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      },
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 7852,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 170,
+        "userChars": 12745,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "3732328e4bb534f93f3010e5b2896e670d8c40dcfd7eacb3e5eb197b48ead8b8",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "7c93ad4523c3cb92b25d8181a3bae9db4784b025d000b35e7f5ca4984bdfcda2",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "690778ab82c1b41dff0cfdc718b059f9df9db15f1b2ff5877f9cb008683c1acc",
+    "state": "finished",
+    "capturedAt": "2026-10-12T11:42:10.345Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "explore",
+      "at": "2026-10-12T11:42:10.273Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "339bea2b6c40a08d33c082eab3b33b1501d8586116c438505d3d97cdd73f4e04",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "ca9628b5a0635933e4066b588d8280bca50d1509ca50f74a536fcef10133df92",
+        "placeholders": 12,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "8801876d5217594114e6a696539cb21b6c87f41a3fb792a6aae21de1b1a0c51d",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "1a2aefbcddcef56e858e3404d9655126dd43e129f080c4926733f7218334edde",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

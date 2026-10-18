@@ -12,6 +12,8 @@
 import type { ArtifactKey, Decision, NormalizedCall, PreparedPrompt, ToolName, Usage } from '@sdlc-runner/shared';
 
 export interface ExecHooks {
+  onExecution?: (event: import('@sdlc-runner/shared').ExecutionOperation) => void;
+  onHarnessEvent?: (event: { kind: 'failure' | 'context-compaction' | 'context-overflow' | 'implementation-write'; reason?: string }) => void;
   onQuestionValidated?: (result: { questionId: string; accepted: boolean; reason: string }) => void;
   /** Текст ассистента по мере поступления. */
   onText: (text: string) => void;
@@ -108,7 +110,7 @@ export interface ExecHooks {
    * ответа, а поля спрашиваются пачками параллельно — разница между печатями временем
    * запроса не является.
    */
-  onUsage: (usage: Usage, durationMs?: number) => void;
+  onUsage: (usage: Usage, durationMs?: number, work?: import('@sdlc-runner/shared').ModelWork) => void;
   /**
    * Диагностика, которая не роняет этап, но которую нельзя проглотить. Сюда попадает,
    * например, вызов инструмента, проскочивший мимо гейта одобрений.
@@ -183,9 +185,12 @@ export interface McpAccess {
 }
 
 export interface ExecRequest {
+  guidedEngineVersion?: import('@sdlc-runner/shared').GuidedEngineVersion;
   prompt: PreparedPrompt;
   /** Checked approach and new evidence, also consumed by executors with their own narrow prompts. */
   decisionContext?: string;
+  /** Durable structured proposals, only for the explicitly selected guided engine. */
+  progress?: import('../run/guidedProgress.ts').GuidedProgress;
   /** Корень целевого проекта — рабочий каталог агента. */
   cwd: string;
   model: string;
@@ -295,6 +300,7 @@ export interface ExecRequest {
 }
 
 export interface StageResult {
+  failure?: import('@sdlc-runner/shared').GuidedFailure;
   ok: boolean;
   /** Последний текст ассистента — то, чем этап отчитался. */
   finalText: string;

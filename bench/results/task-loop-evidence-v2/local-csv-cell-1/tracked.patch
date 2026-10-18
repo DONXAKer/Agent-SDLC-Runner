@@ -1,0 +1,17 @@
+diff --git a/src/format.mjs b/src/format.mjs
+index e8014d2..2ffea85 100644
+--- a/src/format.mjs
++++ b/src/format.mjs
+@@ -1 +1,12 @@
+ export const protocolVersion = 1;
++
++const needsQuotes = /[",\r\n]/u;
++
++function csvCell(value) {
++  const cell = String(value);
++  return needsQuotes.test(cell) ? `"${cell.replaceAll('"', '""')}"` : cell;
++}
++
++export function csvRow(values) {
++  return values.map(csvCell).join(',');
++}

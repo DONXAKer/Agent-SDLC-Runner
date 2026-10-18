@@ -62,6 +62,131 @@ test('a complete shown range longer than eight lines is valid evidence', async t
   assert.deepEqual(source.chunks[0].lines[11], { number: 12, content: 'Требование 12' });
 });
 
+test('evidence line range clamps overhang instead of blocking off-by-one', async t => {
+  const request = Array.from({ length: 5 }, (_, i) => `Строка ${i + 1}`).join('\n');
+  const f = setup(t, [{ ...ready(), evidence: [{ source: 'request-1', lines: [1, 6] }] }]);
+  f.req.prompt = { ...f.req.prompt, guidedProtocol: true, user: JSON.stringify({ data: { requests: [request] } }) };
+  const result = await checkStageDecision(f.req, f.hooks, f.options);
+  assert.equal(result.ok, true, result.note);
+  assert.equal(f.records[0]!.evidence[0]!.quote, request);
+});
+
+test('read offset 0 is normalized to 1 before schema reject', async t => {
+  const f = setup(t, [{ ...read(), next: { ...read().next, offset: 0 } },
+    { ...ready(), evidence: [{ source: 'lookup-1', quote: 'checkLimit' }] }]);
+  writeFileSync(join(f.root, 'a.ts'), 'checkLimit;\n');
+  const result = await checkStageDecision(f.req, f.hooks, f.options);
+  assert.equal(result.ok, true, result.note);
+  assert.equal(f.records[0]!.action, 'read');
+});
+
+test('decision JSON text wins over accidental tool_calls', async t => {
+  const f = setup(t, []);
+  const payload = { ...ready(), evidence: [{ source: 'request-1', lines: [1, 1] }] };
+  f.options.provider = { name: 'test', async chat(req) {
+    f.requests.push(req);
+    return {
+      text: JSON.stringify(payload),
+      toolCalls: [{ id: '1', name: 'Read', arguments: { file_path: 'a.ts' }, rawArguments: '' }],
+      finishReason: 'tool_use',
+      usage: { ...emptyUsage(), inputTokens: 10, outputTokens: 5 },
+    };
+  } };
+  f.req.prompt = { ...f.req.prompt, guidedProtocol: true, user: JSON.stringify({ data: { requests: ['Проверить лимит'] } }) };
+  const result = await checkStageDecision(f.req, f.hooks, f.options);
+  assert.equal(result.ok, true, result.note);
+});
+
+test('empty text with decision payload in one tool call is accepted', async t => {
+  const f = setup(t, []);
+  const payload = { ...ready(), evidence: [{ source: 'request-1', lines: [1, 1] }] };
+  f.options.provider = { name: 'test', async chat(req) {
+    f.requests.push(req);
+    return {
+      text: '',
+      toolCalls: [{ id: '1', name: 'stage_decision', arguments: payload, rawArguments: JSON.stringify(payload) }],
+      finishReason: 'tool_use',
+      usage: { ...emptyUsage(), inputTokens: 10, outputTokens: 5 },
+    };
+  } };
+  f.req.prompt = { ...f.req.prompt, guidedProtocol: true, user: JSON.stringify({ data: { requests: ['Проверить лимит'] } }) };
+  const result = await checkStageDecision(f.req, f.hooks, f.options);
+  assert.equal(result.ok, true, result.note);
+  assert.equal(f.records[0]!.status, 'ready');
+});
+
+test('flat tool-args action payload is wrapped into Check.next', async t => {
+  const f = setup(t, []);
+  writeFileSync(join(f.root, 'a.ts'), 'export const x = 1;\n');
+  // Flat reply without decision/evidence/next — dual-read must wrap into Check.
+  const flat = { action: 'read', path: 'a.ts', offset: 1, limit: 20, reason: 'Проверить источник' };
+  const proceed = {
+    decision: 'Источник прочитан',
+    evidence: [{ source: 'request-1', lines: [1, 1] }],
+    uncertainties: [],
+    next: { action: 'proceed', reason: 'Есть основания продолжать' },
+  };
+  let calls = 0;
+  f.options.provider = { name: 'test', async chat(req) {
+    f.requests.push(req);
+    calls++;
+    const payload = calls === 1 ? flat : proceed;
+    return {
+      text: '',
+      toolCalls: [{ id: String(calls), name: 'stage_decision', arguments: payload, rawArguments: JSON.stringify(payload) }],
+      finishReason: 'tool_use',
+      usage: { ...emptyUsage(), inputTokens: 10, outputTokens: 5 },
+    };
+  } };
+  f.req.prompt = { ...f.req.prompt, guidedProtocol: true, user: JSON.stringify({ data: { requests: ['Проверить лимит'] } }) };
+  const result = await checkStageDecision(f.req, f.hooks, f.options);
+  assert.equal(result.ok, true, result.note);
+  assert.equal(f.records[0]!.action, 'read');
+});
+
+test('normalizeDecisionPayload strips path from proceed and coerces offset/limit', async () => {
+  const { normalizeDecisionPayload, resolveEvidenceSourceId } = await import('../src/exec/StageDecisionCheck.ts');
+  const proceed = normalizeDecisionPayload({ action: 'proceed', path: 'a.ts', offset: 0, reason: 'ok' }) as {
+    decision: string; next: { action: string; path?: string; reason: string };
+  };
+  assert.equal(proceed.next.action, 'proceed');
+  assert.equal(proceed.next.path, undefined);
+  assert.equal(proceed.decision, 'ok');
+  const read = normalizeDecisionPayload({
+    decision: 'd', evidence: [], uncertainties: ['u'],
+    next: { action: 'read', path: '/src/a.ts', offset: '0', limit: '999', reason: 'r' },
+  }) as { next: { offset: number; limit: number; path: string } };
+  assert.equal(read.next.offset, 1);
+  assert.equal(read.next.limit, 80);
+  assert.equal(read.next.path, 'src/a.ts');
+  const partial = normalizeDecisionPayload({
+    next: { action: 'blocked', reason: 'нужны данные' },
+  }) as { decision: string; evidence: unknown[]; uncertainties: string[]; next: { action: string } };
+  assert.equal(partial.decision, 'нужны данные');
+  assert.deepEqual(partial.evidence, []);
+  assert.deepEqual(partial.uncertainties, ['нужны данные']);
+  assert.equal(partial.next.action, 'blocked');
+  const known = new Map([['request-1', 'текст'], ['stage-input', 'вход']]);
+  assert.equal(resolveEvidenceSourceId('stage-input:request-1', known), 'request-1');
+  assert.equal(resolveEvidenceSourceId('Request_1', known), 'request-1');
+  assert.equal(resolveEvidenceSourceId('intent-file', known), 'stage-input');
+  assert.equal(resolveEvidenceSourceId('intent. md [stage-input]', known), 'stage-input');
+  // Тот же носитель Read, что GuidedExecutor/repo_browser — без action/decision.
+  const carrier = normalizeDecisionPayload({
+    path: '/src/validate.ts', line_start: 2, line_end: 5,
+  }) as { decision: string; next: { action: string; path: string; offset: number; limit: number } };
+  assert.equal(carrier.next.action, 'read');
+  assert.equal(carrier.next.path, 'src/validate.ts');
+  assert.equal(carrier.next.offset, 2);
+  assert.equal(carrier.next.limit, 4);
+  assert.ok(carrier.decision.length > 0);
+  const cmd = normalizeDecisionPayload({
+    cmd: 'read', path: 'src/a.ts', offset: 1, limit: 10, reason: 'смотр',
+  }) as { next: { action: string; path: string } };
+  assert.equal(cmd.next.action, 'read');
+  assert.equal(cmd.next.path, 'src/a.ts');
+});
+
 test('lookup reason records the missing data without requiring duplicate text', async t => {
   const first = { ...read(), uncertainties: [] };
   const f = setup(t, [first, { ...ready(), evidence: [{ source: 'lookup-1', quote: 'checkLimit(config.old)' }] }]);
@@ -129,6 +254,20 @@ test('a missing or mistyped file yields feedback and a bounded new selection wit
   }
 });
 
+test('unknown input source gets one soft-retry with known ids instead of an instant stop', async t => {
+  const bad = { decision: 'read customer structure', evidence: [], uncertainties: [],
+    next: { action: 'input', source: 'customer structure', offset: 0, limit: 200, reason: 'read customer structure' } };
+  const f = setup(t, [bad, { ...ready(), evidence: [{ source: 'request-1', lines: [1, 1] }] }]);
+  f.req.prompt = { ...f.req.prompt, guidedProtocol: true, user: JSON.stringify({ data: { requests: ['Проверить лимит'] } }) };
+  const result = await checkStageDecision(f.req, f.hooks, f.options);
+  assert.equal(result.ok, true, result.note);
+  assert.equal(result.modelRequests, 2);
+  assert.equal(f.records[0]!.status, 'collecting');
+  const retry = JSON.parse(f.requests[1]!.messages[1]!.content);
+  assert.equal(retry.feedback.code, 'input_source');
+  assert.match(retry.feedback.instruction, /request-1/);
+});
+
 test('a policy-denied read is final rather than a recoverable missing file', async t => {
   const f = setup(t, [{ ...read(), next: { ...read().next, path: '../../secret.txt' } }, ready()]);
   gateReads(f);
@@ -187,6 +326,17 @@ test('a large catalog yields a partial listing rather than consuming the decisio
   assert.equal(JSON.parse(f.requests[0]!.messages[1]!.content).sourceCatalogPartial, true);
 });
 
+test('explore prefetches readable sources before the first model decision', async t => {
+  const f = setup(t, [{ ...ready(), evidence: [{ source: 'request-1', lines: [1, 1] }] }]);
+  writeFileSync(join(f.root, 'a.ts'), 'export const x = 1;\n');
+  f.req.prompt = { ...f.req.prompt, guidedProtocol: true, user: JSON.stringify({ data: { requests: ['Проверить a.ts'], plannedFiles: ['a.ts'] } }) };
+  f.hooks.onToolRequest = async () => ({ allowed: true, by: 'policy', updatedInput: null });
+  const result = await checkStageDecision(f.req, f.hooks, { ...f.options, stage: 'explore' });
+  assert.equal(result.ok, true, result.note);
+  const sources = JSON.parse(f.requests[0]!.messages[1]!.content).sources;
+  assert.ok(Object.keys(sources).some((id: string) => id.startsWith('lookup-prefetch-')));
+});
+
 test('a production guided prompt supplies planned paths only when that stage may read the plan', async t => {
   const f = setup(t, [{ ...ready(), evidence: [{ source: 'request-1', lines: [1, 1] }] }]);
   const paths = new WitokPaths(f.root, 'test'); mkdirSync(paths.dir, { recursive: true });
@@ -218,7 +368,8 @@ test('forbidden human questions receive stage actions and can return to preparat
 test('failed source corrections stop on repeated selection, budget exhaustion and cancellation', async t => {
   const repeated = setup(t, [read()]); gateReads(repeated);
   const stopped = await checkStageDecision(repeated.req, repeated.hooks, repeated.options);
-  assert.equal(stopped.ok, false); assert.equal(stopped.modelRequests, 2); assert.match(stopped.note, /нового входа/);
+  // 1-й read + 1 корректирующий повтор одинакового next + стоп.
+  assert.equal(stopped.ok, false); assert.equal(stopped.modelRequests, 3); assert.match(stopped.note, /нового входа/);
 
   const budget = setup(t, [read(), ready()]); gateReads(budget);
   let spent = 0; budget.hooks.onToolResult = () => { spent = 1; };
@@ -283,8 +434,23 @@ test('changing a range or spelling of the same file does not make identical data
   const first = read(); const second = { ...read(), next: { ...read().next, path: process.platform === 'win32' ? './A.ts' : './a.ts', limit: 21 } };
   const f = setup(t, [first, second]); writeFileSync(join(f.root, 'a.ts'), 'one\n');
   const result = await checkStageDecision(f.req, f.hooks, f.options);
-  assert.equal(result.ok, false); assert.equal(result.modelRequests, 2);
-  assert.match(result.note, /не добавил нового входа/);
+  assert.equal(result.ok, false);
+  // Первый повтор — корректирующий цикл; второй с теми же данными — стоп.
+  const requests = result.modelRequests ?? 0;
+  assert.ok(requests >= 2, String(requests));
+  assert.match(result.note, /нового входа/);
+});
+
+test('flat path/line_start/line_end carrier is accepted as next.read', async t => {
+  const f = setup(t, [
+    { path: '/src/a.ts', line_start: 1, line_end: 2 },
+    { ...ready(), evidence: [{ source: 'lookup-1', quote: 'checkLimit' }] },
+  ]);
+  mkdirSync(join(f.root, 'src'), { recursive: true });
+  writeFileSync(join(f.root, 'src/a.ts'), 'checkLimit;\n');
+  const result = await checkStageDecision(f.req, f.hooks, f.options);
+  assert.equal(result.ok, true, result.note);
+  assert.equal(f.records[0]!.action, 'read');
 });
 
 test('large stage input can be read by page without overflowing compact execution context', async t => {

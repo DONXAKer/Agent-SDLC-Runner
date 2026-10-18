@@ -90,6 +90,7 @@ export const verifyStage: StageDef = {
 };
 
 export const verifyModule: StageModule = {
+  checksImplementationInvariants: true,
   def: verifyStage,
   runtimeFacts: [{ id: 'preflight-gates', purpose: 'фактические результаты проверок до начала рецензирования', freshness: 'current-run' }],
   formFillExecutor: false,

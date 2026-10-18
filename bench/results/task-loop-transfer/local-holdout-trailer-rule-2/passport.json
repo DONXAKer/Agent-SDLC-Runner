@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "task": "holdout-trailer-rule",
+  "model": "ollama:qwen3.8-27b-iq4-gpumax",
+  "sourceHash": "06f08348a76c244c89d1bcc24671ff0ca73240f5618cab805b2f6d8b7d29382b",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-V6oZmN",
+  "baseCommit": "c64200dc73617b8a6b4ffcc3a59a065d1c134e59",
+  "contract": {
+    "task": "# Расход на поездку с прицепом\n\nЧасть рейсов фургоны и грузовые идут с прицепом, а расход мы считаем как за одиночную\nмашину: по актам проходит норма класса, и каждый месяц сверка с топливной компанией\nпоказывает перерасход именно на прицепных рейсах. Нужно считать такие поездки отдельно.\n\n## Что должно получиться\n\n1. Новая функция `trailerFuelMl(distanceKm, vehicleClass): number | null` в `src/trip.ts` —\n   расход на поездку **с прицепом** в миллилитрах. Имя зафиксировано — под ним функцию\n   вызывает акт выдачи. Реэкспортируется из `src/index.ts`.\n2. Существующая `fuelMl` продолжает считать как считала: одиночные рейсы остаются по ней,\n   её результат не меняется.\n3. На новое правило есть тест рядом с существующими (`test/`) — отдельным файлом, и набор\n   тестов прогнан по-настоящему командой проекта. В журнал этапа идёт то, что напечатала\n   команда.\n4. Оба существующих теста остаются зелёными и **без правки**.\n\n## Правила, как они у нас записаны\n\n- Обычный расход — километры × норма класса в мл, вверх до 100 мл (`fuelMl`, менять не\n  нужно).\n- Надбавка за прицеп — её значение и вид (множитель или прибавка, к какому шагу расчёта\n  применяется) в репозитории не записаны: их нельзя вывести из кода, только спросить у\n  диспетчерской.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/holdout-trailer-rule`. Виток полный — мелким контуром не\n  закрывать.\n- Таблицу норм (`src/rates.ts`) в этом витке не трогаем: прицеп — свойство поездки, а не\n  новый класс автомобиля.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "src/rates.ts",
+      "test/rates.test.ts",
+      "test/trip.test.ts",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build-check.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/**/*.test.ts"
+      ]
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": {
+    "reasoning_effort": "none",
+    "max_tokens": 4096
+  },
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-transfer.json",
+  "acceptanceFile": "bench/checks/acceptance/trailer.mjs",
+  "control": "local",
+  "startedAt": "2026-10-14T14:19:19.807Z"
+}

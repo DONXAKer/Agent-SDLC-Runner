@@ -1,0 +1,252 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx16k",
+    "budgetMs": 3600000,
+    "activeMs": 16098,
+    "remainingMs": 3583902,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-11T19:18:16.398Z",
+        "inputRevision": "2bd47712307460b3ed2d8a1a7ea29bb570d316c74d1258cfd457b8a206db6fa4",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "1. Новый модуль `src/validate.ts` с `validateCustomer(customer): string[]` — список кодов\n   нарушений. Пустой список — покупатель валиден. Коды и их порядок фиксированы: сначала"
+          }
+        ],
+        "uncertainties": [
+          "Verify target files and add new module src/validate.ts with required logic, plus re-export in src/index.ts, then run tests to ensure no regressions."
+        ],
+        "action": "read",
+        "reason": "Verify target files and add new module src/validate.ts with required logic, plus re-export in src/index.ts, then run tests to ensure no regressions.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-2",
+          "ok": true,
+          "text": "{\"kind\":\"directory\",\"path\":\"src\",\"entries\":[{\"path\":\"src/config.ts\",\"kind\":\"file\"},{\"path\":\"src/customer.ts\",\"kind\":\"file\"},{\"path\":\"src/index.ts\",\"kind\":\"file\"},{\"path\":\"src/invoice.ts\",\"kind\":\"file\"},{\"path\":\"src/lines.ts\",\"kind\":\"file\"},{\"path\":\"src/money.ts\",\"kind\":\"file\"}],\"offset\":1,\"totalEntries\":6,\"partial\":false}"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-11T19:18:19.503Z",
+        "inputRevision": "2bd47712307460b3ed2d8a1a7ea29bb570d316c74d1258cfd457b8a206db6fa4",
+        "decision": "proceed",
+        "evidence": [],
+        "uncertainties": [
+          "Проверка рантайма: Нужен завершённый JSON без инструментальных вызовов"
+        ],
+        "action": "blocked",
+        "reason": "Проверка рантайма: Нужен завершённый JSON без инструментальных вызовов",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-recovery-20261011191731625-m1-t1",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-11T19:17:56.811Z",
+    "finishedAt": "2026-10-11T19:18:19.519Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Проверка рантайма: Нужен завершённый JSON без инструментальных вызовов",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 13154,
+          "outputTokens": 647,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 15916
+        },
+        "durationMs": 16198,
+        "requestDurationsMs": [
+          4492,
+          8340,
+          3084
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 2,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 4874,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "8b402ba735c6366440c05a3a433a7f4dad67605ead071c4b2aea5799a4d69629",
+      "configHash": "928ac82479bb24c9945fb2e1a5147f32ab323f7be01456ba3e3f887e72952fc5",
+      "localEndpoints": {},
+      "inputHash": "af591fb8c6bf30cf90ad70230d264d667d340001d4499ce23797032edd7e4eb6",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "7fdf0c4ee9449b3dd464ff051c284fb2a5d14c7cf7c744629e076016857aa4fa",
+    "state": "finished",
+    "capturedAt": "2026-10-11T19:18:19.538Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-11T19:18:19.506Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "ac76621608bcf9799a2cd5108f32c5788414bc210771e343d99fa05317f135d4",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "cd920a22fa15468bd1f634812b222981176ee0c57344e80876d52a7bf9ff1bfd",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "8839c2e3951f4e24dd73914718bbdd010ff5fc5ba530e9e93e0a14224c4d4bda",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

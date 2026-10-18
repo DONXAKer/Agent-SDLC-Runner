@@ -1,0 +1,325 @@
+{
+  "model": "assistant-session",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Work on the human task within the supplied boundaries. Read relevant code, implement, run checks, repair, then summarize evidence and remaining limitations.\nUse one continuous investigation and implementation loop. No process documents or mandatory plan artifacts are required.\nUse AskHuman only for missing business facts, contradictions, or a required scope change. Never invent missing facts. A question does not grant a scope expansion.\nUse mcp__task__check to run all registered visible checks. Shell commands are unavailable. Checks must pass after your final edit.\nPassing visible checks establishes readiness for review, not proof of all requirements. Compare the patch against every requirement before finishing."
+    },
+    {
+      "role": "user",
+      "content": "Task:\n# Валидация покупателя\n\nСчета выставляются на данные из формы заказа как есть: опечатка в email или телефоне\nузнаётся о себе неделю спустя, когда счёт так и не оплачен. Нужна валидация на выставлении.\n\n## Что должно получиться\n\n1. Новый модуль `src/validate.ts` с `validateCustomer(customer): string[]` — список кодов\n   нарушений. Пустой список — покупатель валиден. Коды и их порядок фиксированы: сначала\n   `'email'`, затем `'phone'`. Функция чистая: ничего не пишет и ничего не меняет.\n2. Правила email: ровно одна `@`; локальная часть непустая; домен содержит точку и не\n   начинается и не заканчивается на неё; пробелов нигде нет.\n3. Правила телефона: либо `+7` и ровно 10 цифр после, либо `8` и ровно 10 цифр после.\n   Никаких других символов (пробелов, скобок, дефисов) не допускаем — форма их не ставит.\n4. `validateCustomer` реэкспортируется из `src/index.ts`. На модуль есть тест рядом с\n   существующими (`test/`), набор прогнан по-настоящему командой проекта; в журнал этапа\n   идёт то, что напечатала команда.\n5. Существующие модули и тесты не трогаем: валидация — отдельная функция, сборка счёта её\n   пока не вызывает (это осознанно: встроить её в `buildInvoice` — отдельное решение, не\n   этого витка).\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/add-validator`. Виток полный — мелким контуром не закрывать.\n- Спецификация выше исчерпывающая: всё, что нужно для реализации, записано в этом документе\n  и в коде.\n\n\nHuman write boundaries (file or directory prefix):\n[\"src/\",\"test/\"]\nProtected paths:\n[\"src/invoice.ts\",\"src/money.ts\",\"src/lines.ts\",\"src/config.ts\",\"test/invoice.test.ts\",\"test/money.test.ts\",\"test/lines.test.ts\",\"src/customer.ts\",\"package.json\",\"package-lock.json\",\"scripts/\"]\n\nRegistered checks: build, test\nBaseline:\nbuild: PASS\nok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nмодулей загружено: 6 из 6\n\n\ntest: PASS\n▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (0.5649ms)\n  ✔ форма счёта — ровно пять полей (0.5573ms)\n✔ сборка счёта (2.1469ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (0.5869ms)\n  ✔ подытог — сумма по позициям (0.123ms)\n  ✔ пустой счёт — нулевой подытог (0.0919ms)\n✔ позиции счёта (1.6843ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (0.5954ms)\n  ✔ сумма и разность (0.1245ms)\n  ✔ разность не уходит ниже нуля (0.0866ms)\n  ✔ процент округляется половиной вверх (0.1094ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.1701ms)\n✔ деньги (2.2062ms)\nℹ tests 10\nℹ suites 3\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 160.5979\n"
+    },
+    {
+      "role": "assistant",
+      "content": "Проверю тип, экспорты и стиль тестов перед изменением.",
+      "toolCalls": [
+        {
+          "id": "001-0",
+          "name": "Read",
+          "arguments": {
+            "file_path": "src/customer.ts"
+          },
+          "rawArguments": "{\"file_path\":\"src/customer.ts\"}"
+        },
+        {
+          "id": "001-1",
+          "name": "Read",
+          "arguments": {
+            "file_path": "src/index.ts"
+          },
+          "rawArguments": "{\"file_path\":\"src/index.ts\"}"
+        },
+        {
+          "id": "001-2",
+          "name": "Read",
+          "arguments": {
+            "file_path": "test/invoice.test.ts"
+          },
+          "rawArguments": "{\"file_path\":\"test/invoice.test.ts\"}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "001-0",
+      "name": "Read",
+      "content": "1\t/**\n2\t * Покупатель, которому выставляется счёт.\n3\t *\n4\t * Данные приходят из формы заказа как есть — валидирует их тот, кто выставляет счёт,\n5\t * а не форма (форма не знает правил биллинга, и дублировать их там — лишняя связность).\n6\t */\n7\t\n8\texport interface Customer {\n9\t  name: string;\n10\t  email: string;\n11\t  phone: string;\n12\t}\n13\t"
+    },
+    {
+      "role": "tool",
+      "toolCallId": "001-1",
+      "name": "Read",
+      "content": "1\t/**\n2\t * Публичный контракт пакета.\n3\t *\n4\t * Всё, что вызывают снаружи, проходит через этот файл. Внутренние модули друг на друга\n5\t * ссылаются напрямую, но потребитель знает только отсюда.\n6\t */\n7\t\n8\texport { add, formatRub, percent, rub, subtract } from './money.ts';\n9\texport type { Kopeck } from './money.ts';\n10\t\n11\texport { lineTotal, subtotal } from './lines.ts';\n12\texport type { Line } from './lines.ts';\n13\t\n14\texport type { Customer } from './customer.ts';\n15\t\n16\texport { DEFAULT_CONFIG, resolveConfig } from './config.ts';\n17\texport type { BillingConfig } from './config.ts';\n18\t\n19\texport { buildInvoice } from './invoice.ts';\n20\texport type { Invoice } from './invoice.ts';\n21\t\n22\timport { buildInvoice } from './invoice.ts';\n23\timport type { BillingConfig } from './config.ts';\n24\timport type { Customer } from './customer.ts';\n25\timport type { Invoice } from './invoice.ts';\n26\timport type { Line } from './lines.ts';\n27\t\n28\t/** Точка входа для вызывающих: выставить счёт. */\n29\texport function bill(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  return buildInvoice(number, customer, lines, config);\n36\t}\n37\t"
+    },
+    {
+      "role": "tool",
+      "toolCallId": "001-2",
+      "name": "Read",
+      "content": "1\t/**\n2\t * Тесты сборки счёта.\n3\t *\n4\t * Счёт без налогов: итог совпадает с подытогом, форма Invoice — {number, customer, lines,\n5\t * subtotal, total}. Форма — контракт: её сверяют литералом, поэтому новые поля появляются\n6\t * в Invoice только когда им есть что сказать.\n7\t */\n8\t\n9\timport { deepStrictEqual, strictEqual } from 'node:assert/strict';\n10\timport { describe, it } from 'node:test';\n11\t\n12\timport { bill } from '../src/index.ts';\n13\t\n14\tconst customer = { name: 'Иван', email: 'ivan@example.ru', phone: '+79001234567' };\n15\t\n16\tdescribe('сборка счёта', () => {\n17\t  it('итог совпадает с подытогом, пока налогов нет', () => {\n18\t    const inv = bill('СЧ-1', customer, [\n19\t      { title: 'Пакет', qty: 2, priceK: 333 },\n20\t      { title: 'Коробка', qty: 1, priceK: 334 },\n21\t    ]);\n22\t    strictEqual(inv.subtotal, 1_000);\n23\t    strictEqual(inv.total, 1_000);\n24\t  });\n25\t\n26\t  it('форма счёта — ровно пять полей', () => {\n27\t    const inv = bill('СЧ-2', customer, [{ title: 'Пакет', qty: 1, priceK: 100 }]);\n28\t    deepStrictEqual(Object.keys(inv).sort(), ['customer', 'lines', 'number', 'subtotal', 'total']);\n29\t    strictEqual(inv.number, 'СЧ-2');\n30\t  });\n31\t});\n32\t"
+    },
+    {
+      "role": "assistant",
+      "content": "Добавлю чистую функцию, реэкспорт и отдельные тесты границ. Существующий расчёт счёта не меняю.",
+      "toolCalls": [
+        {
+          "id": "002-0",
+          "name": "Write",
+          "arguments": {
+            "file_path": "src/validate.ts",
+            "content": "import type { Customer } from './customer.ts';\n\n/** Проверить контактные данные без изменения покупателя. */\nexport function validateCustomer(customer: Customer): string[] {\n  const errors: string[] = [];\n  const parts = customer.email.split('@');\n  const [local, domain] = parts;\n  if (parts.length !== 2 || !local || !domain || /\\s/u.test(customer.email) ||\n      !domain.includes('.') || domain.startsWith('.') || domain.endsWith('.')) {\n    errors.push('email');\n  }\n  if (!/^(?:\\+7|8)[0-9]{10}$/u.test(customer.phone) || /\\s/u.test(customer.phone)) errors.push('phone');\n  return errors;\n}\n"
+          },
+          "rawArguments": "{\"file_path\":\"src/validate.ts\",\"content\":\"import type { Customer } from './customer.ts';\\n\\n/** Проверить контактные данные без изменения покупателя. */\\nexport function validateCustomer(customer: Customer): string[] {\\n  const errors: string[] = [];\\n  const parts = customer.email.split('@');\\n  const [local, domain] = parts;\\n  if (parts.length !== 2 || !local || !domain || /\\\\s/u.test(customer.email) ||\\n      !domain.includes('.') || domain.startsWith('.') || domain.endsWith('.')) {\\n    errors.push('email');\\n  }\\n  if (!/^(?:\\\\+7|8)[0-9]{10}$/u.test(customer.phone) || /\\\\s/u.test(customer.phone)) errors.push('phone');\\n  return errors;\\n}\\n\"}"
+        },
+        {
+          "id": "002-1",
+          "name": "Edit",
+          "arguments": {
+            "file_path": "src/index.ts",
+            "old_string": "export type { Customer } from './customer.ts';",
+            "new_string": "export type { Customer } from './customer.ts';\nexport { validateCustomer } from './validate.ts';"
+          },
+          "rawArguments": "{\"file_path\":\"src/index.ts\",\"old_string\":\"export type { Customer } from './customer.ts';\",\"new_string\":\"export type { Customer } from './customer.ts';\\nexport { validateCustomer } from './validate.ts';\"}"
+        },
+        {
+          "id": "002-2",
+          "name": "Write",
+          "arguments": {
+            "file_path": "test/validate.test.ts",
+            "content": "import { deepStrictEqual } from 'node:assert/strict';\nimport { test } from 'node:test';\nimport { validateCustomer } from '../src/index.ts';\nconst good = { name: 'Иван', email: 'a@b.ru', phone: '+79001234567' };\ntest('valid contact and alternate prefix', () => {\n  deepStrictEqual(validateCustomer(good), []);\n  deepStrictEqual(validateCustomer({ ...good, phone: '89001234567' }), []);\n});\ntest('email boundaries', () => {\n  for (const email of ['a@@b.ru', '@b.ru', 'a@b', 'a@.b.ru', 'a@b.ru.', 'a @b.ru', 'a@b.ru\\n'])\n    deepStrictEqual(validateCustomer({ ...good, email }), ['email']);\n});\ntest('phone boundaries', () => {\n  for (const phone of ['79001234567', '+7900123456', '+790012345678', '8900123456', '890012345678', '+7(900)1234567', '+79001234567\\n'])\n    deepStrictEqual(validateCustomer({ ...good, phone }), ['phone']);\n});\ntest('fixed error order and no mutation', () => {\n  const input = Object.freeze({ ...good, email: 'bad', phone: 'bad' });\n  deepStrictEqual(validateCustomer(input), ['email', 'phone']);\n  deepStrictEqual(input, { ...good, email: 'bad', phone: 'bad' });\n});\n"
+          },
+          "rawArguments": "{\"file_path\":\"test/validate.test.ts\",\"content\":\"import { deepStrictEqual } from 'node:assert/strict';\\nimport { test } from 'node:test';\\nimport { validateCustomer } from '../src/index.ts';\\nconst good = { name: 'Иван', email: 'a@b.ru', phone: '+79001234567' };\\ntest('valid contact and alternate prefix', () => {\\n  deepStrictEqual(validateCustomer(good), []);\\n  deepStrictEqual(validateCustomer({ ...good, phone: '89001234567' }), []);\\n});\\ntest('email boundaries', () => {\\n  for (const email of ['a@@b.ru', '@b.ru', 'a@b', 'a@.b.ru', 'a@b.ru.', 'a @b.ru', 'a@b.ru\\\\n'])\\n    deepStrictEqual(validateCustomer({ ...good, email }), ['email']);\\n});\\ntest('phone boundaries', () => {\\n  for (const phone of ['79001234567', '+7900123456', '+790012345678', '8900123456', '890012345678', '+7(900)1234567', '+79001234567\\\\n'])\\n    deepStrictEqual(validateCustomer({ ...good, phone }), ['phone']);\\n});\\ntest('fixed error order and no mutation', () => {\\n  const input = Object.freeze({ ...good, email: 'bad', phone: 'bad' });\\n  deepStrictEqual(validateCustomer(input), ['email', 'phone']);\\n  deepStrictEqual(input, { ...good, email: 'bad', phone: 'bad' });\\n});\\n\"}"
+        },
+        {
+          "id": "002-3",
+          "name": "mcp__task__check",
+          "arguments": {},
+          "rawArguments": "{}"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "002-0",
+      "name": "Write",
+      "content": "создан src/validate.ts (15 строк)"
+    },
+    {
+      "role": "tool",
+      "toolCallId": "002-1",
+      "name": "Edit",
+      "content": "src/index.ts — правок применено: 1: 1 вхожд."
+    },
+    {
+      "role": "tool",
+      "toolCallId": "002-2",
+      "name": "Write",
+      "content": "создан test/validate.test.ts (22 строк)"
+    },
+    {
+      "role": "tool",
+      "toolCallId": "002-3",
+      "name": "mcp__task__check",
+      "content": "build: PASS\nok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nok   validate.ts\nмодулей загружено: 7 из 7\n\n\ntest: PASS\n▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (0.5912ms)\n  ✔ форма счёта — ровно пять полей (0.5601ms)\n✔ сборка счёта (1.9536ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (0.587ms)\n  ✔ подытог — сумма по позициям (0.121ms)\n  ✔ пустой счёт — нулевой подытог (0.0905ms)\n✔ позиции счёта (1.6347ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (0.7368ms)\n  ✔ сумма и разность (0.1541ms)\n  ✔ разность не уходит ниже нуля (0.1069ms)\n  ✔ процент округляется половиной вверх (0.1182ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.7788ms)\n✔ деньги (3.1195ms)\n✔ valid contact and alternate prefix (1.2624ms)\n✔ email boundaries (0.2666ms)\n✔ phone boundaries (0.1438ms)\n✔ fixed error order and no mutation (0.2496ms)\nℹ tests 14\nℹ suites 3\nℹ pass 14\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 171.4316\n"
+    }
+  ],
+  "tools": [
+    {
+      "name": "Read",
+      "description": "Прочитать файл проекта. Для больших файлов укажи диапазон строк — целиком он не влезет.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу относительно корня проекта или абсолютный внутри него"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Строка, с которой начать (с 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Сколько строк прочитать"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Glob",
+      "description": "Найти файлы по glob-шаблону, например `src/**/*.ts`.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob-шаблон"
+          },
+          "path": {
+            "type": "string",
+            "description": "Каталог поиска; по умолчанию корень проекта"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Grep",
+      "description": "Поиск по содержимому файлов регулярным выражением.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Регулярное выражение"
+          },
+          "path": {
+            "type": "string",
+            "description": "Файл или каталог поиска; по умолчанию корень проекта"
+          },
+          "glob": {
+            "type": "string",
+            "description": "Дополнительный фильтр по именам файлов"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Write",
+      "description": "Create or replace a file inside the human write boundaries. Protected paths and destructive overwrites are rejected.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу"
+          },
+          "content": {
+            "type": "string",
+            "description": "Полное содержимое"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "Edit",
+      "description": "Заменить фрагмент в существующем файле. old_string должен встречаться ровно раз.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Путь к файлу"
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Фрагмент, который заменяем"
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Чем заменяем"
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Заменить все вхождения"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "AskHuman",
+      "description": "Задать вопрос человеку и дождаться ответа. Заменяет AskUserQuestion: этап встаёт на паузу, пока человек не ответит в интерфейсе. Максимум 4 вопроса за вызов, блокирующие первыми, один вопрос — одна неопределённость. К каждому варианту — цена ошибки в описании.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "Полный текст вопроса"
+                },
+                "header": {
+                  "type": "string",
+                  "description": "Короткая метка, до 12 символов"
+                },
+                "multiSelect": {
+                  "type": "boolean",
+                  "description": "Можно выбрать несколько"
+                },
+                "options": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "description": "Вариант"
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "Что это значит и чем грозит ошибка"
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "description"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "question",
+                "header",
+                "multiSelect",
+                "options"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "mcp__task__check",
+      "description": "Run all registered visible project checks on the current files.",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "params": null
+}

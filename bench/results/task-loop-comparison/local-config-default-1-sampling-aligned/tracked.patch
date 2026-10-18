@@ -1,0 +1,125 @@
+diff --git a/README.md b/README.md
+index 6376091..e0381f7 100644
+--- a/README.md
++++ b/README.md
+@@ -25,6 +25,7 @@
+ | Опция | Умолчание | Что задаёт |
+ |---|---|---|
+ | `currency` | `RUB` | Валюта счетов. |
++| `defaultDueDays` | `14` | Срок оплаты счёта по умолчанию, в днях, когда площадкой и вызовом не задан. Перебивается `opts.dueDays` при вызове `bill`. |
+ 
+ ## Как запускать
+ 
+diff --git a/src/config.ts b/src/config.ts
+index 689b3cb..a3e93ca 100644
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -9,10 +9,13 @@
+ export interface BillingConfig {
+   /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */
+   currency: 'RUB';
++  /** Срок оплаты по умолчанию, в днях. Не задан площадкой — счёту дают 14. */
++  defaultDueDays: number;
+ }
+ 
+ export const DEFAULT_CONFIG: BillingConfig = {
+   currency: 'RUB',
++  defaultDueDays: 14,
+ };
+ 
+ /** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */
+diff --git a/src/index.ts b/src/index.ts
+index 7bc87f8..3a20074 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -17,9 +17,10 @@ export { DEFAULT_CONFIG, resolveConfig } from './config.ts';
+ export type { BillingConfig } from './config.ts';
+ 
+ export { buildInvoice } from './invoice.ts';
+-export type { Invoice } from './invoice.ts';
++export type { Invoice, InvoiceOptions } from './invoice.ts';
+ 
+ import { buildInvoice } from './invoice.ts';
++import type { InvoiceOptions } from './invoice.ts';
+ import type { BillingConfig } from './config.ts';
+ import type { Customer } from './customer.ts';
+ import type { Invoice } from './invoice.ts';
+@@ -31,6 +32,7 @@ export function bill(
+   customer: Customer,
+   lines: readonly Line[],
+   config?: Partial<BillingConfig>,
++  opts?: InvoiceOptions,
+ ): Invoice {
+-  return buildInvoice(number, customer, lines, config);
++  return buildInvoice(number, customer, lines, config, opts);
+ }
+diff --git a/src/invoice.ts b/src/invoice.ts
+index a1ac2c9..bd87bff 100644
+--- a/src/invoice.ts
++++ b/src/invoice.ts
+@@ -23,6 +23,14 @@ export interface Invoice {
+   subtotal: Kopeck;
+   /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */
+   total: Kopeck;
++  /** Срок оплаты, в днях. Всегда задан: явная опция → конфиг площадки → встроенные 14. */
++  dueDays: number;
++}
++
++/** Опции вызова, переопределяющие параметры счёта. */
++export interface InvoiceOptions {
++  /** Срок оплаты, в днях. Перебивает `defaultDueDays` из конфига площадки. */
++  dueDays?: number;
+ }
+ 
+ /** Собрать счёт из позиций. */
+@@ -31,8 +39,10 @@ export function buildInvoice(
+   customer: Customer,
+   lines: readonly Line[],
+   config?: Partial<BillingConfig>,
++  opts?: InvoiceOptions,
+ ): Invoice {
+-  resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде
++  const resolved = resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде
++  const dueDays = opts?.dueDays ?? resolved.defaultDueDays;
+   const sub = subtotal(lines);
+-  return { number, customer, lines, subtotal: sub, total: sub };
++  return { number, customer, lines, subtotal: sub, total: sub, dueDays };
+ }
+diff --git a/test/invoice.test.ts b/test/invoice.test.ts
+index 2525a27..391285b 100644
+--- a/test/invoice.test.ts
++++ b/test/invoice.test.ts
+@@ -23,9 +23,31 @@ describe('сборка счёта', () => {
+     strictEqual(inv.total, 1_000);
+   });
+ 
+-  it('форма счёта — ровно пять полей', () => {
++  it('форма счёта — ровно шесть полей', () => {
+     const inv = bill('СЧ-2', customer, [{ title: 'Пакет', qty: 1, priceK: 100 }]);
+-    deepStrictEqual(Object.keys(inv).sort(), ['customer', 'lines', 'number', 'subtotal', 'total']);
++    deepStrictEqual(
++      Object.keys(inv).sort(),
++      ['customer', 'dueDays', 'lines', 'number', 'subtotal', 'total'],
++    );
+     strictEqual(inv.number, 'СЧ-2');
+   });
++
++  it('срок оплаты по умолчанию — встроенные 14', () => {
++    const inv = bill('СЧ-3', customer, [{ title: 'Пакет', qty: 1, priceK: 100 }]);
++    strictEqual(inv.dueDays, 14);
++  });
++
++  it('срок оплаты берётся из конфига площадки', () => {
++    const inv = bill('СЧ-4', customer, [{ title: 'Пакет', qty: 1, priceK: 100 }], {
++      defaultDueDays: 30,
++    });
++    strictEqual(inv.dueDays, 30);
++  });
++
++  it('опция вызова перебивает конфиг площадки', () => {
++    const inv = bill('СЧ-5', customer, [{ title: 'Пакет', qty: 1, priceK: 100 }], {
++      defaultDueDays: 30,
++    }, { dueDays: 7 });
++    strictEqual(inv.dueDays, 7);
++  });
+ });

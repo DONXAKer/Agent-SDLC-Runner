@@ -1,0 +1,275 @@
+{
+  "guided": null,
+  "run": {
+    "slug": "diag-ollama-qwen3-8-27b-iq4-gpumax-i02-1791545782668-5",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "task": "contradiction",
+    "fixtureDir": "fixtures/ledger",
+    "mode": {
+      "kind": "stage",
+      "stage": "intent"
+    },
+    "executionMode": "legacy",
+    "preparationVersion": 1,
+    "strictQuestions": false,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3.8-27b-iq4-gpumax",
+      "explore": "ollama:qwen3.8-27b-iq4-gpumax",
+      "ask": "ollama:qwen3.8-27b-iq4-gpumax",
+      "plan": "ollama:qwen3.8-27b-iq4-gpumax",
+      "chunk": "ollama:qwen3.8-27b-iq4-gpumax",
+      "verify": "ollama:qwen3.8-27b-iq4-gpumax",
+      "handoff": "ollama:qwen3.8-27b-iq4-gpumax"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent"
+    ],
+    "startedAt": "2026-10-09T11:36:24.378Z",
+    "finishedAt": "2026-10-09T11:37:37.057Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "страж завершения этапа закрыт добором рантайма после хода модели",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 14,
+        "closedBy": "runtime"
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-measured"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 23462,
+          "outputTokens": 885,
+          "cacheReadTokens": 16506,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 118093
+        },
+        "durationMs": 72084,
+        "requestDurationsMs": [
+          6304,
+          10026,
+          12646,
+          1748,
+          4337,
+          6349,
+          3417,
+          5677,
+          31630,
+          2398,
+          5706,
+          12136,
+          6838,
+          8897
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 2,
+        "approvals": 1,
+        "waitMs": 11
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:36d9f7a9-8935-42af-a4a9-ee717d63eaf3",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\diag-ollama-qwen3-8-27b-iq4-gpumax-i02-1791545782668-5\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      }
+    ],
+    "asks": [
+      {
+        "stage": "intent",
+        "questions": [
+          {
+            "id": "intent-open-0",
+            "question": "требует решения человека: механизм реализации превышения остатка для приоритетных заказов (использование объявленного прихода, виртуального резерва или модификация проверки доступности), так как в предоставленных фактах и исходниках указан только порог (120%), но не источник данных для превышения или технический способ его хранения"
+          },
+          {
+            "id": "intent-open-1",
+            "question": "требует решения человека: что именно напечатала команда `node --test \"test/**/*.test.ts\"` при реальном прогоне, поскольку предоставленные исходники не включают результат выполнения теста"
+          }
+        ],
+        "answeredFrom": "rule",
+        "tag": "fork.priority"
+      }
+    ],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "AskHuman",
+        "kind": "ask_human"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 11379,
+        "userChars": 4252,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [
+      {
+        "stage": "intent",
+        "requestId": "ask-0f02be45-2d23-4004-b72c-eb03bc5f77ce-1",
+        "questionId": "intent-open-0",
+        "text": "требует решения человека: механизм реализации превышения остатка для приоритетных заказов (использование объявленного прихода, виртуального резерва или модификация проверки доступности), так как в предоставленных фактах и исходниках указан только порог (120%), но не источник данных для превышения или технический способ его хранения"
+      },
+      {
+        "stage": "intent",
+        "requestId": "ask-0f02be45-2d23-4004-b72c-eb03bc5f77ce-1",
+        "questionId": "intent-open-1",
+        "text": "требует решения человека: что именно напечатала команда `node --test \"test/**/*.test.ts\"` при реальном прогоне, поскольку предоставленные исходники не включают результат выполнения теста"
+      }
+    ],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+      "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+      "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+      "localEndpoints": {},
+      "inputHash": "a77bae63fa384da81250971304826e4084f8d521d276b2ed132822c12ea92e7f",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 120000,
+      "runTimeoutMs": 120000
+    },
+    "workspaceHash": "38a1a3fa5b5d070f2e0add4dac497f293540b1c713482cf80c1e5e0e0d1603e5",
+    "state": "finished",
+    "capturedAt": "2026-10-09T11:37:37.081Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-09T11:37:36.972Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "27f4e4972cf67b0cb4aba89d9eee361d6fa5951155d843d95e02feb5ecfdca6c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "1596e55d3a0245bad451cec2633d154fd24cdc537cf69ffd03024da4485fcbe4",
+        "placeholders": 6,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "691acc883339cb5d4b80a45820329c97b7001b0e77d084d89c9ee92d9c972844",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "5c8409b1843be5b70e317f9058815a4e751dc1aff8482bc0187e65073e2c210c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

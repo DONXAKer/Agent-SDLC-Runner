@@ -11,6 +11,7 @@ import { LiveProgress } from '../components/run/LiveProgress.tsx';
 import { PromptColumn } from '../components/run/PromptColumn.tsx';
 import { RunHeader } from '../components/run/RunHeader.tsx';
 import { RunMetricsPanel } from '../components/run/RunMetricsPanel.tsx';
+import { ExecutionTimeline } from '../components/run/ExecutionTimeline.tsx';
 import { RunSummaryStrip } from '../components/run/RunSummaryStrip.tsx';
 import { VerdictCard } from '../components/run/VerdictCard.tsx';
 import { api } from '../lib/api.ts';
@@ -472,6 +473,15 @@ export function RunPage({
         <section className="rounded border border-slate-700 p-3 text-sm" aria-label="Проверяемые шаги">
           <p>Осталось {Math.ceil(detail.guided.remainingMs / 60000)} мин · {detail.guided.currentItem ?? 'Ожидание следующего этапа'}</p>
           {detail.guided.stopReason ? <p className="text-amber-300">{detail.guided.stopReason}</p> : null}
+          {detail.guided.progress ? <details>
+            <summary>Сохранённый прогресс · переиспользовано {detail.guided.progress.reused}</summary>
+            <p>Предложения: {detail.guided.progress.proposed} · наблюдения: {detail.guided.progress.observed} · устарело: {detail.guided.progress.stale}</p>
+            <p>Предложение модели требует проверки. Наблюдение может содержать неуспешный результат.</p>
+            {detail.guided.progress.units.map(unit => <p key={unit.id}>{unit.id}: {{ proposed: 'Предложено', observed: 'Результат наблюдения', stale: 'Источники изменились' }[unit.status]}</p>)}
+            {Object.entries(detail.guided.progress.recoveries).map(([id, recovery]) => <p key={id} className="text-amber-300">
+              {id}: {recovery.stopped ? 'Восстановление остановлено' : `Ошибок: ${recovery.failures}`} · {recovery.reason}
+            </p>)}
+          </details> : null}
           {detail.guided.items.map(item => <details key={item.id}>
             <summary>{item.id}: {{ pending: 'Ожидает', running: 'В работе', checked: 'Проверено', failed: 'Ошибка', blocked: 'Заблокировано' }[item.status]} · попыток {item.attempts}</summary>
             <p className="whitespace-pre-wrap">{item.title}</p>
@@ -674,11 +684,12 @@ export function RunPage({
             ) : null}
 
             {tab === 'events' ? (
+              <><ExecutionTimeline runId={runId} revision={events.length} />
               <EventStream
                 events={stageEvents}
                 precomputed={stageEventItems}
                 currency={detail?.currency}
-              />
+              /></>
             ) : null}
             {/* Патч попытки доступен с обоих diff-этапов: чинят по нему на chunk, судят на
                 verify — история нужна на обоих. */}

@@ -7505,3 +7505,44 @@ JSON сохранён, полноценным замером не являетс
 ревью не согласилось с результатом и гейты не были полностью подтверждены. См.
 `docs/guided-flow.md` для причин по этапам и предыдущих итераций. Не считать пару
 успешной и не объединять результаты отдельных запусков в воспроизводимую оценку.
+
+## Task-loop evidence: промежуточный срез 8/48 — 2026-10-14
+
+Пилот `bench/results/task-loop-evidence` (`ollama:qwen3.8-27b-iq4-gpumax`, arms
+local/evidence, repeats 3 → 48 ячеек). Остановлен оператором на `local-page-window-1`;
+завершено 8/48 (repeat 1 у range-union, option-overlay, csv-cell, cent-split).
+`sourceHash` `ac371717…` совпадает с текущим отпечатком → **догонять эту серию**, не
+открывать новую из‑за guided-фиксов ветки. Сводка: local 3/4 автоприёмка / 1 false-ready
+(~82 с); evidence 2/4 / 2 false-ready (~155 с, 51 vs 27 запросов, 6 repairAttempts).
+
+**Во что упёрлись.** (1) `option-overlay`: оба плеча — false success на H2 `"__proto__"`
+(own-свойство); visible не покрывает → structured feedback бессилен. (2)
+`evidence-cent-split-1`: repair-петля (5 repairs, 5 repeatedErrors) ушла от простого
+`floor`/`%` к `total >> 10` + while; visible зелёные, hidden timeout 60 с → 0/0 TAP;
+local на той же задаче принят 2/2. Класс: repair до зелёного check → патологический
+алгоритм → timeout скрытой оценки. Подробности:
+`bench/results/task-loop-evidence/findings-cent-split.md`, выводы —
+`conclusions.ru.md`.
+
+**Помогла ли настройка (evidence).** На срезе — нет: хуже или равна local по приёмке,
+дороже по времени. Включение evidence по умолчанию не принимается. Серия не валидирует
+guided-recovery (#2); для #2 — отдельный guided-suite.
+
+**Mitigations после среза (код, без повторного прогона).** В `TaskLoopExecutor`: таймаут
+каждого registered check через `AbortSignal.timeout(bashTimeoutMs)`; эскалация стратегии
+при `repeatedErrors >= 3`; опциональный стоп `maxRepeatedErrors` (пилот включает 5);
+промпт — простейший алгоритм без bit/precision трюков. В
+`option-overlay.visible.mjs` добавлен кейс own `"__proto__"`. `sourceHash` серии
+устарел — следующий замер только новой серией.
+
+## Task-loop evidence v2 + follow-ups — 2026-10-14
+
+Серия `bench/results/task-loop-evidence-v2`: local 7/8, evidence 6/8, false success 0,
+hidden timeout 0. Evidence не лучше; не включать по умолчанию. Отказы: option-overlay
+(`__proto__` + шумный TypeError visible → AskHuman); evidence-cent-split — код верный
+(hidden 2/2), но speculative AskHuman → needs_input.
+
+**После v2:** неотвеченный AskHuman при зелёных registered checks больше не блокирует
+ready; visible `__proto__` даёт явный assert; summary разделяет abandoned/needs_input,
+hidden fail и timeout; task option-overlay фиксирует own-key/`defineProperty`.
+Серия ≥3 повторов: `bench/results/task-loop-evidence-v3`.

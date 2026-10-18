@@ -219,6 +219,10 @@ export interface StageModule {
   missingSubagentsNote?: string;
   /** Закрывать ли этап, как только артефакт готов (`ExecRequest.closeOnFinalizeReady`); умолчание — да. */
   closeOnFinalizeReady?: boolean;
+  /** This stage completes only while runtime-owned implementation invariants hold. */
+  checksImplementationInvariants?: boolean;
+  /** Permit a bounded final-form repair for a single remaining placeholder. */
+  guidedPlaceholderRescue?: boolean;
   /** Чтения этого этапа подтверждают источники проработки. */
   tracksPreparationReads?: boolean;
   /** Переиспользование одобрений по проверенному результату субагента. */

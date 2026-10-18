@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
-import { runHiddenTests } from '../src/hiddenTests.ts';
+import { hiddenOutcomeOf, runHiddenTests } from '../src/hiddenTests.ts';
 
 const roots: string[] = [];
 after(() => {
@@ -35,6 +35,13 @@ describe('runHiddenTests: реальные скрытые тесты oversize', 
 });
 
 describe('runHiddenTests: разбор TAP на синтетическом файле', () => {
+  it('a failure outside named cases cannot produce a green assessment', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-hidden-'))); roots.push(dir);
+    const file = join(dir, 'partial.mjs');
+    writeFileSync(file, "import {test} from 'node:test'; test('R1 [regression] passes',()=>{}); test('unlabelled failure',()=>{throw new Error('failed')});");
+    const result = await runHiddenTests({ hiddenFile: file, targetDir: dir });
+    strictEqual(result.pass, 1); ok(result.errorText !== null);
+  });
   it('пустая цель без строк TAP даёт errorText, а не тихий 0/0', async () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sdlc-bench-hidden-')));
     roots.push(dir);
@@ -43,6 +50,14 @@ describe('runHiddenTests: разбор TAP на синтетическом фа�
     const r = await runHiddenTests({ hiddenFile: file, targetDir: dir });
     strictEqual(r.total, 0);
     ok(r.errorText !== null);
+    strictEqual(hiddenOutcomeOf(r), 'empty_tap');
+  });
+
+  it('hiddenOutcome различает timeout и пустой TAP', () => {
+    strictEqual(hiddenOutcomeOf({ total: 0, pass: 0, fail: 0, skipped: 0, cases: [],
+      errorText: 'скрытые тесты не дали ни одной разобранной строки TAP — снято по таймауту 60000 мс' }), 'timeout');
+    strictEqual(hiddenOutcomeOf({ total: 2, pass: 2, fail: 0, skipped: 0, cases: [], errorText: null }), 'pass');
+    strictEqual(hiddenOutcomeOf({ total: 2, pass: 1, fail: 1, skipped: 0, cases: [], errorText: null }), 'fail');
   });
 
   it('кейс, пропущенный самим тестом (# SKIP), не зелёный и не в знаменателе', async () => {

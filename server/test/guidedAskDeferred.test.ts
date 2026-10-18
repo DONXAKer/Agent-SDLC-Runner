@@ -92,3 +92,24 @@ test('legacy-origin question stays protocol after failures and blocks the stage'
   assert.equal(result.ok, false);
   assert.equal(preparation(paths)?.questionJournal?.entries[0]?.status, 'protocol');
 });
+
+test('intent-origin human without AskHuman answer is deferred instead of blocking', async () => {
+  const { root, paths } = fixture();
+  seedQuestion(paths, ['intent'], 'human');
+  const provider: ChatProvider = {
+    name: 'test',
+    chat: async () => ({
+      text: JSON.stringify({
+        kind: 'human', missingDecision: 'правило', options: ['да', 'нет'],
+        consequence: 'разное поведение', reason: 'нет в коде',
+      }),
+      toolCalls: [], finishReason: 'end_turn' as const, usage: { ...emptyUsage(), inputTokens: 1, outputTokens: 1 },
+    }),
+  };
+  const h = hooks();
+  h.onAskHuman = async () => ({}); // strict-questions / пустой банк
+  const result = await new GuidedAskExecutor(host(paths), { provider, params: null, contextWindow: 16384 })
+    .run(request(root), h);
+  assert.equal(result.ok, true, result.note);
+  assert.equal(preparation(paths)?.questionJournal?.entries[0]?.status, 'deferred');
+});

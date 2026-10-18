@@ -368,6 +368,11 @@ export interface ModelsConfig {
 }
 
 export interface ProfileDef {
+  /** Experimental selection of independently validated guided plans. */
+  planSelection?: { candidates: 1 | 2 | 3; judgeModel?: string };
+  chunkSelection?: { candidates: 2 | 3; judgeModel?: string; candidateTimeoutMs?: number };
+  /** Independent guided v4 experiments; omitted means the established behavior. */
+  guidedImprovements?: { consumerContext?: boolean; evidenceRepair?: boolean };
   label: string;
   /**
    * Модель этапа. Список — ансамбль: несколько независимых прогонов одного этапа.
@@ -515,6 +520,9 @@ export interface ResolvedRoute {
 }
 
 export interface ResolvedProfile {
+  chunkSelection?: { candidates: 2 | 3; judge: ResolvedRoute; candidateTimeoutMs?: number };
+  guidedImprovements?: { consumerContext?: boolean; evidenceRepair?: boolean };
+  planSelection?: { candidates: 1 | 2 | 3; judge: ResolvedRoute };
   name: string;
   label: string;
   /**

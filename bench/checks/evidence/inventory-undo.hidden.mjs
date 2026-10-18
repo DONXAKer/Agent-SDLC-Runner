@@ -1,0 +1,5 @@
+import {test} from 'node:test'; import assert from 'node:assert/strict'; import {pathToFileURL} from 'node:url'; import {resolve} from 'node:path';
+const mod=await import(pathToFileURL(resolve(process.env.BENCH_TARGET_DIR,"src/inventory.mjs")).href);
+const fn=mod["createInventory"];
+test('H1 [contract] public module contract',()=>{assert.equal(mod.protocolVersion,1);assert.equal(typeof fn,'function');});
+test('H2 [behavior] independent boundary and sequence cases',async()=>{const initial={x:8};const a=fn(initial),b=fn(initial);initial.x=0;assert.equal(a.available('x'),8);const t=a.reserve('x',3),u=a.reserve('x',2);assert.notEqual(t,u);assert.equal(a.available('x'),3);assert.equal(a.reserve('x',4),null);assert.equal(b.release(t),false);assert.equal(a.release(t),true);assert.equal(a.release(t),false);assert.equal(a.available('x'),6);assert.equal(a.available('missing'),0);assert.equal(a.reserve('missing',1),null);for(const q of [0,-1,1.5,NaN])assert.throws(()=>a.reserve('x',q),RangeError);assert.equal(b.available('x'),8);});

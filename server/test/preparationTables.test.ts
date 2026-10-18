@@ -1,6 +1,11 @@
 import { strictEqual, ok } from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { normalizePreparationTables } from '../src/artifacts/preparation.ts';
+import {
+  materializeAcceptanceSeed,
+  mergeAcceptanceSeedAnswer,
+  normalizePreparationTables,
+  seedAcceptanceFromRequests,
+} from '../src/artifacts/preparation.ts';
 import { parseTables } from '../src/md/table.ts';
 
 const template = [
@@ -148,5 +153,50 @@ describe('preparation JSON table rendering', () => {
     strictEqual(result.changed, true);
     ok(result.text.includes('| request-1:L1-L1 | s | k | claim-1 |'));
     ok(!result.text.includes('Когда moveHold exists'));
+  });
+
+  it('salvages truncated acceptance JSON inside markers', () => {
+    const truncated = '[{"id":"claim-1","behavior":"ok","procedure":"run","expected":"pass"}';
+    const input = template.replace('‹acceptance_json›', truncated)
+      .replace('‹basis_json›', JSON.stringify([{ id: 'claim-1', basis: 'request-1:L1-L1', scenario: 's', counterexample: 'k' }]));
+    const result = normalizePreparationTables(input, true, ['request']);
+    strictEqual(result.problem, null, result.problem ?? undefined);
+    ok(result.text.includes('| claim-1 | ok |'));
+  });
+
+  it('names an unfilled acceptance placeholder explicitly', () => {
+    const result = normalizePreparationTables(template, true);
+    ok(result.problem?.includes('ещё не заполнен'));
+  });
+
+  it('seeds acceptance id/behavior from numbered request items and merges procedure/expected', () => {
+    const request = [
+      '## Что должно получиться',
+      '',
+      '1. Функция `canonSku` обрезает пробелы и поднимает регистр.',
+      '2. Канонизация на всех границах пакета.',
+      '3. Тест рядом с существующими.',
+      '',
+      '## Рамки',
+      '- README не трогаем',
+    ].join('\n');
+    const seeds = seedAcceptanceFromRequests([request]);
+    strictEqual(seeds.length, 3);
+    strictEqual(seeds[0]?.id, 'claim-1');
+    ok(seeds[0]?.behavior.includes('canonSku'));
+    strictEqual(seeds[0]?.procedure, '');
+    const merged = mergeAcceptanceSeedAnswer(seeds, JSON.stringify([
+      { id: 'claim-1', procedure: 'вызвать canonSku', expected: 'верхний регистр' },
+      { id: 'claim-2', procedure: 'проход границ', expected: 'грязный код найден' },
+    ]));
+    ok(merged !== null);
+    const rows = JSON.parse(merged!) as { id: string; behavior: string; procedure: string; expected: string }[];
+    strictEqual(rows.length, 3);
+    strictEqual(rows[0]?.behavior, seeds[0]?.behavior);
+    strictEqual(rows[0]?.procedure, 'вызвать canonSku');
+    ok(rows[2]?.procedure.startsWith('Проверить по запросу:'));
+    ok(rows[2]?.expected.includes('Соответствует пункту'));
+    const material = materializeAcceptanceSeed(seeds);
+    ok(material.every((row) => row.procedure !== '' && row.expected !== '' && !/[‹›]/u.test(row.procedure)));
   });
 });

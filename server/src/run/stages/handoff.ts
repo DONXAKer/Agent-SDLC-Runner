@@ -437,6 +437,8 @@ async function staleVerdictReason(host: StageHost): Promise<string | null> {
 }
 
 export const handoffModule: StageModule = {
+  checksImplementationInvariants: true,
+  guidedPlaceholderRescue: true,
   def: handoffStage,
   runtimeFacts: [
     { id: 'run-postmortem', purpose: 'измеренные расход, длительность и итоги витка', freshness: 'current-run' },

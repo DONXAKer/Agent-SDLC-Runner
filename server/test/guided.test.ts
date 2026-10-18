@@ -16,7 +16,7 @@ import { accountGuidedTime, appendGuidedJournalFacts, guidedInputRevision, guide
 import { guidedRetryFiles, observedImplementationContext } from '../src/run/guidedExecutor.ts';
 import { guidedRequiredImplementationPaths, guidedPlanResponseFormat, parseGuidedPlan, renderGuidedPlan, validateGuidedPlanCoverage, applyGuidedPlanRepair, incorporateRuntimePlanCards, assignGuidedPlanFileState, renumberGuidedPlan, guidedPlanRepairTargets, guidedPlanRepairResponseFormat, guidedDuplicateMerge, guidedPlanKnownImpactProblem, guidedPlanPublicApiClaims, guidedPlanDependencyClaims, guidedPlanSecurityClaims, guidedPlanFieldsProblem, archiveReplacedGuidedPlan, GuidedPlanExecutor } from '../src/exec/GuidedPlanExecutor.ts';
 import { chunkScopeSignals } from '../src/run/stages/chunk/evidence.ts';
-import { parseGuidedJson } from '../src/exec/guidedJson.ts';
+import { canonicalStructuredClaimJson, parseGuidedDecisionJson, parseGuidedJson, salvageGuidedJson, unwrapStructuredClaimRows } from '../src/exec/guidedJson.ts';
 import { addRequirementsHash, readRequirementsHash, resolvedRequirementsHash } from '../src/artifacts/resolvedRequirements.ts';
 import { guidedFileResearchResponseFormat, GuidedExploreExecutor, renderGuidedResearch } from '../src/exec/GuidedExploreExecutor.ts';
 import type { ExploreExecutorOptions } from '../src/exec/ExploreExecutor.ts';
@@ -26,17 +26,18 @@ import { writeArtifact } from '../src/artifacts/artifact.ts';
 import { extractHumanFacts } from '../src/artifacts/humanFacts.ts';
 import { initializePreparation, preparation, savePreparation, preparationPlanEvidenceProblem, recordPreparationRead, recordPreparationImplementation, sourceHash, planContentHash } from '../src/artifacts/preparation.ts';
 import { AXES } from '../src/artifacts/planAxes.ts';
-import { guidedPlanTargetProblem, guidedPlanCallersProblem } from '../src/exec/GuidedPlanExecutor.ts';
+import { guidedPlanTargetProblem, guidedPlanCallersProblem, normalizeGuidedCallers, coerceTaskNamedSymbols } from '../src/exec/GuidedPlanExecutor.ts';
+import { GuidedProgress } from '../src/run/guidedProgress.ts';
 import { extractExplicitSteps } from '../src/artifacts/planSteps.ts';
 
-function fixture(t: TestContext): { root: string; paths: WitokPaths } {
+function fixture(t: TestContext, version: 1 | 4 = 1): { root: string; paths: WitokPaths } {
   const root = mkdtempSync(join(tmpdir(), 'guided-test-'));
   t.after(() => {
     assert.ok(!relative(tmpdir(), root).startsWith('..'));
     rmSync(root, { recursive: true, force: true });
   });
   const paths = new WitokPaths(root, 'test');
-  initGuided(paths, 'local:test');
+  initGuided(paths, 'local:test', version);
   return { root, paths };
 }
 const item = (files: string[]): WorkItem => ({ id: 'work-1', title: 'add behavior', files,
@@ -53,6 +54,73 @@ function provider(replies: unknown[]): ChatProvider {
   return { name: 'test', chat: async () => ({ text: JSON.stringify(replies[Math.min(i++, replies.length - 1)]), toolCalls: [],
     finishReason: 'end_turn', usage: emptyUsage() }) } as ChatProvider;
 }
+
+test('durable chunk recovery stops after four malformed proposals and survives restart', async t => {
+  const { root, paths } = fixture(t);
+  writeFileSync(join(root, 'a.ts'), 'export const n = 1;');
+  let calls = 0;
+  const broken = { name: 'test', chat: async () => {
+    calls++;
+    return { text: 'not JSON', toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() };
+  } } as ChatProvider;
+  const executor = () => new GuidedExecutor({ provider: broken, paths, items: [item(['a.ts'])],
+    inputRevision: () => 'r1', requirements: '{}', sources: '', contextWindow: 16000,
+    check: async () => ({ passed: true, result: 'ok' }) });
+  const req = () => ({ ...request(root), prompt: { ...request(root).prompt, guidedProtocol: true }, progress: new GuidedProgress(paths) });
+  assert.equal((await executor().run(req(), hooks())).ok, false);
+  assert.equal(calls, 4);
+  assert.equal((await executor().run(req(), hooks())).ok, false);
+  assert.equal(calls, 4, 'restart cannot buy another sample with unchanged inputs');
+});
+
+test('plan recovery remains stopped across restart when no candidate can be narrowed', async t => {
+  const { root, paths } = fixture(t);
+  initializePreparation(paths, 'Implement n.', 3);
+  const state = preparation(paths)!;
+  savePreparation(paths, { ...state, canonical: { requirements: { documentHash: 'test',
+    acceptance: [{ id: 'claim-1', behavior: 'n returns one', procedure: 'call n', expected: 'one' }], basis: [],
+    constraints: { inScope: [], outOfScope: [], invariants: [], assumptions: [], questions: [] } } } });
+  let calls = 0;
+  const model = { name: 'test', chat: async () => {
+    calls++; return { text: '{}', toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() };
+  } } as ChatProvider;
+  const executor = () => new GuidedPlanExecutor({ paths, provider: model, params: null, contextWindow: 16384, slug: 'test' });
+  const req = () => ({ ...request(root), progress: new GuidedProgress(paths) });
+  assert.equal((await executor().run(req(), hooks())).ok, false);
+  assert.equal(calls, 3);
+  assert.equal((await executor().run(req(), hooks())).ok, false);
+  assert.equal(calls, 3);
+});
+
+test('v4 stops identical rejected operations and does not buy another sample on resume', async t => {
+  const { root, paths } = fixture(t, 4);
+  writeFileSync(join(root, 'a.ts'), 'export const n = 1;\n');
+  let calls = 0;
+  const model: ChatProvider = { name: 'repeat', async chat() { calls++; return { text: JSON.stringify({
+    action: 'patch', prediction: 'remove missing', ops: [{ op: 'delete', symbol: 'absent' }],
+  }), toolCalls: [], finishReason: 'end_turn', usage: emptyUsage() }; } };
+  const executor = () => new GuidedExecutor({ paths, provider: model, items: [item(['a.ts'])], inputRevision: () => 'same',
+    requirements: '', sources: '', contextWindow: 16384, check: async () => ({ passed: false, result: 'not implemented' }) });
+  const req = () => ({ ...request(root), guidedEngineVersion: 4 as const, progress: new GuidedProgress(paths) });
+  const result = await executor().run(req(), hooks());
+  assert.equal(result.ok, false); assert.equal(result.failure?.kind, 'operation');
+  assert.match(result.note ?? '', /Повторено отклонённое/); assert.equal(calls, 2);
+  assert.equal((await executor().run(req(), hooks())).ok, false); assert.equal(calls, 2);
+  assert.equal(readFileSync(join(root, 'a.ts'), 'utf8'), 'export const n = 1;\n');
+});
+
+test('v4 Plan refuses unreviewed contract before any model request', async t => {
+  const { root, paths } = fixture(t, 4);
+  initializePreparation(paths, 'Implement n.', 3);
+  const state = preparation(paths)!;
+  savePreparation(paths, { ...state, canonical: { requirements: { documentHash: 'test',
+    acceptance: [{ id: 'claim-1', behavior: 'n returns one', procedure: 'call n', expected: 'one' }], basis: [],
+    constraints: { inScope: [], outOfScope: [], invariants: [], assumptions: [], questions: [] } } } });
+  const provider: ChatProvider = { name: 'must-not-call', async chat() { throw new Error('Unexpected model call'); } };
+  const result = await new GuidedPlanExecutor({ paths, provider, params: null, contextWindow: 16384, slug: 'test' })
+    .run({ ...request(root), guidedEngineVersion: 4, progress: new GuidedProgress(paths) }, hooks());
+  assert.equal(result.ok, false); assert.equal(result.modelRequests, 0); assert.equal(result.failure?.retryStage, 'intent');
+});
 
 test('reject outside paths, foreign files and whole-file rewrites before writing', t => {
   const { root } = fixture(t);
@@ -215,19 +283,33 @@ test('caller map validation requires an addressed decision for every pre-filled 
     check: 'npm test', expected: 'pass', contract: '`bill(total)` → `bill(total, zone)`', dependsOn: [] };
   const plan = { approach: 'change', steps: [step], excluded: [],
     axes: AXES.map(name => ({ name, affected: false, reason: 'r', outcome: 'o' })), changes: 'none', callers: [] as { symbol: string; caller: string; covered: 'да' | 'нет'; decision: string }[] };
-  assert.match(guidedPlanCallersProblem(plan, callerFacts) ?? '', /шаг 1: src\/index\.ts:bill ← test\/invoice\.test\.ts:18 \(checkBill\): нет решения/u);
+  assert.match(guidedPlanCallersProblem(plan, callerFacts) ?? '', /шаг 1: src\/index\.ts:bill ← test\/invoice\.test\.ts:18 \(checkBill\): нет decision/u);
   const decided = { ...plan, steps: [step, { ...step, id: 2, file: 'src/cli.ts', contract: 'н/п — вызов обновлён', symbol: 'новый: main' }], callers: [
     { symbol: 'src/index.ts:bill', caller: 'test/invoice.test.ts:18 (checkBill)', covered: 'нет' as const, decision: 'zone имеет значение по умолчанию; вызов совместим без правок' },
     { symbol: 'src/index.ts:bill', caller: 'src/cli.ts:7', covered: 'да' as const, decision: 'передаёт zone' }] };
   assert.equal(guidedPlanCallersProblem(decided, callerFacts), null);
   const wrongScope = { ...decided, callers: [{ ...decided.callers[0]!, covered: 'да' as const }, decided.callers[1]!] };
-  assert.match(guidedPlanCallersProblem(wrongScope, callerFacts) ?? '', /covered «да», но файл не входит в files_to_touch/u);
+  const normalized = normalizeGuidedCallers(wrongScope, callerFacts);
+  assert.equal(normalized.callers.find((row) => row.caller.startsWith('test/invoice'))?.covered, 'нет');
+  assert.equal(normalized.callers.find((row) => row.caller.startsWith('src/cli'))?.covered, 'да');
+  assert.equal(normalized.callers.find((row) => row.caller.startsWith('src/cli'))?.decision, 'файл в files_to_touch — правка на chunk');
+  assert.equal(guidedPlanCallersProblem(wrongScope, callerFacts), null, 'после нормализации covered расхождение снимается');
   const wrongScopeBack = { ...decided, callers: [decided.callers[0]!, { ...decided.callers[1]!, covered: 'нет' as const }] };
-  assert.match(guidedPlanCallersProblem(wrongScopeBack, callerFacts) ?? '', /covered «нет», но файл уже в files_to_touch/u);
+  assert.equal(guidedPlanCallersProblem(wrongScopeBack, callerFacts), null, 'covered=нет на файле из steps перезаписывается в да');
   assert.equal(guidedPlanCallersProblem({ ...plan, steps: [{ ...step, contract: 'н/п — сигнатура не меняется' }] }, callerFacts), null,
     'шаг без изменения контракта не требует решений');
   assert.equal(guidedPlanCallersProblem({ ...plan, steps: [{ ...step, symbol: 'новый: billV2' }] }, callerFacts), null,
     'новый символ не имеет вызывающих в индексе');
+});
+
+test('coerceTaskNamedSymbols promotes bare names from the request to isNew', () => {
+  const plan = { approach: 'a', steps: [{ id: 1, file: 'src/a.ts', isNew: false, symbol: 'emailPattern',
+    action: 'add', claims: ['claim-1'], check: 't', expected: 'ok', contract: 'н/п', dependsOn: [] }],
+    excluded: [], axes: [], changes: 'none', callers: [] };
+  const coerced = coerceTaskNamedSymbols(plan, [], ['Добавь emailPattern в конфиг'], '## Что делаем\n');
+  assert.equal(coerced.steps[0]?.symbol, 'новый: emailPattern');
+  const invented = coerceTaskNamedSymbols(plan, [], ['Без этого имени'], 'intent');
+  assert.equal(invented.steps[0]?.symbol, 'emailPattern');
 });
 
 test('a named export with a generic add-export action identifies the literal symbol', t => {
@@ -903,7 +985,7 @@ test('task clock reports the actual persisted budget for new and older tasks', t
   }
 });
 
-test('guided questions persist literal human facts and close only answered questions', async t => {
+test('guided v4 questions persist literal human facts and close only answered questions', async t => {
   const { root, paths } = fixture(t);
   writeArtifact(paths.intent, '# Task\n## Открытые вопросы\n- [ ] [блокирующий] Порог?\n');
   writeArtifact(paths.explorationReport, '# Research\n## Вопросы человеку\n- [ ] [блокирующий] Порог?\n- [ ] [блокирующий] Валюта?\n');
@@ -913,13 +995,13 @@ test('guided questions persist literal human facts and close only answered quest
     if (call.kind === 'ask_human') assert.equal(call.questions.length, 2);
     return { 'guided-question-0': ['5000'], 'guided-question-1': [] };
   };
-  const result = await new GuidedAskExecutor(host).run(request(root), h);
+  const result = await new GuidedAskExecutor(host).run({ ...request(root), guidedEngineVersion: 4 }, h);
   assert.equal(result.ok, false); assert.equal(result.modelRequests, 0);
   assert.equal(extractHumanFacts(readFileSync(paths.clarificationReport, 'utf8'))[0]?.answer, '5000');
   assert.ok(readFileSync(paths.intent, 'utf8').includes('[x] [блокирующий] Порог?'));
   assert.ok(readFileSync(paths.explorationReport, 'utf8').includes('[ ] [блокирующий] Валюта?'));
   h.onAskHuman = async () => ({ 'guided-question-0': ['рубли'] });
-  assert.equal((await new GuidedAskExecutor(host).run(request(root), h)).ok, true);
+  assert.equal((await new GuidedAskExecutor(host).run({ ...request(root), guidedEngineVersion: 4 }, h)).ok, true);
   assert.equal(extractHumanFacts(readFileSync(paths.clarificationReport, 'utf8')).length, 2);
 });
 
@@ -1389,6 +1471,28 @@ test('simulateOps adds .ts extension to bare relative import when target exists 
   ]);
   const commands = changed.find(s => relative(root, s.path).replace(/\\/g, '/') === 'src/commands.ts');
   assert.ok(commands?.after.includes("import { v } from './validate.ts';"), 'extension is added for existing file on disk');
+});
+
+test('guidedJson unwraps acceptance wrapper and salvages truncated JSON', () => {
+  assert.deepEqual(unwrapStructuredClaimRows({ acceptance: [{ id: 'claim-1' }] })?.length, 1);
+  const canonical = canonicalStructuredClaimJson('{"acceptance":[{"id":"claim-1","behavior":"b","procedure":"p","expected":"e"}]}');
+  assert.match(canonical ?? '', /"claim-1"/);
+  assert.ok(salvageGuidedJson('[{"id":1,"file":"a.ts","isNew":false'));
+  const truncated = canonicalStructuredClaimJson('[{"id":"claim-1","behavior":"b","procedure":"p","expected":"e"}');
+  assert.match(truncated ?? '', /"claim-1"/);
+  assert.deepEqual(parseGuidedDecisionJson('{"ok":true}', [{ id: '1' }]), { ok: true });
+  assert.throws(() => parseGuidedDecisionJson('not json', [{ id: '1' }]), /завершённый JSON/);
+  // Пустой text + один tool call: payload из arguments (канал gpt-oss / local adapters).
+  assert.deepEqual(
+    parseGuidedDecisionJson('', [{ id: '1', name: 'stage_decision', arguments: { decision: 'go', next: { action: 'proceed' } }, rawArguments: '' }]),
+    { decision: 'go', next: { action: 'proceed' } },
+  );
+  assert.deepEqual(
+    parseGuidedDecisionJson('', [{ id: '1', name: 'x', arguments: undefined, rawArguments: '{"from":"raw"}' }]),
+    { from: 'raw' },
+  );
+  assert.throws(() => parseGuidedDecisionJson('', [{ id: '1' }, { id: '2' }]), /завершённый JSON/);
+  assert.throws(() => parseGuidedDecisionJson('', []), /end of JSON|JSON/i);
 });
 
 test('simulateOps leaves bare relative import unchanged when target does not exist', t => {

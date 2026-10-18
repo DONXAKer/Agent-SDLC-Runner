@@ -98,6 +98,7 @@ export const chunkStage: StageDef = {
 };
 
 export const chunkModule: StageModule = {
+  checksImplementationInvariants: true,
   subagentResult: reuseLocatorApproval,
   def: chunkStage,
   runtimeFacts: [{ id: 'carry-forward', purpose: 'диагнозы и результаты гейтов предыдущей попытки для корректирующей работы', freshness: 'attempt' }],

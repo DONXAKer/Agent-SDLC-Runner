@@ -1,0 +1,333 @@
+{
+  "guided": null,
+  "run": {
+    "slug": "diag-ollama-gpt-oss-20b-compactfill-c02-1791542234965-5",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "rename-field",
+    "fixtureDir": "fixtures/catalog",
+    "mode": {
+      "kind": "stage",
+      "stage": "chunk"
+    },
+    "executionMode": "legacy",
+    "preparationVersion": 1,
+    "strictQuestions": false,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "chunk"
+    ],
+    "startedAt": "2026-10-09T10:37:16.121Z",
+    "finishedAt": "2026-10-09T10:39:16.749Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "этап отменён оператором",
+        "blockers": [],
+        "timedOut": true,
+        "skipped": false,
+        "modelRequests": 6
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "stage-timeout"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 30181,
+          "outputTokens": 6001,
+          "cacheReadTokens": 17718,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 110245
+        },
+        "durationMs": 119836,
+        "requestDurationsMs": [
+          23441,
+          18029,
+          6310,
+          5091,
+          23561,
+          33821
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "chunk",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 7
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "chunk-1-journal.md",
+        "placeholders": 5
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "chunk",
+        "requestId": "step:96bd2328-9000-41cc-b216-4d2d67f28fda",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/product.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      },
+      {
+        "stage": "chunk",
+        "requestId": "step:74834197-7d90-4d32-986b-5354079d5a44",
+        "kind": "edit",
+        "toolName": "Edit",
+        "targets": [
+          "src/store.ts"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      },
+      {
+        "stage": "chunk",
+        "toolName": "Edit",
+        "kind": "edit"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "chunk",
+        "systemChars": 13424,
+        "userChars": 20291,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 6,
+    "pass": 3,
+    "fail": 3,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "not ok 1 - R1 [regression]: Round-trip записи, собранной конструктором: parse(serialize(product('A-1','Шуруп 4×40',100))) возвращает то же название, цену и идентификатор — до переименования и после."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: loadAll двух строк файла в старом формате (`code`) — читается и до витка, и после: старые файлы обязаны читаться."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-2): Старая строка с `code` читается в новое поле: parse('{\"code\":\"A-1\",…}').sku === 'A-1'."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-3): serialize пишет ключ sku и НЕ пишет ключ code: подстрока '\"sku\":\"A-1\"' есть, подстроки '\"code\"' нет."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "not ok 5 - Pr3 [precision] (claim-2): Оба имени в строке — побеждает sku: parse('{\"code\":\"OLD\",\"sku\":\"NEW\",…}').sku === 'NEW'."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "not ok 6 - Pr4 [precision] (claim-1): Round-trip нового формата: parse(serialize({sku,title,priceK})) равен исходной записи целиком — поля code у прочитанной записи нет."
+      }
+    ],
+    "errorText": null
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "3 из 6 скрытых тестов зелёные, но прогон успеха и не объявлял — это дефект кода (щуп «точность правки»), а не расхождение слов с фактом"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5be3cad6eaf3ab6f97fa0f3fe1ca1f91df09f816",
+      "sourceHash": "27a458085cfedebd69ba7c2fa259b81fe096f29fba31be1edfbb1851967a5300",
+      "configHash": "9a486dc819fc53022c094e2c6d5557e17ae47d264a09e571edaa9e50e81b526b",
+      "localEndpoints": {},
+      "inputHash": "743073ddc156529224c57eb147a6751eddb18576530cd579cab40afba00df59a",
+      "snapshotName": "rename-field-plan-diagnostic-v2",
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 120000,
+      "runTimeoutMs": 120000
+    },
+    "workspaceHash": "d98c001bf86d3aada70fa37d5fac1c38b872224685890bb34236905f7a9bce8f",
+    "state": "finished",
+    "capturedAt": "2026-10-09T10:39:17.023Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "chunk",
+      "at": "2026-10-09T10:39:16.725Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/chunk-1-attempt-1-steps.md",
+        "sha256": "f8c387233b5f9bbb073be74031af3e005e52ad42cf330a44198c15bb8a7dd019",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "926a4692aef291b69ebe5ac5708787cbfdb2ba64de036c4533e7806b9c9dd863",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "bff83282cce615c0fc57a80a861cd24a2325e89a584b5538c1ce67704d679bd0",
+        "placeholders": 5,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "dee9eec8377dd7ce37d4847b4422078cfe7558bd49e1df9e7b0df02f350e72af",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "bf3cc26803536abe5befab21645118039ba7c46eb658547cda1048cec7cc8651",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "c9d375d75b9538b2ffb001824f7fc71f2a8947c5eebb3aa408faa967429c28ce",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "d1a695bc0160750a691620907eb1836e2921cfac3e63dfd66b957f76939aecb5",
+        "placeholders": 3,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "41482ed820f1b2664908a91839d91f4871c2cffa02744acebe312b7e5d14125b",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

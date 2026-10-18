@@ -1,0 +1,298 @@
+import { createHash } from 'node:crypto';
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Decision, NormalizedCall, PreparedPrompt, Question, ToolName, Usage } from '@sdlc-runner/shared';
+import { addUsage, emptyUsage } from '@sdlc-runner/shared';
+import { evaluate } from '../policy/index.ts';
+import { foldPathCase, relativizeWithin, resolveUserPath } from '../policy/paths.ts';
+import { symlinkEscape } from '../approval/symlink.ts';
+import { destructiveOverwrite } from '../approval/destructive.ts';
+import { ProviderEnvError } from '../provider/ChatProvider.ts';
+import { LoopExecutor, type LoopOptions } from './LoopExecutor.ts';
+import { ExecutionObserver } from './executionObserver.ts';
+import type { ExecHooks, StageResult } from './StageExecutor.ts';
+
+/** Pilot contract comes from the human, never from the model's proposed plan. */
+export interface TaskLoopContract {
+  task: string;
+  /** Exact relative paths, or directory prefixes ending in '/'. */
+  writable: readonly string[];
+  protected: readonly string[];
+  allowDestructiveOverwrite?: boolean;
+}
+export interface TaskCheckResult { passed: boolean; output: string; environmentError?: string }
+export interface TaskCheck {
+  name: string;
+  /** Registered by the caller; model arguments cannot supply a command or cwd. */
+  run(signal: AbortSignal): Promise<TaskCheckResult>;
+}
+export type TaskLoopStatus = 'ready_for_review' | 'needs_input' | 'failed' | 'budget_exhausted' | 'environment_error';
+export interface TaskLoopEvent { version: 1; at: string; elapsedMs: number; kind: string; payload: unknown }
+export interface TaskLoopResult {
+  version: 1;
+  status: TaskLoopStatus;
+  reason: string;
+  finalText: string;
+  usage: Usage;
+  currency: string;
+  checks: { name: string; baseline: boolean; revision: string; passed: boolean; output: string }[];
+  questions: Question[];
+  metrics: {
+    modelRequests: number; writes: number; denied: number; repairs: number; repeatedErrors: number;
+    firstEditMs: number | null; firstCheckMs: number | null; humanWaitMs: number; activeMs: number;
+    telemetryErrors: number;
+  };
+}
+export interface TaskLoopRequest {
+  cwd: string;
+  model: string;
+  contract: TaskLoopContract;
+  checks: readonly TaskCheck[];
+  maxTurns: number;
+  activeTimeoutMs: number;
+  maxCost: number | null;
+  signal: AbortSignal;
+  ask(questions: readonly Question[], signal: AbortSignal): Promise<Record<string, string[]>>;
+  emit?(event: TaskLoopEvent): void;
+}
+
+const TOOLS: readonly ToolName[] = ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'AskHuman', 'McpRead'];
+const PRIVATE = ['.git/', '.runner/', '.sdlc/', 'node_modules/'];
+const normalizePath = (path: string): string => foldPathCase(path.replaceAll('\\', '/'));
+export function inTaskPaths(path: string, entries: readonly string[]): boolean {
+  const normalized = normalizePath(path);
+  return entries.some(entry => {
+    const p = normalizePath(entry);
+    return p.endsWith('/') ? normalized === p.slice(0, -1) || normalized.startsWith(p) : normalized === p;
+  });
+}
+
+/** Includes untracked files. Reject links: search tools must not traverse a different tree. */
+export function taskRevision(root: string): string {
+  const hash = createHash('sha256');
+  const visit = (dir: string, prefix: string): void => {
+    for (const name of readdirSync(dir).sort()) {
+      const relative = prefix + name;
+      if (inTaskPaths(relative, PRIVATE)) continue;
+      const path = join(dir, name);
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) throw new Error(`Unsupported symbolic link: ${relative}`);
+      if (stat.isDirectory()) visit(path, relative + '/');
+      else if (stat.isFile()) hash.update(relative).update('\0').update(readFileSync(path)).update('\0');
+      else throw new Error(`Unsupported file type: ${relative}`);
+    }
+  };
+  visit(root, '');
+  return hash.digest('hex');
+}
+
+/** One coherent tool history, using exactly the same loop for local and API routes. */
+export class TaskLoopExecutor {
+  private readonly options: LoopOptions;
+  constructor(options: LoopOptions) { this.options = options; }
+
+  async run(req: TaskLoopRequest): Promise<TaskLoopResult> {
+    if (!Number.isFinite(req.activeTimeoutMs) || req.activeTimeoutMs <= 0 || !Number.isInteger(req.maxTurns) || req.maxTurns < 1)
+      throw new Error('Positive active timeout and turn limit required');
+    if (req.maxCost !== null && (!Number.isFinite(req.maxCost) || req.maxCost <= 0)) throw new Error('Positive cost cap required');
+    if (!req.checks.length || new Set(req.checks.map(c => c.name)).size !== req.checks.length) throw new Error('Unique registered checks required');
+    for (const path of [...req.contract.writable, ...req.contract.protected]) {
+      if (!path || path.startsWith('/') || path.includes('\\') || path.includes(':') || path.split('/').includes('..') || path.includes('*'))
+        throw new Error(`Contract paths must be relative exact paths or directory prefixes: ${path}`);
+    }
+    const started = performance.now();
+    const controller = new AbortController();
+    let stop: TaskLoopStatus | null = null;
+    let reason = '';
+    let remaining = req.activeTimeoutMs;
+    let resumedAt = performance.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const metrics: TaskLoopResult['metrics'] = { modelRequests: 0, writes: 0, denied: 0, repairs: 0, repeatedErrors: 0,
+      firstEditMs: null, firstCheckMs: null, humanWaitMs: 0, activeMs: 0, telemetryErrors: 0 };
+    const emit = (kind: string, payload: unknown): void => {
+      try { req.emit?.({ version: 1, at: new Date().toISOString(), elapsedMs: performance.now() - started, kind, payload }); }
+      catch { metrics.telemetryErrors++; }
+    };
+    const halt = (status: TaskLoopStatus, note: string): void => {
+      if (stop !== null) return;
+      stop = status; reason = note; controller.abort(new Error(note));
+      emit('stop', { status, reason });
+    };
+    const pause = (): void => { clearTimeout(timer); remaining -= performance.now() - resumedAt; };
+    const resume = (): void => {
+      resumedAt = performance.now();
+      if (remaining <= 0) halt('budget_exhausted', 'Active deadline exhausted');
+      else timer = setTimeout(() => halt('budget_exhausted', 'Active deadline exhausted'), remaining);
+    };
+    const cancel = (): void => halt('failed', 'Cancelled by operator');
+    req.signal.addEventListener('abort', cancel, { once: true });
+    if (req.signal.aborted) cancel();
+    resume();
+    const observer = new ExecutionObserver(event => emit('execution', event), controller.signal);
+    const end = observer.start('item', { task: req.contract.task, contract: req.contract });
+    const checks: TaskLoopResult['checks'] = [];
+    const questions: Question[] = [];
+    const fresh = new Map<string, string>();
+    const pending = new Map<string, { call: NormalizedCall; before: string | null }>();
+    const errors = new Set<string>();
+    let progress = 0;
+    let failedCheck = false;
+    let usage = emptyUsage();
+    let result: StageResult | undefined;
+
+    const check = async (baseline: boolean): Promise<{ ok: boolean; text: string }> => {
+      const output: string[] = [];
+      let passed = true;
+      for (const registered of req.checks) {
+        if (controller.signal.aborted) return { ok: false, text: reason };
+        const revision = taskRevision(req.cwd);
+        const finish = observer.start('check', { name: registered.name, baseline, revision });
+        if (!baseline) metrics.firstCheckMs ??= performance.now() - started;
+        let outcome: TaskCheckResult;
+        try { outcome = await registered.run(controller.signal); }
+        catch (error) { outcome = { passed: false, output: String(error), environmentError: String(error) }; }
+        const current = taskRevision(req.cwd);
+        const valid = outcome.passed && current === revision && !controller.signal.aborted;
+        finish(controller.signal.aborted ? 'interrupted' : valid ? 'passed' : 'failed', outcome);
+        checks.push({ name: registered.name, baseline, revision, passed: valid, output: outcome.output });
+        output.push(`${registered.name}: ${valid ? 'PASS' : 'FAIL'}\n${outcome.output}${current !== revision ? '\nFiles changed during check; evidence is stale.' : ''}`);
+        if (!baseline && valid) { if (fresh.get(registered.name) !== revision) progress++; fresh.set(registered.name, revision); }
+        else fresh.delete(registered.name);
+        passed &&= valid;
+        if (outcome.environmentError) halt('environment_error', outcome.environmentError);
+      }
+      if (!baseline && !passed) failedCheck = true;
+      return { ok: passed, text: output.join('\n\n') };
+    };
+    const finishGuard = (): string | null => {
+      if (stop !== null) return reason;
+      const revision = taskRevision(req.cwd);
+      const missing = req.checks.filter(c => fresh.get(c.name) !== revision).map(c => c.name);
+      return missing.length ? `Run mcp__task__check after the last edit. Current passing evidence missing: ${missing.join(', ')}. Repair failures before finishing.` : null;
+    };
+    const deny = (why: string): Decision => { metrics.denied++; return { allowed: false, reason: why, by: 'policy' }; };
+    const hooks: ExecHooks = {
+      onText: text => emit('text', { text }), onThinking: text => emit('thinking', { text }),
+      onWarn: text => emit('warning', { text }), onFriction: kind => emit('friction', { kind }),
+      onHarnessEvent: event => emit('harness', event), onExecution: event => emit('execution', event),
+      onUsage: (value, durationMs) => { usage = addUsage(usage, value); emit('model_work', { usage: value, durationMs, purpose: 'implementation', currency: this.options.currency ?? 'USD' }); },
+      onRecord: () => { throw new Error('Document recording is not available in task loop'); },
+      onToolRequest: async (call, meta) => {
+        let decision: Decision = { allowed: true, updatedInput: null, by: 'policy' };
+        const path = 'path' in call && typeof call.path === 'string' ? call.path : null;
+        const relative = path === null ? null : relativizeWithin(req.cwd, resolveUserPath(req.cwd, path));
+        const writing = call.kind === 'write' || call.kind === 'edit';
+        if (controller.signal.aborted) decision = deny(reason);
+        else if (relative !== null && (inTaskPaths(relative, PRIVATE) || relative.split('/').some(part => /[:\x00-\x1f]/u.test(part) || /[. ]$/u.test(part)))) decision = deny('Runtime/dependency metadata or ambiguous filesystem path is not accessible');
+        else if (writing && (relative === null || !inTaskPaths(relative, req.contract.writable) || inTaskPaths(relative, req.contract.protected)))
+          decision = deny('Write is outside human contract or targets a protected file. AskHuman if scope must change.');
+        else {
+          const verdict = evaluate(call, { projectRoot: req.cwd, stage: 'chunk', sdlcDir: '.sdlc/task-loop',
+            // Policy still enforces tool/path/deny-list guards. Authority comes ONLY from the human contract above.
+            planFiles: writing && relative !== null ? [relative] : [], protectedArtifacts: [...req.contract.protected],
+            readOnlyRoots: [], allowedTools: TOOLS,
+            mcpTools: [{ server: 'task', tool: 'check', mode: 'read', pathArgs: [] }] });
+          if (!verdict.ok) decision = deny(verdict.reason);
+          else if (path !== null && symlinkEscape(req.cwd, path, []) !== null) decision = deny('Symbolic link escapes workspace');
+          else if (writing && !req.contract.allowDestructiveOverwrite && destructiveOverwrite(call, req.cwd) !== null)
+            decision = deny('Destructive overwrite denied; use a focused Edit preserving unrelated content');
+        }
+        pending.set(meta.requestId, { call, before: writing && decision.allowed ? taskRevision(req.cwd) : null });
+        emit('tool_request', { ...meta, call, decision });
+        return decision;
+      },
+      onToolResult: meta => {
+        const before = pending.get(meta.requestId);
+        pending.delete(meta.requestId);
+        if (meta.ok && before?.before !== null && before?.before !== undefined && before.before !== taskRevision(req.cwd)) {
+          progress++; metrics.writes++; fresh.clear(); metrics.firstEditMs ??= performance.now() - started;
+          if (failedCheck) { metrics.repairs++; failedCheck = false; }
+          emit('implementation_write', { requestId: meta.requestId });
+        }
+        if (!meta.ok) { if (errors.has(meta.summary)) metrics.repeatedErrors++; errors.add(meta.summary); }
+        emit('tool_result', meta);
+      },
+      onAskHuman: async call => {
+        if (call.kind !== 'ask_human') return {};
+        questions.push(...call.questions);
+        pause();
+        const waitStarted = performance.now();
+        emit('human_request', call);
+        let abortWait: (() => void) | undefined;
+        try {
+          const aborted = new Promise<never>((_resolve, reject) => {
+            abortWait = () => reject(controller.signal.reason);
+            controller.signal.addEventListener('abort', abortWait, { once: true });
+            if (controller.signal.aborted) abortWait();
+          });
+          const answers = await Promise.race([req.ask(call.questions, controller.signal), aborted]);
+          emit('human_answer', { answers });
+          if (call.questions.some(q => !answers[q.id]?.some(answer => answer.trim().length > 0)))
+            halt('needs_input', 'Human information is required; at least one question has no answer');
+          return answers;
+        } finally {
+          if (abortWait) controller.signal.removeEventListener('abort', abortWait);
+          metrics.humanWaitMs += performance.now() - waitStarted; resume();
+        }
+      },
+    };
+    try {
+      taskRevision(req.cwd);
+      const baseline = await check(true);
+      emit('baseline', baseline);
+      if (!baseline.ok && stop === null) halt('environment_error', 'Visible baseline checks failed; this pilot requires a green baseline');
+      if (stop === null) {
+        const prompt: PreparedPrompt = {
+          presetNote: null, tools: [], editedByOperator: false, system: [
+            'Work on the human task within the supplied boundaries. Read relevant code, implement, run checks, repair, then summarize evidence and remaining limitations.',
+            'Use one continuous investigation and implementation loop. No process documents or mandatory plan artifacts are required.',
+            'Use AskHuman only for missing business facts, contradictions, or a required scope change. Never invent missing facts. A question does not grant a scope expansion.',
+            'Use mcp__task__check to run all registered visible checks. Shell commands are unavailable. Checks must pass after your final edit.',
+            'Passing visible checks establishes readiness for review, not proof of all requirements. Compare the patch against every requirement before finishing.',
+          ].join('\n'),
+          user: `Task:\n${req.contract.task}\n\nHuman write boundaries (file or directory prefix):\n${JSON.stringify(req.contract.writable)}\nProtected paths:\n${JSON.stringify(req.contract.protected)}\n\nRegistered checks: ${req.checks.map(c => c.name).join(', ')}\nBaseline:\n${baseline.text}`,
+        };
+        const provider = this.options.provider;
+        const loop = new LoopExecutor({ ...this.options, provider: { name: provider.name, chat: async request => {
+          if (controller.signal.aborted) throw controller.signal.reason;
+          if (req.maxCost !== null && (usage.costUsd === null || usage.costUsd >= req.maxCost)) {
+            halt('budget_exhausted', usage.costUsd === null ? 'Cannot enforce cost cap: provider cost is unknown' : 'Cost cap reached');
+            throw controller.signal.reason;
+          }
+          metrics.modelRequests++;
+          const actual = { ...request, tools: request.tools.map(tool => tool.name === 'Write'
+            ? { ...tool, description: 'Create or replace a file inside the human write boundaries. Protected paths and destructive overwrites are rejected.' } : tool) };
+          emit('model_request', { model: actual.model, messages: actual.messages, tools: actual.tools, params: actual.params });
+          const response = await observer.run('proposal', () => provider.chat(actual));
+          emit('model_response', response);
+          return response;
+        } } });
+        result = await loop.run({ cwd: req.cwd, model: req.model, prompt, allowedTools: TOOLS, readOnlyDirs: [], subagents: [],
+          maxTurns: req.maxTurns, maxBudgetUsd: req.maxCost, signal: controller.signal, salvageFromText: null,
+          finishGuard, closeOnFinalizeReady: false, progressSignal: () => progress,
+          progressHint: 'Implement the requested behavior and run registered checks after edits.',
+          mcp: { tools: [{ name: 'mcp__task__check', description: 'Run all registered visible project checks on the current files.',
+            schema: { type: 'object', properties: {}, additionalProperties: false } }], sdkServers: {}, pollingTools: [],
+            call: async (server, tool, args) => server === 'task' && tool === 'check' && Object.keys(args).length === 0
+              ? check(false) : { ok: false, text: 'Unknown check or arguments. Registered checks accept no arguments.' } },
+        }, hooks);
+        if (stop === null && result.ok && result.closedBy !== 'runtime' && finishGuard() === null) { stop = 'ready_for_review'; reason = 'Current visible checks passed; independent acceptance is still required'; }
+        else if (stop === null) {
+          stop = result.envFailure ? 'environment_error' : metrics.modelRequests >= req.maxTurns || (req.maxCost !== null && usage.costUsd !== null && usage.costUsd >= req.maxCost) ? 'budget_exhausted' : 'failed';
+          reason = result.note;
+        }
+      }
+    } catch (error) {
+      if (stop === null) { stop = error instanceof ProviderEnvError ? 'environment_error' : 'failed'; reason = String(error); }
+      emit('error', { reason: String(error) });
+    } finally {
+      clearTimeout(timer); req.signal.removeEventListener('abort', cancel);
+      metrics.activeMs = performance.now() - started - metrics.humanWaitMs;
+      end(controller.signal.aborted ? 'interrupted' : stop === 'ready_for_review' ? 'passed' : 'failed', { status: stop, reason });
+    }
+    const report: TaskLoopResult = { version: 1, status: stop ?? 'failed', reason, finalText: result?.finalText ?? '', usage,
+      currency: this.options.currency ?? 'USD', checks, questions, metrics };
+    emit('result', report);
+    return report;
+  }
+}

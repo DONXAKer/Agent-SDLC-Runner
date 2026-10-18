@@ -1,0 +1,320 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:mellum2-12b-instruct-q6-ctx32k",
+    "budgetMs": 3600000,
+    "activeMs": 16115,
+    "remainingMs": 3583885,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T23:15:00.157Z",
+        "inputRevision": "3ff71300a296fcf8f8b44c27a0339e6795ffd71788934fc20230ccea840c9c8c",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "{\n  \"data\": {\n    \"requests\": [\n      \"# Срок оплаты по умолчанию\\n\\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\\nконфигом площадки.\\n\\n## Что должно получиться\\n\\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\\n   где `opts.dueDays?: number`.\\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\\n   разу.\\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\\n   правок существующих тестов нет.\\n\\n## Рамки\\n\\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\\n  меняются.\\n\""
+          },
+          {
+            "source": "request-1",
+            "quote": "# Срок оплаты по умолчанию\n\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\nконфигом площадки."
+          }
+        ],
+        "uncertainties": [
+          "Проверить, как обрабатывается конфигурация оплаты в текущем коде"
+        ],
+        "action": "read",
+        "reason": "Проверить, как обрабатывается конфигурация оплаты в текущем коде",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": ""
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T23:15:04.429Z",
+        "inputRevision": "3ff71300a296fcf8f8b44c27a0339e6795ffd71788934fc20230ccea840c9c8c",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "# Срок оплаты по умолчанию\n"
+          },
+          {
+            "source": "stage-input",
+            "quote": "{\n  \"data\": {"
+          },
+          {
+            "source": "lookup-1",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/config.ts\",\"range\":{\"from\":35,\"to\":84}}\n"
+          }
+        ],
+        "uncertainties": [
+          "Реализация поля dueDays в src/invoice.ts соответствует требованиям",
+          "Тест в test/invoice.test.ts обновлён под новое обязательное поле"
+        ],
+        "action": "read",
+        "reason": "Проверить реализацию поля dueDays в классе Invoice",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-2",
+          "ok": true,
+          "text": ""
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T23:15:08.266Z",
+        "inputRevision": "3ff71300a296fcf8f8b44c27a0339e6795ffd71788934fc20230ccea840c9c8c",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "{\n  \"data\": {"
+          },
+          {
+            "source": "request-1",
+            "quote": "# Срок оплаты по умолчанию\n\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный"
+          }
+        ],
+        "uncertainties": [
+          "Проверить, документирована ли опция defaultDueDays в README.md, так как требуется упоминание в разделе «Конфигурация»"
+        ],
+        "action": "read",
+        "reason": "Проверить, документирована ли опция defaultDueDays в README.md, так как требуется упоминание в разделе «Конфигурация»",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-3",
+          "ok": true,
+          "text": "25\t| Опция | Умолчание | Что задаёт |\n26\t|---|---|---|\n27\t| `currency` | `RUB` | Валюта счетов. |\n28\t\n29\t## Как запускать\n30\t\n31\t```bash\n32\tnode scripts/build-check.mjs      # «сборка»: загрузка всех модулей src\n33\tnode --test \"test/**/*.test.ts\"   # тесты\n34\t```"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T23:15:12.093Z",
+        "inputRevision": "3ff71300a296fcf8f8b44c27a0339e6795ffd71788934fc20230ccea840c9c8c",
+        "decision": "proceed",
+        "evidence": [],
+        "uncertainties": [
+          "Сбор данных не добавил нового входа"
+        ],
+        "action": "blocked",
+        "reason": "Сбор данных не добавил нового входа",
+        "status": "blocked",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261012205321478-32-32",
+    "model": "ollama:mellum2-12b-instruct-q6-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "explore": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "ask": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "plan": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "chunk": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "verify": "ollama:mellum2-12b-instruct-q6-compactfill",
+      "handoff": "ollama:mellum2-12b-instruct-q6-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T23:14:55.398Z",
+    "finishedAt": "2026-10-12T23:15:12.112Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Сбор данных не добавил нового входа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 4
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 22712,
+          "outputTokens": 755,
+          "cacheReadTokens": 2265,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 15840
+        },
+        "durationMs": 16177,
+        "requestDurationsMs": [
+          3959,
+          4254,
+          3818,
+          3810
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "b2a495e20bc507c67e6f00bf0c16659e2e0d61dbb9f9c97e60d5e226c53ffaef",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "cb11fb79e247a4a039a0e2a0489c531c7ceff80c3447146f20fb8658c41b941d",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "aca188e69ca733de64667a32e5e91c5974a49baca46ffc875a1d896ef1233443",
+    "state": "finished",
+    "capturedAt": "2026-10-12T23:15:12.134Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-12T23:15:12.096Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "f3d2c94c37f0f5bfdfb880b195ddec2897ad2360eaaca65020cfe7be8cd5b73c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "d231bdf8281467e57a7672771d0c77801836ef25e8e9d39033595e8a27d49f8b",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "59330172d1cb2d558f14526440c668f71f77de1910083cc258c175867a23bf4c",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

@@ -1,0 +1,23 @@
+import { splitCents } from "../src/shares.мjs";
+import { deepStrictEqual, assert, strictEqual } from "assert";
+
+// Case: Test remainder correctness
+deepStrictEqual(splitCents(10, 3), [3, 3, 4],
+    "Remainder distributed to smallest first");
+
+// Case: Test count beyond bounds
+deepStrictEqual(splitCents(1000, 1), [1000],
+    "Single share 1000");
+
+// Edge input validation
+test.throws(
+    () => { splitCents(-100, 1); },
+    RangeError,
+    "Rejects negative total"
+);
+
+test.throws(
+    () => { splitCents(1000, 1001); },
+    RangeError,
+    "Rejectes count  > 1000"
+);

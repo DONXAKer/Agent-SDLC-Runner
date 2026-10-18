@@ -1,0 +1,73 @@
+diff --git a/README.md b/README.md
+index 54221bb..021206a 100644
+--- a/README.md
++++ b/README.md
+@@ -14,7 +14,7 @@
+ 
+ | Поле | Тип | Что значит |
+ |---|---|---|
+-| `code` | строка | Артикул — идентификатор записи. Непустой. |
++| `sku` | строка | Артикул — идентификатор записи. Непустой. При чтении поддерживается старое имя `code`; если есть оба имени, используется `sku`. Запись содержит только `sku`. |
+ | `title` | строка | Название, как на витрине. |
+ | `priceK` | целое | Цена в копейках. |
+ 
+diff --git a/src/product.ts b/src/product.ts
+index aa30e3e..d56b7d8 100644
+--- a/src/product.ts
++++ b/src/product.ts
+@@ -9,7 +9,7 @@
+ 
+ export interface Product {
+   /** Артикул — идентификатор записи в каталоге. Непустая строка. */
+-  code: string;
++  sku: string;
+   /** Название, как оно показывается на витрине. */
+   title: string;
+   /** Цена в копейках, целое неотрицательное: рублей с плавающей точкой в каталоге нет. */
+@@ -22,12 +22,12 @@ export interface Product {
+  * Проверки здесь, а не у потребителя: цена «10.5 копейки» всплыла бы не в каталоге, а в
+  * сумме заказа — там, где уже непонятно, какая запись её принесла.
+  */
+-export function product(code: string, title: string, priceK: number): Product {
+-  if (code.trim() === '') {
++export function product(sku: string, title: string, priceK: number): Product {
++  if (sku.trim() === '') {
+     throw new RangeError('артикул товара пуст');
+   }
+   if (!Number.isInteger(priceK) || priceK < 0) {
+     throw new RangeError(`цена в копейках — целое неотрицательное число, получено ${priceK}`);
+   }
+-  return { code, title, priceK };
++  return { sku, title, priceK };
+ }
+diff --git a/src/store.ts b/src/store.ts
+index eeda82a..d5ab3f2 100644
+--- a/src/store.ts
++++ b/src/store.ts
+@@ -16,7 +16,7 @@ import type { Product } from './product.ts';
+ 
+ /** Одна запись → одна строка JSON без переносов. Порядок полей — как в таблице README. */
+ export function serialize(p: Product): string {
+-  return JSON.stringify({ code: p.code, title: p.title, priceK: p.priceK });
++  return JSON.stringify({ sku: p.sku, title: p.title, priceK: p.priceK });
+ }
+ 
+ /** Одна строка файла → запись. Всё, что не запись каталога, отвергается с названной причиной. */
+@@ -31,14 +31,14 @@ export function parse(line: string): Product {
+     throw new TypeError('строка каталога — не объект');
+   }
+   const r = raw as Record<string, unknown>;
+-  const code = r['code'];
++  const sku = Object.hasOwn(r, 'sku') ? r['sku'] : r['code'];
+   const title = r['title'];
+   const priceK = r['priceK'];
+-  if (typeof code !== 'string') throw new TypeError('в строке каталога нет артикула (code)');
++  if (typeof sku !== 'string') throw new TypeError('в строке каталога нет артикула (sku/code)');
+   if (typeof title !== 'string') throw new TypeError('в строке каталога нет названия (title)');
+   if (typeof priceK !== 'number') throw new TypeError('в строке каталога нет цены (priceK)');
+   // Диапазоны — те же, что у конструктора: правило одно и на ввод, и на чтение с диска.
+-  return product(code, title, priceK);
++  return product(sku, title, priceK);
+ }
+ 
+ /** Каталог → текст файла JSONL. Каждая строка завершена `\n`, чтобы файлы склеивались конкатенацией. */

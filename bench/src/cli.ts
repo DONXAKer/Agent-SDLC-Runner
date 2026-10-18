@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { STAGE_ORDER } from '@sdlc-runner/shared';
 import type { RunEvent, RunMetrics, StageId } from '@sdlc-runner/shared';
 import { WitokPaths } from '../../server/src/artifacts/paths.ts';
-import { guidedSummary } from '../../server/src/run/guidedState.ts';
+import { guidedSummary, readGuided } from '../../server/src/run/guidedState.ts';
 import { readPersistedEvents } from '../../server/src/eventLog.ts';
 
 import { ApprovalGate } from '../../server/src/approval/gate.ts';
@@ -311,6 +311,13 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     console.log(`ветка витка:   ${ws.branch} (база ${ws.baseCommit.slice(0, 8)})`);
   }
 
+  if (opts.executionMode === 'guided' && opts.fromSnapshot !== null) {
+    const restoredGuided = readGuided(new WitokPaths(wsRoot, opts.slug));
+    if (!restoredGuided || (opts.guidedEngineVersion !== undefined && restoredGuided.engineVersion !== opts.guidedEngineVersion)) {
+      wsDispose();
+      throw new SnapshotError('Эксперимент guided требует снимок guided той же версии движка');
+    }
+  }
   let built: BuiltProfile;
   try {
     built = buildProfile({ projectRoot: wsRoot, models: config.models, control, opts });
@@ -588,6 +595,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
     const driverResult = await runBench({
       preparationVersion: opts.preparationVersion ?? (opts.executionMode === 'guided' ? 3 : 1),
       ...(opts.executionMode === undefined ? {} : { executionMode: opts.executionMode }),
+      ...(opts.guidedEngineVersion === undefined ? {} : { guidedEngineVersion: opts.guidedEngineVersion }),
       records, signal: cancellation.signal,
       ...(opts.stopAfterStage === undefined ? {} : { measurementEnd: opts.stopAfterStage }),
       run,
@@ -723,6 +731,7 @@ async function liveRun(opts: BenchOptions, flags: LiveRunFlags): Promise<LiveOut
       startedAt,
       finishedAt,
       driver: driverResult,
+      execution: run.executionPage(0, 1).summary,
       guided: guidedSummary(new WitokPaths(wsRoot, opts.slug)),
       metrics: run.metrics,
       operator: operatorLog,

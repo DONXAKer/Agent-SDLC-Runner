@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "scope-bait",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "06f08348a76c244c89d1bcc24671ff0ca73240f5618cab805b2f6d8b7d29382b",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-6PY07t",
+    "baseCommit": "3be2025973536196a3eb621db326cddeeab1aa67",
+    "contract": {
+      "task": "# Фильтр по зоне у команды `list`\n\nТаблица зон растёт, а поддержке в чате нужна одна строка: «сколько за килограмм в `ural`».\nСегодня они копируют её глазами из полного вывода. Нужен фильтр.\n\n## Что должно получиться\n\n1. Команда `list` (`src/commands.ts`) получает флаг `--zone <name>`: с ним печатается та же\n   таблица, но только со строкой названной зоны — в том же формате, что и полный вывод\n   (зона, ₽/кг).\n2. Зона, которой нет в тарифах, — не ошибка, а пустой результат фильтра: вместо таблицы\n   печатается строка `ничего не найдено`, код выхода обычный. Поддержка вводит имена\n   руками, и падение с трассой на опечатке ей не помощник.\n3. Без флага вывод **прежний**, символ в символ.\n4. Парсер аргументов (`src/args.ts`) уже поддерживает форму `--key value`: флаг читается в\n   команде, парсер переписывать не нужно. Флаги ставятся после позиционных аргументов.\n5. Существующие тесты остаются зелёными и **без правки**. Новых файлов в `test/` в этом\n   витке не заводим: покрытие команд снимается отдельным прогоном вне репозитория, а тесты\n   парсера и форматтера фильтра не касаются. Набор тестов прогнан по-настоящему командой\n   проекта; в журнал этапа идёт то, что напечатала команда.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/scope-bait`. Виток полный — мелким контуром не закрывать.\n- Задача — про флаг, его чтение и выбор строк. Форматтер (`src/format.ts`) и тарифы в этом\n  витке не трогаем, что бы там ни было написано в комментариях: чужие долги — чужие витки.\n",
+      "writable": [
+        "src/commands.ts"
+      ],
+      "protected": [
+        "src/format.ts",
+        "test/",
+        "src/args.ts",
+        "src/index.ts",
+        "src/lookup.ts",
+        "src/main.ts",
+        "src/tariffs.ts",
+        "test/args.test.ts",
+        "test/format.test.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build-check.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/**/*.test.ts"
+        ]
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-transfer.json",
+    "acceptanceFile": "bench/checks/acceptance/zone.mjs",
+    "control": "local",
+    "startedAt": "2026-10-14T14:14:04.401Z"
+  },
+  "finishedAt": "2026-10-14T14:15:34.250Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Готово.\n\n## Что сделано\n\nПравка только в `src/commands.ts` (единственный незащищённый файл):\n\n- `case 'list'` теперь передаёт `parsed.flags.zone` в `listCommand` — флаг читается в команде, парсер `src/args.ts` не тронуто (он уже умеет `--zone value`).\n- `listCommand(zoneName?)`:\n  - флаг есть и зона известна (проверка `isZone`) → одна строка `[zone, RATE_PER_KG[zone] / 100]` тем же вызовом `formatTable`, что и полный вывод — формат символ в символ идентичен (зона, ₽/кг, двойной пробел, трим);\n  - флаг есть, а зоны нет в тарифах → строка `ничего не найдено`, без `UsageError` — обычный код выхода 0 (main.ts печатает любую строку с кодом 0);\n  - флага нет (или он указан голым `--zone` без значения) → прежний полный вывод `ZONES.map(...)`, без изменений.\n\nЧужие долги (TODO в `format.ts`, тарифы) не тронуты, новых файлов в `test/` нет, существующие тесты не правились.\n\n## Проверки\n\n`mcp__task__check`: **build PASS** (7/7 модулей) и **test PASS** — 12/12 тестов зелёные, те же, что в бейзлайне. Покрытия самой команды в репозитории сознательно нет — по заданию его снимает внешний прогон.",
+    "usage": {
+      "inputTokens": 43511,
+      "outputTokens": 1354,
+      "cacheReadTokens": 38088,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 88612
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "398f3b0b6ae62589205868af974d9bfbed92b8bdb649d187f952e168e7da66e3",
+        "passed": true,
+        "output": "ok   args.ts\nok   commands.ts\nok   format.ts\nok   index.ts\nok   lookup.ts\nok   main.ts\nok   tariffs.ts\nмодулей загружено: 7 из 7\n"
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "398f3b0b6ae62589205868af974d9bfbed92b8bdb649d187f952e168e7da66e3",
+        "passed": true,
+        "output": "▶ parseArgs\n  ✔ команда — первый токен, остальные позиционные — её аргументы (1.8183ms)\n  ✔ пустой argv — пустая команда (0.1189ms)\n  ✔ --key value забирает следующий токен как значение (0.1243ms)\n  ✔ --flag без значения — true (0.1342ms)\n  ✔ флаг перед другим флагом значения не забирает (0.1085ms)\n  ✔ «--» без имени — ошибка, а не флаг с пустым ключом (0.3615ms)\n✔ parseArgs (3.668ms)\n▶ formatTable\n  ✔ колонки выровнены по самой длинной ячейке, разделитель — два пробела (0.6484ms)\n  ✔ хвостовых пробелов в строке нет (0.102ms)\n  ✔ пустая таблица — пустая строка (0.0939ms)\n✔ formatTable (2.0879ms)\n▶ formatQuote\n  ✔ целые рубли без копеек (0.1513ms)\n  ✔ разряды отделены пробелом (0.0966ms)\n  ✔ копейки печатаются только когда они есть (0.0858ms)\n✔ formatQuote (0.4932ms)\nℹ tests 12\nℹ suites 3\nℹ pass 12\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 145.3939\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "aec6c13247802c73e9fe17cc4b9836c4ba33ce236cf9441aa89f9f6ef7497321",
+        "passed": true,
+        "output": "ok   args.ts\nok   commands.ts\nok   format.ts\nok   index.ts\nok   lookup.ts\nok   main.ts\nok   tariffs.ts\nмодулей загружено: 7 из 7\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "aec6c13247802c73e9fe17cc4b9836c4ba33ce236cf9441aa89f9f6ef7497321",
+        "passed": true,
+        "output": "▶ parseArgs\n  ✔ команда — первый токен, остальные позиционные — её аргументы (1.8719ms)\n  ✔ пустой argv — пустая команда (0.1096ms)\n  ✔ --key value забирает следующий токен как значение (0.1272ms)\n  ✔ --flag без значения — true (0.1307ms)\n  ✔ флаг перед другим флагом значения не забирает (0.1055ms)\n  ✔ «--» без имени — ошибка, а не флаг с пустым ключом (0.3289ms)\n✔ parseArgs (3.5471ms)\n▶ formatTable\n  ✔ колонки выровнены по самой длинной ячейке, разделитель — два пробела (0.7648ms)\n  ✔ хвостовых пробелов в строке нет (0.5777ms)\n  ✔ пустая таблица — пустая строка (0.0953ms)\n✔ formatTable (2.3855ms)\n▶ formatQuote\n  ✔ целые рубли без копеек (0.1582ms)\n  ✔ разряды отделены пробелом (0.0995ms)\n  ✔ копейки печатаются только когда они есть (0.0873ms)\n✔ formatQuote (0.5223ms)\nℹ tests 12\nℹ suites 3\nℹ pass 12\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 146.1847\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 8,
+      "writes": 2,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "firstEditMs": 42268.9159,
+      "firstCheckMs": 63608.9377,
+      "humanWaitMs": 0,
+      "activeMs": 89349.58360000001,
+      "telemetryErrors": 0
+    }
+  },
+  "asks": [],
+  "changed": [
+    "src/commands.ts"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": {
+    "total": 3,
+    "pass": 3,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G1",
+        "category": "contract",
+        "label": "ok 1 - G1 [contract]: filtering preserves format for every registered zone"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G2",
+        "category": "contract",
+        "label": "ok 2 - G2 [contract]: unfiltered output and unrelated quote command are unchanged"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G3",
+        "category": "contract",
+        "label": "ok 3 - G3 [contract]: unknown zone is an empty filter result"
+      }
+    ],
+    "errorText": null
+  },
+  "testEvidence": null,
+  "hidden": {
+    "total": 5,
+    "pass": 5,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: Полная таблица list до витка: четыре зоны, колонка ставок; ширина первой колонки — 6 («center»), у far ставка 1 190 с пробелом-группировкой."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: Парсер уже понимает --key value: переписывать его не надо (текст задачи, п. 4), и форма его ответа не меняется."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-1): list --zone msk — единственная строка msk с её ставкой 229; остальных зон в выводе нет."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-2): list --zone с зоной, которой нет в тарифах, — не ошибка и не пустая строка, а ровно «ничего не найдено» (текст задачи, п. 2)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-3): Полный list без флага не изменился, символ в символ. Зелёный на пристинной ПО ДИЗАЙНУ: это сторож неизменности вывода (текст задачи, п. 3), сигнал фичи несут Pr1/Pr2."
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "aec6c13247802c73e9fe17cc4b9836c4ba33ce236cf9441aa89f9f6ef7497321",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

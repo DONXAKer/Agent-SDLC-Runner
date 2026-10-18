@@ -878,10 +878,10 @@ export class LoopExecutor implements StageExecutor {
         this.friction(hooks, 'reminder', lastRawLogPath);
         pushUserNote(
           messages,
-          `Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
+          req.progressHint ?? (`Последние ${streak} вызовов — только чтение (Read/Glob/Grep), ни одной ` +
             'записи. Результат этапа — записанный артефакт, а не прочитанные файлы: если ' +
             'контекста уже достаточно, переходи к записи инструментами Write/Edit. Продолжай ' +
-            'читать только то, без чего правку не сделать.',
+            'читать только то, без чего правку не сделать.'),
         );
       }
 

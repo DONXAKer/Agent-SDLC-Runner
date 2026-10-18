@@ -18,6 +18,14 @@ export class ProfileError extends Error {
   }
 }
 
+/** The experiment can change only the primary plan route; every route remains local. */
+export function guidedRouteMatches(profile: ResolvedProfile, route: ResolvedRoute, modelId: string): boolean {
+  const local = route.flow === 'loop' && ['localhost', '127.0.0.1', '[::1]']
+    .includes(new URL(route.providerDef.baseUrl ?? 'http://invalid').hostname);
+  return local && (`${route.provider}:${route.model}` === modelId ||
+    (profile.planSelection !== undefined && route === profile.routes.plan));
+}
+
 /**
  * Форма добора осей плана из `ModelDef.planAxisFill`. `true` — комбинированный добор, как
  * до появления пошагового: под этим значением записи `config/models.json` замерены
@@ -128,6 +136,46 @@ export function resolveProfile(
     routes[stage] = resolved[0]!;
   }
 
+  let planSelection: ResolvedProfile['planSelection'];
+  if (profile.planSelection !== undefined) {
+    const selection = profile.planSelection;
+    if (!selection || ![1, 2, 3].includes(selection.candidates)) problems.push('planSelection.candidates: ожидается 1, 2 или 3');
+    else {
+      if (selection.candidates === 1 && selection.judgeModel !== undefined) problems.push('planSelection: judgeModel требует несколько кандидатов');
+      const judgeId = selection.judgeModel ?? routes.plan?.modelId;
+      const judge = judgeId ? resolveRoute('plan', judgeId, models, problems) : null;
+      if (judge && judge.flow !== 'loop') problems.push('planSelection: оценщик должен поддерживать flow loop');
+      if (judge && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(judge.providerDef.baseUrl ?? 'http://invalid').hostname))
+        problems.push('planSelection: эксперимент требует локального оценщика');
+      if (routes.plan && routes.plan.flow !== 'loop') problems.push('planSelection: генератор должен поддерживать flow loop');
+      if (judge && (routes.plan?.providerDef.currency ?? 'USD') !== (judge.providerDef.currency ?? 'USD'))
+        problems.push('planSelection: генератор и оценщик должны использовать одну валюту бюджета');
+      if (judge) planSelection = { candidates: selection.candidates, judge };
+    }
+  }
+  let chunkSelection: ResolvedProfile['chunkSelection'];
+  if (profile.chunkSelection !== undefined) {
+    const selection = profile.chunkSelection;
+    if (!selection || ![2, 3].includes(selection.candidates)) problems.push('chunkSelection.candidates: ожидается 2 или 3');
+    else {
+      const judgeId = selection.judgeModel ?? routes.chunk?.modelId;
+      const judge = judgeId ? resolveRoute('chunk', judgeId, models, problems) : null;
+      if (judge && (judge.flow !== 'loop' || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(judge.providerDef.baseUrl ?? 'http://invalid').hostname)))
+        problems.push('chunkSelection: требуется локальный оценщик loop');
+      if (routes.chunk?.flow !== 'loop') problems.push('chunkSelection: генератор должен поддерживать flow loop');
+      if (judge && (routes.chunk?.providerDef.currency ?? 'USD') !== (judge.providerDef.currency ?? 'USD'))
+        problems.push('chunkSelection: генератор и оценщик должны использовать одну валюту бюджета');
+      if (selection.candidateTimeoutMs !== undefined && (!Number.isSafeInteger(selection.candidateTimeoutMs) || selection.candidateTimeoutMs < 1 || selection.candidateTimeoutMs > 2147483647))
+        problems.push('chunkSelection.candidateTimeoutMs: требуется положительный допустимый таймаут');
+      if (judge) chunkSelection = { candidates: selection.candidates, judge,
+        ...(selection.candidateTimeoutMs === undefined ? {} : { candidateTimeoutMs: selection.candidateTimeoutMs }) };
+    }
+  }
+  if (profile.guidedImprovements !== undefined) {
+    const options = profile.guidedImprovements;
+    if (!options || typeof options !== 'object' || Object.entries(options).some(([key, value]) =>
+      !['consumerContext', 'evidenceRepair'].includes(key) || typeof value !== 'boolean')) problems.push('guidedImprovements: ожидаются consumerContext/evidenceRepair boolean');
+  }
   if (problems.length > 0) throw new ProfileError(problems);
 
   return {
@@ -135,6 +183,9 @@ export function resolveProfile(
     label: profile.label,
     routes: routes as Record<StageId, ResolvedRoute>,
     ensemble: ensemble as Record<StageId, ResolvedRoute[]>,
+    ...(planSelection ? { planSelection } : {}),
+    ...(chunkSelection ? { chunkSelection } : {}),
+    ...(profile.guidedImprovements ? { guidedImprovements: { ...profile.guidedImprovements } } : {}),
   };
 }
 
@@ -156,6 +207,9 @@ export function resolveAdHocProfile(
     profiles: {
       ...project.profiles,
       __adhoc: {
+        ...(base?.planSelection ? { planSelection: base.planSelection } : {}),
+        ...(base?.chunkSelection ? { chunkSelection: base.chunkSelection } : {}),
+        ...(base?.guidedImprovements ? { guidedImprovements: base.guidedImprovements } : {}),
         label: `${base?.label ?? baseProfileName} (правка оператора, не сохранена)`,
         stages: { ...(base?.stages ?? {}), ...stages } as Record<StageId, string | string[]>,
       },

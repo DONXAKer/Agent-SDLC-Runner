@@ -1,0 +1,109 @@
+{
+  "description": "Smoke: last Ollama models x 2 evidence tasks (csv-cell, range-union). local arm only, 1 repeat.",
+  "cases": [
+    {
+      "task": "range-union",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "preserveExisting": [
+        "test/",
+        "README.md"
+      ],
+      "exceptions": [],
+      "requireNewTest": true,
+      "requireReadmeChange": false,
+      "requiredQuestionTags": [],
+      "fixture": {
+        "directory": "bench/fixtures/evidence-range-union",
+        "taskFile": "bench/fixtures/evidence-range-union/task.md",
+        "humanFile": "bench/fixtures/evidence-range-union/human.json",
+        "hiddenFile": "bench/checks/evidence/range-union.hidden.mjs"
+      },
+      "visibleChecks": [
+        {
+          "name": "public-api",
+          "file": "bench/checks/evidence/range-union.visible.mjs"
+        }
+      ],
+      "requirements": [
+        {
+          "id": "public-api",
+          "description": "Required module export and the registered public API examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-api"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    {
+      "task": "csv-cell",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "preserveExisting": [
+        "test/",
+        "README.md"
+      ],
+      "exceptions": [],
+      "requireNewTest": true,
+      "requireReadmeChange": false,
+      "requiredQuestionTags": [],
+      "fixture": {
+        "directory": "bench/fixtures/evidence-csv-cell",
+        "taskFile": "bench/fixtures/evidence-csv-cell/task.md",
+        "humanFile": "bench/fixtures/evidence-csv-cell/human.json",
+        "hiddenFile": "bench/checks/evidence/csv-cell.hidden.mjs"
+      },
+      "visibleChecks": [
+        {
+          "name": "public-api",
+          "file": "bench/checks/evidence/csv-cell.visible.mjs"
+        }
+      ],
+      "requirements": [
+        {
+          "id": "public-api",
+          "description": "Required module export and the registered public API examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-api"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export csvRow(values) from src/format.mjs. Accept an array of strings and return one CSV row without a trailing newline. Separate cells with commas. Quote cells containing comma, double quote, CR or LF; double each embedded double quote. Preserve whitespace, Unicode and empty cells exactly. Empty array returns empty string. Do not mutate values.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    }
+  ]
+}

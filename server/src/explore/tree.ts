@@ -20,13 +20,17 @@ import { TREE_LIMITS, type ExploreIndex, type FileKind, type IndexedFile, type T
 const TEST_PATH = /(^|\/)(test|tests|__tests__|spec|specs)\/|\.(test|spec)\.[^/]+$/i;
 const README = /^readme(\.|$)/i;
 
+export function isTestPath(path: string): boolean {
+  return TEST_PATH.test(path.replace(/\\/gu, '/'));
+}
+
 function kindOf(rel: string): FileKind | null {
   const name = basename(rel);
   const dot = name.lastIndexOf('.');
   const ext = dot < 0 ? '' : name.slice(dot).toLowerCase();
   if (README.test(name) && ext === '.md') return 'doc';
   if (!CODE_EXTENSIONS.has(ext)) return null;
-  return TEST_PATH.test(rel) ? 'test' : 'code';
+  return isTestPath(rel) ? 'test' : 'code';
 }
 
 function toPosix(p: string): string {

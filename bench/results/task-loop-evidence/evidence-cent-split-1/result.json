@@ -1,0 +1,410 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "cent-split",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "ac37171789249cde7ce329964e0c61006e863f6000e650b2476dbe1d1dc71d5a",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-bPQj3j",
+    "baseCommit": "e918f89a0796c70f99a5f6a34a161254b9f97b33",
+    "contract": {
+      "task": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": true,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/cent-split.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-evidence.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T15:13:31.212Z"
+  },
+  "finishedAt": "2026-10-14T15:20:07.250Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Everything is in order. Final state:\n\n- **`src/shares.mjs`** keeps `protocolVersion = 1` and adds `splitCents(total, count)` with strict safe-integer validation, `RangeError` on invalid input, exact integer arithmetic (no floating-point rounding of fractional shares), extras distributed to the earliest indices.\n- **`test/splitCents.test.mjs`** (new, executable) covers: preserved old export, exact division, remainder placement, zero total, single share, sum/invariants on several cases including a large total, and rejected invalid inputs for both parameters.\n- **`test/existing.test.mjs`** untouched; **`public-examples`** check (splitCents(10,3) → [4,3,3]) passes; **build** and **test** all pass.\n\nAll three registered checks (`build`, `test`, `public-examples`) pass. The unverified `full-contract` requirement is satisfied by the implementation and covered by the new tests (exports, RangeError on invalid inputs, count ≤ 1000, integer shares summing to total, max-min ≤ 1, extras at earliest indices). No facts were invented; no protected paths were modified.",
+    "usage": {
+      "inputTokens": 349781,
+      "outputTokens": 4373,
+      "cacheReadTokens": 330358,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 326412
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "02e1f59d3002684c87d5dc82fceb766a3499a01afa5f081439246c0f00e7ec83",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "02e1f59d3002684c87d5dc82fceb766a3499a01afa5f081439246c0f00e7ec83",
+        "passed": true,
+        "output": "✔ existing public API (0.7574ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 100.291\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "e34b4713acbb69e8c1bac5346fc90624ebfc7eb50d798f4b99e3a15b60d806ef",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "e34b4713acbb69e8c1bac5346fc90624ebfc7eb50d798f4b99e3a15b60d806ef",
+        "passed": false,
+        "output": "✔ existing public API (0.8763ms)\n✔ protocolVersion is preserved (0.7229ms)\n✔ exact division (0.6809ms)\n✖ remainder goes to earliest indices (1.4694ms)\n✔ zero total (0.121ms)\n✔ single share gets everything (0.1315ms)\n✖ sum is preserved and max-min <= 1 (0.9067ms)\n✔ rejects invalid total (0.6242ms)\n✔ rejects invalid count (0.1868ms)\nℹ tests 9\nℹ suites 0\nℹ pass 7\nℹ fail 2\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 122.231\n\n✖ failing tests:\n\ntest at test\\splitCents.test.mjs:13:1\n✖ remainder goes to earliest indices (1.4694ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    [\n  -   4,\n      3,\n      3,\n  +   3\n    ]\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-bPQj3j/test/splitCents.test.mjs:14:10)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: [ 3, 3, 3 ],\n    expected: [ 4, 3, 3 ],\n    operator: 'deepStrictEqual',\n    diff: 'simple'\n  }\n\ntest at test\\splitCents.test.mjs:26:1\n✖ sum is preserved and max-min <= 1 (0.9067ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  + actual - expected\n  \n  + 999999999919\n  - 999999999999\n              ^\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-bPQj3j/test/splitCents.test.mjs:31:12)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 999999999919,\n    expected: 999999999999,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "e34b4713acbb69e8c1bac5346fc90624ebfc7eb50d798f4b99e3a15b60d806ef",
+        "passed": false,
+        "output": "✖ V1 [visible] required export and public examples (1.8632ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 94.5908\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\cent-split.visible.mjs:4:1\n✖ V1 [visible] required export and public examples (1.8632ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    [\n  -   4,\n      3,\n      3,\n  +   3\n    ]\n  \n      at TestContext.<anonymous> (file:///D:/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/Agent-SDLC-Runner/bench/checks/evidence/cent-split.visible.mjs:4:111)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Test.start (node:internal/test_runner/test:1191:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: [ 3, 3, 3 ],\n    expected: [ 4, 3, 3 ],\n    operator: 'deepStrictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "8052fbe43063e7f228773ad53405978b42919ff76b70ba56fd601065a9a2e80f",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "8052fbe43063e7f228773ad53405978b42919ff76b70ba56fd601065a9a2e80f",
+        "passed": false,
+        "output": "✔ existing public API (0.6487ms)\n✔ protocolVersion is preserved (0.9701ms)\n✔ exact division (0.8647ms)\n✔ remainder goes to earliest indices (0.151ms)\n✔ zero total (0.4395ms)\n✔ single share gets everything (0.1666ms)\n✖ sum is preserved and max-min <= 1 (1.4167ms)\n✔ rejects invalid total (0.3624ms)\n✔ rejects invalid count (0.1833ms)\nℹ tests 9\nℹ suites 0\nℹ pass 8\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 114.8225\n\n✖ failing tests:\n\ntest at test\\splitCents.test.mjs:26:1\n✖ sum is preserved and max-min <= 1 (1.4167ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  0 !== 1\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-bPQj3j/test/splitCents.test.mjs:35:14)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 0,\n    expected: 1,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "8052fbe43063e7f228773ad53405978b42919ff76b70ba56fd601065a9a2e80f",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.2717ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 89.1095\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "574477b95f112a28581b2265ca37a8c76e47c5a4fe62398f50eee966bad3cbdc",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "574477b95f112a28581b2265ca37a8c76e47c5a4fe62398f50eee966bad3cbdc",
+        "passed": false,
+        "output": "✔ existing public API (0.8514ms)\n✔ protocolVersion is preserved (0.7203ms)\n✔ exact division (0.6748ms)\n✔ remainder goes to earliest indices (0.1199ms)\n✔ zero total (0.1361ms)\n✔ single share gets everything (0.1243ms)\n✖ sum is preserved and max-min <= 1 (0.9517ms)\n✔ rejects invalid total (0.3865ms)\n✔ rejects invalid count (0.1994ms)\nℹ tests 9\nℹ suites 0\nℹ pass 8\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 122.9485\n\n✖ failing tests:\n\ntest at test\\splitCents.test.mjs:26:1\n✖ sum is preserved and max-min <= 1 (0.9517ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  0 !== 1\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-bPQj3j/test/splitCents.test.mjs:35:14)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 0,\n    expected: 1,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "574477b95f112a28581b2265ca37a8c76e47c5a4fe62398f50eee966bad3cbdc",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.9137ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 100.4\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "574477b95f112a28581b2265ca37a8c76e47c5a4fe62398f50eee966bad3cbdc",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "574477b95f112a28581b2265ca37a8c76e47c5a4fe62398f50eee966bad3cbdc",
+        "passed": false,
+        "output": "✔ existing public API (0.6199ms)\n✔ protocolVersion is preserved (0.7253ms)\n✔ exact division (0.9142ms)\n✔ remainder goes to earliest indices (0.1163ms)\n✔ zero total (0.1392ms)\n✔ single share gets everything (0.14ms)\n✖ sum is preserved and max-min <= 1 (1.0301ms)\n✔ rejects invalid total (0.3667ms)\n✔ rejects invalid count (0.1877ms)\nℹ tests 9\nℹ suites 0\nℹ pass 8\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 118.1492\n\n✖ failing tests:\n\ntest at test\\splitCents.test.mjs:26:1\n✖ sum is preserved and max-min <= 1 (1.0301ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  0 !== 1\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-bPQj3j/test/splitCents.test.mjs:35:14)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 0,\n    expected: 1,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "574477b95f112a28581b2265ca37a8c76e47c5a4fe62398f50eee966bad3cbdc",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.5356ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 94.6914\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "d2aa517446ada59093b4fc1779a42b0d1c3a9183567f454df2ca5698ceee24da",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "d2aa517446ada59093b4fc1779a42b0d1c3a9183567f454df2ca5698ceee24da",
+        "passed": true,
+        "output": "✔ existing public API (0.8277ms)\n✔ protocolVersion is preserved (1.0811ms)\n✔ exact division (0.992ms)\n✔ remainder goes to earliest indices (0.1236ms)\n✔ zero total (0.1379ms)\n✔ single share gets everything (0.125ms)\n✔ sum is preserved and max-min <= 1 (0.6299ms)\n✔ rejects invalid total (0.4912ms)\n✔ rejects invalid count (0.1907ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 119.9505\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "d2aa517446ada59093b4fc1779a42b0d1c3a9183567f454df2ca5698ceee24da",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.7444ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 93.6565\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "9886806e368d3b1a405534f0753d3bba0e3a30d517710fdd8ffe670a48c1750c",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "9886806e368d3b1a405534f0753d3bba0e3a30d517710fdd8ffe670a48c1750c",
+        "passed": false,
+        "output": "✔ existing public API (0.719ms)\n✔ protocolVersion is preserved (0.8264ms)\n✔ exact division (0.7302ms)\n✔ remainder goes to earliest indices (0.125ms)\n✔ zero total (0.148ms)\n✔ single share gets everything (0.1343ms)\n✖ sum is preserved and max-min <= 1 (1.0371ms)\n✔ rejects invalid total (0.3966ms)\n✔ rejects invalid count (0.2075ms)\nℹ tests 9\nℹ suites 0\nℹ pass 8\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 137.5462\n\n✖ failing tests:\n\ntest at test\\splitCents.test.mjs:26:1\n✖ sum is preserved and max-min <= 1 (1.0371ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  0 !== 1\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-bPQj3j/test/splitCents.test.mjs:35:14)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 0,\n    expected: 1,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "9886806e368d3b1a405534f0753d3bba0e3a30d517710fdd8ffe670a48c1750c",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.2957ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 92.2387\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "0f3a0d356c4d57a537018d38cfb4ea67206d49d36ace60b5acddb7d4288d4957",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "0f3a0d356c4d57a537018d38cfb4ea67206d49d36ace60b5acddb7d4288d4957",
+        "passed": false,
+        "output": "✔ existing public API (0.6101ms)\n✔ protocolVersion is preserved (0.7123ms)\n✔ exact division (0.671ms)\n✔ remainder goes to earliest indices (0.6014ms)\n✔ zero total (0.1718ms)\n✔ single share gets everything (0.1667ms)\n✖ sum is preserved and max-min <= 1 (1682.802ms)\n✔ rejects invalid total (0.4013ms)\n✔ rejects invalid count (0.2008ms)\nℹ tests 9\nℹ suites 0\nℹ pass 8\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 1800.6713\n\n✖ failing tests:\n\ntest at test\\splitCents.test.mjs:26:1\n✖ sum is preserved and max-min <= 1 (1682.802ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  0 !== 1\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-bPQj3j/test/splitCents.test.mjs:35:14)\n      at Test.runInAsyncScope (node:async_hooks:227:14)\n      at Test.run (node:internal/test_runner/test:1325:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:911:18)\n      at Test.postRun (node:internal/test_runner/test:1465:19)\n      at Test.run (node:internal/test_runner/test:1390:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 0,\n    expected: 1,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "0f3a0d356c4d57a537018d38cfb4ea67206d49d36ace60b5acddb7d4288d4957",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.2789ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 90.3326\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+        "passed": true,
+        "output": "✔ existing public API (0.8551ms)\n✔ protocolVersion is preserved (1.082ms)\n✔ exact division (0.7106ms)\n✔ remainder goes to earliest indices (0.5931ms)\n✔ zero total (0.1317ms)\n✔ single share gets everything (0.1357ms)\n✔ sum is preserved and max-min <= 1 (1553.2833ms)\n✔ rejects invalid total (0.4688ms)\n✔ rejects invalid count (0.2122ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 1662.5377\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.4997ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 101.139\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 27,
+      "writes": 10,
+      "denied": 0,
+      "repairs": 5,
+      "repeatedErrors": 5,
+      "firstEditMs": 33694.1826,
+      "firstCheckMs": 75801.3398,
+      "humanWaitMs": 0,
+      "activeMs": 333940.438,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "verified",
+        "revision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public examples (1.4997ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 101.139\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+            "passed": true,
+            "output": "✔ existing public API (0.8551ms)\n✔ protocolVersion is preserved (1.082ms)\n✔ exact division (0.7106ms)\n✔ remainder goes to earliest indices (0.5931ms)\n✔ zero total (0.1317ms)\n✔ single share gets everything (0.1357ms)\n✔ sum is preserved and max-min <= 1 (1553.2833ms)\n✔ rejects invalid total (0.4688ms)\n✔ rejects invalid count (0.2122ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 1662.5377\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/shares.mjs",
+    "test/splitCents.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 0,
+    "pass": 0,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [],
+    "errorText": "скрытые тесты не дали ни одной разобранной строки TAP — снято по таймауту 60000 мс"
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": false
+  },
+  "acceptance": false,
+  "falseSuccess": true,
+  "frozenRevision": "83e2f812b47c9097759eb5bf10f039c8010f766b7473927f7cfdc28fc7b88815",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

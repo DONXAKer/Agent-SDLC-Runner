@@ -1,0 +1,47 @@
+diff --git a/src/options.mjs b/src/options.mjs
+index e8014d2..3ad6615 100644
+--- a/src/options.mjs
++++ b/src/options.mjs
+@@ -1 +1,42 @@
++function resolveOptions(base, override) {
++    const result = {};
++    // Collect and define only own enumerable string properties from base
++    Object.getOwnPropertyNames(base).forEach((key) => {
++        if (typeof key === 'string') {
++            Object.defineProperty(result, key, {
++                value: base[key],
++                enumerable: true,
++                writable: true,
++                configurable: true
++            });
++        }
++    });
++
++    // Process override: merge values if defined, otherwise omit
++    for (const key of Object.getOwnPropertyNames(override)) {
++        if (
++            typeof key === 'string'
++             && 
++            typeof override[key] !== 'undefined'
++        ) {
++            // __proto__ needs special handling but doesn't interfere with normal resolution
++            Object.defineProperty(result, key, {
++                value: typeof override[key] !== 'undefined' ?
++                    override[key] : key in base ? base[key] : undefined,
++                enumerable: true,
++                writable: true,
++                configurable: true
++            });
++        }
++    }
++
++    return result;
++}
++
++export { resolveOptions }
+ export const protocolVersion = 1;
++
++const protocolVersion = 1;
++
++export { protocolVersion, resolveOptions };
++

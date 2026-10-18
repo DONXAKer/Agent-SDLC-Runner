@@ -17,6 +17,7 @@ import { placeholderRanges, readArtifact } from '../artifacts/artifact.ts';
 import { isPreparationV2, preparationContext } from '../artifacts/preparation.ts';
 import { preparationFieldInstructions, preparationInstructions } from './preparation.ts';
 import { capBytes } from './bytes.ts';
+import { TASK_INDEPENDENT_IMPLEMENTATION } from './implementationPolicy.ts';
 import { INDEX_BLOCK_BYTES, renderIndexBlock } from '../explore/render.ts';
 import { BYTES_PER_TOKEN_ESTIMATE } from '../exec/contextBudget.ts';
 import type { ExploreIndexView } from '../explore/view.ts';
@@ -929,7 +930,7 @@ export function buildPrompt(i: BuildPromptInput): PreparedPrompt {
   const v2 = i.preparationV2 ?? isPreparationV2(i.ctx.paths);
   const preparing = ['intent', 'explore', 'ask', 'plan'].includes(i.stage.id);
   const skillBody = v2 && preparing ? preparationInstructions(i.runner.methodologyDir, i.stage.id, i.formFill === true) : readSkillBody(i.runner.skillsDir, i.stage.skill);
-  const system = `${skillBody}\n\n---\n\n${adapterBlock(i)}`;
+  const system = `${skillBody}\n\n---\n\n${adapterBlock(i)}\n\n${TASK_INDEPENDENT_IMPLEMENTATION}`;
 
   const specs = specsFor(i.tools ?? i.stage.tools);
   const tools = [

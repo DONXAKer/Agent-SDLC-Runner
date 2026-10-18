@@ -309,7 +309,7 @@ interface QuestionAnswer {
   answer: string[];
 }
 
-function classifyQuestion(script: HumanScript, q: Question): QuestionAnswer {
+export function classifyQuestion(script: HumanScript, q: Question): QuestionAnswer {
   const text = `${q.question} ${q.header}`;
   for (const rule of script.answers.rules) {
     if (bankRegExp(rule.match).test(text)) return { source: 'rule', tag: rule.tag, answer: rule.answer };

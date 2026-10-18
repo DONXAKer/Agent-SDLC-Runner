@@ -1,0 +1,51 @@
+diff --git a/src/coef.ts b/src/coef.ts
+index 5551ed7..ce68ed5 100644
+--- a/src/coef.ts
++++ b/src/coef.ts
+@@ -19,6 +19,14 @@ export const FRAGILITY_FACTOR = 1.5;
+ /** Шаг округления объёмного веса: место на полке занимается целыми ячейками по 100 г. */
+ const WEIGHT_STEP_G = 100;
+ 
++/**
++ * Коэффициент упаковки: товар на полку ложится не голым, а в коробе, прокладках и
++ * стрейче, и тарифицировать нужно то, что реально занимает место. Значение и точка
++ * применения — по регламенту приёмки: множитель к объёмному весу ПОСЛЕ формулы
++ * (д×ш×в)/5, до округления.
++ */
++export const PACKING_FACTOR = 1.2;
++
+ /**
+  * Объёмный вес в граммах.
+  *
+@@ -34,3 +42,20 @@ export function volumetricWeightG(dimensionsCm: DimensionsCm): number {
+   const rawG = (length * width * height) / 5;
+   return Math.ceil(rawG / WEIGHT_STEP_G) * WEIGHT_STEP_G;
+ }
++
++/**
++ * Объёмный вес с учётом упаковки, в граммах.
++ *
++ * На полку товар ложится в упаковке — короб, прокладки, стрейч — и арендодатель
++ * тарифицирует то место, что реально занято. Поэтому к объёмному весу по формуле
++ * (д×ш×в)/5 применяем коэффициент упаковки, а итог округляем тем же правилом, что и
++ * голый объёмный вес: вверх до 100 г, ячейка занимается целиком.
++ *
++ * `volumetricWeightG` остаётся без изменений: приёмке нужен голый объёмный вес для
++ * сверки габаритов без упаковки.
++ */
++export function packedWeightG(dimensionsCm: DimensionsCm): number {
++  const [length, width, height] = dimensionsCm;
++  const rawG = ((length * width * height) / 5) * PACKING_FACTOR;
++  return Math.ceil(rawG / WEIGHT_STEP_G) * WEIGHT_STEP_G;
++}
+diff --git a/src/index.ts b/src/index.ts
+index c992a16..c44c173 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -7,5 +7,5 @@
+ 
+ export { CATEGORY_LIMIT, limitFor } from './limits.ts';
+ 
+-export { FRAGILITY_FACTOR, volumetricWeightG } from './coef.ts';
++export { FRAGILITY_FACTOR, PACKING_FACTOR, packedWeightG, volumetricWeightG } from './coef.ts';
+ export type { DimensionsCm } from './coef.ts';

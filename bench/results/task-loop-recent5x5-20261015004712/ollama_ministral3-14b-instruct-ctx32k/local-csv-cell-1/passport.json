@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "task": "csv-cell",
+  "model": "ollama:ministral3-14b-instruct-ctx32k",
+  "sourceHash": "896ff96b54e4e1b20cdf6b9dc82fe222c86447cb73c88f5355e3a92798217d08",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-HGRrzm",
+  "baseCommit": "d090a9d4bce3d3b19020555a31ad57a972f19517",
+  "contract": {
+    "task": "Export csvRow(values) from src/format.mjs. Accept an array of strings and return one CSV row without a trailing newline. Separate cells with commas. Quote cells containing comma, double quote, CR or LF; double each embedded double quote. Preserve whitespace, Unicode and empty cells exactly. Empty array returns empty string. Do not mutate values.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "test/existing.test.mjs",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false,
+    "requirements": [
+      {
+        "id": "public-api",
+        "description": "Required module export and the registered public API examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-api"
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export csvRow(values) from src/format.mjs. Accept an array of strings and return one CSV row without a trailing newline. Separate cells with commas. Quote cells containing comma, double quote, CR or LF; double each embedded double quote. Preserve whitespace, Unicode and empty cells exactly. Empty array returns empty string. Do not mutate values.",
+        "source": "Human task",
+        "checks": []
+      }
+    ],
+    "requireAdditionalTestsUnder": [
+      "test/"
+    ]
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/*.test.mjs"
+      ]
+    }
+  ],
+  "structuredFeedback": false,
+  "visibleChecks": [
+    {
+      "name": "public-api",
+      "file": "bench/checks/evidence/csv-cell.visible.mjs"
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": null,
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-recent-5tasks.json",
+  "acceptanceFile": null,
+  "control": "local",
+  "startedAt": "2026-10-14T22:55:24.982Z"
+}

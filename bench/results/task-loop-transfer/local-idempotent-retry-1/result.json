@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "idempotent-retry",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "06f08348a76c244c89d1bcc24671ff0ca73240f5618cab805b2f6d8b7d29382b",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-gzvB57",
+    "baseCommit": "d7f471c07c292e87d41ff58401a15b3ee87e8585",
+    "contract": {
+      "task": "# Идемпотентная отправка\n\nВызывающая сторона ретраит по таймауту: не дождалась ответа — вызвала отправку ещё раз. У нас\nкаждый вызов честно уходит в транспорт, и человек получает одно и то же уведомление дважды, а\nто и трижды. Нужна идемпотентность отправки.\n\n## Что должно получиться\n\n1. `sendNotification(transport, msg, opts?)` (`src/sender.ts`, реэкспорт из `src/index.ts`)\n   принимает третьим параметром **необязательные** опции `{ idempotencyKey?: string }`.\n   Повторный вызов с тем же ключом **не отправляет** повторно и возвращает прежний `id` —\n   тот, что выдал транспорт при первой отправке.\n2. Вызовы **без ключа** работают как раньше: всегда отправляют, даже если сообщение\n   совпадает с уже отправленным. Существующие тесты остаются зелёными и **без правки** —\n   они вызывают `sendNotification` двумя аргументами, и это обязано остаться законным.\n3. Один ключ — одно тело. Повторный вызов с тем же ключом, но **другим** сообщением\n   (отличается любое из `to`, `text`, `phone`) — это ошибка вызывающего: бросается\n   исключение. Не тихая отправка и не тихий возврат чужого `id`.\n4. Хранилище ключей — в процессе: `Map` в модуле отправки или в новом модуле `src/`.\n   Внешних зависимостей нет и не появится.\n5. На новое поведение есть тест рядом с существующими (`test/`), и набор тестов прогнан\n   по-настоящему командой проекта. В журнал этапа идёт то, что напечатала команда.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/idempotent-retry`. Виток полный — мелким контуром не закрывать.\n- Транспорт (`src/transport.ts`) не трогаем: идемпотентность — забота отправителя, транспорт\n  про ключи не знает. `memoryTransport` — стенд, а не место для логики.\n- Время жизни ключа — процесс. TTL и очистку хранилища в этом витке не делаем.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "src/transport.ts",
+        "test/sender.test.ts",
+        "test/outbox.test.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build-check.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/**/*.test.ts"
+        ]
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-transfer.json",
+    "acceptanceFile": "bench/checks/acceptance/retry.mjs",
+    "control": "local",
+    "startedAt": "2026-10-14T14:11:08.534Z"
+  },
+  "finishedAt": "2026-10-14T14:14:03.281Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Готово. Все проверки зелёные.\n\n## Что сделал\n\n**`src/sender.ts`** — идемпотентность:\n- Подпись стала `sendNotification(transport, msg, opts?)` с необязательным `{ idempotencyKey?: string }` (тип `SendOptions` выделен и документируется).\n- В модуле (в процессе) хранится `Map<string, { id, msg }>` — записанная отправка под ключом: id транспорта плюс тело. Без внешних зависимостей, без TTL — намеренно, по рамкам.\n- Повтор по ключу с тем же телом — транспорт не вызывается, возвращается прежний `id`.\n- Повтор по ключу с отличным телом (любое из `to`/`text`/`phone`) — бросает исключение; `phone` сравнивается как «отсутствует ≡ `undefined`».\n- Без ключа — как раньше, всегда уходит в транспорт.\n\n**`test/idempotency.test.ts`** (новый, рядом с существующими) — 5 тестов: повтор (даже тройной) не дублирует и отдаёт прежний id; чужое тело под тем же ключом — исключение и ни одного лишнего отправления; разные ключи независимы; без ключа — всегда отправка; связка «с ключом / без ключа».\n\n**Зелёные без правки** — `test/sender.test.ts` и `test/outbox.test.ts` (двухаргументные вызовы остались законным). `src/transport.ts` не тронут.\n\n## Журнал этапа (напечатала команда проверок)\n\n```\nbuild: PASS    (модулей загружено: 6 из 6)\ntest: PASS     (10 тестов: идемпотентность отправки 5, очередь исходящих 3, отправитель 2; 0 fail)\n```\n\n## Ограничение\nХранилище — в процессе: при перезапуске процесс keys сбрасываются (это заявлено в рамках, TTL/очистка не делаются).",
+    "usage": {
+      "inputTokens": 68956,
+      "outputTokens": 2897,
+      "cacheReadTokens": 64506,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 172307
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "4da94fbe0695d68dbccb9417e747adc9a46b48061e631e312457fec71a44a559",
+        "passed": true,
+        "output": "ok   index.ts\nok   log.ts\nok   message.ts\nok   outbox.ts\nok   sender.ts\nok   transport.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "4da94fbe0695d68dbccb9417e747adc9a46b48061e631e312457fec71a44a559",
+        "passed": true,
+        "output": "▶ очередь исходящих\n  ✔ enqueue накапливает, ничего не отправляя (0.6017ms)\n  ✔ drain отправляет накопленное в порядке постановки и опустошает очередь (1.5821ms)\n  ✔ drain пустой очереди ничего не отправляет (0.1638ms)\n✔ очередь исходящих (3.2117ms)\n▶ отправитель\n  ✔ уведомление доходит до транспорта как есть (1.2036ms)\n  ✔ id отправки — тот, что выдал транспорт (0.1314ms)\n✔ отправитель (2.2165ms)\nℹ tests 5\nℹ suites 2\nℹ pass 5\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 132.3847\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "8f1ea985cfa095f1c61edf1ac814c3b37a1c913a1dc10a20e5e82926da30f1ad",
+        "passed": true,
+        "output": "ok   index.ts\nok   log.ts\nok   message.ts\nok   outbox.ts\nok   sender.ts\nok   transport.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "8f1ea985cfa095f1c61edf1ac814c3b37a1c913a1dc10a20e5e82926da30f1ad",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-gzvB57/test/idempotency.test.ts:9\nimport { strictEqual, deepStrictEqual, assert } from 'node:assert/strict';\n                                       ^^^^^^\nSyntaxError: The requested module 'node:assert/strict' does not provide an export named 'assert'\n    at #asyncInstantiate (node:internal/modules/esm/module_job:327:21)\n    at async ModuleJob.run (node:internal/modules/esm/module_job:431:5)\n    at async node:internal/modules/esm/loader:643:26\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\n\nNode.js v24.18.0\n✖ test\\idempotency.test.ts (113.6718ms)\n▶ очередь исходящих\n  ✔ enqueue накапливает, ничего не отправляя (0.5767ms)\n  ✔ drain отправляет накопленное в порядке постановки и опустошает очередь (0.9795ms)\n  ✔ drain пустой очереди ничего не отправляет (0.1097ms)\n✔ очередь исходящих (2.4733ms)\n▶ отправитель\n  ✔ уведомление доходит до транспорта как есть (0.7574ms)\n  ✔ id отправки — тот, что выдал транспорт (0.1139ms)\n✔ отправитель (1.6352ms)\nℹ tests 6\nℹ suites 2\nℹ pass 5\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 148.3406\n\n✖ failing tests:\n\ntest at test\\idempotency.test.ts:1:1\n✖ test\\idempotency.test.ts (113.6718ms)\n  'test failed'\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "51b2991752336bb549f098f3036ac4f4644634488aa26bd99f2dba2d81295bc5",
+        "passed": true,
+        "output": "ok   index.ts\nok   log.ts\nok   message.ts\nok   outbox.ts\nok   sender.ts\nok   transport.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "51b2991752336bb549f098f3036ac4f4644634488aa26bd99f2dba2d81295bc5",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-gzvB57/test/idempotency.test.ts:10\nimport { assert } from 'node:assert';\n         ^^^^^^\nSyntaxError: The requested module 'node:assert' does not provide an export named 'assert'\n    at #asyncInstantiate (node:internal/modules/esm/module_job:327:21)\n    at async ModuleJob.run (node:internal/modules/esm/module_job:431:5)\n    at async node:internal/modules/esm/loader:643:26\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\n\nNode.js v24.18.0\n✖ test\\idempotency.test.ts (115.591ms)\n▶ очередь исходящих\n  ✔ enqueue накапливает, ничего не отправляя (0.6371ms)\n  ✔ drain отправляет накопленное в порядке постановки и опустошает очередь (0.7195ms)\n  ✔ drain пустой очереди ничего не отправляет (0.1281ms)\n✔ очередь исходящих (2.334ms)\n▶ отправитель\n  ✔ уведомление доходит до транспорта как есть (0.8278ms)\n  ✔ id отправки — тот, что выдал транспорт (0.1231ms)\n✔ отправитель (1.7422ms)\nℹ tests 6\nℹ suites 2\nℹ pass 5\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 169.83\n\n✖ failing tests:\n\ntest at test\\idempotency.test.ts:1:1\n✖ test\\idempotency.test.ts (115.591ms)\n  'test failed'\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "b3cabd3b1818d2fec32be7d74db5831f2122afd2b9cfbea8257ac392cbfc5a91",
+        "passed": true,
+        "output": "ok   index.ts\nok   log.ts\nok   message.ts\nok   outbox.ts\nok   sender.ts\nok   transport.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "b3cabd3b1818d2fec32be7d74db5831f2122afd2b9cfbea8257ac392cbfc5a91",
+        "passed": true,
+        "output": "▶ идемпотентность отправки\n  ✔ повтор с тем же ключом не отправляет повторно и возвращает прежний id (0.7144ms)\n  ✔ повтор с тем же ключом, но другим телом — исключение, в транспорт не уходит (0.7756ms)\n  ✔ разные ключи — независимые отправки (0.1257ms)\n  ✔ вызов без ключа всегда отправляет, даже то же самое тело (0.6458ms)\n  ✔ одинаковое тело с ключом и без: повтор без ключа отправляет заново (0.1427ms)\n✔ идемпотентность отправки (4.0618ms)\n▶ очередь исходящих\n  ✔ enqueue накапливает, ничего не отправляя (0.5894ms)\n  ✔ drain отправляет накопленное в порядке постановки и опустошает очередь (0.8014ms)\n  ✔ drain пустой очереди ничего не отправляет (0.187ms)\n✔ очередь исходящих (2.4927ms)\n▶ отправитель\n  ✔ уведомление доходит до транспорта как есть (0.8399ms)\n  ✔ id отправки — тот, что выдал транспорт (0.1174ms)\n✔ отправитель (1.7253ms)\nℹ tests 10\nℹ suites 3\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 155.1368\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 12,
+      "writes": 5,
+      "denied": 0,
+      "repairs": 2,
+      "repeatedErrors": 1,
+      "firstEditMs": 63106.1672,
+      "firstCheckMs": 124879.0711,
+      "humanWaitMs": 0,
+      "activeMs": 173811.6228,
+      "telemetryErrors": 0
+    }
+  },
+  "asks": [],
+  "changed": [
+    "src/sender.ts",
+    "test/idempotency.test.ts"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G1",
+        "category": "contract",
+        "label": "ok 1 - G1 [contract]: equal bodies reuse the real id; different keys and absent keys send"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G2",
+        "category": "contract",
+        "label": "ok 2 - G2 [contract]: each differing message field rejects reuse without sending"
+      }
+    ],
+    "errorText": null
+  },
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 5,
+    "pass": 5,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: Без ключа два одинаковых сообщения уходят дважды, id — те, что выдал транспорт. Это контракт «как было», он обязан остаться и после витка."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: Очередь существует до витка: enqueue двух, drain — две отправки в порядке постановки."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-1): Два вызова с одним ключом и одним телом — одна отправка в транспорт, оба вызова вернули один и тот же id."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-1): Разные ключи — разные отправки: ключ k-pr2-a дважды и k-pr2-b один раз → две отправки и два различных id (без дедупликации было бы три)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-3): Один ключ, другое тело (изменён text) — второй вызов бросает исключение; в транспорт ушла только первая отправка. Ключи изолированы per-message, а не «любой ключ — любое тело»."
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "b3cabd3b1818d2fec32be7d74db5831f2122afd2b9cfbea8257ac392cbfc5a91",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

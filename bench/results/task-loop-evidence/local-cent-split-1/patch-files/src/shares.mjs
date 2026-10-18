@@ -1,0 +1,19 @@
+export const protocolVersion = 1;
+
+/**
+ * Split total cents into `count` integer shares.
+ * @param {number} total nonnegative safe integer (cents)
+ * @param {number} count positive safe integer, <= 1000
+ * @returns {number[]} count integers summing to total, differing by at most one; extra cents go to earliest indices.
+ */
+export function splitCents(total, count) {
+  if (typeof total !== 'number' || !Number.isSafeInteger(total) || total < 0) {
+    throw new RangeError('total must be a nonnegative safe integer');
+  }
+  if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1 || count > 1000) {
+    throw new RangeError('count must be a positive safe integer <= 1000');
+  }
+  const base = Math.floor(total / count);
+  const extra = total % count;
+  return Array.from({length: count}, (_, i) => base + (i < extra ? 1 : 0));
+}

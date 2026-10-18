@@ -1,0 +1,26 @@
+diff --git a/src/format.mjs b/src/format.mjs
+index e8014d2..ed2f191 100644
+--- a/src/format.mjs
++++ b/src/format.mjs
+@@ -1 +1,20 @@
+ export const protocolVersion = 1;
++
++export function csvRow(values) {
++    if (!values.length) return '';
++    
++    return values.reduce((acc, value) => {
++        const needsQuotes = typeof value === 'string' 
++            && (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r'));
++        
++        let csvValue = typeof value === 'string' 
++            ? value.replace(/"/g, '""')
++            : value.toString()
++            .replace(/"/g, '""');
++        
++        csvValue = needsQuotes ? `"${csvValue}"` : csvValue;
++        
++        acc.push(csvValue);
++        return acc;
++    }, []).join(',');
++}
+\ No newline at end of file

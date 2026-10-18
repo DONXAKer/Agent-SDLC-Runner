@@ -8,8 +8,40 @@
 import { deepStrictEqual, strictEqual, throws } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+it('context and evidence repair experiments require guided v4', () => {
+  const args=['--all','--model','ollama:local','--execution-mode','guided','--guided-engine-version','4'];
+  strictEqual(parseArgs([...args,'--consumer-context']).consumerContext,true);
+  strictEqual(parseArgs([...args,'--evidence-repair']).evidenceRepair,true);
+  strictEqual(parseArgs(args).evidenceRepair,undefined);
+  throws(()=>parseArgs(['--all','--model','x','--consumer-context']),/guided v4/);
+  throws(()=>parseArgs([...args.slice(0,-1),'3','--evidence-repair']),/guided v4/);
+});
+
 import { OptionsError, parseArgs, rawLogWanted, resolveTurnLimits } from '../src/options.ts';
 import { measuredStages } from '../src/profile.ts';
+
+it('Chunk arbitration validates explicit guided configuration and allows checked snapshot resumes', () => {
+  const base = ['--all', '--model', 'x', '--execution-mode', 'guided'];
+  strictEqual(parseArgs([...base, '--chunk-candidates', '2', '--chunk-judge', 'judge', '--chunk-candidate-seconds', '45']).chunkCandidateTimeoutMs, 45000);
+  strictEqual(parseArgs([...base, '--from-snapshot', 'input']).fromSnapshot, 'input');
+  throws(() => parseArgs([...base, '--chunk-candidates', '1']), /2 или 3/);
+  throws(() => parseArgs([...base, '--chunk-judge', 'judge']), /chunk-candidates/);
+  throws(() => parseArgs([...base, '--chunk-candidate-seconds', '0']), /больше нуля/);
+  throws(() => parseArgs(['--all', '--model', 'x', '--chunk-candidates', '2']), /guided/);
+});
+
+it('plan selection is explicit, guided-only and validates the judge dependency', () => {
+  const base = ['--all', '--model', 'x', '--execution-mode', 'guided'];
+  strictEqual(parseArgs([...base, '--plan-candidates', '3']).planCandidates, 3);
+  strictEqual(parseArgs([...base, '--plan-candidates', '2', '--plan-judge', 'other']).planJudge, 'other');
+  throws(() => parseArgs([...base, '--plan-candidates', '4']), /1, 2 или 3/);
+  throws(() => parseArgs([...base, '--plan-judge', 'other']), /требует --plan-candidates/);
+  throws(() => parseArgs(['--all', '--model', 'x', '--plan-candidates', '3']), /guided/);
+  strictEqual(parseArgs([...base, '--plan-candidates', '1', '--from-snapshot', 'input']).fromSnapshot, 'input');
+  strictEqual(parseArgs([...base, '--plan-candidates', '1', '--from-snapshot', 'input', '--control-plan', 'other']).controlOverrides.plan, 'other');
+  throws(() => parseArgs([...base, '--plan-candidates', '3', '--control-chunk', 'other']), /одну модель/);
+  throws(() => parseArgs([...base, '--plan-candidates', '1', '--plan-judge', 'other']), /несколько кандидатов/);
+});
 
 it('версия проработки задаётся явно; историческое умолчание не меняется', () => {
   strictEqual(parseArgs(['--model', 'x', '--all']).preparationVersion, undefined);
@@ -23,6 +55,13 @@ it('guided requires a full cycle and prevents contradictory preparation versions
   strictEqual(parseArgs(['--model', 'x', '--all', '--execution-mode', 'guided']).executionMode, 'guided');
   throws(() => parseArgs(['--model', 'x', '--all', '--execution-mode', 'guided', '--preparation-version', '1']), /guided/);
   throws(() => parseArgs(['--model', 'x', '--all', '--stage-timeout', '300000']), /тайм/);
+});
+
+it('guided engine selection is explicit and cannot be silently used in legacy diagnosis', () => {
+  for (const version of ['1', '2', '3', '4']) strictEqual(parseArgs(['--all', '--model', 'x', '--execution-mode', 'guided',
+    '--guided-engine-version', version]).guidedEngineVersion, Number(version));
+  throws(() => parseArgs(['--all', '--model', 'x', '--guided-engine-version', '3']), /guided/);
+  throws(() => parseArgs(['--all', '--model', 'x', '--execution-mode', 'guided', '--guided-engine-version', '5']), /ожидается/);
 });
 
 describe('лимиты ходов (resolveTurnLimits)', () => {

@@ -12,11 +12,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import { GuidedProgress } from '../src/run/guidedProgress.ts';
+import { WitokPaths } from '../src/artifacts/paths.ts';
 
 import type { NormalizedCall, ToolName } from '@sdlc-runner/shared';
 
 import {
   FormFillExecutor,
+  acceptanceRowsFromArtifact,
   cleanFieldAnswer,
   cleanRowAnswer,
   compactFieldGroups,
@@ -62,7 +65,7 @@ it('guided reviews acceptance before writing it and retries concrete semantic er
   strictEqual(result.ok,true,result.note); strictEqual(drafts,2); strictEqual(audits,2);
   ok(readFileSync(artifact,'utf8').includes('"expected":"allow"')); ok(!readFileSync(artifact,'utf8').includes('"expected":"refuse"'));
 });
-it('guided does not close acceptance when its semantic review is malformed', async () => {
+for (const version of [3, 4] as const) it(`guided v${version} handles rejected acceptance without concealing review status`, async () => {
   const root = mkdtempSync(join(tmpdir(), 'sdlc-intent-review-fail-')); roots.push(root);
   const artifact = join(root,'intent.md');
   writeFileSync(artifact,'<!-- sdlc-template: intent v1 -->\n<!-- sdlc-json:acceptance:start -->\n‹acceptance_json›\n<!-- sdlc-json:acceptance:end -->');
@@ -71,8 +74,16 @@ it('guided does not close acceptance when its semantic review is malformed', asy
       toolCalls:[],finishReason:'end_turn' as const,usage:{inputTokens:1,outputTokens:1,cacheReadTokens:0,cacheWriteTokens:0,costUsd:null,durationMs:1}};
   }} as unknown as ChatProvider;
   const result = await new FormFillExecutor({provider,maxResultBytes:10000,readRangeRequiredAboveBytes:10000,bashTimeoutMs:1000,
-    compact:true,preparationV2:true,reviewIntentClaims:true,stage:'intent'}).run(request(root,artifact),hooks({writes:[]},true));
-  strictEqual(result.ok,false); ok(readFileSync(artifact,'utf8').includes('‹acceptance_json›'));
+    compact:true,preparationV2:true,reviewIntentClaims:true,stage:'intent',
+    intentRequests:['## Что должно получиться\n\n1. Функция validateCustomer возвращает коды нарушений.\n']})
+    .run({ ...request(root,artifact), guidedEngineVersion: version },hooks({writes:[]},true));
+  // Битый аудит не пропускает ответ модели; скелет из запроса закрывает плейсхолдер.
+  const text = readFileSync(artifact,'utf8');
+  ok(!text.includes('‹acceptance_json›'), text);
+  ok(text.includes('validateCustomer'), text);
+  ok(!text.includes('"expected":"allow"'), text);
+  strictEqual(result.ok, version === 3, result.note);
+  if (version === 4) { strictEqual(result.failure?.kind, 'contract'); strictEqual(result.failure?.reviewStatus, 'rejected'); }
 });
 after(() => {
   for (const r of roots) rmSync(r, { recursive: true, force: true });
@@ -95,6 +106,28 @@ it('guided lists travel as JSON items and the runtime renders the document', asy
     }), hooks({ writes: [] }, true));
   strictEqual(result.ok, true, result.note);
   ok(readFileSync(artifact, 'utf8').includes('- Сохранить заданное поведение'));
+});
+
+it('durable field values survive denied projection and pass the gate again on resume', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-guided-field-resume-')); roots.push(root);
+  const artifact = join(root, 'intent.md'); const initial = '# Task\n\n## Что делаем\n- ‹пункт›\n';
+  writeFileSync(artifact, initial); let calls = 0;
+  const provider: ChatProvider = { name: 'test', async chat() {
+    calls++; return { text: JSON.stringify({ items: ['Сохранить заданное поведение'] }), toolCalls: [], finishReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1 } };
+  } };
+  const paths = new WitokPaths(root, 'task');
+  const req = () => request(root, artifact, { progress: new GuidedProgress(paths),
+    prompt: { presetNote: null, system: '', user: JSON.stringify({ data: { requests: ['Сохранить поведение'] } }),
+      tools: [], editedByOperator: false, guidedProtocol: true } });
+  const executor = new FormFillExecutor({ provider, maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000,
+    bashTimeoutMs: 1000, compact: true, stage: 'intent' });
+  const denied = await executor.run(req(), hooks({ writes: [] }, false));
+  strictEqual(denied.ok, false); strictEqual(readFileSync(artifact, 'utf8'), initial);
+  const before = calls;
+  const accepted = await executor.run(req(), hooks({ writes: [] }, true));
+  strictEqual(accepted.ok, true, accepted.note); strictEqual(calls, before); strictEqual(accepted.modelRequests, 0);
+  ok(readFileSync(artifact, 'utf8').includes('Сохранить заданное поведение'));
 });
 
 const FORM = ['# Задача', '', '- **Итог:** ‹что должно стать правдой›', '- **Зачем:** ‹почему сейчас›', '- **Ветка:** sdlc/demo', ''].join('\n');
@@ -1811,6 +1844,52 @@ it('basis schema pins one row per accepted claim ID and degrades safely without 
   strictEqual(free.json_schema.schema.maxItems, 24);
   strictEqual(free.json_schema.schema.items.oneOf, undefined, 'без списка claim-id — свободная схема');
   strictEqual(JSON.stringify(free).includes('"oneOf":[]'), false, 'пустой oneOf запрещён для Ollama');
+  const empty = structuredClaimResponseFormat(basisJsonField, ['# Запрос'], []) as typeof free;
+  strictEqual(empty.json_schema.schema.minItems, 1);
+  strictEqual(empty.json_schema.schema.maxItems, 24);
+});
+
+it('guided v4 basis request preserves rendered acceptance IDs and asks for a nonempty array', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-rendered-basis-')); roots.push(root);
+  const artifact = join(root, 'intent.md');
+  const text = '# Task\n\n## Приёмочный лист\n| ID | Требование | Проверка | Ожидание |\n|---|---|---|---|\n| claim-1 | Keep A | Check A | A |\n| claim-2 | Keep B | Check B | B |\n| claim-3 | Keep C | Check C | C |\n\n## Основания и сценарии\n<!-- sdlc-json:basis:start -->\n‹basis_json›\n<!-- sdlc-json:basis:end -->';
+  writeFileSync(artifact, text);
+  deepStrictEqual(acceptanceRowsFromArtifact(text, true).map(row => row.id), ['claim-1', 'claim-2', 'claim-3']);
+  let checked = false;
+  const provider: ChatProvider = { name: 'rendered-basis-spy', async chat(req) {
+    const format = req.params?.response_format as { json_schema: { schema: { minItems: number; maxItems: number } } };
+    strictEqual(format.json_schema.schema.minItems, 3);
+    strictEqual(format.json_schema.schema.maxItems, 3);
+    const input = JSON.parse(req.messages[1]!.content);
+    ok(input.data.answerRequirements.includes('claim-3 → Keep C'));
+    checked = true;
+    return { text: JSON.stringify([1, 2, 3].map(n => ({ id: `claim-${n}`, basis: { file: 'request-1', lines: [1, 1] }, scenario: 'Check value', counterexample: 'Wrong value' }))),
+      toolCalls: [], finishReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: null, durationMs: 1 } };
+  } };
+  await new FormFillExecutor({ provider, compact: true, stage: 'intent', intentRequests: ['Keep values'],
+    maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000 }).run(request(root, artifact, {
+      guidedEngineVersion: 4,
+      prompt: { presetNote: null, system: '', user: JSON.stringify({ data: { requests: ['Keep values'] } }), tools: [], editedByOperator: false, guidedProtocol: true },
+    }), hooks({ writes: [] }, true));
+  ok(checked, 'runtime must actually submit the basis field');
+  ok(readFileSync(artifact, 'utf8').includes('claim-3'));
+});
+
+const acceptanceJsonField = { id: 'приёмочный лист', label: null, placeholders: [{ text: '‹acceptance_json›' }] } as unknown as FormField;
+
+it('acceptance schema freezes id from seeds and asks only procedure/expected', () => {
+  const seeds = [
+    { id: 'claim-1', behavior: 'A', procedure: '', expected: '' },
+    { id: 'claim-2', behavior: 'B', procedure: '', expected: '' },
+  ];
+  const format = structuredClaimResponseFormat(acceptanceJsonField, ['req'], undefined, seeds) as {
+    json_schema: { schema: { minItems: number; maxItems: number; items: { oneOf: { properties: Record<string, unknown>; required: string[] }[] } } };
+  };
+  strictEqual(format.json_schema.schema.minItems, 2);
+  strictEqual(format.json_schema.schema.maxItems, 2);
+  deepStrictEqual(format.json_schema.schema.items.oneOf.map((row) => (row.properties.id as { const: string }).const), ['claim-1', 'claim-2']);
+  deepStrictEqual(format.json_schema.schema.items.oneOf[0]?.required, ['id', 'procedure', 'expected']);
+  strictEqual('behavior' in (format.json_schema.schema.items.oneOf[0]?.properties ?? {}), false);
 });
 
 it('многострочная цитата основания не ломает таблицу: корректный ответ проходит гейт (отказ r1)', () => {

@@ -1,0 +1,42 @@
+export const protocolVersion  = 1;
+
+/**
+* Merge overlapping or touching number ranges [start, end].
+* @param {number[][]} ranges Input ranges, where each is a [start, end] pair with start <= end.
+* @returns {number[][]} Sorted merged ranges; empty input returns []; nonfinite or invalid inputs throw TypeError.
+*/
+export function mergeRanges(ranges) {
+   if (!Array.isArray(ranges))
+      throw new TypeError("Input must be an array of ranges.");
+
+   if (ranges.length === 0)
+      return [];
+
+    // Duplicate and validate range inputs while copying.
+   ranges = ranges.map(r => {
+     if (!Array.isArray(r) || r.length < 2) {
+       throw new TypeError("Each range must be a pair [start, end].");
+      }
+        const start = r[0], end = r[1];
+      if (!Number.isFinite(start) || !Number.isFinite(end)) {
+       throw new TypeError("Range start and end must be finite numbers.");
+      }
+      if (start > end) {
+       throw new TypeError("Range start must be <= end.");
+      }
+      return [start, end].slice(); 
+   }).sort((a, b) => a[0] - b[0] || a[1] - b[1]);  // Sort for merging
+
+   const merged = [ranges[0].slice()];
+
+   for (let i = 1; i < ranges.length; i++) {
+     const last = merged[merged.length - 1];
+     const curr = ranges[i];
+
+      if (curr[0] <= last[1]) /* Overlapping or touching*/
+        last[1] = Math.max(last[1], curr[1]); // Expand the last range
+      else
+        merged.push(curr.slice());
+   }
+   return merged;
+}

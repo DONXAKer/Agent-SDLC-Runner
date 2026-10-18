@@ -1,0 +1,35 @@
+diff --git a/src/page.mjs b/src/page.mjs
+index e8014d2..2f9f817 100644
+--- a/src/page.mjs
++++ b/src/page.mjs
+@@ -1 +1,30 @@
+ export const protocolVersion = 1;
++
++/**
++ * Return a page of items after a given cursor, respecting a limit.
++ * @param {Array<{id: string}>} items - array of objects with unique string id.
++ * @param {string|null} cursor - id of the item after which to start, or null to start from beginning.
++ * @param {number} limit - maximum number of items to return (1-100 inclusive).
++ * @returns {{items: Array<{id: string}>, nextCursor: string|null}}
++ * @throws {RangeError} if cursor is unknown or limit is out of bounds.
++ */
++export function pageAfter(items, cursor, limit) {
++  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
++    throw new RangeError('limit must be integer 1..100');
++  }
++  // Determine start index
++  let startIndex = 0;
++  if (cursor !== null) {
++    const idx = items.findIndex((it) => it.id === cursor);
++    if (idx === -1) {
++      throw new RangeError('unknown cursor');
++    }
++    startIndex = idx + 1;
++  }
++
++  const pageItems = items.slice(startIndex, startIndex + limit);
++  const hasMore = startIndex + limit < items.length;
++  const nextCursor = hasMore ? items[startIndex + limit - 1].id : null;
++
++  return { items: pageItems, nextCursor };
++}

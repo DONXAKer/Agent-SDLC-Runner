@@ -4,6 +4,13 @@
 структурированную проработку v3. [Методология: PDSA и poka-yoke](../server/methodology/guided.md).
 Существующие задачи автоматически не переводятся в guided.
 
+Для отдельного эксперимента доступен [выбор между кандидатами плана](plan-selection.md):
+обычные проверки каждого кандидата, отдельные оценки в двух порядках и стандартная
+приёмка выбранного плана. По умолчанию режим выключен.
+
+Для Chunk доступен отдельный [эксперимент выбора патча группы](chunk-selection.md)
+с теми же политиками записи, WAL и гейтами. Он включается явно.
+
 ## Вопросы, JSON и документы
 
 Во всех семи этапах модель получает вопрос по одному проверяемому решению и нужные
@@ -787,6 +794,11 @@ bench 349; полный typecheck и production build прошли. После �
 проверки адресного ремонта все 9 тестов guidedRecovery прошли отдельно.
 Логи: `.tmp/guided-recovery-all-tests.log`, `.tmp/guided-recovery-all-types.log`,
 `.tmp/guided-recovery-build.log`, `.tmp/guided-recovery-regression.log`.
+
+Пилот `bench/results/task-loop-evidence` (короткий цикл local vs evidence) **не** является
+замером guided-recovery: там нет Intent/Explore/Plan и нет оркестрации guided JSON. Его
+промежуточные выводы не подтверждают и не опровергают фиксы #2; валидация recovery —
+только guided-suite и записи этого раздела / `docs/guided-progress.md`.
 
 Серия `guided-sample-20261005140516192`: cli-flag и rename-field по три повтора,
 GPT-OSS 20B low/temperature 0.2, прежние лимиты 12 минут на стадию и 30 на прогон.

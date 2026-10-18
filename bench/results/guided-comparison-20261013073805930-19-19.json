@@ -1,0 +1,329 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx16k",
+    "budgetMs": 3600000,
+    "activeMs": 46325,
+    "remainingMs": 3553675,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-13T10:03:59.950Z",
+        "inputRevision": "21f2977d4c9c74f95a6a9673b2345149bde225402a9c343b5caad672c2e56244",
+        "decision": "Гипотеза по действию",
+        "evidence": [],
+        "uncertainties": [
+          "Гипотеза по действию"
+        ],
+        "action": "read",
+        "reason": "Гипотеза по действию",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */\n11\t  currency: 'RUB';\n12\t}\n13\t\n14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}\n22\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-13T10:04:09.554Z",
+        "inputRevision": "21f2977d4c9c74f95a6a9673b2345149bde225402a9c343b5caad672c2e56244",
+        "decision": "Прочитать указанный фрагмент",
+        "evidence": [],
+        "uncertainties": [
+          "Прочитать указанный фрагмент"
+        ],
+        "action": "read",
+        "reason": "Прочитать указанный фрагмент",
+        "status": "collecting",
+        "changed": true,
+        "observation": {
+          "source": "lookup-3",
+          "ok": true,
+          "text": "1\t/**\n2\t * Счёт.\n3\t *\n4\t * Сборка итогового документа из позиций. Порядок слагаемых значим и закреплён: подытог по\n5\t * позициям, дальше — налоги и сборы, каждый отдельным полем, и только потом итог. Любое\n6\t * новое слагаемое встаёт в этот порядок явно, а не «где получилось».\n7\t */\n8\t\n9\timport type { BillingConfig } from './config.ts';\n10\timport { resolveConfig } from './config.ts';\n11\timport type { Customer } from './customer.ts';\n12\timport type { Kopeck } from './money.ts';\n13\timport { subtotal } from './lines.ts';\n14\timport type { Line } from './lines.ts';\n15\t\n16\t/** Выставленный счёт — так его показывают покупателю и так же проверяют в поддержке. */\n17\texport interface Invoice {\n18\t  /** Номер счёта, присваивает вызывающий. */\n19\t  number: string;\n20\t  customer: Customer;\n21\t  lines: readonly Line[];\n22\t  /** Подытог по позициям, до налогов. */\n23\t  subtotal: Kopeck;\n24\t  /** Сумма к оплате. Сейчас совпадает с подытогом: налогов в расчёте пока нет. */\n25\t  total: Kopeck;\n26\t}\n27\t\n28\t/** Собрать счёт из позиций. */\n29\texport function buildInvoice(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  resolveConfig(config); // конфиг читается здесь одним местом — переопределения действуют везде\n36\t  const sub = subtotal(lines);\n37\t  return { number, customer, lines, subtotal: sub, total: sub };\n38\t}\n39\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-13T10:04:14.773Z",
+        "inputRevision": "21f2977d4c9c74f95a6a9673b2345149bde225402a9c343b5caad672c2e56244",
+        "decision": "Прочитать указанный фрагмент",
+        "evidence": [],
+        "uncertainties": [
+          "Прочитать указанный фрагмент"
+        ],
+        "action": "read",
+        "reason": "Прочитать указанный фрагмент",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-4",
+          "ok": true,
+          "text": "1\t/**\n2\t * Тесты сборки счёта.\n3\t *\n4\t * Счёт без налогов: итог совпадает с подытогом, форма Invoice — {number, customer, lines,\n5\t * subtotal, total}. Форма — контракт: её сверяют литералом, поэтому новые поля появляются\n6\t * в Invoice только когда им есть что сказать.\n7\t */\n8\t\n9\timport { deepStrictEqual, strictEqual } from 'node:assert/strict';\n10\timport { describe, it } from 'node:test';\n11\t\n12\timport { bill } from '../src/index.ts';\n13\t\n14\tconst customer = { name: 'Иван', email: 'ivan@example.ru', phone: '+79001234567' };\n15\t\n16\tdescribe('сборка счёта', () => {\n17\t  it('итог совпадает с подытогом, пока налогов нет', () => {\n18\t    const inv = bill('СЧ-1', customer, [\n19\t      { title: 'Пакет', qty: 2, priceK: 333 },\n20\t      { title: 'Коробка', qty: 1, priceK: 334 },\n21\t    ]);\n22\t    strictEqual(inv.subtotal, 1_000);\n23\t    strictEqual(inv.total, 1_000);\n24\t  });\n25\t\n26\t  it('форма счёта — ровно пять полей', () => {\n27\t    const inv = bill('СЧ-2', customer, [{ title: 'Пакет', qty: 1, priceK: 100 }]);\n28\t    deepStrictEqual(Object.keys(inv).sort(), ['customer', 'lines', 'number', 'subtotal', 'total']);\n29\t    strictEqual(inv.number, 'СЧ-2');\n30\t  });\n31\t});\n32\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-13T10:04:20.032Z",
+        "inputRevision": "21f2977d4c9c74f95a6a9673b2345149bde225402a9c343b5caad672c2e56244",
+        "decision": "Гипотеза по действию",
+        "evidence": [],
+        "uncertainties": [
+          "Гипотеза по действию"
+        ],
+        "action": "input",
+        "reason": "Неизвестный source input — нужен id из показанных",
+        "status": "collecting",
+        "changed": true
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-13T10:04:26.224Z",
+        "inputRevision": "21f2977d4c9c74f95a6a9673b2345149bde225402a9c343b5caad672c2e56244",
+        "decision": "Гипотеза по действию",
+        "evidence": [],
+        "uncertainties": [
+          "Гипотеза по действию"
+        ],
+        "action": "read",
+        "reason": "Гипотеза по действию",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-6",
+          "ok": true,
+          "text": "1\t/**\n2\t * Публичный контракт пакета.\n3\t *\n4\t * Всё, что вызывают снаружи, проходит через этот файл. Внутренние модули друг на друга\n5\t * ссылаются напрямую, но потребитель знает только отсюда.\n6\t */\n7\t\n8\texport { add, formatRub, percent, rub, subtract } from './money.ts';\n9\texport type { Kopeck } from './money.ts';\n10\t\n11\texport { lineTotal, subtotal } from './lines.ts';\n12\texport type { Line } from './lines.ts';\n13\t\n14\texport type { Customer } from './customer.ts';\n15\t\n16\texport { DEFAULT_CONFIG, resolveConfig } from './config.ts';\n17\texport type { BillingConfig } from './config.ts';\n18\t\n19\texport { buildInvoice } from './invoice.ts';\n20\texport type { Invoice } from './invoice.ts';\n21\t\n22\timport { buildInvoice } from './invoice.ts';\n23\timport type { BillingConfig } from './config.ts';\n24\timport type { Customer } from './customer.ts';\n25\timport type { Invoice } from './invoice.ts';\n26\timport type { Line } from './lines.ts';\n27\t\n28\t/** Точка входа для вызывающих: выставить счёт. */\n29\texport function bill(\n30\t  number: string,\n31\t  customer: Customer,\n32\t  lines: readonly Line[],\n33\t  config?: Partial<BillingConfig>,\n34\t): Invoice {\n35\t  return buildInvoice(number, customer, lines, config);\n36\t}\n37\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-13T10:04:40.617Z",
+        "inputRevision": "21f2977d4c9c74f95a6a9673b2345149bde225402a9c343b5caad672c2e56244",
+        "decision": "blocked",
+        "evidence": [
+          {
+            "source": "stage-input",
+            "quote": "        \"path\": \"C:\\\\Users\\\\Root\\\\AppData\\\\Local\\\\Temp\\\\sdlc-bench-SL8aQg\\\\.sdlc\\\\gates.md\",\n        \"hash\": \"4cf37c105dc7ce17b2a97cef5aa88cfe6e10d22c260f3552616b00c630b5c4bf\",\n        \"exists\": true,\n        \"sections\": [\n          {\n            \"section\": \"Набор гейтов: billing\",\n            \"values\": [\n              \"_Файл проекта, не витка. Строки не удаляются — только переключаются. Обязательный минимум\",\n              \"помечен «да — минимум»: у этих строк переключателя нет, без любой из них набор не собран и\",\n              \"виток не стартует._\",\n              \"Последнее изменение набора: 2026-09-01\",\n              \"Владелец набора: Бенчмарк\",\n              \"_Обратные кавычки в колонке «Чем реализован» стоят только там, где гейт исполняется командой\",\n              \"(«Сборка» и «Тесты»). Во всех остальных строках их нет намеренно: процитированная в прозе\",\n              \"команда однажды подменила собой встроенную реализацию, и обязательный scope-гейт зеленел\",\n              \"всегда._\"\n            ]\n          },\n          {"
+          }
+        ],
+        "uncertainties": [
+          "Нехватка информации о формате и точном месте внедрения поля `dueDays` в `Invoice` и `buildInvoice`; <br>Не определен формат и содержание обновлённого теста, который должен подтверждать наличие `dueDays`; <br>Не указана точная спецификация обновления README для новой опции `defaultDueDays`; <br>Не подтверждён способ передачи `dueDays` в `buildInvoice` через опции `opts` (постоянные параметры)."
+        ],
+        "action": "read",
+        "reason": "Повторный запрос не даёт нового входа",
+        "status": "blocked",
+        "changed": true
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261013073805930-19-19",
+    "model": "ollama:gpt-oss-20b-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-compactfill",
+      "explore": "ollama:gpt-oss-20b-compactfill",
+      "ask": "ollama:gpt-oss-20b-compactfill",
+      "plan": "ollama:gpt-oss-20b-compactfill",
+      "chunk": "ollama:gpt-oss-20b-compactfill",
+      "verify": "ollama:gpt-oss-20b-compactfill",
+      "handoff": "ollama:gpt-oss-20b-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-13T10:03:52.746Z",
+    "finishedAt": "2026-10-13T10:04:40.640Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Повторный запрос не даёт нового входа",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 7
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 39406,
+          "outputTokens": 1922,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 46925
+        },
+        "durationMs": 47326,
+        "requestDurationsMs": [
+          6348,
+          5045,
+          4537,
+          5200,
+          5240,
+          6186,
+          14370
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 1,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 4,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "cd9dbc00d05a3dbcbfb9164d9f70f2e44b64aab429d106aba5e4bd7d6c3227cd",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "a1b8b1f111208ae1d759465cbceaf849f007bbd3bed987ee192e5b2795d5e7f2",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "44be017f67dd6273846186ad1009df60acae6768fcc0529a9ca209d326bc2305",
+    "state": "finished",
+    "capturedAt": "2026-10-13T10:04:40.662Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-13T10:04:40.620Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "dc6d5e3ecdda7b33383323e4bad6c73fc505dba25fd1a9a33807c0af8b77c3c7",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "d231bdf8281467e57a7672771d0c77801836ef25e8e9d39033595e8a27d49f8b",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "58916edc72fdc8335924cfe58b3b5b93049e1c9d065cd5399af88223679ddf8d",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

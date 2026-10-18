@@ -8,7 +8,7 @@ import { resolvedRequirementsHash } from './resolvedRequirements.ts';
 import { intentSections } from './intentSections.ts';
 import { claimIdOf } from './claims.ts';
 import { parseTables, columnIndex, escapeCell } from '../md/table.ts';
-import { parseGuidedJson } from '../exec/guidedJson.ts';
+import { parseGuidedJson, salvageGuidedJson, unwrapStructuredClaimRows } from '../exec/guidedJson.ts';
 import { extractHumanFacts } from './humanFacts.ts';
 import { documentFacts } from '../exec/guidedProtocol.ts';
 import { extractFilesToTouch, forbiddenCodePaths } from './planFiles.ts';
@@ -430,6 +430,101 @@ function lenientAcceptanceRow(row: unknown): Record<string, string> | null {
   return { id, behavior, procedure, expected: expected || procedure, };
 }
 
+/** Скелет приёмки из нумерованных пунктов запроса: id+behavior замораживает рантайм. */
+export type AcceptanceSeed = { id: string; behavior: string; procedure: string; expected: string };
+
+/** Вытащить независимо проверяемые пункты из «Что должно получиться» / нумерованного списка. */
+export function seedAcceptanceFromRequests(requests: readonly string[]): AcceptanceSeed[] {
+  const behaviors: string[] = [];
+  for (const request of requests) {
+    const section = /##\s*Что должно получиться\s*\n([\s\S]*?)(?=\n##\s|$)/iu.exec(request)?.[1] ?? request;
+    const lines = section.split(/\r?\n/);
+    let current: string[] = [];
+    const flush = (): void => {
+      const text = current.join(' ').replace(/\s+/gu, ' ').replace(/[`*_]/gu, '').trim();
+      current = [];
+      if (text.length >= 12) behaviors.push(text.slice(0, 400));
+    };
+    for (const line of lines) {
+      const numbered = /^\s*\d+[.)]\s+(.*)$/u.exec(line);
+      if (numbered) {
+        flush();
+        current = [numbered[1]!];
+        continue;
+      }
+      if (current.length === 0 && /^\s*[-*+]\s+\S/u.test(line)) {
+        const bullet = line.replace(/^\s*[-*+]\s+/u, '').replace(/[`*_]/gu, '').replace(/\s+/gu, ' ').trim();
+        if (bullet.length >= 12) behaviors.push(bullet.slice(0, 400));
+        continue;
+      }
+      if (current.length > 0 && line.trim() !== '' && !/^#{1,6}\s/u.test(line)) current.push(line.trim());
+    }
+    flush();
+  }
+  let unique = [...new Set(behaviors)].slice(0, 16);
+  if (unique.length === 0) {
+    const joined = requests.join('\n').replace(/\s+/gu, ' ').trim();
+    const fallback = (joined.slice(0, 400) || 'Требование задачи').trim();
+    unique = [fallback];
+  }
+  return unique.map((behavior, index) => ({
+    id: `claim-${index + 1}`,
+    behavior,
+    procedure: '',
+    expected: '',
+  }));
+}
+
+/** Заполнить пустые procedure/expected краткими шаблонами — без плейсхолдера ‹…›. */
+export function materializeAcceptanceSeed(seeds: readonly AcceptanceSeed[]): AcceptanceSeed[] {
+  return seeds.map((seed) => ({
+    id: seed.id,
+    behavior: seed.behavior,
+    procedure: seed.procedure.trim() || `Проверить по запросу: ${seed.behavior}`,
+    expected: seed.expected.trim() || 'Соответствует пункту',
+  }));
+}
+
+/**
+ * Склеить ответ модели (id + procedure + expected) с замороженным behavior из seed.
+ * Пустые procedure/expected добиваются шаблоном — этап не остаётся с ‹acceptance_json›.
+ */
+export function mergeAcceptanceSeedAnswer(
+  seeds: readonly AcceptanceSeed[],
+  answer: string,
+): string | null {
+  if (seeds.length === 0) return null;
+  let rows: unknown;
+  try {
+    const parsed = salvageGuidedJson(answer) ?? parseGuidedJson(answer);
+    rows = unwrapStructuredClaimRows(parsed) ?? (Array.isArray(parsed) ? parsed : null);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(rows)) return null;
+  const allowedSeed = new Set(['id', 'procedure', 'expected']);
+  const allowedFull = new Set(['id', 'behavior', 'procedure', 'expected']);
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    if (typeof row !== 'object' || row === null || Array.isArray(row)) return null;
+    const record = row as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (!(keys.every((key) => allowedSeed.has(key)) || keys.every((key) => allowedFull.has(key)))) return null;
+    const id = String(record.id ?? '').trim();
+    if (id !== '') byId.set(id, record);
+  }
+  const merged = seeds.map((seed, index) => {
+    const row = byId.get(seed.id)
+      ?? (typeof rows[index] === 'object' && rows[index] !== null && !Array.isArray(rows[index])
+        ? rows[index] as Record<string, unknown>
+        : null);
+    const procedure = String(row?.procedure ?? '').trim() || `Проверить по запросу: ${seed.behavior}`;
+    const expected = String(row?.expected ?? '').trim() || 'Соответствует пункту';
+    return { id: seed.id, behavior: seed.behavior, procedure, expected };
+  });
+  return JSON.stringify(merged);
+}
+
 function lenientBasisRow(row: unknown, requests: readonly string[]): Record<string, string> | null {
   if (typeof row !== 'object' || row === null) return null;
   const r = row as Record<string, unknown>;
@@ -506,13 +601,22 @@ export function normalizePreparationTables(intent: string, required = false, req
       continue;
     }
     const payload = (match[1] ?? '').trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
+    if (/‹[^›]*›/u.test(payload) || payload === '') {
+      if (spec.kind === 'basis') { basisFailed = true; continue; }
+      return { text, changed, problem: `JSON-блок ${spec.kind} ещё не заполнен: нужен непустой JSON-массив объектов с полями: ${spec.fields.join(', ')}.` };
+    }
     let rows: unknown;
     try { rows = JSON.parse(payload); } catch {
       try { rows = parseGuidedJson(payload); } catch {
-        if (spec.kind === 'basis') { basisFailed = true; continue; }
-        return { text, changed, problem: `JSON-блок ${spec.kind} должен содержать непустой JSON-массив объектов с полями: ${spec.fields.join(', ')}.` };
+        const salvaged = salvageGuidedJson(payload);
+        if (salvaged === null) {
+          if (spec.kind === 'basis') { basisFailed = true; continue; }
+          return { text, changed, problem: `JSON-блок ${spec.kind} должен содержать непустой JSON-массив объектов с полями: ${spec.fields.join(', ')}.` };
+        }
+        rows = salvaged;
       }
     }
+    rows = unwrapStructuredClaimRows(rows) ?? (Array.isArray(rows) ? rows : null);
     if (!Array.isArray(rows) || rows.length === 0) {
       if (spec.kind === 'basis') { basisFailed = true; continue; }
       return { text, changed, problem: `JSON-блок ${spec.kind} должен быть непустым массивом объектов с полями: ${spec.fields.join(', ')}.` };

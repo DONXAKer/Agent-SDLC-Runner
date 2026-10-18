@@ -1,0 +1,92 @@
+import { spawn } from 'node:child_process';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
+import { assessPilotTree, pilotCases, sourceFingerprint, writeJson } from '../bench/src/taskLoopPilot.ts';
+import type { BenchResult } from '../bench/src/result.ts';
+
+type Arm = 'baseline' | 'local' | 'reference';
+interface Cell { task: string; repeat: number; arm: Arm; status: string; output: string; startedAt?: string; finishedAt?: string; acceptance?: boolean; falseSuccess?: boolean | null; hidden?: string; activeMs?: number; requests?: number; error?: string }
+interface Suite { version: 1; status: string; sourceHash: string; localModel: string; startedAt: string; activeTimeoutMs: number; maxTurns: number; runs: Cell[]; limitations: string[] }
+const argv = process.argv.slice(2);
+const option = (key: string, fallback: string) => { const at = argv.indexOf(key); if (at >= 0 && !argv[at + 1]) throw new Error(`Missing ${key}`); return at < 0 ? fallback : argv[at + 1]!; };
+const root = resolve('.');
+const dir = resolve(option('--output', 'bench/results/task-loop-comparison'));
+const selected = option('--arms', 'local,baseline,reference').split(',');
+if (selected.some(arm => !['local', 'baseline', 'reference'].includes(arm))) throw new Error('Unknown arm');
+const cells: Cell[] = [];
+for (let repeat = 1; repeat <= 2; repeat++) for (const { task } of pilotCases(root)) for (const arm of ['local', 'baseline', 'reference'] as const)
+  cells.push({ task, repeat, arm, status: 'pending', output: `${arm}-${task}-${repeat}` });
+if (!argv.includes('--run')) { console.log(JSON.stringify({ cells, activeTimeoutMs: 600000, maxTurns: 40, control: 'non-blind assistant-session through same LoopExecutor' }, null, 2)); process.exit(0); }
+mkdirSync(dir, { recursive: true });
+const lockPath = join(dir, '.suite.lock');
+const lock = openSync(lockPath, 'wx');
+writeFileSync(lock, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+process.once('exit', () => { closeSync(lock); unlinkSync(lockPath); });
+const path = join(dir, 'suite.json');
+const suite: Suite = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as Suite : {
+  version: 1, status: 'running', sourceHash: sourceFingerprint(root), localModel: option('--model', 'ollama:qwen3.8-27b-iq4-gpumax'),
+  startedAt: new Date().toISOString(), activeTimeoutMs: 600000, maxTurns: 40, runs: cells,
+  limitations: ['Assistant-session reference is not blind; repetitions are not independent statistical samples.',
+    'Same tool loop for local/reference; baseline keeps its original guided orchestration.',
+    'Hidden cases and file obligations are evidence, not proof of every requirement. No default rollout based on this pilot.',
+    'Unknown token costs stay unknown. Reference latency includes manual bridge handling.'] };
+if (suite.sourceHash !== sourceFingerprint(root)) throw new Error('Source changed: start a new suite to preserve comparability');
+suite.status = 'running';
+function save(): void {
+  writeJson(path, suite);
+  const rows = suite.runs.map(r => `| ${r.arm} | ${r.task} | ${r.repeat} | ${r.status} | ${r.acceptance ?? '—'} | ${r.hidden ?? '—'} | ${r.activeMs === undefined ? '—' : (r.activeMs / 1000).toFixed(1)} |`);
+  writeFileSync(join(dir, 'report.md'), `# Короткий цикл: пилот\n\nСтатус: ${suite.status}. Завершено ${suite.runs.filter(r => !['pending','running'].includes(r.status)).length}/24.\n\n| Режим | Задача | Повтор | Статус | Приёмка | Скрытые | Активных секунд |\n|---|---|---:|---|---|---|---:|\n${rows.join('\n')}\n\n${suite.limitations.map(l => '- ' + l).join('\n')}\n`);
+}
+let stopAfterCurrent = false;
+process.on('SIGINT', () => { stopAfterCurrent = true; });
+process.on('SIGTERM', () => { stopAfterCurrent = true; });
+save();
+for (const cell of suite.runs) {
+  if (!selected.includes(cell.arm) || !['pending', 'running'].includes(cell.status)) continue;
+  if (stopAfterCurrent || existsSync(join(dir, 'STOP_AFTER_CURRENT'))) break;
+  if (sourceFingerprint(root) !== suite.sourceHash) throw new Error('Source changed during suite');
+  const output = join(dir, cell.output); mkdirSync(output, { recursive: true });
+  const slug = `${basename(dir)}-${cell.output}`;
+  const resultPath = cell.arm === 'baseline' ? join(root, 'bench/results', `${slug}.json`) : join(output, 'result.json');
+  if (cell.status === 'running' && !existsSync(resultPath)) throw new Error('Interrupted run without result: inspect its process before changing the manifest');
+  if (!existsSync(resultPath)) {
+    cell.status = 'running'; cell.startedAt = new Date().toISOString(); save();
+    const args = cell.arm === 'baseline' ? ['bench/src/cli.ts', '--all', '--model', suite.localModel, '--task', cell.task,
+      '--execution-mode', 'guided', '--guided-engine-version', '4', '--preparation-version', '3', '--strict-questions', '--stage-timeout', '5', '--run-timeout', '10', '--attempts', '3', '--slug', slug, '--keep-workspace'] :
+      ['tools/task-loop-pilot.ts', '--run', '--task', cell.task, '--model', cell.arm === 'reference' ? 'assistant-session' : suite.localModel,
+        '--output', output, '--timeout-ms', String(suite.activeTimeoutMs), '--max-turns', String(suite.maxTurns),
+        ...(cell.arm === 'reference' ? ['--bridge', join(output, 'bridge')] : [])];
+    console.log(`START ${cell.arm} ${cell.task} r${cell.repeat}`);
+    const log = openSync(join(output, 'process.log'), 'a');
+    try {
+      await new Promise<void>((resolveRun, reject) => {
+        const child = spawn(process.execPath, args, { cwd: root, windowsHide: true, stdio: ['ignore', log, log] });
+        writeJson(join(dir, 'active.json'), { pid: child.pid, cell, args, bridge: cell.arm === 'reference' ? join(output, 'bridge') : null });
+        child.once('error', reject); child.once('close', () => resolveRun());
+      });
+    } finally { closeSync(log); }
+  }
+  cell.finishedAt = new Date().toISOString();
+  if (!existsSync(resultPath)) { cell.status = 'environment_error'; cell.error = 'Missing result; see process.log'; save(); continue; }
+  try {
+    if (cell.arm === 'baseline') {
+      const result = JSON.parse(readFileSync(resultPath, 'utf8')) as BenchResult;
+      const statePath = join(root, 'bench/traces', slug, 'run-state.json');
+      const state = JSON.parse(readFileSync(statePath, 'utf8')) as { workspace: string };
+      const assessment = await assessPilotTree(root, cell.task, state.workspace, result.operator.asks.map(q => q.tag), result.operator.asks.map(q => q.answeredFrom));
+      writeJson(join(output, 'assessment.json'), assessment);
+      cell.status = result.driver.stopped;
+      cell.acceptance = assessment.behaviorPassed && result.finalVerdict?.passed === true;
+      cell.falseSuccess = result.finalVerdict?.passed === true ? !assessment.behaviorPassed : null;
+      cell.hidden = `${assessment.hidden.pass}/${assessment.hidden.total}`;
+      cell.activeMs = Date.parse(result.run.finishedAt) - Date.parse(result.run.startedAt);
+    } else {
+      const result = JSON.parse(readFileSync(resultPath, 'utf8'));
+      cell.status = result.result.status; cell.acceptance = result.acceptance; cell.falseSuccess = result.falseSuccess;
+      cell.hidden = `${result.hidden.pass}/${result.hidden.total}`; cell.activeMs = result.result.metrics.activeMs; cell.requests = result.result.metrics.modelRequests;
+    }
+  } catch (error) { cell.status = 'environment_error'; cell.error = String(error); }
+  if (sourceFingerprint(root) !== suite.sourceHash) { cell.status = 'incomparable'; cell.error = 'Source changed during run'; }
+  save(); console.log(`DONE ${cell.arm} ${cell.task} r${cell.repeat}: ${cell.status}; acceptance=${cell.acceptance}`);
+}
+suite.status = suite.runs.every(r => !['pending','running'].includes(r.status)) ? 'complete' : 'partial'; save();

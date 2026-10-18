@@ -1,0 +1,2 @@
+Export async settleSequentially(items,work) from src/batch.mjs. Call await work(item,index) sequentially once per item in input order. Return one {ok:true,value} or {ok:false,error} per item. Both synchronous throws and rejected promises become error results preserving the original error object. Continue after errors. Do not mutate items. Empty input yields [].
+Preserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.

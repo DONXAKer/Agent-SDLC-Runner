@@ -322,6 +322,13 @@ describe('PlanScope', () => {
       const root = 'D:/Проекты/App';
       strictEqual(resolveUserPath(root, 'Проекты/App/src/x.ts'), 'D:/Проекты/App/src/x.ts');
     });
+
+    // Модели часто дают `/src/foo.ts` как «от корня проекта»; на Windows это уходило за pathScope.
+    it('сводит ложный абсолютный /src/… к пути внутри проекта', () => {
+      const root = 'D:/Проекты/App';
+      strictEqual(resolveUserPath(root, '/src/validate.ts'), 'D:/Проекты/App/src/validate.ts');
+      ok(evaluate({ kind: 'read', path: '/src/validate.ts', range: null }, ctx(null, { projectRoot: root })).ok);
+    });
   });
 });
 

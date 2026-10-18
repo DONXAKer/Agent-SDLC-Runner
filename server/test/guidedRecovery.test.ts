@@ -7,10 +7,12 @@ import { emptyUsage } from '@sdlc-runner/shared';
 import { GuidedExecutor, simulateOps } from '../src/exec/GuidedExecutor.ts';
 import { GuidedOpError } from '../src/exec/symbolOps.ts';
 import { applyGuidedPlanRepair, guidedPlanRepairPaths, guidedPlanRepairResponseFormat, renumberGuidedPlan, GuidedPlanExecutor } from '../src/exec/GuidedPlanExecutor.ts';
-import { applyIntentContractRepair, parseIntentContractReview, renderIntentContractIssue } from '../src/exec/intentContractReview.ts';
+import { applyIntentContractRepair, contractIssueKey, parseIntentContractReview, renderIntentContractIssue } from '../src/exec/intentContractReview.ts';
 import { FormFillExecutor } from '../src/exec/FormFillExecutor.ts';
 import { WitokPaths } from '../src/artifacts/paths.ts';
 import { initGuided } from '../src/run/guidedState.ts';
+import { GuidedProgress } from '../src/run/guidedProgress.ts';
+import { checkedIntentContract } from '../src/exec/guidedContract.ts';
 import { AXES } from '../src/artifacts/planAxes.ts';
 import { initializePreparation, preparation, savePreparation, recordPreparationRead } from '../src/artifacts/preparation.ts';
 import type { ChatProvider } from '../src/provider/ChatProvider.ts';
@@ -192,6 +194,12 @@ const intent = '# Задача\n- **Ветка:** sdlc/test\n## Что дела�
 const issue = { problem: 'Запрет противоречит сериализации', quotes: [
   { section: 'Что делаем', lines: [1, 1] }, { section: 'Чего не делаем', lines: [1, 1] },
 ], source: { file: 'request-1', lines: [1, 1] } };
+test('contractIssueKey is stable for drift detection across reviews', () => {
+  const key = contractIssueKey(issue as Parameters<typeof contractIssueKey>[0]);
+  assert.equal(key, contractIssueKey({ ...issue, quotes: [...issue.quotes].reverse() } as Parameters<typeof contractIssueKey>[0]));
+  assert.notEqual(key, contractIssueKey({ ...issue, problem: 'Другая проблема' } as Parameters<typeof contractIssueKey>[0]));
+});
+
 test('contract review requires anchored line references; repair touches only addressed sections', () => {
   const issues = parseIntentContractReview(JSON.stringify({ issues: [issue] }), intent, [source]);
   // Completely malformed review still throws; tolerant clamping only applies to valid issues.
@@ -215,8 +223,9 @@ test('contract review requires anchored line references; repair touches only add
   assert.ok(withSubsection.includes('### Алгоритм'));
 });
 
-test('complete Intent review repairs through the write gate then independently rechecks', async t => {
-  const { root } = fixture(t); const artifact = join(root, 'intent.md'); writeFileSync(artifact, intent);
+for (const version of [3, 4] as const) test(`v${version} complete Intent review repairs through the write gate then independently rechecks`, async t => {
+  const { root, paths } = fixture(t); const artifact = join(root, 'intent.md'); writeFileSync(artifact, intent);
+  const progress = new GuidedProgress(paths);
   let reviews = 0; let writes = 0;
   const provider = { name: 'contract-spy', async chat(req: any) {
     const name = req.params.response_format.json_schema.name;
@@ -226,9 +235,24 @@ test('complete Intent review repairs through the write gate then independently r
   } } as ChatProvider;
   const h = hooks(); h.onToolResult = () => { writes++; };
   const result = await new FormFillExecutor({ provider, compact: true, preparationV2: true, reviewIntentContract: true, intentRequests: [source],
-    stage: 'intent', maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000 }).run(request(root, artifact), h);
+    stage: 'intent', maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000 }).run({ ...request(root, artifact), guidedEngineVersion: version, progress }, h);
   assert.equal(result.ok, true, result.note); assert.equal(reviews, 2); assert.equal(writes, 1); assert.equal(result.modelRequests, 3);
   assert.ok(!readFileSync(artifact, 'utf8').includes('Не удаляем code'));
+  assert.equal(checkedIntentContract(progress, readFileSync(artifact, 'utf8'), [source]), version === 4);
+});
+
+test('v4 does not accept reviewer drift after three repairs', async t => {
+  const { root } = fixture(t); const artifact = join(root, 'intent.md'); writeFileSync(artifact, intent);
+  let repairs = 0;
+  const provider = { name: 'drifting-review', async chat(req: any) {
+    if (req.params.response_format.json_schema.name === 'intent_contract_review') return turn({ issues: [{ ...issue,
+      quotes: [{ section: 'Что делаем', lines: [1, 1] }], problem: `remaining contradiction ${repairs}` }] });
+    return turn({ sections: [{ section: 'Что делаем', content: `serialize writes sku; revision ${++repairs}` }] });
+  } } as ChatProvider;
+  const result = await new FormFillExecutor({ provider, compact: true, preparationV2: true, reviewIntentContract: true,
+    intentRequests: [source], stage: 'intent', maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000 })
+    .run({ ...request(root, artifact), guidedEngineVersion: 4 }, hooks());
+  assert.equal(result.ok, false); assert.equal(result.failure?.kind, 'contract'); assert.equal(repairs, 3);
 });
 
 test('Intent blocks malformed review, exhausted repairs, write denial and exhausted request cap', async t => {
@@ -244,8 +268,8 @@ test('Intent blocks malformed review, exhausted repairs, write denial and exhaus
     const h = hooks(); if (scenario === 'denied') h.onToolRequest = async () => ({ allowed: false, updatedInput: null, reason: 'denied', by: 'policy' });
     const result = await new FormFillExecutor({ provider, compact: true, preparationV2: true, reviewIntentContract: true, intentRequests: [source], stage: 'intent',
       maxResultBytes: 10000, readRangeRequiredAboveBytes: 10000, bashTimeoutMs: 1000 }).run({ ...request(root, artifact), ...(scenario === 'budget' ? { requestCap: 1 } : {}) }, h);
-    assert.equal(result.ok, false, scenario); assert.ok(repairs <= 2);
+    assert.equal(result.ok, false, scenario); assert.ok(repairs <= 3);
     if (scenario === 'malformed' || scenario === 'denied' || scenario === 'budget') assert.equal(readFileSync(artifact, 'utf8'), intent);
-    if (scenario === 'exhausted') assert.equal(repairs, 2);
+    if (scenario === 'exhausted') assert.equal(repairs, 3);
   }
 });

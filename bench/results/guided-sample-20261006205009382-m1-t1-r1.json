@@ -1,0 +1,635 @@
+{
+  "guided": {
+    "version": 1,
+    "mode": "guided",
+    "modelId": "ollama:gpt-oss-20b-ctx32k",
+    "budgetMs": 1800000,
+    "activeMs": 1157972,
+    "remainingMs": 642028,
+    "inputRevision": "5c5f32775ff0adbec1178fc370893751917291f282cefa6ff86997dd81197169",
+    "currentItem": null,
+    "stopReason": "Формат не исправлен за одну повторную выборку",
+    "items": [
+      {
+        "id": "work-1",
+        "title": "Implement validateCustomer to check email and phone according to the specification.: Implement validateCustomer to check email and phone according to the specification.\nCreate test suite to exercise validateCustomer across all 15 claim scenarios and the re‑export check.: Create test suite to exercise validateCustomer across all 15 claim scenarios and the re‑export check.\nAdd re-export for validateCustomer.: Add re-export for validateCustomer.",
+        "files": [
+          "src/validate.ts",
+          "test/validate.test.ts",
+          "src/index.ts"
+        ],
+        "claims": [
+          "claim-1",
+          "claim-2",
+          "claim-3",
+          "claim-4",
+          "claim-5",
+          "claim-6",
+          "claim-7",
+          "claim-8",
+          "claim-9",
+          "claim-10",
+          "claim-11",
+          "claim-12",
+          "claim-13",
+          "claim-14",
+          "claim-15",
+          "claim-16"
+        ],
+        "dependsOn": [],
+        "prediction": "All sample inputs produce the expected violation arrays (empty for valid cases).\nAll tests pass, returning correct arrays for each case and re‑export is available.\nvalidateCustomer is available as a named export and returns [] for valid input.",
+        "checks": [
+          "registered project gates"
+        ],
+        "status": "failed",
+        "attempts": 0,
+        "repartitioned": false
+      }
+    ],
+    "observations": [
+      {
+        "itemId": "work-1",
+        "at": "2026-10-06T21:09:45.027Z",
+        "inputRevision": "5c5f32775ff0adbec1178fc370893751917291f282cefa6ff86997dd81197169",
+        "codeRevision": "4c3fff953e7d553721f3a73305798614250bbf52fc86d51896e5080bda0fdddb",
+        "prediction": "All sample inputs produce the expected violation arrays (empty for valid cases).\nAll tests pass, returning correct arrays for each case and re‑export is available.\nvalidateCustomer is available as a named export and returns [] for valid input.",
+        "result": "Невалидный JSON-ответ",
+        "kind": "format",
+        "passed": false
+      },
+      {
+        "itemId": "work-1",
+        "at": "2026-10-06T21:09:47.622Z",
+        "inputRevision": "5c5f32775ff0adbec1178fc370893751917291f282cefa6ff86997dd81197169",
+        "codeRevision": "4c3fff953e7d553721f3a73305798614250bbf52fc86d51896e5080bda0fdddb",
+        "prediction": "All sample inputs produce the expected violation arrays (empty for valid cases).\nAll tests pass, returning correct arrays for each case and re‑export is available.\nvalidateCustomer is available as a named export and returns [] for valid input.",
+        "result": "Невалидный JSON-ответ",
+        "kind": "format",
+        "passed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-sample-20261006205009382-m1-t1-r1",
+    "model": "ollama:gpt-oss-20b-ctx32k",
+    "task": "add-validator",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:gpt-oss-20b-ctx32k",
+      "explore": "ollama:gpt-oss-20b-ctx32k",
+      "ask": "ollama:gpt-oss-20b-ctx32k",
+      "plan": "ollama:gpt-oss-20b-ctx32k",
+      "chunk": "ollama:gpt-oss-20b-ctx32k",
+      "verify": "ollama:gpt-oss-20b-ctx32k",
+      "handoff": "ollama:gpt-oss-20b-ctx32k"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-06T20:50:29.467Z",
+    "finishedAt": "2026-10-06T21:09:48.323Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "заполнение по полям: в тексте заполнено 7, осталось на диске 0 полей модели; Приёмка противоречит запросу или не проверена: missing: Email addresses must contain at least one dot in the domain part, but there is no test checking this rule.; основание: Requirement: \"домен содержит точку\"; контрпример: {email:'user@examplecom',phone:'+71234567890'} – should trigger ['email'] but no procedure covers it.\nmissing: Phone numbers starting with \"+7\" must have exactly 10 digits after the prefix; however, there is no test checking the case of too many digits for this prefix.; основание: Requirement: \"+7 и ровно 10 цифр после\".; контрпример: {email:'user@example.com',phone:'+712345678901'} – should trigger ['phone'] but no procedure covers it.; ответ на поле отклонён: поле основания и сценарии: basis: каждый объект должен содержать ровно ключи id, basis, scenario, counterexample; лишние ключи запрещены; будет повторный запрос с причиной; Приёмка противоречит запросу или не проверена: claim-13: Ожидаемый результат задан неверно: лишняя закрывающая фигурная скобка, из‑за чего строковый массив невалиден.; основание: В спецификации ожидается, что при недопустимом email и телефоне функция вернёт массив ['email','phone'] (см. требования к порядку кодов). В draft ожидается строка `['email','phone']}` с лишним `}`.; контрпример: validateCustomer({email:'userexample.com', phone:'+7123456789'}); ответ на поле отклонён: поле основания и сценарии: basis: каждый объект должен содержать ровно ключи id, basis, scenario, counterexample; лишние ключи запрещены; будет повторный запрос с причиной",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 15
+      },
+      {
+        "stage": "explore",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "Исследование собрано из ответов по файлам; пути закреплены рантаймом",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 8
+      },
+      {
+        "stage": "ask",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "открытых вопросов нет — этап условный, артефакт не создаётся",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": true
+      },
+      {
+        "stage": "plan",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": true,
+        "note": "План собран из связанных шагов; независимая проверка выполняется рантаймом",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 4
+      },
+      {
+        "stage": "chunk",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "guided: Формат не исправлен за одну повторную выборку; применено 0",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 6
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 39613,
+          "outputTokens": 38721,
+          "cacheReadTokens": 20310,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 680146
+        },
+        "durationMs": 656577,
+        "requestDurationsMs": [
+          3528,
+          11424,
+          18321,
+          2514,
+          6478,
+          127651,
+          39385,
+          139227,
+          44563,
+          29816,
+          16155,
+          121589,
+          16048,
+          69369,
+          34084
+        ]
+      },
+      {
+        "stage": "explore",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 11769,
+          "outputTokens": 6382,
+          "cacheReadTokens": 6921,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 107723
+        },
+        "durationMs": 107800,
+        "requestDurationsMs": [
+          20282,
+          12475,
+          18980,
+          10799,
+          10599,
+          12045,
+          7166,
+          15377
+        ]
+      },
+      {
+        "stage": "plan",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 44507,
+          "outputTokens": 11875,
+          "cacheReadTokens": 12062,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 212795
+        },
+        "durationMs": 213221,
+        "requestDurationsMs": [
+          67325,
+          38754,
+          34030,
+          23712,
+          26047,
+          22927
+        ]
+      },
+      {
+        "stage": "chunk",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 42477,
+          "outputTokens": 10098,
+          "cacheReadTokens": 33519,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 179130
+        },
+        "durationMs": 180427,
+        "requestDurationsMs": [
+          4773,
+          1839,
+          25402,
+          2426,
+          142108,
+          2584
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      },
+      {
+        "stage": "explore",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "plan",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      },
+      {
+        "stage": "chunk",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 3,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 2,
+        "waitMs": 9
+      },
+      {
+        "stage": "explore",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 3
+      },
+      {
+        "stage": "plan",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 4
+      }
+    ],
+    "artifactGaps": [],
+    "chunkEvidence": [
+      {
+        "chunk": 1,
+        "attempt": 1,
+        "testsStatus": "✅",
+        "treeChanged": false,
+        "scopeViolation": true,
+        "planPathsUntouched": true
+      }
+    ]
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:85c101d6-cc8b-41e8-a2a6-7abaa58bb7d6",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261006205009382-m1-t1-r1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 5
+      },
+      {
+        "stage": "intent",
+        "requestId": "form:6f188063-6beb-4f5d-b86d-de98544afe67",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261006205009382-m1-t1-r1\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "explore",
+        "requestId": "guided-explore:03914b27-5da2-4a33-9627-3ddcc0e8fef1",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-sample-20261006205009382-m1-t1-r1\\exploration-report.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      },
+      {
+        "stage": "plan",
+        "requestId": "guided-plan:b7f82236-6f9a-49da-ac58-f7b2e8707bf5",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-fIKAOm\\.sdlc\\guided-sample-20261006205009382-m1-t1-r1\\plan.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 3
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "explore",
+        "toolName": "Write",
+        "kind": "write"
+      },
+      {
+        "stage": "plan",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 6599,
+        "userChars": 4677,
+        "editedByOperator": false
+      },
+      {
+        "stage": "explore",
+        "systemChars": 6060,
+        "userChars": 11616,
+        "editedByOperator": false
+      },
+      {
+        "stage": "plan",
+        "systemChars": 7490,
+        "userChars": 28599,
+        "editedByOperator": false
+      },
+      {
+        "stage": "chunk",
+        "systemChars": 13423,
+        "userChars": 14550,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": {
+    "total": 8,
+    "pass": 2,
+    "fail": 6,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: lineTotal существует до витка и считает верно."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: subtotal на эталонном наборе: 2×333 + 1×334 = 1000."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "not ok 3 - Pr1 [precision] (claim-2): Валидный покупатель: нарушений нет."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "not ok 4 - Pr2 [precision] (claim-2): Две собаки — нарушение email (ровно одна @)."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "not ok 5 - Pr3 [precision] (claim-2): Домен без точки — нарушение email."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "not ok 6 - Pr4 [precision] (claim-3): Короткий телефон — нарушение phone (+7 и ровно 10 цифр)."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr5",
+        "category": "precision",
+        "label": "not ok 7 - Pr5 [precision] (claim-3): Формат через восьмёрку — валиден (8 и ровно 10 цифр)."
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "Pr6",
+        "category": "precision",
+        "label": "not ok 8 - Pr6 [precision] (claim-2): Оба поля неверны — оба кода, в фиксированном порядке: email раньше phone."
+      }
+    ],
+    "errorText": null
+  },
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "2 из 8 скрытых тестов зелёные, но прогон успеха и не объявлял — это дефект кода (щуп «точность правки»), а не расхождение слов с фактом"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "1a60be01b12c0a8b1237269f4c3f90b793c58be6",
+      "sourceHash": "49a1a3144995bd0c48a74fbb7f435fcd1af050e8705a24f06f612817b7331514",
+      "configHash": "43d8636883c9c37e5bf56ddd973e63f83a676de27a0d4a0e228fef6c7b074981",
+      "localEndpoints": {},
+      "inputHash": "bd7e4e9e4c000c9d93c572282065d504a90746574011761aa3794f41c2e92f85",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 720000,
+      "runTimeoutMs": 1800000
+    },
+    "workspaceHash": "db5c34c5ef46b53098ecbad94cff997bbef7d36695330f52a8ee74a380e69403",
+    "state": "finished",
+    "capturedAt": "2026-10-06T21:09:48.556Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "chunk",
+      "at": "2026-10-06T21:09:48.321Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/chunk-1-attempt-1-steps.md",
+        "sha256": "a323f55a3a14ac5c49475e78ea5933769b842f31a520c2911b578446dfd5851e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "0ee38652237224f89e612780b1ff5bdd897681e0e9b6ca289d89220aee6cc1e8",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "chunk-1-journal.md",
+        "sha256": "47dc52aaaba48c02a0788af2c793e9bde1cadf8c18bc9354678b347545cfe2f9",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "clarification-report.md",
+        "sha256": "b7a3ad5709f4bab546b64e40b4de38a18f612be4f97c3955e2a3dae0e2f80ff1",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "exploration-report.md",
+        "sha256": "0d161d8cb0fe9846e60d119be0a78148b11d9d89b6236b55e25c342490c4dafc",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "64ec3ddf3752ae8256dfab86810963917a90f2e0f8ddb3a994cbb318652884f7",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "plan.md",
+        "sha256": "9ede50cd101945985d9ef0aa3a4368d69478d3a92571060e40f06cef7dbaf3fd",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "25d2f4780b17a1a05eb660f530eb25f2b9df736cfb2640d743669df65227df1d",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

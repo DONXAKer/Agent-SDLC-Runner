@@ -1,0 +1,281 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "page-window",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-vKQwWW",
+    "baseCommit": "ca0b62144dac8625f43470408100ae0d07b05bae",
+    "contract": {
+      "task": "Export pageAfter(items,cursor,limit) from src/page.mjs. items is an array of objects with unique string id. Preserve input order. cursor=null starts at first item; a known cursor starts immediately after its item; an unknown cursor throws RangeError. limit must be integer 1..100 or throw RangeError. Return {items: page, nextCursor}: nextCursor is last returned id only if more items remain, otherwise null. Do not mutate inputs.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export pageAfter(items,cursor,limit) from src/page.mjs. items is an array of objects with unique string id. Preserve input order. cursor=null starts at first item; a known cursor starts immediately after its item; an unknown cursor throws RangeError. limit must be integer 1..100 or throw RangeError. Return {items: page, nextCursor}: nextCursor is last returned id only if more items remain, otherwise null. Do not mutate inputs.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": false,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/page-window.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-evidence.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T17:55:55.783Z"
+  },
+  "finishedAt": "2026-10-14T17:57:46.273Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Все три проверки проходят.\n\nРеализация `pageAfter(items, cursor, limit)` в `src/page.mjs`:\n- **cursor=null** → старт с первого элемента; известный cursor → сразу после его элемента; неизвестный → `RangeError`.\n- **limit** — целое 1..100, иначе `RangeError` (проверка `Number.isInteger`).\n- Возвращает `{items, nextCursor}`: `nextCursor` = id последнего возвращённого элемента, только если остался остаток, иначе `null`.\n- Не мутирует вход: только `findIndex` и `slice`, которые не меняют исходный массив.\n- Сохранен существующий экспорт `protocolVersion` и тест.\n\nНовый исполняемый тест `test/pageAfter.test.mjs` (8 кейсов) закрывает: старт с null, старт после known cursor, unknown cursor, границы limit, пустой вход, exhausted tail, отсутствие мутации и сохранение порядка.\n\nОграничение: поведение для `cursor=undefined` не было явно описано в задаче — сейчас он трактуется как unknown cursor (падает с `RangeError`), что соответствует строгому прочтению «известный cursor = существующий id».",
+    "usage": {
+      "inputTokens": 26234,
+      "outputTokens": 1841,
+      "cacheReadTokens": 25169,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 109100
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "a34f131149eed7509c424c0a61d3da8c0ef0a106319d72a555fc5b58cace5af8",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "a34f131149eed7509c424c0a61d3da8c0ef0a106319d72a555fc5b58cace5af8",
+        "passed": true,
+        "output": "✔ existing public API (0.862ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 105.4416\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+        "passed": true,
+        "output": "✔ existing public API (0.5836ms)\n✔ starts at first item when cursor is null (1.612ms)\n✔ starts after a known cursor (0.1518ms)\n✔ throws RangeError for unknown cursor (0.3012ms)\n✔ limit out of range throws RangeError (0.1314ms)\n✔ empty input returns empty page with null cursor (0.1395ms)\n✔ last cursor on exhausted tail returns empty page (0.0959ms)\n✔ does not mutate inputs (0.1352ms)\n✔ preserves input order and unique ids (0.142ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 110.0933\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.2376ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 91.2239\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 10,
+      "writes": 4,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "repeatedCheckFailures": 0,
+      "firstEditMs": 38940.125,
+      "firstCheckMs": 93583.89749999999,
+      "humanWaitMs": 0,
+      "activeMs": 109897.5063,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "verified",
+        "revision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public examples (1.2376ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 91.2239\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+            "passed": true,
+            "output": "✔ existing public API (0.5836ms)\n✔ starts at first item when cursor is null (1.612ms)\n✔ starts after a known cursor (0.1518ms)\n✔ throws RangeError for unknown cursor (0.3012ms)\n✔ limit out of range throws RangeError (0.1314ms)\n✔ empty input returns empty page with null cursor (0.1395ms)\n✔ last cursor on exhausted tail returns empty page (0.0959ms)\n✔ does not mutate inputs (0.1352ms)\n✔ preserves input order and unique ids (0.142ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 110.0933\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export pageAfter(items,cursor,limit) from src/page.mjs. items is an array of objects with unique string id. Preserve input order. cursor=null starts at first item; a known cursor starts immediately after its item; an unknown cursor throws RangeError. limit must be integer 1..100 or throw RangeError. Return {items: page, nextCursor}: nextCursor is last returned id only if more items remain, otherwise null. Do not mutate inputs.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/page.mjs",
+    "test/pageAfter.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "pass",
+  "readyWithUnverifiedRequirements": true,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "ed70402ba2225b9859d27aea087a5494e0728bb0d6d0963b3986c355191136fb",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

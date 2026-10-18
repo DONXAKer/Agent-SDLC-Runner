@@ -134,3 +134,98 @@ export function parseGuidedJson(text: string): unknown {
     throw error;
   }
 }
+
+const WRAPPED_CLAIM_KEYS = ['acceptance', 'claims', 'items', 'basis'] as const;
+
+/** Модели иногда оборачивают массив claim-объектов во внешний объект — снимаем одну обёртку. */
+export function unwrapStructuredClaimRows(value: unknown): unknown[] | null {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'object' || value === null) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of WRAPPED_CLAIM_KEYS) {
+    const candidate = record[key];
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** Канонический JSON-массив для записи в sdlc-json маркеры intent. */
+export function canonicalStructuredClaimJson(text: string): string | null {
+  const value = salvageGuidedJson(text);
+  if (value === null) return null;
+  const rows = unwrapStructuredClaimRows(value);
+  if (rows === null || rows.length === 0) return null;
+  return JSON.stringify(rows);
+}
+
+/** Schema payload from a single tool-call when content text is empty (gpt-oss / local adapters). */
+function payloadFromToolCall(call: unknown): unknown | null {
+  if (!call || typeof call !== 'object') return null;
+  const record = call as { arguments?: unknown; rawArguments?: unknown };
+  if (record.arguments !== undefined && record.arguments !== null) {
+    if (typeof record.arguments === 'string') {
+      try { return salvageGuidedJson(record.arguments) ?? parseGuidedJson(record.arguments); }
+      catch { return null; }
+    }
+    return record.arguments;
+  }
+  if (typeof record.rawArguments === 'string' && record.rawArguments.trim()) {
+    try { return salvageGuidedJson(record.rawArguments) ?? parseGuidedJson(record.rawArguments); }
+    catch { return null; }
+  }
+  return null;
+}
+
+/**
+ * Decision/proposal turn:
+ * 1) JSON in text wins (даже если рядом есть tool_calls — их не исполняем);
+ * 2) иначе ровно один tool call с пустым text → payload из arguments (как GuidedExecutor.parseGuidedTurn);
+ * 3) иначе — отказ.
+ */
+export function parseGuidedDecisionJson(text: string, toolCalls: readonly unknown[], truncated = false): unknown {
+  const salvaged = salvageGuidedJson(text);
+  if (salvaged !== null) return salvaged;
+  // Dual-read: пустой/обрезанный text + один tool_call → payload из arguments
+  // (иначе «Unexpected end of JSON input» при max_tokens / пустом content).
+  if (toolCalls.length === 1) {
+    const fromTool = payloadFromToolCall(toolCalls[0]);
+    if (fromTool !== null && (!text.trim() || truncated)) return fromTool;
+  }
+  if (toolCalls.length || truncated) throw new Error('Нужен завершённый JSON без инструментальных вызовов');
+  return parseGuidedJson(text);
+}
+
+function unclosedDelimiterSuffix(body: string): string | null {
+  const stack: ('[' | '{')[] = [];
+  let quoted = false;
+  let escaped = false;
+  for (const char of body) {
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') { quoted = true; continue; }
+    if (char === '{') stack.push('{');
+    else if (char === '[') stack.push('[');
+    else if (char === '}') { if (stack.at(-1) === '{') stack.pop(); }
+    else if (char === ']') { if (stack.at(-1) === '[') stack.pop(); }
+  }
+  if (quoted) return null;
+  if (stack.length === 0) return '';
+  return stack.reverse().map(open => (open === '[' ? ']' : '}')).join('');
+}
+
+/** Одна попытка закрыть обрезанный JSON (max_tokens); не восстанавливает обрезанные строки внутри. */
+export function salvageGuidedJson(text: string): unknown | null {
+  try { return parseGuidedJson(text); }
+  catch { /* try closing delimiters */ }
+  const body = text.trim().replace(/^```(?:json)?\s*\n/i, '').replace(/\n```$/, '').trim();
+  let normalized = stripBoldPropertyKeys(body);
+  const clean = stripTrailingCommas(normalized);
+  const suffix = unclosedDelimiterSuffix(clean);
+  if (suffix === null || suffix === '') return null;
+  try { return parseGuidedJson(clean + suffix); }
+  catch { return null; }
+}

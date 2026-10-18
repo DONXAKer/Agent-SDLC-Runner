@@ -45,6 +45,7 @@ export interface DriverStageRecord {
    * одно число на оба смысла делало «лимит ходов» неотличимым от «пачки узких вопросов».
    */
   modelRequests?: number;
+  failure?: import('@sdlc-runner/shared').GuidedFailure;
   /** `runtime` — этап закрыл рантайм, а не заявка модели (`StageResult.closedBy`). */
   closedBy?: 'runtime';
 }
@@ -94,6 +95,7 @@ export interface DriverResult {
 export interface DriverArgs {
   preparationVersion?: 1 | 2 | 3;
   executionMode?: 'legacy' | 'guided';
+  guidedEngineVersion?: 1 | 2 | 3 | 4;
   /** Diagnostic boundary; unlike a snapshot, also stops on failed/incomplete stages. */
   measurementEnd?: StageId;
   signal?: AbortSignal;
@@ -284,7 +286,7 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     const stage = STAGE_ORDER[i]!;
     if (args.signal?.aborted) return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'cancelled' };
 
-    if (Date.now() > deadline) {
+    if (Date.now() >= deadline) {
       say(`⏱ виток превысил лимит стенных часов (${runTimeoutMs} мс) — остановка`);
       return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'run-timeout' };
     }
@@ -314,8 +316,8 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
     const { result, timedOut } = await runStageWithTimeout(
       run,
       stage,
-      stage === 'intent' ? { preparationVersion: args.preparationVersion ?? (args.executionMode === 'guided' ? 3 : 1), ...(args.executionMode === undefined ? {} : { executionMode: args.executionMode }), ...(args.requirement === undefined ? {} : { requirement: args.requirement }) } : {},
-      stageTimeoutMs,
+      stage === 'intent' ? { preparationVersion: args.preparationVersion ?? (args.executionMode === 'guided' ? 3 : 1), ...(args.executionMode === undefined ? {} : { executionMode: args.executionMode }), ...(args.guidedEngineVersion === undefined ? {} : { guidedEngineVersion: args.guidedEngineVersion }), ...(args.requirement === undefined ? {} : { requirement: args.requirement }) } : {},
+      Math.min(stageTimeoutMs, Math.max(1, deadline - Date.now())),
     );
     // `runStage` возвращает пропуск этапа тем же `StageResult`, что и настоящий прогон —
     // отличает их только то, что пропуск не тратит ни ход, ни время: пустой `finalText`
@@ -334,10 +336,12 @@ export async function runBench(args: DriverArgs): Promise<DriverResult> {
       ...(result.envFailure === undefined ? {} : { envFailure: result.envFailure }),
       ...(result.turns === undefined ? {} : { turns: result.turns }),
       ...(modelRequests === undefined ? {} : { modelRequests }),
+      ...(result.failure === undefined ? {} : { failure: result.failure }),
       ...(result.closedBy === undefined ? {} : { closedBy: result.closedBy }),
     });
 
     if (args.signal?.aborted) return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'cancelled' };
+    if (Date.now() >= deadline) return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: 'run-timeout' };
     if (stage === args.measurementEnd && (timedOut || !result.ok || stage === 'verify')) {
       return { stages, finalVerdict: run.lastVerdict ?? lastVerdict, stopped: timedOut ? 'stage-timeout' : 'stage-measured' };
     }

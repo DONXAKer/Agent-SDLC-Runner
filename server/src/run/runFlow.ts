@@ -3,6 +3,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statS
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { RunEvent, StageId } from '@sdlc-runner/shared';
 import { symlinkEscape } from '../approval/symlink.ts';
+import { executionSummary } from './executionSummary.ts';
+import type { ExecutionOperation, ExecutionPage } from '@sdlc-runner/shared';
 import type { WitokPaths } from '../artifacts/paths.ts';
 
 export interface FlowEntry {
@@ -14,8 +16,11 @@ export interface FlowEntry {
   from: string;
   to: string;
   payload: unknown;
+  operationId?: string;
+  itemId?: string;
+  attempt?: number;
 }
-export interface FlowReport { version: 1; slug: string; runId: string; entries: FlowEntry[] }
+export interface FlowReport { version: 1; slug: string; runId: string; entries: FlowEntry[]; incomplete?: boolean; execution?: import('@sdlc-runner/shared').ExecutionSummary }
 
 /** Все копии данных для человека: текущий архив и архивы прежних сессий витка. */
 export function flowReadDenied(paths: WitokPaths, currentRunId: string): string[] {
@@ -24,7 +29,13 @@ export function flowReadDenied(paths: WitokPaths, currentRunId: string): string[
   if (symlinkEscape(paths.projectRoot, root, []) === null && existsSync(root)) {
     for (const entry of readdirSync(root, { withFileTypes: true })) if (entry.isDirectory()) ids.add(entry.name);
   }
-  return [join(paths.runnerDir, 'flow.html'), ...[...ids].flatMap(id =>
+  const selections = ['chunk-selection', 'plan-selection'].flatMap(name => {
+    const directory = join(paths.runnerDir, name);
+    return [directory, ...(symlinkEscape(paths.projectRoot, directory, []) === null && existsSync(directory)
+      ? readdirSync(directory, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => join(directory, entry.name)) : [])];
+  });
+  return [join(paths.runnerDir, 'progress.json'), join(paths.runnerDir, 'flow.html'),
+    ...selections, ...[...ids].flatMap(id =>
     [join(root, id, 'index.html'), join(root, id, 'trace.ndjson')])]
     .map(path => relative(paths.projectRoot, path).replace(/\\/g, '/'));
 }
@@ -58,11 +69,27 @@ export class RunFlowRecorder {
   private entered = false;
   private readonly watched = new Map<string, Snapshot | null>();
   private readonly entries: FlowEntry[] = [];
+  private healthy = true;
+  private readonly operations = new Map<string, ExecutionOperation>();
+  private readonly requests = new Map<string, Pick<FlowEntry, 'invocation' | 'stage' | 'operationId' | 'itemId' | 'attempt'>>();
   private readonly paths: WitokPaths;
   private readonly runId: string;
   constructor(paths: WitokPaths, runId: string) {
     this.paths = paths; this.runId = runId;
     this.dir = join(paths.dir, '.runner', 'flow', runId);
+    const trace = join(this.dir, 'trace.ndjson');
+    if (existsSync(trace)) {
+      try {
+        const saved = readFlowTrace(trace, paths.slug, runId);
+        this.entries.push(...saved.entries); this.healthy = !saved.incomplete;
+        if (!readFileSync(trace, 'utf8').endsWith('\n')) appendFileSync(trace, '\n');
+        // A process restart cannot resume in-flight operations.
+        for (const active of executionSummary(this.entries).active) {
+          const original = this.entries.find(e => e.kind === 'execution_operation' && (e.payload as ExecutionOperation).id === active.id);
+          if (original) this.record('execution_operation', { ...(original.payload as ExecutionOperation), phase: 'finished', status: 'interrupted', evidence: { reason: 'process-restarted' } }, 'Рантайм', 'Рантайм', original.stage);
+        }
+      } catch { this.healthy = false; }
+    }
   }
   beginStage(stage: StageId, payload: unknown): void {
     this.invocation = randomUUID(); this.stage = stage; this.entered = true; this.watched.clear();
@@ -70,12 +97,34 @@ export class RunFlowRecorder {
   }
   record(kind: string, payload: unknown, from = 'Рантайм', to = 'Рантайм', stage: string | null = this.stage): void {
     try {
-      const entry: FlowEntry = { id: randomUUID(), at: new Date().toISOString(), invocation: stage === this.stage ? this.invocation : null, stage, kind, from, to, payload };
+      const usageOperation = kind === 'model_work' ? (payload as { work?: { operationId?: string } }).work?.operationId : undefined;
+      const op = kind === 'execution_operation' ? payload as ExecutionOperation : usageOperation
+        ? this.entries.findLast(entry => entry.kind === 'execution_operation' && (entry.payload as ExecutionOperation).id === usageOperation)?.payload as ExecutionOperation | undefined
+        : [...this.operations.values()].at(-1);
+      const requestId = (payload as { requestId?: string } | null)?.requestId;
+      const correlation = requestId && kind !== 'model_request' && kind !== 'tool_request' ? this.requests.get(requestId) : undefined;
+      const entry: FlowEntry = { id: randomUUID(), at: new Date().toISOString(), invocation: stage === this.stage ? this.invocation : null, stage, kind, from, to, payload,
+        ...(op ? { operationId: op.id, ...(op.itemId ? { itemId: op.itemId } : {}), attempt: op.attempt } : {}), ...correlation };
+      if (kind === 'execution_operation' && op) {
+        if (op.phase === 'started') this.operations.set(op.id, op); else this.operations.delete(op.id);
+      }
+      if (requestId && (kind === 'model_request' || kind === 'tool_request')) this.requests.set(requestId, {
+        invocation: entry.invocation, stage: entry.stage, ...(entry.operationId ? { operationId: entry.operationId } : {}), ...(entry.itemId ? { itemId: entry.itemId } : {}), ...(entry.attempt === undefined ? {} : { attempt: entry.attempt }),
+      });
+      if (requestId && (kind === 'model_http' || kind === 'tool_result')) this.requests.delete(requestId);
       mkdirSync(this.dir, { recursive: true });
       appendFileSync(join(this.dir, 'trace.ndjson'), JSON.stringify(entry) + '\n');
       this.entries.push(entry);
-    } catch (error) { console.error(`[flow] ${(error as Error).message}`); }
+      if (kind === 'stage_done' || kind === 'executor_result') this.operations.clear();
+    } catch (error) { this.healthy = false; console.error(`[flow] ${(error as Error).message}`); }
   }
+  page(cursor = 0, limit = 100): ExecutionPage {
+    const start = cursor < 0 ? Math.max(0, this.entries.length - limit) : Math.min(cursor, this.entries.length);
+    const entries = this.entries.slice(start, start + Math.min(500, Math.max(1, limit)));
+    return { version: 1, runId: this.runId, entries, nextCursor: start + entries.length,
+      hasMore: start + entries.length < this.entries.length, summary: executionSummary(this.entries, this.healthy) };
+  }
+  report(): FlowReport { return { version: 1, slug: this.paths.slug, runId: this.runId, entries: this.entries, incomplete: !this.healthy, execution: executionSummary(this.entries, this.healthy) }; }
   event(event: RunEvent): void {
     if (event.type === 'thinking' || event.type === 'assistant_text') return;
     if (event.type === 'stage_started') {
@@ -129,17 +178,18 @@ export class RunFlowRecorder {
     return path;
   }
   html(): string {
-    return renderRunFlow({ version: 1, slug: this.paths.slug, runId: this.runId, entries: this.entries });
+    return renderRunFlow(this.report());
   }
 }
 
 export function readFlowTrace(path: string, slug = 'run', runId = 'import'): FlowReport {
   const entries: FlowEntry[] = [];
+  let incomplete = false;
   for (const line of readFileSync(path, 'utf8').split('\n').filter(line => line.trim())) {
     try { entries.push(JSON.parse(line) as FlowEntry); }
-    catch { /* A crash may leave a partial final line; preserve complete records. */ }
+    catch { incomplete = true; /* A crash may leave a partial final line. */ }
   }
-  return { version: 1, slug, runId, entries };
+  return { version: 1, slug, runId, entries, ...(incomplete ? { incomplete } : {}) };
 }
 
 /** Import old event logs honestly: capped exchanges and missing snapshots stay labelled. */
@@ -171,6 +221,7 @@ export function flowFromEvents(events: readonly RunEvent[], slug: string): FlowR
 }
 
 export function renderRunFlow(report: FlowReport): string {
+  report = { ...report, execution: executionSummary(report.entries, !report.incomplete) };
   const data = JSON.stringify(report).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   return `<!doctype html>
 <html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -191,6 +242,7 @@ document.getElementById('title').textContent='Схема прогона: '+repor
 const bad=e=>e.kind==='error'||e.kind==='archive_limit'||e.payload?.ok===false||e.payload?.accepted===false||e.payload?.status==='blocked'||e.payload?.decision?.allowed===false||(e.kind==='model_http'&&(e.payload.status>=400||e.payload.status===0));
 const counts=[['Передач',entries.length],['Запросов модели',entries.filter(e=>e.kind==='model_request').length],['Пересмотров',entries.filter(e=>e.kind==='decision_check'&&e.payload.changed).length],['Изменений файлов',entries.filter(e=>e.kind==='file_change').length],['Проблем',entries.filter(bad).length]];
 counts.forEach(([name,n])=>document.getElementById('stats').append(el('span',name+': '+n)));
+if(report.execution){const s=report.execution;document.getElementById('stats').append(el('span','Проверки: '+s.checks.passed+' / '+s.checks.failed+' · Откаты: '+s.rollbacks+' · Повторы: '+s.repeatedFailures));s.limitations.forEach(text=>document.getElementById('stats').append(el('span',text)));const details=el('details');details.append(el('summary','Расход и метрики выполнения'),el('pre',JSON.stringify(s,null,2)));document.getElementById('stats').append(details);}
 const groups=[];for(const e of entries)if(['stage_entered','stage_started'].includes(e.kind)&&!groups.some(g=>g.id===e.invocation))groups.push({id:e.invocation,name:e.stage,chunk:e.payload.chunk,attempt:e.payload.attempt});
 const nav=document.getElementById('stages');function navButton(id,label){const b=el('button',label);b.dataset.group=id;b.onclick=()=>{selected=id;render()};nav.append(b)}navButton('all','Весь прогон');groups.forEach((g,i)=>{const done=entries.findLast(e=>e.invocation===g.id&&e.kind==='stage_done');const failed=entries.some(e=>e.invocation===g.id&&e.kind==='error');navButton(g.id,(i+1)+'. '+g.name+' '+(done?(done.payload.ok?'✓':'✗'):failed?'✗':'…')+' · '+(g.chunk||1)+'/'+(g.attempt||1))});
 function accepts(e){const f=document.getElementById('filter').value;const q=document.getElementById('search').value.toLowerCase();if(selected!=='all'&&e.invocation!==selected)return false;if(q&&!json(e).toLowerCase().includes(q))return false;if(f==='all')return true;if(f==='problem')return bad(e)||e.kind==='warning';if(f==='decision')return e.kind==='decision_check';if(f==='file')return e.kind==='file_change';if(f==='model')return ['model_request','model_http','model_exchange','prompt_prepared'].includes(e.kind);if(f==='tool')return e.kind.startsWith('tool_')||e.kind.startsWith('human_');return false}

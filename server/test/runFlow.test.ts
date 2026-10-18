@@ -16,10 +16,17 @@ test('archive copies of protected data are denied across current and previous se
   const root = mkdtempSync(join(tmpdir(), 'flow-read-scope-')); t.after(() => rmSync(root, { recursive: true, force: true }));
   const paths = new WitokPaths(root, 'demo');
   const old = new RunFlowRecorder(paths, 'old'); old.record('model_request', { request: 'Скрытый авторский лист' }); old.writeHtml();
+  for (const directory of ['chunk-selection', 'plan-selection']) {
+    mkdirSync(join(paths.runnerDir, directory), { recursive: true });
+    writeFileSync(join(paths.runnerDir, directory, 'candidate.json'), '{"proposal":"not applied"}');
+  }
   const denied = flowReadDenied(paths, 'current');
+  assert.ok(denied.some(path => path.endsWith('/.runner/progress.json')));
   const ctx: PolicyContext = { projectRoot: root, sdlcDir: '.sdlc/demo', stage: 'verify', planFiles: null,
     protectedArtifacts: [], readOnlyRoots: [], allowedTools: ['Read', 'Grep', 'Glob'], mcpTools: [], readDenied: denied };
   for (const path of denied) assert.equal(evaluate(normalize('Read', { file_path: path }), ctx).ok, false, path);
+  assert.equal(evaluate(normalize('Read', { file_path: join(paths.runnerDir, 'chunk-selection', 'candidate.json') }), ctx).ok, false);
+  assert.equal(evaluate(normalize('Read', { file_path: join(paths.runnerDir, 'plan-selection', 'candidate.json') }), ctx).ok, false);
   assert.equal(evaluate(normalize('Grep', { pattern: 'авторский', path: '.sdlc/demo', glob: '*.ndjson' }), ctx).ok, false);
   assert.equal(evaluate(normalize('Glob', { pattern: '**/*.html', path: '.sdlc/demo' }), ctx).ok, false);
   assert.equal(evaluate(normalize('Grep', { pattern: 'function', path: '.', glob: '*.ts' }), ctx).ok, true);

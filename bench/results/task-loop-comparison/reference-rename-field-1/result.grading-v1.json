@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "rename-field",
+    "model": "assistant-session",
+    "sourceHash": "737dce6990896ce0241a22fd9e181176ba14a4483a3cc4134c4e72d65de5aaa3",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-CrMTNA",
+    "baseCommit": "37194043e2cb044a5756bfcff785e9e9ab226213",
+    "contract": {
+      "task": "# Артикул: `code` → `sku`\n\nПриёмка и склад зовут артикул `sku`, каталог — `code`. Одно поле под двумя именами путает в\nкаждом разборе расхождений между складским остатком и каталогом. Терминологию приводим к\nприёмочной.\n\n## Что должно получиться\n\n1. `Product` (`src/product.ts`) получает поле `sku` вместо `code`; конструктор `product()`\n   собирает запись с ним. Название и цена как были.\n2. Чтение старых файлов обязано работать: `parse` (`src/store.ts`) принимает и\n   `{\"code\": …}`, и `{\"sku\": …}`. Если в строке оба имени — побеждает `sku`: новое имя\n   пишет наш код, старое могло остаться от ручной правки файла.\n3. Запись — только новое имя: `serialize` пишет `sku`, ключа `code` в выводе нет вовсе — ни\n   как поля, ни как дубля «на всякий случай»: строку с обоими именами внешние службы\n   прочитают каждая по-своему.\n4. Существующие тесты остаются зелёными **без правки**. Они собирают записи конструктором и\n   сверяют round-trip `parse(serialize(p))`, а не имя поля, — и после переименования\n   round-trip обязан сходиться: то, что пишет `serialize`, читает `parse`. Это часть\n   совместимости, а не поблажка: если для зелёных тестов понадобилось их править — формат\n   сломан.\n5. На совместимость (старая строка читается, новая пишется, при обоих именах побеждает\n   `sku`) есть тест рядом с существующими (`test/`), и набор прогнан по-настоящему командой\n   проекта. В журнал этапа идёт то, что напечатала команда.\n\n## Формат, как он у нас записан\n\n- Формат строки задокументирован таблицей в README; таблицу полей приводим к новому имени и\n  отмечаем, что старое имя читается.\n- Одна запись — одна строка, порядок полей в строке закреплён: `sku` встаёт на место `code`.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/rename-field`. Виток полный — мелким контуром не закрывать.\n- Существующие тестовые файлы не правятся (см. п. 4). Название, цена и формат файла (JSONL,\n  строка на запись) не меняются.\n",
+      "writable": [
+        "src/",
+        "test/",
+        "README.md"
+      ],
+      "protected": [
+        "test/store.test.ts",
+        "test/product.test.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build-check.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/**/*.test.ts"
+        ]
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": null,
+    "contextWindow": null,
+    "control": "non-blind assistant session; same tool loop; token accounting unavailable",
+    "startedAt": "2026-10-14T11:53:53.020Z"
+  },
+  "finishedAt": "2026-10-14T11:54:46.065Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Product и сериализация используют sku. Чтение принимает code и sku, при наличии обоих выбирает sku; порядок полей и JSONL сохранены. README обновлён, новые тесты проверяют старые записи, приоритет, отсутствие code при записи и round-trip. Существующие тесты не изменены. Build и test прошли на текущих файлах; готово к ревью.",
+    "usage": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 0
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "696ea45c8445740a89d14186afb058d282adb57f24e485859c29fe1019ba63d9",
+        "passed": true,
+        "output": "ok   index.ts\nok   product.ts\nok   store.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "696ea45c8445740a89d14186afb058d282adb57f24e485859c29fe1019ba63d9",
+        "passed": true,
+        "output": "▶ товар\n  ✔ собирается из артикула, названия и цены (0.9667ms)\n  ✔ пустой артикул отвергается (0.3168ms)\n  ✔ цена — целые копейки, не меньше нуля (0.1271ms)\n✔ товар (2.1926ms)\n▶ строка каталога\n  ✔ serialize → parse возвращает ту же запись (1.1343ms)\n  ✔ строка одна: переносов внутри нет (0.1441ms)\n  ✔ строка без цены или с дробной ценой отвергается (0.3671ms)\n  ✔ не-JSON и не-объект отвергаются (0.156ms)\n✔ строка каталога (2.6526ms)\n▶ файл каталога\n  ✔ saveAll → loadAll возвращает те же записи в том же порядке (0.2273ms)\n  ✔ каждая строка файла завершена переводом строки (0.1292ms)\n  ✔ пустые строки и хвостовой перевод строки записями не считаются (0.1722ms)\n  ✔ пустой файл — пустой каталог (0.1127ms)\n✔ файл каталога (1.3669ms)\nℹ tests 11\nℹ suites 3\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 139.5918\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "25ce2023308bab6c554df7c2a3bb87cca4870afe0537a84cbed2146c661c446e",
+        "passed": true,
+        "output": "ok   index.ts\nok   product.ts\nok   store.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "25ce2023308bab6c554df7c2a3bb87cca4870afe0537a84cbed2146c661c446e",
+        "passed": true,
+        "output": "▶ товар\n  ✔ собирается из артикула, названия и цены (1.0438ms)\n  ✔ пустой артикул отвергается (0.5007ms)\n  ✔ цена — целые копейки, не меньше нуля (0.1436ms)\n✔ товар (2.6734ms)\n✔ read old and new rows; prefer present sku (1.2581ms)\n✔ write only sku, preserving field order and JSONL roundtrip (0.261ms)\n▶ строка каталога\n  ✔ serialize → parse возвращает ту же запись (1.1719ms)\n  ✔ строка одна: переносов внутри нет (0.1542ms)\n  ✔ строка без цены или с дробной ценой отвергается (0.3598ms)\n  ✔ не-JSON и не-объект отвергаются (0.1597ms)\n✔ строка каталога (2.6803ms)\n▶ файл каталога\n  ✔ saveAll → loadAll возвращает те же записи в том же порядке (0.2327ms)\n  ✔ каждая строка файла завершена переводом строки (0.1324ms)\n  ✔ пустые строки и хвостовой перевод строки записями не считаются (0.1528ms)\n  ✔ пустой файл — пустой каталог (0.1262ms)\n✔ файл каталога (1.3518ms)\nℹ tests 13\nℹ suites 3\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 154.7004\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 3,
+      "writes": 7,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "firstEditMs": 42883.432,
+      "firstCheckMs": 42940.1393,
+      "humanWaitMs": 0,
+      "activeMs": 52766.5454,
+      "telemetryErrors": 0
+    }
+  },
+  "asks": [],
+  "changed": [
+    "README.md",
+    "src/product.ts",
+    "src/store.ts",
+    "test/sku-compat.test.ts"
+  ],
+  "boundaryViolations": [],
+  "hidden": {
+    "total": 6,
+    "pass": 6,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: Round-trip записи, собранной конструктором: parse(serialize(product('A-1','Шуруп 4×40',100))) возвращает то же название, цену и идентификатор — до переименования и после."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: loadAll двух строк файла в старом формате (`code`) — читается и до витка, и после: старые файлы обязаны читаться."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-2): Старая строка с `code` читается в новое поле: parse('{\"code\":\"A-1\",…}').sku === 'A-1'."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-3): serialize пишет ключ sku и НЕ пишет ключ code: подстрока '\"sku\":\"A-1\"' есть, подстроки '\"code\"' нет."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-2): Оба имени в строке — побеждает sku: parse('{\"code\":\"OLD\",\"sku\":\"NEW\",…}').sku === 'NEW'."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "ok 6 - Pr4 [precision] (claim-1): Round-trip нового формата: parse(serialize({sku,title,priceK})) равен исходной записи целиком — поля code у прочитанной записи нет."
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "25ce2023308bab6c554df7c2a3bb87cca4870afe0537a84cbed2146c661c446e",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review.",
+    "Assistant-session control is not blind and has no independent token/cost accounting."
+  ]
+}

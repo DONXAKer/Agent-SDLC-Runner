@@ -4,3 +4,5 @@ export * from './api.ts';
 export * from './markdownTable.ts';
 export * from './exchangeLabel.ts';
 export * from './guided.ts';
+export * from './guidedProgress.ts';
+export * from './execution.ts';

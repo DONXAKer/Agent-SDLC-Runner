@@ -1,0 +1,341 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "csv-cell",
+    "model": "ollama:devstral-small-2",
+    "sourceHash": "10eaaa5f5d1e3122a20de079b104723af523df0024cdaefac67083b6de0c6169",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-u7wdSK",
+    "baseCommit": "aa438d2898e799132b4f9fa1c2334889b55d08f1",
+    "contract": {
+      "task": "Export csvRow(values) from src/format.mjs. Accept an array of strings and return one CSV row without a trailing newline. Separate cells with commas. Quote cells containing comma, double quote, CR or LF; double each embedded double quote. Preserve whitespace, Unicode and empty cells exactly. Empty array returns empty string. Do not mutate values.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export csvRow(values) from src/format.mjs. Accept an array of strings and return one CSV row without a trailing newline. Separate cells with commas. Quote cells containing comma, double quote, CR or LF; double each embedded double quote. Preserve whitespace, Unicode and empty cells exactly. Empty array returns empty string. Do not mutate values.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": false,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/csv-cell.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": null,
+    "temperature": null,
+    "contextWindow": 16384,
+    "casesFile": "bench/experiments/task-loop-recent-2tasks.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T20:05:53.204Z"
+  },
+  "finishedAt": "2026-10-14T20:15:53.959Z",
+  "result": {
+    "version": 1,
+    "status": "budget_exhausted",
+    "reason": "Active deadline exhausted",
+    "finalText": "",
+    "usage": {
+      "inputTokens": 63481,
+      "outputTokens": 2373,
+      "cacheReadTokens": 56096,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 581427
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "d9b02c3838af25caee5c4d2dca6db1f2a4478897d4311867f86e7b799b022812",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "d9b02c3838af25caee5c4d2dca6db1f2a4478897d4311867f86e7b799b022812",
+        "passed": true,
+        "output": "✔ existing public API (0.5721ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 89.0794\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "c5d2d4f8b32022f6d2d1c88a9ac7a46ca00fcb713b2d6c08439d48e67ff5240b",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "c5d2d4f8b32022f6d2d1c88a9ac7a46ca00fcb713b2d6c08439d48e67ff5240b",
+        "passed": false,
+        "output": "✔ csvRow simple values without special chars (1.3698ms)\n✔ csvRow with comma (0.157ms)\n✖ csvRow with quotes (0.7153ms)\n✔ csvRow with line breaks (0.1135ms)\n✔ csvRow with carriage return (0.1112ms)\n✔ csvRow with multiple special chars (0.1061ms)\n✔ csvRow with empty array (0.1118ms)\n✔ csvRow with empty string (0.1079ms)\n✔ csvRow does not mutate original (0.1164ms)\n✔ existing public API (0.9303ms)\nℹ tests 10\nℹ suites 0\nℹ pass 9\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 111.2834\n\n✖ failing tests:\n\ntest at test\\csv.test.mjs:15:1\n✖ csvRow with quotes (0.7153ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  + actual - expected\n  \n  + 'say,\"\"hello\"\"\",world'\n  - 'say,\"\"hello\"\",world'\n                  ^\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:17:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 'say,\"\"hello\"\"\",world',\n    expected: 'say,\"\"hello\"\",world',\n    operator: 'strictEqual'\n  }\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "c5d2d4f8b32022f6d2d1c88a9ac7a46ca00fcb713b2d6c08439d48e67ff5240b",
+        "passed": false,
+        "output": "✖ V1 [visible] required export and public examples (1.3383ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 82.7875\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\csv-cell.visible.mjs:4:1\n✖ V1 [visible] required export and public examples (1.3383ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  + actual - expected\n  \n  + '\"say \"hi\"\"\"'\n  - '\"say \"\"hi\"\"\"'\n           ^\n  \n      at TestContext.<anonymous> (file:///D:/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/Agent-SDLC-Runner/bench/checks/evidence/csv-cell.visible.mjs:4:178)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: '\"say \"hi\"\"\"',\n    expected: '\"say \"\"hi\"\"\"',\n    operator: 'strictEqual'\n  }\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "391eb1ffafebd6ba3cd39da3159ea0103dfea6c296b349020733e7d4e4ad3a0d",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:5\r\n    const needsQuoting  = (\r\n          ^^^^^^^^^^^^\r\n\r\nSyntaxError: Unexpected identifier 'needsQuoting'\r\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\r\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\r\n    at #translate (node:internal/modules/esm/loader:550:12)\r\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\r\n    at async #link (node:internal/modules/esm/module_job:180:19)\r\n\r\nNode.js v24.5.0\r\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "391eb1ffafebd6ba3cd39da3159ea0103dfea6c296b349020733e7d4e4ad3a0d",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:5\n    const needsQuoting  = (\n          ^^^^^^^^^^^^\n\nSyntaxError: Unexpected identifier 'needsQuoting'\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ test\\csv.test.mjs (73.3063ms)\nfile:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:5\n    const needsQuoting  = (\n          ^^^^^^^^^^^^\n\nSyntaxError: Unexpected identifier 'needsQuoting'\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ test\\existing.test.mjs (69.3416ms)\nℹ tests 2\nℹ suites 0\nℹ pass 0\nℹ fail 2\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 90.6986\n\n✖ failing tests:\n\ntest at test\\csv.test.mjs:1:1\n✖ test\\csv.test.mjs (73.3063ms)\n  'test failed'\n\ntest at test\\existing.test.mjs:1:1\n✖ test\\existing.test.mjs (69.3416ms)\n  'test failed'\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "391eb1ffafebd6ba3cd39da3159ea0103dfea6c296b349020733e7d4e4ad3a0d",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:5\n    const needsQuoting  = (\n          ^^^^^^^^^^^^\n\nSyntaxError: Unexpected identifier 'needsQuoting'\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\csv-cell.visible.mjs (63.1205ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 71.3982\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\csv-cell.visible.mjs:1:1\n✖ D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\csv-cell.visible.mjs (63.1205ms)\n  'test failed'\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "787e083e0e36a8877d49049c3934fd6f2dca4dd7e539ecc963fd4f75a1bba52b",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6\r\n      String(cell).includes(',')    |    |\r\n                                         ^\r\n\r\nSyntaxError: Unexpected token '|'\r\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\r\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\r\n    at #translate (node:internal/modules/esm/loader:550:12)\r\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\r\n    at async #link (node:internal/modules/esm/module_job:180:19)\r\n\r\nNode.js v24.5.0\r\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "787e083e0e36a8877d49049c3934fd6f2dca4dd7e539ecc963fd4f75a1bba52b",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6\n      String(cell).includes(',')    |    |\n                                         ^\n\nSyntaxError: Unexpected token '|'\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ test\\csv.test.mjs (70.2397ms)\nfile:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6\n      String(cell).includes(',')    |    |\n                                         ^\n\nSyntaxError: Unexpected token '|'\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ test\\existing.test.mjs (66.7786ms)\nℹ tests 2\nℹ suites 0\nℹ pass 0\nℹ fail 2\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 89.314\n\n✖ failing tests:\n\ntest at test\\csv.test.mjs:1:1\n✖ test\\csv.test.mjs (70.2397ms)\n  'test failed'\n\ntest at test\\existing.test.mjs:1:1\n✖ test\\existing.test.mjs (66.7786ms)\n  'test failed'\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "787e083e0e36a8877d49049c3934fd6f2dca4dd7e539ecc963fd4f75a1bba52b",
+        "passed": false,
+        "output": "file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6\n      String(cell).includes(',')    |    |\n                                         ^\n\nSyntaxError: Unexpected token '|'\n    at compileSourceTextModule (node:internal/modules/esm/utils:357:16)\n    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:108:18)\n    at #translate (node:internal/modules/esm/loader:550:12)\n    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:597:27)\n    at async #link (node:internal/modules/esm/module_job:180:19)\n\nNode.js v24.5.0\n✖ D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\csv-cell.visible.mjs (64.7436ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 72.6946\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\csv-cell.visible.mjs:1:1\n✖ D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\csv-cell.visible.mjs (64.7436ms)\n  'test failed'\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+        "passed": false,
+        "output": "✖ csvRow simple values without special chars (1.4495ms)\n✖ csvRow with comma (0.1113ms)\n✖ csvRow with quotes (0.1024ms)\n✖ csvRow with line breaks (0.1081ms)\n✖ csvRow with carriage return (0.0985ms)\n✖ csvRow with multiple special chars (0.0812ms)\n✔ csvRow with empty array (0.1814ms)\n✖ csvRow with empty string (0.103ms)\n✖ csvRow does not mutate original (0.1164ms)\n✔ existing public API (0.6393ms)\nℹ tests 10\nℹ suites 0\nℹ pass 2\nℹ fail 8\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 98.5253\n\n✖ failing tests:\n\ntest at test\\csv.test.mjs:5:1\n✖ csvRow simple values without special chars (1.4495ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:6:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17)\n\ntest at test\\csv.test.mjs:10:1\n✖ csvRow with comma (0.1113ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:11:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:332:3)\n\ntest at test\\csv.test.mjs:15:1\n✖ csvRow with quotes (0.1024ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:16:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:20:1\n✖ csvRow with line breaks (0.1081ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:21:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:25:1\n✖ csvRow with carriage return (0.0985ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:26:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:30:1\n✖ csvRow with multiple special chars (0.0812ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:31:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:40:1\n✖ csvRow with empty string (0.103ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:41:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:45:1\n✖ csvRow does not mutate original (0.1164ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:48:3)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+        "passed": false,
+        "output": "✖ V1 [visible] required export and public examples (0.6759ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 81.7103\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\csv-cell.visible.mjs:4:1\n✖ V1 [visible] required export and public examples (0.6759ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///D:/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/Agent-SDLC-Runner/bench/checks/evidence/csv-cell.visible.mjs:4:117)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17)\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 15,
+      "writes": 5,
+      "denied": 0,
+      "repairs": 3,
+      "repeatedErrors": 4,
+      "repeatedCheckFailures": 0,
+      "firstEditMs": 61583.2102,
+      "firstCheckMs": 200675.41640000002,
+      "humanWaitMs": 0,
+      "activeMs": 600018.2145,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "violated",
+        "revision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+            "passed": false,
+            "output": "✖ V1 [visible] required export and public examples (0.6759ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 81.7103\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\csv-cell.visible.mjs:4:1\n✖ V1 [visible] required export and public examples (0.6759ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///D:/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/Agent-SDLC-Runner/bench/checks/evidence/csv-cell.visible.mjs:4:117)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17)\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "violated",
+        "revision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+            "passed": false,
+            "output": "✖ csvRow simple values without special chars (1.4495ms)\n✖ csvRow with comma (0.1113ms)\n✖ csvRow with quotes (0.1024ms)\n✖ csvRow with line breaks (0.1081ms)\n✖ csvRow with carriage return (0.0985ms)\n✖ csvRow with multiple special chars (0.0812ms)\n✔ csvRow with empty array (0.1814ms)\n✖ csvRow with empty string (0.103ms)\n✖ csvRow does not mutate original (0.1164ms)\n✔ existing public API (0.6393ms)\nℹ tests 10\nℹ suites 0\nℹ pass 2\nℹ fail 8\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 98.5253\n\n✖ failing tests:\n\ntest at test\\csv.test.mjs:5:1\n✖ csvRow simple values without special chars (1.4495ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:6:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17)\n\ntest at test\\csv.test.mjs:10:1\n✖ csvRow with comma (0.1113ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:11:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:332:3)\n\ntest at test\\csv.test.mjs:15:1\n✖ csvRow with quotes (0.1024ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:16:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:20:1\n✖ csvRow with line breaks (0.1081ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:21:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:25:1\n✖ csvRow with carriage return (0.0985ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:26:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:30:1\n✖ csvRow with multiple special chars (0.0812ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:31:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:40:1\n✖ csvRow with empty string (0.103ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:41:18)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n\ntest at test\\csv.test.mjs:45:1\n✖ csvRow does not mutate original (0.1164ms)\n  ReferenceError [Error]: ell is not defined\n      at file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:6:14\n      at Array.map (<anonymous>)\n      at csvRow (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/src/format.mjs:4:18)\n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-u7wdSK/test/csv.test.mjs:48:3)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7)\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export csvRow(values) from src/format.mjs. Accept an array of strings and return one CSV row without a trailing newline. Separate cells with commas. Quote cells containing comma, double quote, CR or LF; double each embedded double quote. Preserve whitespace, Unicode and empty cells exactly. Empty array returns empty string. Do not mutate values.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/format.mjs",
+    "test/csv.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": false,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 10,
+      "passed": 2,
+      "failed": 8,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "No evidence of additional passing tests",
+    "baselineExitCode": 0,
+    "finalExitCode": 1
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 1,
+    "fail": 1,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "not ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "fail",
+  "readyWithUnverifiedRequirements": false,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": false,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": false
+  },
+  "acceptance": false,
+  "falseSuccess": null,
+  "frozenRevision": "c5e2a6067b68479eeed98cfc5c52a68a7cb2980f5594a531680bc5dac98e97a1",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

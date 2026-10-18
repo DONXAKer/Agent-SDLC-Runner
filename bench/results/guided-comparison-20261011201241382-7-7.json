@@ -1,0 +1,316 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:ministral3-14b-ctx32k",
+    "budgetMs": 3600000,
+    "activeMs": 314870,
+    "remainingMs": 3285130,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-11T20:46:11.313Z",
+        "inputRevision": "a34818fdb50167d80f3daf5f19a68999812d49d78fb16254900c4a0141a7260c",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "конфигом площадки."
+          },
+          {
+            "source": "stage-input",
+            "quote": "    \"requests\": [\n      \"# Срок оплаты по умолчанию\\n\\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\\nконфигом площадки.\\n\\n## Что должно получиться\\n\\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\\n   где `opts.dueDays?: number`.\\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\\n   разу.\\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\\n   правок существующих тестов нет.\\n\\n## Рамки\\n\\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\\n  меняются.\\n\"\n    ],\n    \"artifacts\": [\n      {\n        \"path\": \"C:\\\\Users\\\\Root\\\\AppData\\\\Local\\\\Temp\\\\sdlc-bench-2sXbgt\\\\.sdlc\\\\gates.md\",\n        \"hash\": \"4cf37c105dc7ce17b2a97cef5aa88cfe6e10d22c260f3552616b00c630b5c4bf\",\n        \"exists\": true,\n        \"sections\": [\n          {\n            \"section\": \"Набор гейтов: billing\",\n            \"values\": [\n              \"_Файл проекта, не витка. Строки не удаляются — только переключаются. Обязательный минимум\",\n              \"помечен «да — минимум»: у этих строк переключателя нет, без любой из них набор не собран и\",\n              \"виток не стартует._\",\n              \"Последнее изменение набора: 2026-09-01\",\n              \"Владелец набора: Бенчмарк\",\n              \"_Обратные кавычки в колонке «Чем реализован» стоят только там, где гейт исполняется командой\","
+          }
+        ],
+        "uncertainties": [
+          "Отсутствует проверка факта существования в коде требуемых изменений для реализации `defaultDueDays` в `BillingConfig` и добавления поля `dueDays` в `Invoice`. Требуется чтение и анализ файлов `src/config.ts` и `src/invoice.ts` для подтверждения наличия базовой структуры и отсутствия противоречий с текущими бизнес-логикой и тестами."
+        ],
+        "action": "read",
+        "reason": "Отсутствует проверка факта существования в коде требуемых изменений для реализации `defaultDueDays` в `BillingConfig` и добавления поля `dueDays` в `Invoice`. Требуется чтение и анализ файлов `src/config.ts` и `src/invoice.ts` для подтверждения наличия базовой структуры и отсутствия противоречий с текущими бизнес-логикой и тестами.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-11T20:46:25.207Z",
+        "inputRevision": "a34818fdb50167d80f3daf5f19a68999812d49d78fb16254900c4a0141a7260c",
+        "decision": "proceed",
+        "evidence": [
+          {
+            "source": "request-1",
+            "quote": "\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`.\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\n   разу.\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\n   правок существующих тестов нет."
+          },
+          {
+            "source": "lookup-1",
+            "quote": "Источник: {\"kind\":\"read\",\"path\":\"src/config.ts\",\"range\":{\"from\":1,\"to\":10}}\n1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */"
+          }
+        ],
+        "uncertainties": [],
+        "action": "proceed",
+        "reason": "Есть полное описание изменений, связанных с реализацией нового поля `dueDays: number` в `Invoice` и настройке по умолчанию через `BillingConfig`. В файле `src/config.ts` (fragments lookup-1) показана структура интерфейса `BillingConfig`, который **должен** получить новое поле `defaultDueDays` (описание из **request-1**). Также есть согласованные требования по источнику значения (`config`, `opts` и 14 по умолчанию). Технические изменения и бизнес-логика (приоритеты передачи параметров) однозначно определены. Завершено описание необходимых изменений в тестах и README, а также требование к проверке отсутствия нарушений принципа",
+        "status": "ready",
+        "changed": false
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261011201241382-7-7",
+    "model": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "explore": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "ask": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "plan": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "chunk": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "verify": "ollama:ministral3-14b-instruct-ctx32k-compactfill",
+      "handoff": "ollama:ministral3-14b-instruct-ctx32k-compactfill"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-11T20:45:59.214Z",
+    "finishedAt": "2026-10-11T20:51:14.656Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "JSON-блок acceptance должен содержать непустой JSON-массив объектов с полями: id, behavior, procedure, expected.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 16
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 60410,
+          "outputTokens": 7526,
+          "cacheReadTokens": 19130,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 359185
+        },
+        "durationMs": 314893,
+        "requestDurationsMs": [
+          11301,
+          13876,
+          4746,
+          9511,
+          20308,
+          13263,
+          17240,
+          62923,
+          38957,
+          3929,
+          35732,
+          41717,
+          1813,
+          39358,
+          42154,
+          2372
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 0,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 2,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [
+      {
+        "stage": "intent",
+        "questions": 0,
+        "approvals": 1,
+        "waitMs": 4
+      }
+    ],
+    "artifactGaps": [
+      {
+        "artifact": "intent.md",
+        "placeholders": 2
+      }
+    ],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [
+      {
+        "stage": "intent",
+        "requestId": "form:1398fa8b-dd2a-4d43-8a8b-c54670346d85",
+        "kind": "write",
+        "toolName": "Write",
+        "targets": [
+          ".sdlc\\guided-comparison-20261011201241382-7-7\\intent.md"
+        ],
+        "destructive": null,
+        "outcome": "granted",
+        "why": "default → allow",
+        "waitedMs": 4
+      }
+    ],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [
+      {
+        "stage": "intent",
+        "toolName": "Write",
+        "kind": "write"
+      }
+    ],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      },
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 7845,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "bec4c271b7733d8160e154612f895e225a66a4bc0b3b0d4dbffccbdc4458bab6",
+      "configHash": "928ac82479bb24c9945fb2e1a5147f32ab323f7be01456ba3e3f887e72952fc5",
+      "localEndpoints": {},
+      "inputHash": "deeb185b32af96058cce60c934aaf0a229a169fa2d3905762d83df2233e9f4c4",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "b937a2f482af7d915dd6432b44b72e3cdf159ca49cf316eacc6d49dcd48468ec",
+    "state": "finished",
+    "capturedAt": "2026-10-11T20:51:14.678Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-11T20:51:14.631Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "4d3f834d53ed8c9a54016926b92842e41712146801ac2ffef6bb4f6cffa05238",
+        "placeholders": 1,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "a8f70832882559c8627c4efb7da184e0879d6aea6a6e8c1661000d1d8bbe96cb",
+        "placeholders": 2,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "eda798b0d3e3427a2a270a9d97fa3583c163adea7e40d955cd144f4fa000da3e",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

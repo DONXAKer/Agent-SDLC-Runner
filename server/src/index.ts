@@ -572,6 +572,21 @@ app.get('/api/runs/:id/flow.html', (req, reply) => {
     .type('text/html; charset=utf-8').send(live.run.flowHtml());
 });
 
+app.get('/api/runs/:id/execution', (req, reply) => {
+  const live = liveRun((req.params as { id: string }).id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+  const query = req.query as { cursor?: string; limit?: string };
+  const cursor = query.cursor === undefined ? -1 : Number(query.cursor); const limit = Number(query.limit ?? 100);
+  if (!Number.isSafeInteger(cursor) || (query.cursor !== undefined && cursor < 0) || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+    return reply.code(400).send({ error: 'Неверный cursor или limit' });
+  return reply.header('Cache-Control', 'no-store').send(live.run.executionPage(cursor, limit));
+});
+app.get('/api/runs/:id/execution.json', (req, reply) => {
+  const live = liveRun((req.params as { id: string }).id);
+  if (live === null) return reply.code(404).send({ error: 'прогон не найден' });
+  return reply.header('Cache-Control', 'no-store').header('Content-Disposition', 'attachment; filename="execution.json"').send(live.run.executionReport());
+});
+
 app.get('/api/runs/:id', async (req, reply) => {
   const { id } = req.params as { id: string };
   const live = liveRun(id);
@@ -709,11 +724,15 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
     requirement?: string;
     preparationVersion?: 1 | 2 | 3;
     executionMode?: 'legacy' | 'guided';
+    guidedEngineVersion?: 1 | 2 | 3 | 4;
     extra?: string;
     abortHandoff?: boolean;
   };
 
   let editedPrompt: { system: string; user: string } | null = null;
+  if (body.guidedEngineVersion !== undefined && ![1, 2, 3, 4].includes(body.guidedEngineVersion)) {
+    return reply.code(400).send({ error: 'guidedEngineVersion должна быть 1, 2, 3 или 4' });
+  }
   if (body.executionMode !== undefined && body.executionMode !== 'legacy' && body.executionMode !== 'guided') {
     return reply.code(400).send({ error: 'executionMode должен быть legacy или guided' });
   }
@@ -742,6 +761,7 @@ app.post('/api/runs/:id/stages/:stage/run', async (req, reply) => {
       ...(body.requirement === undefined ? {} : { requirement: body.requirement }),
       ...(body.preparationVersion === undefined ? {} : { preparationVersion: body.preparationVersion }),
       ...(body.executionMode === undefined ? {} : { executionMode: body.executionMode }),
+      ...(body.guidedEngineVersion === undefined ? {} : { guidedEngineVersion: body.guidedEngineVersion }),
       ...(body.extra === undefined ? {} : { extra: body.extra }),
       ...(body.abortHandoff === true ? { abortHandoff: true } : {}),
       ...(editedPrompt === null

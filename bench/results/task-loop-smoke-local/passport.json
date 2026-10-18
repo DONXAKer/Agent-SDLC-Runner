@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "task": "add-validator",
+  "model": "ollama:qwen3.8-27b-iq4-gpumax",
+  "sourceHash": "66c580dc1f4858b4c85f248703ee40a9966448c99b636736f8059c60690a1668",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-0RzYjq",
+  "baseCommit": "e397eeaece3fb7cc9e3cd8da55569519226be8b6",
+  "contract": {
+    "task": "# Валидация покупателя\n\nСчета выставляются на данные из формы заказа как есть: опечатка в email или телефоне\nузнаётся о себе неделю спустя, когда счёт так и не оплачен. Нужна валидация на выставлении.\n\n## Что должно получиться\n\n1. Новый модуль `src/validate.ts` с `validateCustomer(customer): string[]` — список кодов\n   нарушений. Пустой список — покупатель валиден. Коды и их порядок фиксированы: сначала\n   `'email'`, затем `'phone'`. Функция чистая: ничего не пишет и ничего не меняет.\n2. Правила email: ровно одна `@`; локальная часть непустая; домен содержит точку и не\n   начинается и не заканчивается на неё; пробелов нигде нет.\n3. Правила телефона: либо `+7` и ровно 10 цифр после, либо `8` и ровно 10 цифр после.\n   Никаких других символов (пробелов, скобок, дефисов) не допускаем — форма их не ставит.\n4. `validateCustomer` реэкспортируется из `src/index.ts`. На модуль есть тест рядом с\n   существующими (`test/`), набор прогнан по-настоящему командой проекта; в журнал этапа\n   идёт то, что напечатала команда.\n5. Существующие модули и тесты не трогаем: валидация — отдельная функция, сборка счёта её\n   пока не вызывает (это осознанно: встроить её в `buildInvoice` — отдельное решение, не\n   этого витка).\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/add-validator`. Виток полный — мелким контуром не закрывать.\n- Спецификация выше исчерпывающая: всё, что нужно для реализации, записано в этом документе\n  и в коде.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "src/invoice.ts",
+      "src/money.ts",
+      "src/lines.ts",
+      "src/config.ts",
+      "test/invoice.test.ts",
+      "test/money.test.ts",
+      "test/lines.test.ts",
+      "src/customer.ts",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build-check.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/**/*.test.ts"
+      ]
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": {
+    "reasoning_effort": "none",
+    "max_tokens": 4096
+  },
+  "contextWindow": 32768,
+  "control": "local",
+  "startedAt": "2026-10-14T11:42:25.288Z"
+}

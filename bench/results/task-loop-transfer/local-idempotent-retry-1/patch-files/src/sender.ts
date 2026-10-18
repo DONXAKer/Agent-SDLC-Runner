@@ -1,0 +1,77 @@
+/**
+ * Отправитель.
+ *
+ * Тонкая обёртка над транспортом: одна точка, через которую уходит каждое уведомление.
+ * Она нужна не ради строки кода, а ради места — правила отправки, когда появятся, встанут
+ * сюда, а не размажутся по вызывающим.
+ */
+
+import type { OutMessage } from './message.ts';
+import type { Transport } from './transport.ts';
+
+/** Необязательные опции отправки. */
+export interface SendOptions {
+  /**
+   * Ключ идемпотентности. Повторный вызов с тем же ключом не отправляет повторно:
+   * возвращается прежний id, который выдал транспорт при первой отправке.
+   * Ключ живёт до конца процесса (см. идемпотентность ниже); одного ключа на каждое
+   * «логическое» сообщение достаточно.
+   */
+  idempotencyKey?: string;
+}
+
+/** Записанная отправка: id транспорта плюс тело, пришедшее под ключом. */
+interface SentRecord {
+  id: string;
+  msg: OutMessage;
+}
+
+/**
+ * Хранилище отправленных под ключом сообщений. В процессе, без внешних зависимостей:
+ * Map из ключа в записанную отправку. TTL и очистку сознательно не делаем — ключ
+ * живёт, пока жив процесс.
+ */
+const sentByKey = new Map<string, SentRecord>();
+
+/**
+ * Одинаковость тела под одним ключом сравнивается честно: `to`, `text` и `phone`.
+ * `phone` опциональный — отсутствие поля и `undefined` считаем одним и тем же.
+ */
+function sameMessage(a: OutMessage, b: OutMessage): boolean {
+  return (
+    a.to === b.to &&
+    a.text === b.text &&
+    (a.phone ?? undefined) === (b.phone ?? undefined)
+  );
+}
+
+/**
+ * Отправить одно уведомление. Возвращает id отправки, выданный транспортом.
+ *
+ * Повторный вызов с тем же `idempotencyKey` не уходит в транспорт повторно:
+ * возвращается прежний id, записанный при первой отправке. Вызов без ключа всегда
+ * отправляет — как раньше. Ключ, под которым уже отправлялось *другое* тело,
+ * — ошибка вызывающего: бросается исключение.
+ */
+export function sendNotification(
+  transport: Transport,
+  msg: OutMessage,
+  opts: SendOptions = {},
+): { id: string } {
+  if (opts.idempotencyKey !== undefined) {
+    const key = opts.idempotencyKey;
+    const recorded = sentByKey.get(key);
+    if (recorded) {
+      if (!sameMessage(recorded.msg, msg)) {
+        throw new Error(
+          `Идемпотентный ключ «${key}» уже использован для другого сообщения: отправка отклонена`,
+        );
+      }
+      return { id: recorded.id };
+    }
+    const id = transport.send(msg);
+    sentByKey.set(key, { id, msg });
+    return { id };
+  }
+  return { id: transport.send(msg) };
+}

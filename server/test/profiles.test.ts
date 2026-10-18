@@ -2,7 +2,7 @@ import { ok, strictEqual, throws } from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { loadConfig } from '../src/config/load.ts';
-import { ProfileError, resolveProfile, resolveStartableProfile } from '../src/config/profiles.ts';
+import { ProfileError, resolveProfile, resolveStartableProfile, guidedRouteMatches, resolveAdHocProfile } from '../src/config/profiles.ts';
 import type { ModelsConfig, ProjectConfig } from '../src/config/schema.ts';
 
 const models: ModelsConfig = {
@@ -36,6 +36,55 @@ function project(chunk: string, verify: string): ProjectConfig {
     profiles: { p: { label: 'p', stages } },
   };
 }
+
+it('guided improvement flags are opt-in, validated and preserved in ad hoc profiles', () => {
+  const p = project('ollama:small', 'ollama:small');
+  strictEqual(resolveProfile(p, models, 'p').guidedImprovements, undefined);
+  p.profiles.p!.guidedImprovements = { consumerContext: true, evidenceRepair: false };
+  strictEqual(resolveAdHocProfile(p, models, {}, 'p').guidedImprovements?.consumerContext, true);
+  p.profiles.p!.guidedImprovements = { evidenceRepair: 'yes' } as unknown as NonNullable<NonNullable<typeof p.profiles.p>['guidedImprovements']>;
+  throws(() => resolveProfile(p, models, 'p'), /guidedImprovements/);
+});
+
+it('resolves opt-in plan selection and rejects unknown or SDK judges', () => {
+  const p = project('ollama:small', 'ollama:small');
+  p.profiles.p!.planSelection = { candidates: 3 };
+  strictEqual(resolveProfile(p, models, 'p').planSelection!.judge.modelId, 'ollama:small');
+  p.profiles.p!.planSelection = { candidates: 2, judgeModel: 'ollama:big' };
+  strictEqual(resolveProfile(p, models, 'p').planSelection!.judge.modelId, 'ollama:big');
+  p.profiles.p!.planSelection = { candidates: 3, judgeModel: 'missing' };
+  throws(() => resolveProfile(p, models, 'p'), ProfileError);
+  p.profiles.p!.planSelection = { candidates: 3, judgeModel: 'claude-sdk:opus' };
+  throws(() => resolveProfile(p, models, 'p'), /flow loop/);
+  p.profiles.p!.planSelection = { candidates: 1, judgeModel: 'ollama:big' };
+  throws(() => resolveProfile(p, models, 'p'), /несколько кандидатов/);
+});
+
+it('Chunk arbitration resolves the default judge, survives profile overrides and validates bounds', () => {
+  const p = project('ollama:small', 'ollama:small');
+  p.profiles.p!.chunkSelection = { candidates: 2 };
+  strictEqual(resolveAdHocProfile(p, models, {}, 'p').chunkSelection!.judge.modelId, 'ollama:small');
+  p.profiles.p!.chunkSelection = { candidates: 3, judgeModel: 'ollama:big', candidateTimeoutMs: 1000 };
+  strictEqual(resolveProfile(p, models, 'p').chunkSelection!.judge.modelId, 'ollama:big');
+  p.profiles.p!.chunkSelection = { candidates: 2, judgeModel: 'missing' };
+  throws(() => resolveProfile(p, models, 'p'), ProfileError);
+  p.profiles.p!.chunkSelection = { candidates: 2, judgeModel: 'claude-sdk:opus' };
+  throws(() => resolveProfile(p, models, 'p'), /локальный/);
+  p.profiles.p!.chunkSelection = { candidates: 2, candidateTimeoutMs: 0 };
+  throws(() => resolveProfile(p, models, 'p'), /таймаут/);
+});
+
+it('only an explicit plan experiment can override the guided model and survives ad-hoc profiles', () => {
+  const p = project('ollama:small', 'ollama:small');
+  p.profiles.p!.stages.plan = 'ollama:big';
+  const normal = resolveProfile(p, models, 'p');
+  strictEqual(guidedRouteMatches(normal, normal.routes.plan, 'ollama:small'), false);
+  p.profiles.p!.planSelection = { candidates: 1 };
+  const experimental = resolveAdHocProfile(p, models, {}, 'p');
+  strictEqual(experimental.planSelection!.candidates, 1);
+  strictEqual(guidedRouteMatches(experimental, experimental.routes.plan, 'ollama:small'), true);
+  strictEqual(guidedRouteMatches(experimental, { ...experimental.routes.chunk, model: 'other' }, 'ollama:small'), false);
+});
 
 describe('назначение моделей этапам не зависит от ранга', () => {
   it('принимает модель verify слабее модели chunk', () => {

@@ -1,0 +1,41 @@
+diff --git a/src/coef.ts b/src/coef.ts
+index 5551ed7..ee3cc47 100644
+--- a/src/coef.ts
++++ b/src/coef.ts
+@@ -34,3 +34,25 @@ export function volumetricWeightG(dimensionsCm: DimensionsCm): number {
+   const rawG = (length * width * height) / 5;
+   return Math.ceil(rawG / WEIGHT_STEP_G) * WEIGHT_STEP_G;
+ }
++
++/**
++ * Множитель к объёмному весу: товар на полку ложится не голым, а в упаковке — короб
++ * больше товара, плюс прокладки и стрейч. Значение дано приёмкой; в коде выводится
++ * не из чего.
++ */
++export const PACKING_FACTOR = 1.2;
++
++/**
++ * Объёмный вес с учётом упаковки, в граммах.
++ *
++ * Тарификация места считает упакованный товар: итог = (д × ш × в) / 5 × PACKING_FACTOR,
++ * округлённый ВВЕРХ до 100 г — тем же шагом, что и без упаковки: ячейка занимается
++ * целиком. Отдельного правила округления для упакованного веса нет.
++ *
++ * `volumetricWeightG` остаётся для приёмки: сверка голых габаритов без упаковки.
++ */
++export function packedWeightG(dimensionsCm: DimensionsCm): number {
++  const [length, width, height] = dimensionsCm;
++  const rawG = ((length * width * height) / 5) * PACKING_FACTOR;
++  return Math.ceil(rawG / WEIGHT_STEP_G) * WEIGHT_STEP_G;
++}
+diff --git a/src/index.ts b/src/index.ts
+index c992a16..c44c173 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -7,5 +7,5 @@
+ 
+ export { CATEGORY_LIMIT, limitFor } from './limits.ts';
+ 
+-export { FRAGILITY_FACTOR, volumetricWeightG } from './coef.ts';
++export { FRAGILITY_FACTOR, PACKING_FACTOR, packedWeightG, volumetricWeightG } from './coef.ts';
+ export type { DimensionsCm } from './coef.ts';

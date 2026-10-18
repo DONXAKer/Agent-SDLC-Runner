@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "holdout-winter-surcharge",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "06f08348a76c244c89d1bcc24671ff0ca73240f5618cab805b2f6d8b7d29382b",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-nwaVCQ",
+    "baseCommit": "d05d84b45bcde222a4dbb73cb12854535c32050f",
+    "contract": {
+      "task": "# Зимняя норма выдачи топлива\n\nС октября по апрель диспетчерская выдаёт топливо по зимней норме — с надбавкой к расходу.\nСейчас диспетчер считает её на калькуляторе рядом с программой и вносит в акт вручную,\nдважды за прошлую зиму ошибся на порядок. Нужно, чтобы зимнюю норму считал пакет.\n\n## Что должно получиться\n\n1. Новая функция `winterFuelMl(distanceKm, vehicleClass): number | null` в `src/trip.ts` —\n   расход на поездку **по зимней норме** в миллилитрах. Имя зафиксировано — под ним функцию\n   вызывает диспетчерская форма. Реэкспортируется из `src/index.ts`.\n2. Существующая `fuelMl` продолжает считать как считала: это летняя/актовая норма, её\n   результат не меняется.\n3. На новое правило есть тест рядом с существующими (`test/`) — отдельным файлом, и набор\n   тестов прогнан по-настоящему командой проекта. В журнал этапа идёт то, что напечатала\n   команда.\n4. Оба существующих теста остаются зелёными и **без правки**: они проверяют базовую норму,\n   и её поведение не меняется.\n\n## Зимняя политика, как она у нас записана\n\n- Берётся **сырой** расход в миллилитрах — километры × норма класса, **без** округления до\n  100 мл: норма выдачи считается точно, актовое округление к зимней норме не применяется.\n- Надбавка — **15%** к сырому расходу. Округление надбавки — общее правило пакета\n  (половина вверх до целого миллилитра), своего округления в зимнем правиле не заводим.\n- Итог — сырой расход плюс округлённая надбавка, целое число миллилитров. До 100 мл итог\n  **не** округляется.\n- Неизвестный класс — `null`, как у `fuelMl`.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/holdout-winter-surcharge`. Виток полный — мелким контуром не\n  закрывать.\n- Таблицу норм (`src/rates.ts`) в этом витке не трогаем: зимняя надбавка — это правило\n  расчёта, а не новая строка справочника.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "src/rates.ts",
+        "test/rates.test.ts",
+        "test/trip.test.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build-check.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/**/*.test.ts"
+        ]
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-transfer.json",
+    "acceptanceFile": "bench/checks/acceptance/winter.mjs",
+    "control": "local",
+    "startedAt": "2026-10-14T14:15:35.316Z"
+  },
+  "finishedAt": "2026-10-14T14:19:18.760Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Все проверки прошли. Итог:\n\n- **`src/trip.ts`** — добавлена `winterFuelMl(distanceKm, vehicleClass): number | null`: сырой расход = км × норма класса (как в `fuelMl`), надбавка 15% к сырому расходу с общим округлением пакета «половина вверх до целого мл» (через `Math.floor(x + 0.5)`, т.к. `Math.round` .5 округляет к нулю и нарушило бы правило), итог = сырой + округлённая надбавка, **без** округления до 100 мл. Неизвестный класс — `null`. `fuelMl` не тронута.\n- **`src/index.ts`** — реэкспорт `winterFuelMl` (и константы `WINTER_SURCHARGE_CENTIPERCENT`) из `./trip.ts`.\n- **`test/winter-fuel.test.ts`** — новый файл с 8 тестами: ровные и дробные надбавки (округление вверх и вниз), .25-случай (224.25 → 224, не 223), неизвестный/регистр, нулевой пробег. Существующие `test/rates.test.ts` и `test/trip.test.ts` не правились.\n- **`src/rates.ts`** — не трогалась.\n\nРезультат `mcp__task__check` (команда проекта):\n```\nbuild: PASS\nok   index.ts\nok   rates.ts\nok   trip.ts\nмодулей загружено: 3 из 3\n\ntest: PASS\n... (2 старых сьюта без изменений — 6/6)\n▶ зимняя норма на поездку\n  ✔ ровный счёт: 100 км легкового — сырые 7600 мл, надбавка 15% = 1140 → 8740 (0.6642ms)\n  ✔ надбавка дробная, вниз: 13 км легкового — 988 мл, 988 × 15% = 148.2 → 148 → 1136 (0.0956ms)\n  ✔ надбавка дробная, вверх: 130 км легкового — 9880 мл, 9880 × 15% = 1482 — целое, 11362 (0.0983ms)\n  ✔ фургон: 100 км — 11500 мл, надбавка 1725 — целое, 13225 (0.0901ms)\n  ✔ округление надбавки вверх (224.25 → 224, не 223): 13 км фургона — 1495 мл → 1719 (0.0909ms)\n  ✔ грузовик: 150 км — 37200 мл, надбавка 5580 — целое, 42780, без округления до 100 мл (0.0855ms)\n  ✔ неизвестный класс — null, как у fuelMl и rateFor (0.0817ms)\n  ✔ нулевой пробег — нулевой расход (0.6068ms)\nℹ tests 14\nℹ suites 3\nℹ pass 14\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 155.718\n```\n\nОграничение: «половина вверх» реализована как `Math.floor(ml + 0.5)` — для значений, укладывающихся в точное представление double (до ~1e15 мл, т.е. миллионы км), это ровно half-up; для аномально больших чисел (нереалистичных для выпуска топлива) поведение float допускает погрешность.",
+    "usage": {
+      "inputTokens": 43069,
+      "outputTokens": 3876,
+      "cacheReadTokens": 39230,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 221838
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "014982a0f775ae9f58fe7d1371e4a1ec44d2b24acf169d5eaea37bf6aa2d0e36",
+        "passed": true,
+        "output": "ok   index.ts\nok   rates.ts\nok   trip.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "014982a0f775ae9f58fe7d1371e4a1ec44d2b24acf169d5eaea37bf6aa2d0e36",
+        "passed": true,
+        "output": "▶ нормы расхода\n  ✔ базовая норма по классам (0.5413ms)\n  ✔ неизвестный класс — null, а не молчаливый дефолт (0.1079ms)\n✔ нормы расхода (1.4239ms)\n▶ расход на поездку\n  ✔ ровный акт: 100 км легкового = 100 × 76 = 7600 мл (0.586ms)\n  ✔ округление вверх до 100 мл: 13 км фургона = 13 × 115 = 1495 мл → 1500 (0.1037ms)\n  ✔ неизвестный класс — null, как у rateFor (0.0898ms)\n  ✔ нулевой пробег — нулевой расход (0.0966ms)\n✔ расход на поездку (1.7336ms)\nℹ tests 6\nℹ suites 2\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 134.6243\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "6e7662989f7d876adee903d441b546dc11530a42899e5ab4ba0be490d4fa5b32",
+        "passed": true,
+        "output": "ok   index.ts\nok   rates.ts\nok   trip.ts\nмодулей загружено: 3 из 3\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "6e7662989f7d876adee903d441b546dc11530a42899e5ab4ba0be490d4fa5b32",
+        "passed": true,
+        "output": "▶ нормы расхода\n  ✔ базовая норма по классам (0.576ms)\n  ✔ неизвестный класс — null, а не молчаливый дефолт (0.1051ms)\n✔ нормы расхода (1.5368ms)\n▶ расход на поездку\n  ✔ ровный акт: 100 км легкового = 100 × 76 = 7600 мл (0.6027ms)\n  ✔ округление вверх до 100 мл: 13 км фургона = 13 × 115 = 1495 мл → 1500 (0.1058ms)\n  ✔ неизвестный класс — null, как у rateFor (0.1392ms)\n  ✔ нулевой пробег — нулевой расход (0.1097ms)\n✔ расход на поездку (1.8377ms)\n▶ зимняя норма на поездку\n  ✔ ровный счёт: 100 км легкового — сырые 7600 мл, надбавка 15% = 1140 → 8740 (0.6642ms)\n  ✔ надбавка дробная, вниз: 13 км легкового — 988 мл, 988 × 15% = 148.2 → 148 → 1136 (0.0956ms)\n  ✔ надбавка дробная, вверх: 130 км легкового — 9880 мл, 9880 × 15% = 1482 — целое, 11362 (0.0988ms)\n  ✔ фургон: 100 км — 11500 мл, надбавка 1725 — целое, 13225 (0.0901ms)\n  ✔ округление надбавки вверх (224.25 → 224, не 223): 13 км фургона — 1495 мл → 1719 (0.0909ms)\n  ✔ грузовик: 150 км — 37200 мл, надбавка 5580 — целое, 42780, без округления до 100 мл (0.0855ms)\n  ✔ неизвестный класс — null, как у fuelMl и rateFor (0.0817ms)\n  ✔ нулевой пробег — нулевой расход (0.6068ms)\n✔ зимняя норма на поездку (2.7935ms)\nℹ tests 14\nℹ suites 3\nℹ pass 14\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 155.718\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 8,
+      "writes": 5,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "firstEditMs": 70306.8708,
+      "firstCheckMs": 169377.1208,
+      "humanWaitMs": 0,
+      "activeMs": 222580.4922,
+      "telemetryErrors": 0
+    }
+  },
+  "asks": [],
+  "changed": [
+    "src/index.ts",
+    "src/trip.ts",
+    "test/winter-fuel.test.ts"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G1",
+        "category": "contract",
+        "label": "ok 1 - G1 [contract]: raw winter calculation across classes and rounding boundaries"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "G2",
+        "category": "contract",
+        "label": "ok 2 - G2 [contract]: unknown class stays explicit"
+      }
+    ],
+    "errorText": null
+  },
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 6,
+    "pass": 6,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: fuelMl существует до витка и считает верно: 55 км легкового = 55×76 = 4180 мл → вверх до 100 → 4200."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: rateFor не задевается: truck → 248 дл/100 км из FUEL_RATE_DL_PER_100KM."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-1): Зимняя норма на ровном акте: 100 км грузового — сырой 100×248 = 24800 мл → +15% = 3720 → 28520."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-2): Надбавка округляется половиной вверх: 2 км фургона — сырой 230 мл → 15% = 34.5 → 35 → итог 265 (отбрасывание дало бы 264)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-2): Без актового округления и без округления базы: 13 км фургона — сырой 1495 мл → 15% = 224.25 → 224 → итог 1719, а не 1700/1800 (округление итога до 100) и не 1725 (надбавка от округлённых 1500)."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "ok 6 - Pr4 [precision] (claim-3): Неизвестный класс — null, как у fuelMl."
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "6e7662989f7d876adee903d441b546dc11530a42899e5ab4ba0be490d4fa5b32",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

@@ -429,6 +429,34 @@ function tableCell(text: string, max: number): string {
  * `result.json` (`driver.stages[].note`), и для всех 25 прогонов серии v4 отчёт говорил
  * «explore | red» и больше ничего: класс отказа приходилось выкапывать из JSON.
  */
+/** Кластеры провалов guided-серий — те же метки, что в `.tmp/analyze-comparison-failures.mjs`. */
+export function classifyGuidedFailure(stop: string): string {
+  const s = stop.toLowerCase();
+  if (/не помещаются в контекст|данные проверки решения не помещаются/.test(s)) return 'context-overflow';
+  if (/незавершённый блок в документе|невозможно обновить структурированные/.test(s)) return 'form-block-stuck';
+  if (/too_small|expected number to be >0|next\.offset|offset.*вне/.test(s)) return 'explore-offset';
+  if (/"path":\s*\[\s*"decision"\s*\]|unrecognized_keys[\s\S]{0,80}(?:action|path)|expected string, received undefined|Invalid input: expected number, received|Too big:[\s\S]{0,40}limit/.test(s) && /decision|action|next/.test(s)) return 'decision-shape';
+  if (/sourcecatalogpartial|отсутствует факт read|нет данных для сверки/.test(s)) return 'explore-evidence';
+  if (/unexpected end of json|незавершённый json|нужен завершённый json|json input|невалидн/.test(s)) return 'json-protocol';
+  if (/не проверяем|одинаковый diff|топтание на месте|action":"escalate"|`escalate`/.test(s)) return 'verify-escalate';
+  // Не ловить «обоснование»/«пункт приёмки» verify: только schema acceptance/basis.
+  if (/json-блок (?:acceptance|basis)|acceptance_json|basis_json|acceptance должен|basis: |приёмочн|приёмка противореч|acceptance.*массив|basis.*массив|основание проверки контракта|основание ремонта/.test(s)) {
+    return 'acceptance/basis-schema';
+  }
+  if (/контракт intent|после двух ремонтов|contradict/.test(s)) return 'intent-contract';
+  if (/plannedfiles|пропущена центральная|недостаточно lookup|нужны ещё файл|сбор данных не добавил|повторный запрос/.test(s)) return 'explore-coverage';
+  if (/диапазон строк|вне источника|основание отсутствует|диапазон input/.test(s)) return 'evidence-range';
+  if (/askhuman|action_unavailable|недоступн/.test(s)) return 'action-unavailable';
+  if (/независим|ревью|preparation|проработк|проверка проработки/.test(s)) return 'prep-review';
+  if (/бюджет|timeout|лимит|таймаут|stage-timeout|run-timeout/.test(s)) return 'budget/timeout';
+  if (/exception|error:|crash|econn|fetch failed/.test(s)) return 'runtime-exception';
+  if (/восстановлен|recovery|повтор одинаков|исчерпан/.test(s)) return 'recovery-stop';
+  if (/knownsymbols|files_to_touch|символ .*не|callers|covered и decision|непереданн|изменивш\w* исходник/.test(s)) return 'plan-schema';
+  if (/handoff|плейсхолдер|незаполнен/.test(s)) return 'handoff-fill';
+  if (/исследование группы/.test(s)) return 'chunk-lookup';
+  return 'other';
+}
+
 function stopCausesSection(result: BenchResult): string {
   const lines: string[] = [];
   for (const rec of result.driver.stages) {
@@ -443,7 +471,9 @@ function stopCausesSection(result: BenchResult): string {
             ? 'провал'
             : 'закрыт рантаймом, а не моделью';
     const env = rec.envFailure === undefined ? '' : ` · отказ среды: ${flatText(rec.envFailure, 200)}`;
-    lines.push(`- **${rec.stage}** (chunk ${rec.chunk}, попытка ${rec.attempt}): ${head} — ${flatText(rec.note, 500)}${env}`);
+    const cluster = result.run.executionMode === 'guided' && (!rec.ok || rec.timedOut || rec.envFailure !== undefined)
+      ? ` · кластер \`${classifyGuidedFailure(rec.note)}\`` : '';
+    lines.push(`- **${rec.stage}** (chunk ${rec.chunk}, попытка ${rec.attempt}): ${head} — ${flatText(rec.note, 500)}${env}${cluster}`);
   }
   return lines.length === 0 ? '- все этапы закрыты моделью без отказов' : lines.join('\n');
 }
@@ -779,6 +809,20 @@ export function buildReport(input: ReportInput): Report {
           seed.note,
           '',
         ]),
+    ...(result.guided?.workload ? [
+      '## Нагрузка модели', '',
+      '| Назначение | Учтённые обращения | Входные токены | Выходные токены | Доля токенов | Время запросов, мс |',
+      '|---|---:|---:|---:|---:|---:|',
+      ...Object.entries(result.guided.workload.byPurpose).map(([purpose, row]) =>
+        `| ${escapeCell(purpose)} | ${row.requests} | ${row.inputTokens} | ${row.outputTokens} | ${
+          Object.values(result.guided!.workload!.byPurpose).reduce((sum, value) => sum + value.inputTokens + value.outputTokens, 0) > 0
+            ? (100 * (row.inputTokens + row.outputTokens) / Object.values(result.guided!.workload!.byPurpose).reduce((sum, value) => sum + value.inputTokens + value.outputTokens, 0)).toFixed(1) + '%'
+            : '—'} | ${row.durationMs} |`), '',
+      `Событий расхода без точного числа обращений: ${result.guided.workload.unclassifiedUsageEvents}.`,
+      `Сокращений контекста: ${result.guided.workload.contextCompactions}; переполнений обязательного контракта: ${result.guided.workload.contextOverflows}.`,
+      `Отказы: ${Object.entries(result.guided.workload.failures).map(([kind, count]) => `${escapeCell(kind)}=${count}`).join(', ') || 'нет'}.`,
+      result.guided.workload.firstMutation ? `До первой применённой правки: ${result.guided.workload.firstMutation.elapsedMs} мс стенного времени, ${result.guided.workload.firstMutation.requests} учтённых обращений, ${result.guided.workload.firstMutation.inputTokens + result.guided.workload.firstMutation.outputTokens} токенов. Правка могла быть впоследствии откачена.` : 'Применённых правок реализации не было.',
+    ] : []),
     '## Не измерено',
     '',
     notMeasuredSection(result),

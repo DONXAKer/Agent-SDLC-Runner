@@ -12,6 +12,7 @@ import type { ExecHooks, ExecRequest, StageExecutor, StageResult } from './Stage
 import type { ChatProvider } from '../provider/ChatProvider.ts';
 import { guardedPath } from './GuidedExecutor.ts';
 import { estimateMessageTokens } from './contextBudget.ts';
+import { progressHash } from '../run/guidedProgress.ts';
 
 export const guidedAskResponseFormat = questionResponseFormat;
 type Resolver = { provider: ChatProvider; params: Record<string, unknown> | null; contextWindow: number };
@@ -110,6 +111,11 @@ export class GuidedAskExecutor implements StageExecutor {
       ].join('\n');
       const latest = preparation(paths);
       if (latest) savePreparation(paths, { ...latest, questionJournal: { version: 1, entries: all } });
+      if (req.progress) for (const entry of all) {
+        const dependencies = { request: requestHash, sources: progressHash(entry.sourceHashes) };
+        req.progress.accept(req.progress.begin(`ask:${entry.id}`, 'ask', dependencies), entry, dependencies,
+          entry.status === 'answered' && facts.some(fact => key(fact.question) === key(entry.question) && fact.answer === entry.answer));
+      }
       this.host.writeAutofilled(paths.clarificationReport, report, []);
       for (const path of [paths.intent, paths.explorationReport]) {
         const before = readArtifact(path).text;
@@ -191,15 +197,23 @@ human: {kind,missingDecision,options:[вариант1,вариант2],consequen
           flush();
         }
       }
-      if (!done && entry.status !== 'context') {
+      if (!done) {
         const autoOrigin = entry.origin.some(o => o === 'intent' || o === 'explore');
-        if (entry.status === 'protocol' && autoOrigin) {
-          entry.status = 'deferred';
-          entry.answer = 'не удалось автоматически обосновать; передано в план';
-          entry.reason = `Не удалось разрешить автоматически за 4 попытки: ${entry.reason}`;
-        } else {
-          entry.status = 'protocol';
-          entry.reason = `Не удалось разрешить кандидат в пределах бюджета: ${entry.reason}`;
+        // context после исчерпания попыток раньше оставлял technical stop; передаём в план
+        // (autoOrigin) или человеку — дырка протокола, не отказ scope/гейтов.
+        if (entry.status === 'context' || entry.status === 'protocol') {
+          if (autoOrigin && req.guidedEngineVersion !== 4) {
+            entry.status = 'deferred';
+            entry.answer = 'не удалось автоматически обосновать; передано в план';
+            entry.reason = `Не удалось разрешить автоматически за 4 попытки: ${entry.reason}`;
+          } else if (entry.status === 'context') {
+            entry.status = 'human';
+            entry.reason = `Не удалось добрать исходник в пределах бюджета: ${entry.reason}`;
+            entry.options = entry.options.length === 2 ? entry.options : ['да', 'нет'];
+          } else {
+            entry.status = 'protocol';
+            entry.reason = `Не удалось разрешить кандидат в пределах бюджета: ${entry.reason}`;
+          }
         }
       }
       flush();
@@ -213,7 +227,17 @@ human: {kind,missingDecision,options:[вариант1,вариант2],consequen
       const received = await hooks.onAskHuman(call);
       for (const [i, entry] of batch.entries()) {
         const answer = received[`guided-question-${offset + i}`]?.join(', ').trim();
-        if (!answer) continue;
+        if (!answer) {
+          // strict-questions без правила в банке даёт пустой ответ — не стопорим виток:
+          // кандидаты из intent/explore уходят в план, прочие остаются human.
+          if (req.guidedEngineVersion !== 4 && entry.origin.some(o => o === 'intent' || o === 'explore')) {
+            entry.status = 'deferred';
+            entry.answer = 'не получен ответ человека; передано в план';
+            entry.reason = 'Нет ответа AskHuman (нет правила в банке / strict-questions); передано в план';
+            answers.set(key(entry.question), entry.answer);
+          }
+          continue;
+        }
         entry.status = 'answered'; entry.answer = answer; entry.reason = 'Дословный ответ человека'; entry.requestHash = requestHash;
         answers.set(key(entry.question), answer); facts.push({ question: entry.question, answer, literals: [], changed: '' });
       }

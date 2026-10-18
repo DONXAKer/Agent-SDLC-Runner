@@ -1,0 +1,34 @@
+diff --git a/src/coef.ts b/src/coef.ts
+index 5551ed7..02476d3 100644
+--- a/src/coef.ts
++++ b/src/coef.ts
+@@ -32,5 +32,18 @@ const WEIGHT_STEP_G = 100;
+ export function volumetricWeightG(dimensionsCm: DimensionsCm): number {
+   const [length, width, height] = dimensionsCm;
+   const rawG = (length * width * height) / 5;
++  return roundWeightG(rawG);
++}
++
++/** Единственное правило округления для обоих расчётов. */
++function roundWeightG(rawG: number): number {
+   return Math.ceil(rawG / WEIGHT_STEP_G) * WEIGHT_STEP_G;
+ }
++
++/** Утверждённый приёмкой коэффициент применяется до округления. */
++const PACKING_FACTOR = 1.2;
++
++export function packedWeightG(dimensionsCm: DimensionsCm): number {
++  const [length, width, height] = dimensionsCm;
++  return roundWeightG(((length * width * height) / 5) * PACKING_FACTOR);
++}
+diff --git a/src/index.ts b/src/index.ts
+index c992a16..6aa6e02 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -7,5 +7,5 @@
+ 
+ export { CATEGORY_LIMIT, limitFor } from './limits.ts';
+ 
+-export { FRAGILITY_FACTOR, volumetricWeightG } from './coef.ts';
++export { FRAGILITY_FACTOR, volumetricWeightG, packedWeightG } from './coef.ts';
+ export type { DimensionsCm } from './coef.ts';

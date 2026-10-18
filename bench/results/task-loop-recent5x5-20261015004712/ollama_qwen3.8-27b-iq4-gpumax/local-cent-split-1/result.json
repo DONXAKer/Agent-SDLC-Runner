@@ -1,0 +1,284 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "cent-split",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "896ff96b54e4e1b20cdf6b9dc82fe222c86447cb73c88f5355e3a92798217d08",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-dmfcVF",
+    "baseCommit": "fd7dadd5e7ad6bb14e0b0a852bc5416a946493e0",
+    "contract": {
+      "task": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-api",
+          "description": "Required module export and the registered public API examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-api"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.",
+          "source": "Human task",
+          "checks": []
+        }
+      ],
+      "requireAdditionalTestsUnder": [
+        "test/"
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": false,
+    "visibleChecks": [
+      {
+        "name": "public-api",
+        "file": "bench/checks/evidence/cent-split.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-recent-5tasks.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T22:43:25.272Z"
+  },
+  "finishedAt": "2026-10-14T22:44:53.104Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "All checks pass.\n\n## Summary\n\n**`src/shares.mjs`** — added `splitCents(total, count)` alongside the preserved `protocolVersion` export:\n- Validates `total` is a nonnegative safe integer and `count` is a positive safe integer ≤ 1000 via `Number.isSafeInteger`; throws `RangeError` otherwise.\n- Uses pure integer arithmetic: `base = Math.floor(total / count)`, `extra = total % count`, then increments the first `extra` indices — so the sum is exactly `total`, shares differ by at most one, extra cents go to earliest indices, and no fractional-share rounding occurs (verified with `Number.MAX_SAFE_INTEGER` in the tests).\n\n**`test/splitCents.test.mjs`** — new executable test file covering the happy path, the sum/adjacency/monotonic invariants (including `MAX_SAFE_INTEGER` and `count = 1000`), invalid-total and invalid-count rejection, and preservation of `protocolVersion`.\n\nCheck results: build PASS, test PASS (6/6), public-api PASS. Existing test file and protected paths untouched.",
+    "usage": {
+      "inputTokens": 14977,
+      "outputTokens": 1529,
+      "cacheReadTokens": 14227,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 86634
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "02e1f59d3002684c87d5dc82fceb766a3499a01afa5f081439246c0f00e7ec83",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "02e1f59d3002684c87d5dc82fceb766a3499a01afa5f081439246c0f00e7ec83",
+        "passed": true,
+        "output": "✔ existing public API (0.5291ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 78.0986\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+        "passed": true,
+        "output": "✔ existing public API (0.5612ms)\n✔ splitCents basic split (1.6937ms)\n✔ splitCents sum and adjacency invariants (1.1831ms)\n✔ splitCents rejects invalid total (0.3508ms)\n✔ splitCents rejects invalid count (0.155ms)\n✔ existing export preserved (0.096ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 101.9138\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public API (1.224ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 76.7405\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 6,
+      "writes": 3,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "repeatedCheckFailures": 0,
+      "firstEditMs": 56679.9435,
+      "firstCheckMs": 73047.2746,
+      "humanWaitMs": 0,
+      "activeMs": 87306.5803,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-api",
+        "description": "Required module export and the registered public API examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-api"
+        ],
+        "status": "verified",
+        "revision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+        "evidence": [
+          {
+            "name": "public-api",
+            "baseline": false,
+            "revision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public API (1.224ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 76.7405\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+            "passed": true,
+            "output": "✔ existing public API (0.5612ms)\n✔ splitCents basic split (1.6937ms)\n✔ splitCents sum and adjacency invariants (1.1831ms)\n✔ splitCents rejects invalid total (0.3508ms)\n✔ splitCents rejects invalid count (0.155ms)\n✔ existing export preserved (0.096ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 101.9138\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export splitCents(total,count) from src/shares.mjs. total must be a nonnegative safe integer, count a positive safe integer <= 1000; throw RangeError otherwise. Return count integer shares summing to total, differing by at most one. Extra cents go to earliest indices. No floating point rounding of fractional shares.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/shares.mjs",
+    "test/splitCents.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "pass",
+  "readyWithUnverifiedRequirements": true,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "bd0e90048af63a5bbdec04fa5d3e3107368eb67bd6fa525021cfa04dd0d0dc77",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

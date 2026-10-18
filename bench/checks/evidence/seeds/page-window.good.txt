@@ -1,0 +1,2 @@
+export const protocolVersion = 1;
+export function pageAfter(items,cursor,limit) { if(!Number.isInteger(limit)||limit<1||limit>100) throw new RangeError(); const i=cursor===null?-1:items.findIndex(x=>x.id===cursor); if(cursor!==null && i<0) throw new RangeError(); const page=items.slice(i+1,i+1+limit); return {items:page,nextCursor:i+1+page.length<items.length?page.at(-1).id:null}; }

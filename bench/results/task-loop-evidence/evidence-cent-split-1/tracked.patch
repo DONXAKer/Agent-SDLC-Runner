@@ -1,0 +1,34 @@
+diff --git a/src/shares.mjs b/src/shares.mjs
+index e8014d2..48199fb 100644
+--- a/src/shares.mjs
++++ b/src/shares.mjs
+@@ -1 +1,29 @@
+ export const protocolVersion = 1;
++
++/**
++ * Split `total` cents into `count` integer shares.
++ * @param {number} total - nonnegative safe integer, in cents
++ * @param {number} count - positive safe integer, <= 1000
++ * @returns {number[]} count integer shares summing to total, differing by at most one;
++ *   the first (total % count) shares are one cent larger.
++ */
++export function splitCents(total, count) {
++  if (!Number.isSafeInteger(total) || total < 0) {
++    throw new RangeError('total must be a nonnegative safe integer');
++  }
++  if (!Number.isSafeInteger(count) || count < 1 || count > 1000) {
++    throw new RangeError('count must be a positive safe integer <= 1000');
++  }
++  // Avoid JS division precision loss on large `total`: (total >> 10) < 2^43,
++  // so (total>>10)/count rounds within ~1 of true quotient; refine via exact int ops.
++  const q10 = Math.floor((total >> 10) / count); // exact integer for (total>>10)/count to nearest
++  let base = q10 * 1024;
++  while ((base + 1) * count <= total) base += 1;
++  while (base * count > total) base -= 1;
++  const remainder = total - base * count; // total % count, exact
++  const shares = Array.from({length: count}, () => base);
++  for (let i = 0; i < remainder; i++) {
++    shares[i] += 1;
++  }
++  return shares;
++}

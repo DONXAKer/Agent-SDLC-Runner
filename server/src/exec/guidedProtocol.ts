@@ -38,7 +38,9 @@ export function documentFacts(text: string): { section: string; values: unknown[
     const value = plainQuestion(line);
     if (value) current.values.push(value);
   }
-  if (fence !== null) throw new Error('Незавершённый блок в документе: невозможно обновить структурированные данные');
+  // Незакрытый fence в артефакте модели раньше ронял весь этап («Незавершённый блок…»).
+  // Закрываем на EOF: содержимое уже собрано, а повторный throw блокировал FormFill намертво.
+  if (fence !== null) current.values.push({ content: fence.join('\n') });
   return result.filter(section => section.values.length > 0);
 }
 

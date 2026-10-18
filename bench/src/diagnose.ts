@@ -25,6 +25,8 @@ interface CaseResult extends DiagnosticCase {
   inputReason: string; samples: Sample[];
 }
 interface DiagnosticReport {
+  executionMode?: 'legacy';
+  preparationVersion?: 1;
   version: 1; generatedAt: string; model: string; repeats: number; preflight: { exitCode: number | null; checks: PreflightCheck[] };
   fingerprint: { gitHead: string | null; sourceHash: string; configHash: string; modelConfigHash: string };
   cases: CaseResult[]; problemCoverage: Array<{ problemId: number; cases: string[]; available: number; total: number; status: string }>;
@@ -85,6 +87,7 @@ function sample(slug: string, exitCode: number | null, stage: string, expectedBl
 
 function recommendations(report: DiagnosticReport): string[] {
   const out: string[] = [];
+  if (report.cases.some(c => c.samples.some(s => ['no-result', 'execution-error', 'invalid-result'].includes(s.outcome)))) out.push('Результат запуска отсутствует или повреждён: сначала проверить журнал процесса; это не замер качества модели.');
   const completed = report.cases.flatMap((c) => c.samples).filter((s) => s.stageStarted);
   if (report.preflight.exitCode !== 0) out.push('Исправить среду или конфигурацию по preflight; результаты модельных кейсов не запускались.');
   if (report.cases.some((c) => c.inputStatus !== 'available')) out.push('Подготовить и проверить отсутствующие снимки, чтобы расширить покрытие известных проблем.');
@@ -113,7 +116,7 @@ function markdown(r: DiagnosticReport): string {
     return `| ${c.id} | ${c.task} / ${c.stage} | ${c.inputStatus} | ${done}/${r.repeats} | ${c.seed ? `${caught}/${done} caught` : `${failed} run findings`}; ${status.replaceAll('|', '\\|').replaceAll('\n', ' ')} | ${measured} | not assessed |`;
   });
   const coverage = r.problemCoverage.map((p) => `| ${p.problemId} | ${p.cases.join(', ') || '—'} | ${p.available}/${p.total} | ${p.status} |`);
-  return [`# Model diagnostics: ${r.model}`, '', `Generated: ${r.generatedAt}`, `Preflight exit code: ${r.preflight.exitCode ?? 'execution error'}`, ...r.preflight.checks.filter((check) => !check.ok).map((check) => `Preflight problem (${check.env ? 'environment' : 'model'}): ${check.name}: ${check.detail}`), `Source: ${r.fingerprint.sourceHash}`, `Config: ${r.fingerprint.configHash}`, '', '| Case | Task / stage | Input | Started | Mechanical result | Median time / tokens | Semantic review |', '|---|---|---|---:|---|---:|---|', ...rows, '', '## Known problem coverage', '', '| Problem | Cases | Available inputs | Status |', '|---:|---|---:|---|', ...coverage, '', '## Suggestions', '', ...recommendations(r).map((x) => `- ${x}`), '', 'Semantic quality must be reviewed against each case rubric; completion and runtime gates do not establish correctness.', ''].join('\n');
+  return [`# Model diagnostics: ${r.model}`, '', 'Execution mode: legacy; preparation version: 1. These isolated cases do not measure guided. Use tools/compare-guided.mjs for guided comparisons.', '', `Generated: ${r.generatedAt}`, `Preflight exit code: ${r.preflight.exitCode ?? 'execution error'}`, ...r.preflight.checks.filter((check) => !check.ok).map((check) => `Preflight problem (${check.env ? 'environment' : 'model'}): ${check.name}: ${check.detail}`), `Source: ${r.fingerprint.sourceHash}`, `Config: ${r.fingerprint.configHash}`, '', '| Case | Task / stage | Input | Started | Mechanical result | Median time / tokens | Semantic review |', '|---|---|---|---:|---|---:|---|', ...rows, '', '## Known problem coverage', '', '| Problem | Cases | Available inputs | Status |', '|---:|---|---:|---|', ...coverage, '', '## Suggestions', '', ...recommendations(r).map((x) => `- ${x}`), '', 'Semantic quality must be reviewed against each case rubric; completion and runtime gates do not establish correctness.', ''].join('\n');
 }
 
 function compare(current: DiagnosticReport, priorPath: string): string[] {
@@ -176,6 +179,7 @@ async function main(): Promise<number> {
     }
   }
   const report: DiagnosticReport = {
+    executionMode: 'legacy', preparationVersion: 1,
     version: 1, generatedAt: new Date().toISOString(), model: opts.model, repeats: opts.repeats,
     preflight: { exitCode: preflightCode, checks: preflight.checks }, fingerprint, cases,
     problemCoverage: Array.from({ length: 26 }, (_, i) => i + 1).map((problemId) => {

@@ -13,7 +13,7 @@ import type { ChatProvider, ChatRequest } from '../src/provider/ChatProvider.ts'
 import { contractLineFacts, sourceLineFacts, renderGuidedContractRepair } from '../src/exec/guidedIntentContract.ts';
 import { parseIntentContractReview } from '../src/exec/intentContractReview.ts';
 import { deriveClaimsBlind } from '../src/run/claimsBlind.ts';
-import { validateGuidedPreparationAnswer } from '../src/run/preparationReview.ts';
+import { packGuidedPreparationReview, validateGuidedPreparationAnswer } from '../src/run/preparationReview.ts';
 
 test('document conversion removes forms and multiline comments while preserving literal code', () => {
   const code = 'const token = `x`; // **literal**';
@@ -21,7 +21,9 @@ test('document conversion removes forms and multiline comments while preserving 
   const json = JSON.stringify(facts);
   assert.ok(!json.includes('KEEP HEADINGS')); assert.ok(!json.includes('‹')); assert.ok(!json.includes('| Path'));
   assert.ok(json.includes('src/a.ts')); assert.ok(json.includes(code));
-  assert.throws(() => documentFacts('```ts\nunfinished'), /Незавершённый/);
+  const open = documentFacts('```ts\nunfinished');
+  assert.equal(open.length, 1);
+  assert.deepEqual(open[0]!.values, [{ content: 'unfinished' }]);
 });
 
 test('all seven stages receive permitted document facts without the screen prompt or templates', t => {
@@ -94,6 +96,15 @@ test('guided contract review rejects out-of-source citations instead of silently
   assert.throws(() => parseIntentContractReview(answer, '## Что делаем\nBehaviour\n', ['Request'], true), /вне источника/);
 });
 
+test('guided contract review normalizes inverted line ranges before strict bounds check', () => {
+  const intent = '## Что делаем\nline-a\nline-b\nline-c\n';
+  const answer = JSON.stringify({ issues: [{ problem: 'Order', quotes: [{ section: 'Что делаем', lines: [3, 1] }],
+    source: { file: 'request-1', lines: [2, 1] } }] });
+  const issues = parseIntentContractReview(answer, intent, ['one\ntwo\nthree'], true);
+  assert.deepEqual(issues[0]!.quotes[0]!.lines, [1, 3]);
+  assert.deepEqual(issues[0]!.source.lines, [1, 2]);
+});
+
 test('independent guided claims use only structured inputs and runtime assigns numbers', async () => {
   const provider: ChatProvider = { name: 'test', async chat(req) {
     assert.equal(JSON.parse(req.messages[1]!.content).questionId, 'explore:blind-claims');
@@ -111,4 +122,52 @@ test('guided independent preparation review validates exact object schemas', () 
   assert.doesNotThrow(() => validateGuidedPreparationAnswer('issues', '{"issues":[]}'));
   assert.throws(() => validateGuidedPreparationAnswer('issues', '{"issues":["unstructured defect"]}'));
   assert.throws(() => validateGuidedPreparationAnswer('scenarios', '{"scenarios":[],"extra":"wrong"}'));
+});
+
+test('guided preparation review shrinks sources until the question fits a 16k window', () => {
+  const bulky = 'export const x = 1;\n'.repeat(2000);
+  const facts = {
+    requests: ['Добавь валидатор email/phone'],
+    humanAnswers: [],
+    sources: [
+      { path: 'src/customer.ts', content: bulky, partial: false },
+      { path: 'src/index.ts', content: bulky, partial: false },
+      { path: 'src/money.ts', content: bulky, partial: false },
+      { path: 'test/invoice.test.ts', content: bulky, partial: false },
+    ],
+    coverage: { provided: 4, candidates: 4, skipped: 0 },
+    intent: { path: 'intent.md', sections: { doing: 'a'.repeat(4000) } },
+    plan: { path: 'plan.md', sections: { steps: 'b'.repeat(4000) } },
+  };
+  const packed = packGuidedPreparationReview(
+    'plan:review:issues:initial',
+    'Есть ли подтверждённые пропуски требований в плане?',
+    'Фаза до реализации. Ответ строго по JSON-схеме.',
+    facts,
+    '',
+    16384,
+  );
+  assert.ok(packed.available >= 512);
+  const payload = JSON.parse(packed.question) as { data: { facts: typeof facts } };
+  const sources = payload.data.facts.sources;
+  assert.ok(sources.length > 0);
+  assert.ok(sources.every(source => source.content.length < bulky.length));
+  assert.ok(sources.some(source => source.partial));
+  assert.equal((payload.data.facts.coverage as { truncatedForContext?: boolean }).truncatedForContext, true);
+  assert.throws(() => packGuidedPreparationReview(
+    'plan:review:issues:initial',
+    'Есть ли подтверждённые пропуски требований в плане?',
+    'Фаза до реализации. Ответ строго по JSON-схеме.',
+    {
+      sources: [
+        { path: 'a.ts', content: 'y'.repeat(4000), partial: false },
+        { path: 'b.ts', content: 'z'.repeat(4000), partial: false },
+      ],
+      coverage: { provided: 2, candidates: 2, skipped: 0 },
+      intent: { sections: { doing: 'a'.repeat(8000) } },
+      plan: { sections: { steps: 'b'.repeat(8000) } },
+    },
+    '',
+    2048,
+  ), /не помещаются в контекст/);
 });

@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "range-union",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "ac37171789249cde7ce329964e0c61006e863f6000e650b2476dbe1d1dc71d5a",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-6vbfn6",
+    "baseCommit": "547cc407d40d7dcc13520026ce98314a0da103bd",
+    "contract": {
+      "task": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": true,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/range-union.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-evidence.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T15:04:56.214Z"
+  },
+  "finishedAt": "2026-10-14T15:06:28.361Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Done. All registered checks pass (build, test, public-examples).\n\n**Changes:**\n- `src/ranges.mjs` — added `mergeRanges(ranges)`:\n  - Validates: input must be an array; each entry an array pair of exactly two elements; endpoints must be finite numbers; `start <= end`. Violations throw `TypeError`.\n  - Sorts a copy (`ranges.slice()`) by start then end — input is never touched.\n  - Merges overlapping or touching ranges (`start <= lastEnd`) into fresh pair arrays, so output pairs are not shared with the input.\n  - Empty input returns `[]`.\n  - Preserved the existing `protocolVersion = 1` export.\n- `test/mergeRanges.test.mjs` — 9 new tests covering: empty input, overlap/touch merging with unsorted input, non-mutation and non-sharing of pair arrays, zero-length/point ranges, and `TypeError` for non-array input, malformed pairs, nonfinite endpoints, and reversed endpoints.\n\n**Verification:** `mcp__task__check` → build PASS, test PASS (10/10 including the pre-existing `existing.test.mjs`), public-examples PASS. The unverified `full-contract` binder has no registered checks of its own; its clauses are exercised by the new tests (mutating a merged inner array would only mutate `merged`, never the input — output pairs are fresh).",
+    "usage": {
+      "inputTokens": 15804,
+      "outputTokens": 1415,
+      "cacheReadTokens": 13199,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 90845
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "1bc5c3df598d539c8b351cbc7747a4bcf913cd29126fa3e430da79a71e17f569",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "1bc5c3df598d539c8b351cbc7747a4bcf913cd29126fa3e430da79a71e17f569",
+        "passed": true,
+        "output": "✔ existing public API (0.6432ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 81.7689\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+        "passed": true,
+        "output": "✔ existing public API (0.5728ms)\n✔ empty input returns empty array (1.6088ms)\n✔ merges overlapping and touching ranges and sorts output (0.213ms)\n✔ does not mutate input or share output pair arrays (0.7293ms)\n✔ zero- and single-element ranges (0.1567ms)\n✔ throws TypeError on non-array input (0.3731ms)\n✔ throws TypeError on invalid pairs (0.1425ms)\n✔ throws TypeError on nonfinite endpoints (0.1323ms)\n✔ throws TypeError on reversed endpoints (0.1065ms)\n✔ preserves existing export (0.1668ms)\nℹ tests 10\nℹ suites 0\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 101.0341\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.1181ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 87.1734\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 6,
+      "writes": 2,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "firstEditMs": 34667.6713,
+      "firstCheckMs": 70473.2347,
+      "humanWaitMs": 0,
+      "activeMs": 91557.1769,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "verified",
+        "revision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public examples (1.1181ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 87.1734\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+            "passed": true,
+            "output": "✔ existing public API (0.5728ms)\n✔ empty input returns empty array (1.6088ms)\n✔ merges overlapping and touching ranges and sorts output (0.213ms)\n✔ does not mutate input or share output pair arrays (0.7293ms)\n✔ zero- and single-element ranges (0.1567ms)\n✔ throws TypeError on non-array input (0.3731ms)\n✔ throws TypeError on invalid pairs (0.1425ms)\n✔ throws TypeError on nonfinite endpoints (0.1323ms)\n✔ throws TypeError on reversed endpoints (0.1065ms)\n✔ preserves existing export (0.1668ms)\nℹ tests 10\nℹ suites 0\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 101.0341\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/ranges.mjs",
+    "test/mergeRanges.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "5d9e50af8a154a10b3c6792081b7d326a1d5977870c005bc9f68fc1f11b8ba16",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

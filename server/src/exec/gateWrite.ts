@@ -31,7 +31,8 @@ export async function writeThroughGate(
   path: string,
   text: string,
   idPrefix: string,
-  expectedBefore?: string,
+  expectedBefore?: string | null,
+  validateSources?: () => string | null,
 ): Promise<GateWriteResult> {
   const rel = relative(req.cwd, path);
   const rawInput = { file_path: rel, content: text };
@@ -55,13 +56,19 @@ export async function writeThroughGate(
   }
   // Одобрение может ждать человека. На диске должен остаться именно проверенный контракт.
   if (expectedBefore !== undefined) {
-    let current: string | undefined;
-    try { current = readFileSync(path, 'utf8'); } catch { /* удалённый или нечитаемый файл тоже изменился */ }
+    let current: string | null | undefined;
+    try { current = readFileSync(path, 'utf8'); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') current = null; }
     if (current !== expectedBefore) {
       const reason = 'Документ изменился во время одобрения ремонта; запись отменена';
       hooks.onToolResult({ requestId, ok: false, summary: reason, durationMs: 0 });
       return { ok: false, denied: true, reason };
     }
+  }
+  const sourceProblem = validateSources?.();
+  if (sourceProblem) {
+    hooks.onToolResult({ requestId, ok: false, summary: sourceProblem, durationMs: 0 });
+    return { ok: false, denied: true, reason: sourceProblem };
   }
   const effective =
     decision.updatedInput === null ? call : normalize('Write', decision.updatedInput as Record<string, unknown>);

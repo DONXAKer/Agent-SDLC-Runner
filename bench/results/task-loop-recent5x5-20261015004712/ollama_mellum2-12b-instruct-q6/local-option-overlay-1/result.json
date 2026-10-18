@@ -1,0 +1,386 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "option-overlay",
+    "model": "ollama:mellum2-12b-instruct-q6",
+    "sourceHash": "896ff96b54e4e1b20cdf6b9dc82fe222c86447cb73c88f5355e3a92798217d08",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-YF16wZ",
+    "baseCommit": "20c69fe5d70122d7ceb88c3e088bd19d02f0756c",
+    "contract": {
+      "task": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects. Special key names such as \"__proto__\" must still become own enumerable properties of the result (ordinary assignment is not enough; use Object.defineProperty for own keys when needed).\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-api",
+          "description": "Required module export and the registered public API examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-api"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects. Special key names such as \"__proto__\" must still become own enumerable properties of the result (ordinary assignment is not enough; use Object.defineProperty for own keys when needed).",
+          "source": "Human task",
+          "checks": []
+        }
+      ],
+      "requireAdditionalTestsUnder": [
+        "test/"
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": false,
+    "visibleChecks": [
+      {
+        "name": "public-api",
+        "file": "bench/checks/evidence/option-overlay.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": null,
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-recent-5tasks.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T22:30:55.510Z"
+  },
+  "finishedAt": "2026-10-14T22:32:15.444Z",
+  "result": {
+    "version": 1,
+    "status": "failed",
+    "reason": "Repeated identical tool errors without a new strategy; simplify the approach",
+    "finalText": "Let's run the checks again to see if our implementation passes:\n",
+    "usage": {
+      "inputTokens": 90975,
+      "outputTokens": 6483,
+      "cacheReadTokens": 80100,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 76641
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "2910d5de6a7c4234fe375b43efbdc7fa08f2ede05f5afc7643c17d781e5f8161",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "2910d5de6a7c4234fe375b43efbdc7fa08f2ede05f5afc7643c17d781e5f8161",
+        "passed": true,
+        "output": "✔ existing public API (0.5684ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 85.3342\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "978bc09b34a270921101b44bcd82ec1607ac81221aab367514f37f501bb3d16f",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "978bc09b34a270921101b44bcd82ec1607ac81221aab367514f37f501bb3d16f",
+        "passed": false,
+        "output": "✔ existing public API (0.7961ms)\n✔ resolveOptions should merge objects correctly (1.2357ms)\n✔ resolveOptions should preserve null, false, zero and empty string (1.0464ms)\n✖ resolveOptions should omit undefined keys absent from base (1.0029ms)\n✖ resolveOptions should ignore inherited keys (0.2999ms)\nℹ tests 5\nℹ suites 0\nℹ pass 3\nℹ fail 2\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 100.1161\n\n✖ failing tests:\n\ntest at test\\options.test.mjs:56:1\n✖ resolveOptions should omit undefined keys absent from base (1.0029ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    {\n      a: 1,\n  +   b: undefined,\n      c: 2\n    }\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-YF16wZ/test/options.test.mjs:68:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: { a: 1, b: undefined, c: 2 },\n    expected: { a: 1, c: 2 },\n    operator: 'deepStrictEqual'\n  }\n\ntest at test\\options.test.mjs:74:1\n✖ resolveOptions should ignore inherited keys (0.2999ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    {\n  +   inherited: 'also ignored',\n      own: 'updated'\n    }\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-YF16wZ/test/options.test.mjs:88:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: { own: 'updated', inherited: 'also ignored' },\n    expected: { own: 'updated' },\n    operator: 'deepStrictEqual'\n  }\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "978bc09b34a270921101b44bcd82ec1607ac81221aab367514f37f501bb3d16f",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public API (1.6105ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 84.0523\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "91b8b56708737b289b58aaa7c422760a252343950bffba9840d325c370c9c1fb",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "91b8b56708737b289b58aaa7c422760a252343950bffba9840d325c370c9c1fb",
+        "passed": false,
+        "output": "✔ existing public API (0.6099ms)\n✔ resolveOptions should merge objects correctly (1.7411ms)\n✔ resolveOptions should preserve null, false, zero and empty string (0.6887ms)\n✔ resolveOptions should omit undefined keys absent from base (0.1321ms)\n✖ resolveOptions should ignore inherited keys (1.1096ms)\nℹ tests 5\nℹ suites 0\nℹ pass 4\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 97.8803\n\n✖ failing tests:\n\ntest at test\\options.test.mjs:74:1\n✖ resolveOptions should ignore inherited keys (1.1096ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    {\n  +   inherited: 'also ignored',\n      own: 'updated'\n    }\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-YF16wZ/test/options.test.mjs:88:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: { own: 'updated', inherited: 'also ignored' },\n    expected: { own: 'updated' },\n    operator: 'deepStrictEqual'\n  }\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "91b8b56708737b289b58aaa7c422760a252343950bffba9840d325c370c9c1fb",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public API (1.0537ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 78.0179\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "a48555d92fd6277fb6ddd53f1ab8883f3612bd41fa57e2233620d60c2fe27a93",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "a48555d92fd6277fb6ddd53f1ab8883f3612bd41fa57e2233620d60c2fe27a93",
+        "passed": false,
+        "output": "✔ existing public API (0.5826ms)\n✔ resolveOptions should merge objects correctly (1.1403ms)\n✔ resolveOptions should preserve null, false, zero and empty string (0.6802ms)\n✔ resolveOptions should omit undefined keys absent from base (0.1239ms)\n✖ resolveOptions should ignore inherited keys (0.9591ms)\nℹ tests 5\nℹ suites 0\nℹ pass 4\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 101.7036\n\n✖ failing tests:\n\ntest at test\\options.test.mjs:74:1\n✖ resolveOptions should ignore inherited keys (0.9591ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    {\n  +   inherited: 'also ignored',\n      own: 'updated'\n    }\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-YF16wZ/test/options.test.mjs:88:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: { own: 'updated', inherited: 'also ignored' },\n    expected: { own: 'updated' },\n    operator: 'deepStrictEqual'\n  }\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "a48555d92fd6277fb6ddd53f1ab8883f3612bd41fa57e2233620d60c2fe27a93",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public API (0.9946ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 80.2842\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "262cd2302190a37b1d79612e3a188521f4575a4b105345589af7c34b568c685c",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "262cd2302190a37b1d79612e3a188521f4575a4b105345589af7c34b568c685c",
+        "passed": false,
+        "output": "✔ existing public API (0.5635ms)\n✔ resolveOptions should merge objects correctly (1.1763ms)\n✔ resolveOptions should preserve null, false, zero and empty string (0.7245ms)\n✔ resolveOptions should omit undefined keys absent from base (0.1358ms)\n✖ resolveOptions should ignore inherited keys (1.079ms)\nℹ tests 5\nℹ suites 0\nℹ pass 4\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 103.2554\n\n✖ failing tests:\n\ntest at test\\options.test.mjs:74:1\n✖ resolveOptions should ignore inherited keys (1.079ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    {\n  +   inherited: 'also ignored',\n      own: 'updated'\n    }\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-YF16wZ/test/options.test.mjs:88:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: { own: 'updated', inherited: 'also ignored' },\n    expected: { own: 'updated' },\n    operator: 'deepStrictEqual'\n  }\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "262cd2302190a37b1d79612e3a188521f4575a4b105345589af7c34b568c685c",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public API (1.0175ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 79.484\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "ee4cde0ee6e8c071aceddc44cd329282909d6bf9ab351896d7efad8c1ae31dd3",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "ee4cde0ee6e8c071aceddc44cd329282909d6bf9ab351896d7efad8c1ae31dd3",
+        "passed": false,
+        "output": "✔ existing public API (0.5647ms)\n✔ resolveOptions should merge objects correctly (1.0784ms)\n✔ resolveOptions should preserve null, false, zero and empty string (0.7207ms)\n✔ resolveOptions should omit undefined keys absent from base (0.1339ms)\n✖ resolveOptions should ignore inherited keys (1.0659ms)\nℹ tests 5\nℹ suites 0\nℹ pass 4\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 95.5581\n\n✖ failing tests:\n\ntest at test\\options.test.mjs:74:1\n✖ resolveOptions should ignore inherited keys (1.0659ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    {\n  +   inherited: 'also ignored',\n      own: 'updated'\n    }\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-YF16wZ/test/options.test.mjs:88:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: { own: 'updated', inherited: 'also ignored' },\n    expected: { own: 'updated' },\n    operator: 'deepStrictEqual'\n  }\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "ee4cde0ee6e8c071aceddc44cd329282909d6bf9ab351896d7efad8c1ae31dd3",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public API (1.0288ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 78.8017\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+        "passed": false,
+        "output": "✔ existing public API (0.5578ms)\n✔ resolveOptions should merge objects correctly (1.4072ms)\n✔ resolveOptions should preserve null, false, zero and empty string (0.6272ms)\n✔ resolveOptions should omit undefined keys absent from base (0.1221ms)\n✖ resolveOptions should ignore inherited keys (0.901ms)\nℹ tests 5\nℹ suites 0\nℹ pass 4\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 94.2979\n\n✖ failing tests:\n\ntest at test\\options.test.mjs:74:1\n✖ resolveOptions should ignore inherited keys (0.901ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    {\n  +   inherited: 'also ignored',\n      own: 'updated'\n    }\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-YF16wZ/test/options.test.mjs:88:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: { own: 'updated', inherited: 'also ignored' },\n    expected: { own: 'updated' },\n    operator: 'deepStrictEqual'\n  }\n"
+      },
+      {
+        "name": "public-api",
+        "baseline": false,
+        "revision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public API (1.3781ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 77.3489\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 15,
+      "writes": 7,
+      "denied": 0,
+      "repairs": 5,
+      "repeatedErrors": 5,
+      "repeatedCheckFailures": 4,
+      "firstEditMs": 9392.6219,
+      "firstCheckMs": 17338.0219,
+      "humanWaitMs": 0,
+      "activeMs": 79421.8186,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-api",
+        "description": "Required module export and the registered public API examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-api"
+        ],
+        "status": "verified",
+        "revision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+        "evidence": [
+          {
+            "name": "public-api",
+            "baseline": false,
+            "revision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public API (1.3781ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 77.3489\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "violated",
+        "revision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+            "passed": false,
+            "output": "✔ existing public API (0.5578ms)\n✔ resolveOptions should merge objects correctly (1.4072ms)\n✔ resolveOptions should preserve null, false, zero and empty string (0.6272ms)\n✔ resolveOptions should omit undefined keys absent from base (0.1221ms)\n✖ resolveOptions should ignore inherited keys (0.901ms)\nℹ tests 5\nℹ suites 0\nℹ pass 4\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 94.2979\n\n✖ failing tests:\n\ntest at test\\options.test.mjs:74:1\n✖ resolveOptions should ignore inherited keys (0.901ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  \n    {\n  +   inherited: 'also ignored',\n      own: 'updated'\n    }\n  \n      at TestContext.<anonymous> (file:///C:/Users/Root/AppData/Local/Temp/sdlc-bench-YF16wZ/test/options.test.mjs:88:10)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:763:18)\n      at Test.postRun (node:internal/test_runner/test:1210:19)\n      at Test.run (node:internal/test_runner/test:1138:12)\n      at async Test.processPendingSubtests (node:internal/test_runner/test:763:7) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: { own: 'updated', inherited: 'also ignored' },\n    expected: { own: 'updated' },\n    operator: 'deepStrictEqual'\n  }\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export resolveOptions(base,override) from src/options.mjs. For own enumerable string keys, shallow-merge override into base, except undefined override values keep base values; undefined keys absent from base are omitted. Preserve null, false, zero and empty string as explicit values. Return a new object; never mutate inputs. Inherited keys must be ignored. Both inputs are plain objects. Special key names such as \"__proto__\" must still become own enumerable properties of the result (ordinary assignment is not enough; use Object.defineProperty for own keys when needed).",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/options.mjs",
+    "test/options.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": false,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 5,
+      "passed": 4,
+      "failed": 1,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "No evidence of additional passing tests",
+    "baselineExitCode": 0,
+    "finalExitCode": 1
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "pass",
+  "readyWithUnverifiedRequirements": false,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": false,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": false,
+  "falseSuccess": null,
+  "frozenRevision": "f00032f21cf0a80919ec2f1153c7de2d68ef3415a82faac7ad140679cdde4fdb",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

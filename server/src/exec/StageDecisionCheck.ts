@@ -4,7 +4,7 @@ import { addUsage, emptyUsage, type StageId, type StageDecisionCheck, type ToolN
 import { estimateMessageTokens } from './contextBudget.ts';
 import { normalize } from './normalize.ts';
 import { executeTool } from './tools/index.ts';
-import { parseGuidedJson } from './guidedJson.ts';
+import { parseGuidedDecisionJson } from './guidedJson.ts';
 import { engineeringQuestionAllowed, questionKey } from './guidedQuestions.ts';
 import { projectSourceCatalog } from './guidedSources.ts';
 import { evaluate } from '../policy/index.ts';
@@ -30,6 +30,194 @@ const Evidence = z.union([z.object({ source: sentence, quote: sentence }).strict
   z.object({ source: sentence, lines: z.tuple([z.number().int().positive(), z.number().int().positive()]) }).strict()]);
 const Check = z.object({ decision: sentence, evidence: z.array(Evidence).max(5),
   uncertainties: z.array(sentence).max(5), next: Next }).strict();
+
+function coerceDecisionInt(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string' && /^-?\d+$/u.test(value.trim())) return Number(value.trim());
+  return fallback;
+}
+
+/**
+ * Собрать next по закрытому словарю action: лишние ключи (path у proceed) и
+ * строковые offset/limit от локальных моделей иначе валят zod strict.
+ */
+function normalizeDecisionNext(nextRecord: Record<string, unknown>): Record<string, unknown> {
+  const action = typeof nextRecord.action === 'string' ? nextRecord.action : '';
+  const reason = typeof nextRecord.reason === 'string' && nextRecord.reason.trim()
+    ? nextRecord.reason.trim()
+    : 'Гипотеза по действию';
+  if (action === 'proceed' || action === 'blocked') return { action, reason };
+  if (action === 'read') {
+    let offset = coerceDecisionInt(nextRecord.offset, 1);
+    if (offset <= 0) offset = 1;
+    let limit = coerceDecisionInt(nextRecord.limit, 40);
+    if (limit < 1) limit = 1;
+    if (limit > 80) limit = 80;
+    let path = typeof nextRecord.path === 'string' ? nextRecord.path.trim() : String(nextRecord.path ?? '').trim();
+    // `/src/foo.ts` — частый ложный абсолютный путь модели; Read резолвит через resolveUserPath.
+    if (path.startsWith('/') && !path.startsWith('//') && !/^[A-Za-z]:/u.test(path)) {
+      path = path.replace(/^\/+/u, '');
+    }
+    return { action, reason, path, offset, limit };
+  }
+  if (action === 'search') {
+    const pattern = typeof nextRecord.pattern === 'string' ? nextRecord.pattern : String(nextRecord.pattern ?? '');
+    return { action, reason, pattern };
+  }
+  if (action === 'input') {
+    let offset = coerceDecisionInt(nextRecord.offset, 0);
+    if (offset < 0) offset = 0;
+    let limit = coerceDecisionInt(nextRecord.limit, 2000);
+    if (limit < 1) limit = 1;
+    if (limit > 8000) limit = 8000;
+    const source = typeof nextRecord.source === 'string' ? nextRecord.source.trim() : String(nextRecord.source ?? '').trim();
+    return { action, reason, source, offset, limit };
+  }
+  if (action === 'question') {
+    const question = typeof nextRecord.question === 'string' ? nextRecord.question : String(nextRecord.question ?? '');
+    const options = Array.isArray(nextRecord.options)
+      ? nextRecord.options.map((item) => String(item)).filter((item) => item.trim() !== '').slice(0, 2)
+      : [];
+    return { action, reason, question, options };
+  }
+  return nextRecord;
+}
+
+/**
+ * Носитель Read из GuidedExecutor / repo_browser: `{path,line_start,line_end}` без `action`.
+ * Без перевода zod Check валится unrecognized_keys и весь decision-check стопорится.
+ */
+function coerceReadCarrier(record: Record<string, unknown>): Record<string, unknown> {
+  if (typeof record.action === 'string') return record;
+  const path = typeof record.path === 'string' ? record.path
+    : typeof record.file_path === 'string' ? record.file_path
+      : typeof record.file === 'string' ? record.file
+        : '';
+  if (!path.trim()) return record;
+  const hasLineRange = record.line_start !== undefined || record.line_end !== undefined;
+  if (!hasLineRange && record.offset === undefined && record.limit === undefined) return record;
+  const start = coerceDecisionInt(record.line_start ?? record.offset, 1);
+  const end = coerceDecisionInt(record.line_end, start);
+  const offset = start <= 0 ? 1 : start;
+  const limit = Math.min(80, Math.max(1, end >= offset ? end - offset + 1 : coerceDecisionInt(record.limit, 40)));
+  const reason = typeof record.reason === 'string' && record.reason.trim()
+    ? record.reason.trim()
+    : 'Прочитать указанный фрагмент';
+  return { action: 'read', path, offset, limit, reason };
+}
+
+/**
+ * Локальные модели (gpt-oss) иногда отдают tool-shaped `{cmd:"read",path,…}` вместо
+ * Check/next — zod падает на unrecognized_keys: "cmd".
+ */
+function coerceCmdCarrier(record: Record<string, unknown>): Record<string, unknown> {
+  if (typeof record.action === 'string') return record;
+  const cmd = String(record.cmd ?? record.command ?? record.tool ?? '').trim().toLowerCase();
+  if (cmd === '') return record;
+  const reason = typeof record.reason === 'string' && record.reason.trim()
+    ? record.reason.trim()
+    : `Действие ${cmd}`;
+  if (/^(read|open|cat|view|open_file|repo_browser\.open_file)$/u.test(cmd) || cmd.includes('read')) {
+    return coerceReadCarrier({ ...record, action: 'read', reason });
+  }
+  if (/^(search|grep|find|rg)$/u.test(cmd) || cmd.includes('grep') || cmd.includes('search')) {
+    return {
+      action: 'search',
+      pattern: String(record.pattern ?? record.query ?? record.q ?? record.path ?? ''),
+      reason,
+    };
+  }
+  if (/^(proceed|continue|ok|done)$/u.test(cmd)) return { action: 'proceed', reason };
+  if (/^(blocked|block|stop|abort)$/u.test(cmd)) return { action: 'blocked', reason };
+  if (/^(input|page)$/u.test(cmd)) {
+    return {
+      action: 'input',
+      source: String(record.source ?? record.file ?? 'stage-input'),
+      offset: coerceDecisionInt(record.offset, 0),
+      limit: coerceDecisionInt(record.limit, 2000),
+      reason,
+    };
+  }
+  return record;
+}
+
+function coerceDecisionCarrier(record: Record<string, unknown>): Record<string, unknown> {
+  return coerceReadCarrier(coerceCmdCarrier(record));
+}
+
+/**
+ * Read offset is 1-based; local models often send 0.
+ * Dual-read tool-args sometimes emit a flat next `{action,…}` without Check envelope.
+ */
+export function normalizeDecisionPayload(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const record = coerceDecisionCarrier(raw as Record<string, unknown>);
+  let wrapped: unknown = record;
+  // Flat GuidedReply / Read-shaped payload → full Check envelope.
+  if (typeof record.action === 'string' && record.decision === undefined && record.next === undefined) {
+    const reason = typeof record.reason === 'string' && record.reason.trim()
+      ? record.reason.trim()
+      : 'Гипотеза по действию';
+    const next = normalizeDecisionNext({ ...record, reason });
+    wrapped = {
+      decision: reason,
+      evidence: Array.isArray(record.evidence) ? record.evidence : [],
+      uncertainties: record.action === 'proceed' ? [] : [reason],
+      next,
+    };
+  }
+  const envelope = wrapped as Record<string, unknown>;
+  let nextRaw = envelope.next;
+  if (nextRaw && typeof nextRaw === 'object' && !Array.isArray(nextRaw)) {
+    nextRaw = coerceDecisionCarrier(nextRaw as Record<string, unknown>);
+  }
+  if (!nextRaw || typeof nextRaw !== 'object' || Array.isArray(nextRaw)) return wrapped;
+  const next = normalizeDecisionNext(nextRaw as Record<string, unknown>);
+  const reason = typeof next.reason === 'string' && next.reason.trim()
+    ? next.reason.trim()
+    : 'Гипотеза по действию';
+  const decision = typeof envelope.decision === 'string' && envelope.decision.trim()
+    ? envelope.decision.trim()
+    : reason;
+  const evidence = Array.isArray(envelope.evidence) ? envelope.evidence : [];
+  const uncertainties = Array.isArray(envelope.uncertainties)
+    ? envelope.uncertainties
+    : (next.action === 'proceed' ? [] : [reason]);
+  return { ...envelope, decision, evidence, uncertainties, next };
+}
+
+/** `stage-input:request-1` / `intent-file` / `Request_1` → канонический id из показанных источников. */
+export function resolveEvidenceSourceId(id: string, known: ReadonlyMap<string, string> | ReadonlySet<string>): string | undefined {
+  if (known.has(id)) return id;
+  const cleaned = id.replace(/\s+/gu, ' ').trim();
+  const bracket = /\[[^\]]+\]/u.exec(cleaned)?.[0]?.slice(1, -1)?.trim();
+  if (bracket && known.has(bracket)) return bracket;
+  const tail = cleaned.includes(':') ? cleaned.slice(cleaned.lastIndexOf(':') + 1).trim() : '';
+  if (tail !== '' && known.has(tail)) return tail;
+  const folded = cleaned.replace(/_/gu, '-').toLowerCase().replace(/\.md$/u, '');
+  const intentAliases = new Set(['intent-file', 'intent', 'intent-md', 'intent.md', 'задача', 'task', 'stage-input']);
+  if (intentAliases.has(folded) || intentAliases.has(folded.replace(/\s+/gu, '-'))) {
+    if (known.has('stage-input')) return 'stage-input';
+    if (known.has('request-1')) return 'request-1';
+  }
+  const req = /request[-\s_]*(\d+)/iu.exec(folded);
+  if (req) {
+    const key = `request-${req[1]}`;
+    if (known.has(key)) return key;
+  }
+  for (const key of known.keys()) {
+    if (key.toLowerCase() === folded || (tail !== '' && key.toLowerCase() === tail.toLowerCase())) return key;
+  }
+  return undefined;
+}
+
+/** Inclusive line range; clamp start/end into the source instead of blocking on off-by-one. */
+function clampSourceLines(lines: readonly [number, number], text: string): [number, number] {
+  const count = Math.max(1, text.split('\n').length);
+  const start = Math.min(Math.max(1, lines[0]), count);
+  const end = Math.max(start, Math.min(Math.max(lines[1], start), count));
+  return [start, end];
+}
 
 const FOCUS: Record<StageId, string> = {
   intent: 'Понимание исходного запроса: не добавляй требований. Неизвестные бизнес-правила можно явно передать этапу ask; неизвестность нельзя выдавать за ответ.',
@@ -80,7 +268,7 @@ export interface DecisionCheckResult extends StageResult { block: string | null 
 /** Check the initial approach before the executor writes. Only read/search and actual human answers can add evidence. */
 export async function checkStageDecision(req: Pick<ExecRequest, 'cwd' | 'model' | 'prompt' | 'allowedTools' | 'signal' | 'maxTurns' | 'maxBudgetUsd'>,
   hooks: ExecHooks, options: DecisionCheckOptions): Promise<DecisionCheckResult> {
-  let usage = emptyUsage(); let calls = 0; let repair = false;
+  let usage = emptyUsage(); let calls = 0; let shapeRepair = false; let gatherRepair = false;
   let previousDecision: string | null = null;
   const sources = new Map<string, string>([['stage-input', req.prompt.user]]);
   const provenance = new Map<string, unknown>();
@@ -104,6 +292,44 @@ export async function checkStageDecision(req: Pick<ExecRequest, 'cwd' | 'model' 
     ? await projectSourceCatalog(req.cwd, req.signal, plannedFiles, (path, kind) => !options.lookupPolicy ||
       (evaluate({ kind: 'read', path, range: null }, options.lookupPolicy).ok &&
       (kind !== 'directory' || directoryReadScope(options.lookupPolicy, path).ok))) : { entries: [], partial: false };
+  const prefetchedPaths = new Set<string>();
+  const ingestLookup = (sourceId: string, effective: ReturnType<typeof normalize>, result: { ok: boolean; text: string }): void => {
+    provenance.set(sourceId, effective);
+    const observed = `Источник: ${JSON.stringify(effective)}\n${result.text}`;
+    sources.set(sourceId, observed);
+  };
+  const gatedRead = async (path: string, offset: number, limit: number): Promise<{ ok: boolean; text: string } | null> => {
+    if (!allowedTools.includes('Read')) return null;
+    const rawInput = { file_path: path, offset, limit };
+    const call = normalize('Read', rawInput);
+    const requestId = `decision:${randomUUID()}`;
+    const decision = await hooks.onToolRequest(call, { requestId, toolName: 'Read', rawInput, callerTools: req.allowedTools });
+    req.signal.throwIfAborted();
+    if (!decision.allowed) return { ok: false, text: decision.reason };
+    const effective = decision.updatedInput === null ? call : normalize('Read', decision.updatedInput as Record<string, unknown>);
+    const lookupStart = Date.now();
+    const result = await executeTool(effective, { projectRoot: req.cwd, maxResultBytes: 8000, readRangeRequiredAboveBytes: 120000, timeoutMs: 60000, signal: req.signal });
+    hooks.onToolResult({ requestId, ok: result.ok, summary: result.text.slice(0, 200), resultText: result.text, durationMs: Date.now() - lookupStart });
+    return result;
+  };
+  if (structured && options.stage === 'explore' && allowedTools.includes('Read')) {
+    const requestText = [...sources.entries()].filter(([id]) => id.startsWith('request-')).map(([, text]) => text).join('\n');
+    const mentioned = [...requestText.matchAll(/(?:^|[\s"'`(])([\w./-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|md|json))\b/gu)].map(m => m[1]!);
+    const prefetchQueue = [...new Set([...plannedFiles, ...mentioned])].filter(path =>
+      projectCatalog.entries.some(entry => entry.id === path && entry.available && (entry.kind === 'file' || entry.kind === 'directory'))).slice(0, 3);
+    for (const path of prefetchQueue) {
+      if (prefetchedPaths.has(path)) continue;
+      req.signal.throwIfAborted();
+      const result = await gatedRead(path, 1, 80);
+      if (result === null || !result.ok) continue;
+      const resource = resolveUserPath(req.cwd, path);
+      const contentKey = JSON.stringify([isWindowsStyle(req.cwd) ? resource.toLowerCase() : resource, result.text]);
+      if (seenResults.has(contentKey)) continue;
+      seenResults.add(contentKey);
+      prefetchedPaths.add(path);
+      ingestLookup(`lookup-prefetch-${prefetchedPaths.size}`, normalize('Read', { file_path: path, offset: 1, limit: 80 }), result);
+    }
+  }
   let outputCap = Math.max(1200, Math.min(8192, typeof options.params?.max_tokens === 'number' ? options.params.max_tokens : 4096));
   const finish = (ok: boolean, note: string, block: string | null = null): DecisionCheckResult => ({ ok, note, block, finalText: block ?? '', usage, modelRequests: calls });
   const blocked = (reason: string): DecisionCheckResult => {
@@ -170,31 +396,60 @@ blocked: {action,reason}. При сборе данных назови недос
     let check: z.infer<typeof Check>;
     let evidence: { source: string; quote: string }[] = [];
     try {
-      if (answer.toolCalls.length || answer.finishReason === 'max_tokens') throw new Error('Нужен завершённый JSON без инструментальных вызовов');
-      check = Check.parse(parseGuidedJson(answer.text));
+      check = Check.parse(normalizeDecisionPayload(
+        parseGuidedDecisionJson(answer.text, answer.toolCalls, answer.finishReason === 'max_tokens')));
       if (!allowedActions.includes(check.next.action)) {
         feedback = { code: 'action_unavailable', selection: check.next, allowedActions,
           ...(check.next.action === 'question' ? { requiredStage: 'ask', instruction: 'Для нового бизнес-правила выбери blocked с причиной возврата к ask и подтверждению плана. Ответ человека не получен.' } : {}) };
         hooks.onQuestionValidated?.({ questionId: `${options.stage}:decision:${calls}`, accepted: false,
           reason: JSON.stringify(feedback) });
-        if (repair) return blocked(check.next.action === 'question'
+        if (shapeRepair) return blocked(check.next.action === 'question'
           ? 'Новое бизнес-правило требует возврата к ask и подтверждения плана'
           : `Действие ${check.next.action} недоступно на этапе ${options.stage}; требуется возврат к проработке`);
-        repair = true; continue;
+        shapeRepair = true; continue;
       }
-      evidence = check.evidence.map(item => {
+      evidence = [];
+      for (const item of check.evidence) {
         if (structured && !('lines' in item)) throw new Error('Основание должно ссылаться на номера строк');
-        const text = sources.get(item.source);
-        if (text === undefined) throw new Error(`Неизвестный источник ${item.source}`);
-        if ('lines' in item && (item.lines[1] < item.lines[0] || item.lines[1] > text.split('\n').length)) throw new Error('Диапазон строк вне источника');
-        const quote = 'quote' in item ? item.quote : text.split('\n').slice(item.lines[0] - 1, item.lines[1]).join('\n');
-        if ('lines' in item) {
-          const from = text.split('\n').slice(0, item.lines[0] - 1).reduce((sum, line) => sum + line.length + 1, 0);
-          if (!visibleRanges.get(item.source)?.some(range => from >= range[0]! && from + quote.length <= range[1]!)) throw new Error(`Основание отсутствует в показанном источнике ${item.source}`);
+        let sourceId = resolveEvidenceSourceId(item.source, sources) ?? item.source;
+        let text = sources.get(sourceId);
+        if (text === undefined) {
+          // Cite-before-read: один авто-read по каталогу вместо мгновенного стопа.
+          const catalogEntry = projectCatalog.entries.find((entry) => entry.id === item.source || entry.id === sourceId
+            || entry.id.endsWith(`/${item.source}`) || entry.id.endsWith(`\\${item.source}`)
+            || entry.id.endsWith(`/${sourceId}`) || entry.id.endsWith(`\\${sourceId}`));
+          const path = catalogEntry?.id
+            ?? (plannedFiles.includes(item.source) ? item.source : plannedFiles.includes(sourceId) ? sourceId : null);
+          if (path !== null && allowedTools.includes('Read') && !prefetchedPaths.has(path)) {
+            const result = await gatedRead(path, 1, 80);
+            if (result !== null && result.ok) {
+              prefetchedPaths.add(path);
+              const lookupId = `lookup-${calls}`;
+              ingestLookup(lookupId, normalize('Read', { file_path: path, offset: 1, limit: 80 }), result);
+              // Сырой текст под путём — чтобы lines:[n,m] модели совпали с файлом, не с обёрткой lookup.
+              sources.set(path, result.text);
+              sourceId = path;
+              text = result.text;
+              visible.set(path, result.text);
+              visibleRanges.set(path, [[0, result.text.length]]);
+            }
+          }
+          if (text === undefined) {
+            if (path !== null) {
+              throw new Error(`Источник ${item.source} ещё не прочитан: сначала next.read по этому пути, затем ссылайся на lookup-N / request-N`);
+            }
+            throw new Error(`Неизвестный источник ${item.source}`);
+          }
         }
-        if (!quote.trim() || !visible.get(item.source)?.includes(quote)) throw new Error(`Основание отсутствует в показанном источнике ${item.source}`);
-        return { source: item.source, quote };
-      });
+        const lines = 'lines' in item ? clampSourceLines(item.lines, text) : null;
+        const quote = 'quote' in item ? item.quote : text.split('\n').slice(lines![0] - 1, lines![1]).join('\n');
+        if (lines !== null) {
+          const from = text.split('\n').slice(0, lines[0] - 1).reduce((sum, line) => sum + line.length + 1, 0);
+          if (!visibleRanges.get(sourceId)?.some(range => from >= range[0]! && from + quote.length <= range[1]!)) throw new Error(`Основание отсутствует в показанном источнике ${sourceId}`);
+        }
+        if (!quote.trim() || !visible.get(sourceId)?.includes(quote)) throw new Error(`Основание отсутствует в показанном источнике ${sourceId}`);
+        evidence.push({ source: sourceId, quote });
+      }
       if (check.next.action === 'proceed' && (!check.evidence.length || check.uncertainties.length)) throw new Error('Для proceed нужны основания и отсутствие существенных пробелов');
       if (['read', 'search', 'input', 'question'].includes(check.next.action) && !check.uncertainties.length) {
         check.uncertainties = [check.next.reason];
@@ -210,8 +465,8 @@ blocked: {action,reason}. При сборе данных назови недос
       feedback = `Проверка рантайма: ${(error as Error).message}`; hooks.onWarn(String(feedback)); hooks.onFriction('badJson');
       hooks.onQuestionValidated?.({ questionId: `${options.stage}:decision:${calls}`, accepted: false, reason: String(feedback) });
       if (answer.finishReason === 'max_tokens') outputCap = Math.min(8192, outputCap * 2, options.contextWindow - estimateMessageTokens(messages) - 600);
-      if (repair) return blocked(String(feedback));
-      repair = true; continue;
+      if (shapeRepair) return blocked(String(feedback));
+      shapeRepair = true; continue;
     }
     hooks.onQuestionValidated?.({ questionId: `${options.stage}:decision:${calls}`, accepted: true,
       reason: 'JSON, доступное действие и ссылки на показанные источники проверены; выполнение инструмента проверяется отдельно' });
@@ -235,7 +490,18 @@ blocked: {action,reason}. При сборе данных назови недос
     const next = check.next;
     const { reason: _reason, ...lookup } = next;
     const signature = JSON.stringify(lookup);
-    if (seen.has(signature)) { options.record({ ...entry, status: 'blocked', reason: 'Повторный запрос не даёт нового входа' }); return finish(false, 'Повторный запрос не даёт нового входа'); }
+    if (seen.has(signature)) {
+      // Один корректирующий цикл: модели часто повторяют тот же read/search до смены стратегии.
+      if (!gatherRepair) {
+        gatherRepair = true;
+        feedback = { code: 'duplicate_lookup', selection: lookup,
+          instruction: 'Этот запрос уже выполнялся и не дал нового входа. Выбери другой path/pattern/source или offset, либо proceed/blocked по уже полученным данным.' };
+        options.record({ ...entry, status: 'collecting', reason: 'Повторный запрос — нужен другой вход' });
+        continue;
+      }
+      options.record({ ...entry, status: 'blocked', reason: 'Повторный запрос не даёт нового входа' });
+      return finish(false, 'Повторный запрос не даёт нового входа');
+    }
     seen.add(signature);
     if (next.action === 'read' && sources.has(next.path)) {
       const text = sources.get(next.path)!;
@@ -244,16 +510,51 @@ blocked: {action,reason}. При сборе данных назови недос
       continue;
     }
     if (next.action === 'input') {
-      const text = sources.get(next.source);
-      if (text === undefined || next.offset >= text.length) return blocked('Диапазон input вне показанного источника');
+      const inputSource = resolveEvidenceSourceId(next.source, sources) ?? next.source;
+      const text = sources.get(inputSource);
+      if (text === undefined) {
+        // Неизвестный source — тот же класс, что offset за EOF: один soft-retry со списком
+        // доступных id, иначе «Диапазон…» врал и жег кейс без шанса исправиться (4g).
+        const known = [...sources.keys()].slice(0, 12).join(', ') || '(нет)';
+        if (!gatherRepair) {
+          gatherRepair = true;
+          feedback = { code: 'input_source', selection: lookup,
+            instruction: `source «${next.source}» не найден среди показанных (${known}). Выбери source из списка или next.read по файлу из каталога.` };
+          options.record({ ...entry, status: 'collecting', reason: 'Неизвестный source input — нужен id из показанных' });
+          continue;
+        }
+        return blocked(`Неизвестный source input «${next.source}»; доступны: ${known}`);
+      }
+      if (next.offset >= text.length) {
+        if (!gatherRepair) {
+          gatherRepair = true;
+          const hint = Math.max(0, text.length - Math.min(next.limit, 2000));
+          feedback = { code: 'input_range', selection: lookup,
+            instruction: `offset ${next.offset} за концом источника ${inputSource} (длина ${text.length}). Допустимо 0…${Math.max(0, text.length - 1)}; например offset=${hint}.` };
+          options.record({ ...entry, status: 'collecting', reason: 'Диапазон input вне источника — нужен другой offset' });
+          continue;
+        }
+        return blocked('Диапазон input вне показанного источника');
+      }
       const page = text.slice(next.offset, next.offset + next.limit);
-      const signature = JSON.stringify(['input', next.source, page]);
-      if (visible.get(next.source)?.includes(page) || seenResults.has(signature)) return blocked('Сбор данных не добавил нового входа');
-      seenResults.add(signature);
+      const pageSignature = JSON.stringify(['input', inputSource, page]);
+      if (visible.get(inputSource)?.includes(page) || seenResults.has(pageSignature)) {
+        // Один корректирующий повтор вместо мгновенного стопа: модель часто перезапрашивает
+        // уже показанный фрагмент; подскажи другой offset или next.read по каталогу.
+        if (!gatherRepair) {
+          gatherRepair = true;
+          feedback = { code: 'no_new_input', selection: lookup,
+            instruction: `Фрагмент ${inputSource}[${next.offset}…${next.offset + page.length}] уже показан. Выбери другой offset/limit, другой source или next.read по файлу из каталога; повтор того же диапазона не прогресс.` };
+          options.record({ ...entry, status: 'collecting', reason: 'Сбор данных не добавил нового входа — нужен другой диапазон' });
+          continue;
+        }
+        return blocked('Сбор данных не добавил нового входа');
+      }
+      seenResults.add(pageSignature);
       const source = `lookup-${calls}`;
-      provenance.set(source, { source: next.source, offset: next.offset, limit: next.limit });
+      provenance.set(source, { source: inputSource, offset: next.offset, limit: next.limit });
       options.record({ ...entry, observation: { source, ok: true, text: page } });
-      sources.set(source, page); feedback = `Дочитан ${next.source}, символы ${next.offset}–${next.offset + page.length}; источник ${source}. Проверь решение заново.`;
+      sources.set(source, page); feedback = `Дочитан ${inputSource}, символы ${next.offset}–${next.offset + page.length}; источник ${source}. Проверь решение заново.`;
       continue;
     }
     const name: ToolName = next.action === 'read' ? 'Read' : next.action === 'search' ? 'Grep' : 'AskHuman';
@@ -293,7 +594,34 @@ blocked: {action,reason}. При сборе данных назови недос
     }
     const resource = effective.kind === 'read' ? resolveUserPath(req.cwd, effective.path) : effective.kind;
     const contentKey = JSON.stringify([effective.kind === 'read' && isWindowsStyle(req.cwd) ? resource.toLowerCase() : resource, result.text]);
-    if (seenResults.has(contentKey)) return blocked('Сбор данных не добавил нового входа');
+    if (seenResults.has(contentKey)) {
+      const nextFile = options.stage === 'explore'
+        ? projectCatalog.entries.find(entry => entry.kind === 'file' && entry.available && !prefetchedPaths.has(entry.id)) : undefined;
+      if (nextFile !== undefined) {
+        prefetchedPaths.add(nextFile.id);
+        const auto = await gatedRead(nextFile.id, 1, 80);
+        if (auto !== null && auto.ok) {
+          const autoKey = JSON.stringify([isWindowsStyle(req.cwd) ? resolveUserPath(req.cwd, nextFile.id).toLowerCase() : resolveUserPath(req.cwd, nextFile.id), auto.text]);
+          if (!seenResults.has(autoKey)) {
+            seenResults.add(autoKey);
+            ingestLookup(`lookup-${calls}`, normalize('Read', { file_path: nextFile.id, offset: 1, limit: 80 }), auto);
+            feedback = { code: 'duplicate_lookup', nextSuggestedSource: { path: nextFile.id, offset: 1, limit: 80, action: 'read' },
+              instruction: `Повтор не дал новых данных. Рантайм подгрузил ${nextFile.id} как lookup-${calls}; проверь решение заново.` };
+            continue;
+          }
+        }
+        feedback = { code: 'duplicate_lookup', nextSuggestedSource: { path: nextFile.id, offset: 1, limit: 80, action: 'read' },
+          instruction: `Повтор не дал новых данных. Прочитай следующий файл каталога: ${nextFile.id}.` };
+        continue;
+      }
+      if (!gatherRepair) {
+        gatherRepair = true;
+        feedback = { code: 'no_new_input', selection: lookup,
+          instruction: 'Повтор дал те же данные. Выбери другой файл/диапазон из каталога или proceed/blocked по уже полученным основаниям.' };
+        continue;
+      }
+      return blocked('Сбор данных не добавил нового входа');
+    }
     seenResults.add(contentKey);
     provenance.set(source, effective);
     const observed = `Источник: ${JSON.stringify(effective)}\n${result.text}`;

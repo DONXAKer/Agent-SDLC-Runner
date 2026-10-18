@@ -34,6 +34,10 @@ export interface OpDiagnostic {
   symbol?: string;
   candidates: string[];
   snippet?: string;
+  /** Zero-based index in the proposed transaction, with the simulated pre-operation state. */
+  opIndex?: number;
+  beforeHash?: string;
+  beforeSymbols?: string[];
 }
 export class GuidedOpError extends Error {
   readonly diagnostic: OpDiagnostic;

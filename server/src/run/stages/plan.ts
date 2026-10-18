@@ -35,6 +35,7 @@ import { appendMissingPlanStepCards, explicitStepProblems, extractExplicitSteps,
 import { addRequirementsHash, readRequirementsHash, resolvedRequirementsHash } from '../../artifacts/resolvedRequirements.ts';
 import { clarificationResolutionBlock, clarificationResolutionProblem } from '../../artifacts/clarificationResolution.ts';
 import { claimIdOf } from '../../artifacts/claims.ts';
+import { invariantClaimIds } from '../guidedInvariants.ts';
 import { applyAxisAnswers } from '../../artifacts/renderAxes.ts';
 import type { ResolvedRoute } from '../../config/schema.ts';
 import { gateKey } from '../../gates/gatesFile.ts';
@@ -498,7 +499,8 @@ export function planStepsProblem(c: StageContext): string | null {
     const known = new Set(claims);
     const steps = extractExplicitSteps(plan.text);
     const referenced = steps.flatMap((step) => step.claims);
-    const missing = claims.filter((id) => !referenced.includes(id));
+    const invariantClaims = invariantClaimIds(c.paths);
+    const missing = claims.filter((id) => !referenced.includes(id) && !invariantClaims.has(id));
     const unknown = referenced.filter((id) => !known.has(id));
     if (missing.length > 0) problems.push(`ни один шаг не покрывает требования ${missing.join(', ')}`);
     if (unknown.length > 0) problems.push(`шаги ссылаются на отсутствующие требования ${[...new Set(unknown)].join(', ')}`);

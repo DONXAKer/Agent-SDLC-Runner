@@ -113,8 +113,8 @@ export const api = {
    * для любого статуса истории, не только `open`: закрытый/убранный виток не имеет живого
    * `runId`, поэтому берётся по `project`+`slug`, не по `id`, как `run()` выше.
    */
-  historyEvents: (project: string, slug: string): Promise<RunEvent[]> =>
-    fetch(`/api/history/${encodeURIComponent(slug)}/events?project=${encodeURIComponent(project)}`).then(
+  historyEvents: (project: string, slug: string, signal?: AbortSignal): Promise<RunEvent[]> =>
+    fetch(`/api/history/${encodeURIComponent(slug)}/events?project=${encodeURIComponent(project)}`, { signal }).then(
       json<RunEvent[]>,
     ),
 

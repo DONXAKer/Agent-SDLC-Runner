@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "range-union",
+    "model": "ollama:ministral3-14b-instruct-ctx32k",
+    "sourceHash": "10eaaa5f5d1e3122a20de079b104723af523df0024cdaefac67083b6de0c6169",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-XAOc1h",
+    "baseCommit": "6d895326b20021d65fb3f2d7c59a9afd26bfd7bf",
+    "contract": {
+      "task": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": false,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/range-union.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": null,
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-recent-2tasks.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T20:22:42.050Z"
+  },
+  "finishedAt": "2026-10-14T20:26:15.900Z",
+  "result": {
+    "version": 1,
+    "status": "environment_error",
+    "reason": "ProviderEnvError: ollama: HTTP 500 от http://localhost:11434/v1 — {\"error\":{\"message\":\"invalid character '\\\\'' looking for beginning of object key string\",\"type\":\"api_error\",\"param\":null,\"code\":null}}\n",
+    "finalText": "",
+    "usage": {
+      "inputTokens": 30521,
+      "outputTokens": 3163,
+      "cacheReadTokens": 24604,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 133448
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "1bc5c3df598d539c8b351cbc7747a4bcf913cd29126fa3e430da79a71e17f569",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "1bc5c3df598d539c8b351cbc7747a4bcf913cd29126fa3e430da79a71e17f569",
+        "passed": true,
+        "output": "✔ existing public API (0.7288ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 85.4001\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+        "passed": true,
+        "output": "✔ existing public API (0.5389ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 77.6032\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+        "passed": false,
+        "output": "✖ V1 [visible] required export and public examples (1.1956ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 77.7081\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs:4:1\n✖ V1 [visible] required export and public examples (1.1956ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  + actual - expected\n  \n  + 'undefined'\n  - 'function'\n  \n      at TestContext.<anonymous> (file:///D:/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/Agent-SDLC-Runner/bench/checks/evidence/range-union.visible.mjs:4:75)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 'undefined',\n    expected: 'function',\n    operator: 'strictEqual'\n  }\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 11,
+      "writes": 2,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "repeatedCheckFailures": 0,
+      "firstEditMs": 79157.77560000001,
+      "firstCheckMs": 110671.7755,
+      "humanWaitMs": 0,
+      "activeMs": 213310.1654,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "violated",
+        "revision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+            "passed": false,
+            "output": "✖ V1 [visible] required export and public examples (1.1956ms)\nℹ tests 1\nℹ suites 0\nℹ pass 0\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 77.7081\n\n✖ failing tests:\n\ntest at D:\\Проекты\\Agent-SDLC-Runner\\bench\\checks\\evidence\\range-union.visible.mjs:4:1\n✖ V1 [visible] required export and public examples (1.1956ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  + actual - expected\n  \n  + 'undefined'\n  - 'function'\n  \n      at TestContext.<anonymous> (file:///D:/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/Agent-SDLC-Runner/bench/checks/evidence/range-union.visible.mjs:4:75)\n      at Test.runInAsyncScope (node:async_hooks:214:14)\n      at Test.run (node:internal/test_runner/test:1081:25)\n      at Test.start (node:internal/test_runner/test:978:17)\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:332:17) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 'undefined',\n    expected: 'function',\n    operator: 'strictEqual'\n  }\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+            "passed": true,
+            "output": "✔ existing public API (0.5389ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 77.6032\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export mergeRanges(ranges) from src/ranges.mjs. Input is an array of [start,end] finite number pairs with start <= end. Return sorted merged ranges: overlapping or touching ranges merge. Empty input returns []. Do not mutate the input or share output pair arrays with it. Invalid pairs, reversed endpoints or nonfinite numbers throw TypeError.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/ranges.мjs",
+    "test/mergeRanges.test.js"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": false,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "No evidence of additional passing tests",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 0,
+    "fail": 2,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "not ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": false,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "not ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "fail",
+  "readyWithUnverifiedRequirements": false,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": false,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": false
+  },
+  "acceptance": false,
+  "falseSuccess": null,
+  "frozenRevision": "7a8d4111e2485c02984e0ae0f8448920863fe033b6269e2f467a381e2866f52a",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

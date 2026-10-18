@@ -8,6 +8,8 @@ import { readArtifact } from '../artifacts/artifact.ts';
 import { preparation, planContentHash } from '../artifacts/preparation.ts';
 import { symlinkEscape } from '../approval/symlink.ts';
 import { escapeCell } from '../md/table.ts';
+import { GuidedProgress } from './guidedProgress.ts';
+import { readGuidedWorkload } from './guidedWorkload.ts';
 
 export type Snapshot = { path: string; before: string | null; after: string; previous?: string[] };
 export interface GuidedState extends GuidedSummary {
@@ -98,6 +100,7 @@ export function readGuided(paths: WitokPaths): GuidedState | null {
   if (state.version !== 1 || state.mode !== 'guided' || !Array.isArray(state.items) ||
       !Array.isArray(state.observations) || !Number.isFinite(state.activeMs) || state.activeMs < 0 ||
       !Number.isFinite(state.budgetMs) || state.budgetMs <= 0) throw new Error('Повреждено состояние guided');
+  if (state.engineVersion !== undefined && ![1, 2, 3, 4].includes(state.engineVersion)) throw new Error('Неизвестная версия движка guided');
   return state;
 }
 export function saveGuided(paths: WitokPaths, state: GuidedState): void {
@@ -123,7 +126,10 @@ export function guidedSummary(paths: WitokPaths): GuidedSummary | null {
   const state = readGuided(paths);
   if (state === null) return null;
   const { transaction: _transaction, ...summary } = state;
-  return summary;
+  const workload = state.engineVersion === 4 ? readGuidedWorkload(paths) : null;
+  return { ...summary, engineVersion: state.engineVersion ?? 1,
+    ...(workload ? { workload } : {}),
+    ...((state.engineVersion ?? 1) >= 2 ? { progress: new GuidedProgress(paths).summary() } : {}) };
 }
 export function accountGuidedTime(paths: WitokPaths, elapsedMs: number, running: boolean): boolean {
   if (!Number.isFinite(elapsedMs) || elapsedMs < 0) throw new Error('Некорректный интервал времени guided');
@@ -136,13 +142,14 @@ export function accountGuidedTime(paths: WitokPaths, elapsedMs: number, running:
   }
   return state.activeMs >= state.budgetMs;
 }
-export function initGuided(paths: WitokPaths, modelId: string): GuidedState {
+export function initGuided(paths: WitokPaths, modelId: string, engineVersion: 1 | 2 | 3 | 4 = 1): GuidedState {
   const old = readGuided(paths);
   if (old !== null) {
     if (old.modelId !== modelId) throw new Error('guided: смена модели внутри задачи не допускается');
+    if ((old.engineVersion ?? 1) !== engineVersion) throw new Error('guided: смена версии движка внутри задачи не допускается');
     return old;
   }
-  const state: GuidedState = { version: 1, mode: 'guided', modelId, budgetMs: 60 * 60_000,
+  const state: GuidedState = { version: 1, engineVersion, mode: 'guided', modelId, budgetMs: 60 * 60_000,
     activeMs: 0, remainingMs: 60 * 60_000, inputRevision: '', currentItem: null,
     stopReason: null, items: [], observations: [] };
   saveGuided(paths, state);

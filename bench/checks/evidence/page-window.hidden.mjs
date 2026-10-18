@@ -1,0 +1,5 @@
+import {test} from 'node:test'; import assert from 'node:assert/strict'; import {pathToFileURL} from 'node:url'; import {resolve} from 'node:path';
+const mod=await import(pathToFileURL(resolve(process.env.BENCH_TARGET_DIR,"src/page.mjs")).href);
+const fn=mod["pageAfter"];
+test('H1 [contract] public module contract',()=>{assert.equal(mod.protocolVersion,1);assert.equal(typeof fn,'function');});
+test('H2 [behavior] independent boundary and sequence cases',async()=>{const xs=Array.from({length:13},(_,i)=>({id:'k'+i})); const original=structuredClone(xs); for(const size of [1,3,7,20]){let cursor=null,seen=[]; do{const page=fn(xs,cursor,size); seen.push(...page.items);cursor=page.nextCursor; assert.ok(seen.length<=xs.length);}while(cursor!==null); assert.deepEqual(seen,xs);} assert.deepEqual(xs,original); assert.deepEqual(fn([],null,1),{items:[],nextCursor:null}); assert.deepEqual(fn(xs,'k12',2),{items:[],nextCursor:null}); assert.throws(()=>fn(xs,'unknown',2),RangeError); for(const n of [0,101,1.5])assert.throws(()=>fn(xs,null,n),RangeError);});

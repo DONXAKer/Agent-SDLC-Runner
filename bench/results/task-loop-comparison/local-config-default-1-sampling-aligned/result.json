@@ -1,0 +1,210 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "config-default",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "506fb1afba32cece1cc6565942b38f613b08121fd28427acf0a91606e18e30de",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-TRIkLW",
+    "baseCommit": "11951d122e313d20142d0103ea14a0dbba0ada3f",
+    "contract": {
+      "task": "# Срок оплаты по умолчанию\n\nУ счёта нет срока оплаты: покупатель трактует его как «когда-нибудь». Нужен срок, заданный\nконфигом площадки.\n\n## Что должно получиться\n\n1. `BillingConfig` (`src/config.ts`) получает опцию `defaultDueDays` — срок оплаты в днях\n   по умолчанию. Встроенный дефолт (когда и площадка молчит) — **14**.\n2. `Invoice` получает поле `dueDays: number` — всегда, у любого счёта. Источник значения по\n   приоритету: явная опция при вызове → конфиг площадки → встроенные 14. Опции вызова\n   передаются пятым параметром-объектом: `bill(number, customer, lines, config?, opts?)`,\n   где `opts.dueDays?: number`.\n3. Таблица опций в разделе «Конфигурация» `README.md` дополняется строкой про\n   `defaultDueDays` — конфиг, не задокументированный рядом с типом, находят по второму\n   разу.\n4. Все места, где читается конфиг, остаются согласованными: чтение по-прежнему идёт через\n   `resolveConfig`, прямых обращений к `DEFAULT_CONFIG` не появляется.\n5. На новое поведение есть тест рядом с существующими (`test/`), набор прогнан по-настоящему\n   командой проекта; в журнал этапа идёт то, что напечатала команда. Существующие тесты\n   без правки и зелёные — с одним исключением: тест формы счёта «ровно пять полей» в\n   `test/invoice.test.ts` обновляется под новое обязательное поле (шесть полей), других\n   правок существующих тестов нет.\n\n## Рамки\n\n- Ветка витка заведена: `sdlc/config-default`. Виток полный — мелким контуром не закрывать.\n- Опция — про срок оплаты, а не про форму счёта в целом: остальные поля `Invoice` не\n  меняются.\n",
+      "writable": [
+        "src/",
+        "test/",
+        "README.md"
+      ],
+      "protected": [
+        "src/money.ts",
+        "test/money.test.ts",
+        "test/lines.test.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build-check.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/**/*.test.ts"
+        ]
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "control": "local",
+    "startedAt": "2026-10-14T12:53:04.950Z"
+  },
+  "finishedAt": "2026-10-14T13:00:56.187Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Все проверки зелёные. Готово.\n\n## Что сделано\n\n**`src/config.ts`**\n- В `BillingConfig` добавлено поле `defaultDueDays: number` (срок оплаты по умолчанию, в днях).\n- В `DEFAULT_CONFIG` — встроенное значение `14`. `resolveConfig` не тронут, чтение по-прежнему через него.\n\n**`src/invoice.ts`**\n- `Invoice` получил обязательное поле `dueDays: number` (всегда, у любого счёта); остальные поля не менялись.\n- Введён интерфейс `InvoiceOptions { dueDays?: number }`.\n- `buildInvoice` получил пятый параметр `opts?: InvoiceOptions`. Приоритет: `opts?.dueDays ?? resolved.defaultDueDays`. Конфиг читается одним местом через `resolveConfig` (теперь результат реально используется).\n\n**`src/index.ts`**\n- `bill(number, customer, lines, config?, opts?)` — пятый параметр-объект, пробрасывается в `buildInvoice`.\n- Экспортирован тип `InvoiceOptions`.\n\n**`README.md`** — в таблицу «Конфигурация» добавлена строка про `defaultDueDays` (дефолт `14`, перебивается `opts.dueDays`).\n\n**`test/invoice.test.ts`**\n- Единственное исключение: тест формы переименован «ровно пять полей» → «ровно шесть полей», литерал формы допущен `dueDays` (отсортирован).\n- Три новых теста: встроенные 14; 30 из конфига площадки; `opts.dueDays: 7` перебивает `defaultDueDays: 30`.\n\n## Журнал этапа (что напечатала команда)\n\n`build` — PASS, `ok` по всем 6 модулям, «модулей загружено: 6 из 6».\n`test` — `tests 13 / pass 13 / fail 0`; в «сборке счёта» 5 тестов, включая 3 новых по `dueDays` и обновлённый «ровно шесть полей» — все ✔.\n\n## Ограничения\n- Регистрация проверок не выполняет `npm test` напрямую — использован зарегистрированный `mcp__task__check`, который гоняет и build, и test; команда проекта (`node --test`) в составе `test`-проверки прошла по-настоящему.\n- Прямых обращений к `DEFAULT_CONFIG` вне `config.ts` не появилось (проверено Grep: ссылаются только `config.ts` и экспорт из `index.ts`).",
+    "usage": {
+      "inputTokens": 87007,
+      "outputTokens": 3326,
+      "cacheReadTokens": 81423,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 469270
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "12b3a2752a608887374fee7a916f2299baa0fdd4de0b1f5becf39983e179c855",
+        "passed": true,
+        "output": "ok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "12b3a2752a608887374fee7a916f2299baa0fdd4de0b1f5becf39983e179c855",
+        "passed": true,
+        "output": "▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (3.6792ms)\n  ✔ форма счёта — ровно пять полей (1.5006ms)\n✔ сборка счёта (7.037ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (1.2853ms)\n  ✔ подытог — сумма по позициям (0.2215ms)\n  ✔ пустой счёт — нулевой подытог (0.2312ms)\n✔ позиции счёта (3.3167ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (1.051ms)\n  ✔ сумма и разность (0.151ms)\n  ✔ разность не уходит ниже нуля (0.1434ms)\n  ✔ процент округляется половиной вверх (0.1504ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.2347ms)\n✔ деньги (3.1437ms)\nℹ tests 10\nℹ suites 3\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 291.1287\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "26a776ba3dd26745dea11a840bd81c55d1c1e01dbcc28dc055b407d919288cfb",
+        "passed": true,
+        "output": "ok   config.ts\nok   customer.ts\nok   index.ts\nok   invoice.ts\nok   lines.ts\nok   money.ts\nмодулей загружено: 6 из 6\n"
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "26a776ba3dd26745dea11a840bd81c55d1c1e01dbcc28dc055b407d919288cfb",
+        "passed": true,
+        "output": "▶ сборка счёта\n  ✔ итог совпадает с подытогом, пока налогов нет (1.2153ms)\n  ✔ форма счёта — ровно шесть полей (0.7397ms)\n  ✔ срок оплаты по умолчанию — встроенные 14 (0.1767ms)\n  ✔ срок оплаты берётся из конфига площадки (0.1938ms)\n  ✔ опция вызова перебивает конфиг площадки (0.1377ms)\n✔ сборка счёта (3.6125ms)\n▶ позиции счёта\n  ✔ стоимость позиции — количество на цену (1.5366ms)\n  ✔ подытог — сумма по позициям (0.212ms)\n  ✔ пустой счёт — нулевой подытог (0.1388ms)\n✔ позиции счёта (3.6423ms)\n▶ деньги\n  ✔ рубли переводятся в копейки (0.8049ms)\n  ✔ сумма и разность (0.1699ms)\n  ✔ разность не уходит ниже нуля (0.1357ms)\n  ✔ процент округляется половиной вверх (0.1413ms)\n  ✔ форматирование — разряды пробелом, копейки после запятой (0.2569ms)\n✔ деньги (4.3596ms)\nℹ tests 13\nℹ suites 3\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 199.6116\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 13,
+      "writes": 6,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "firstEditMs": 150065.89800000002,
+      "firstCheckMs": 432994.5881,
+      "humanWaitMs": 0,
+      "activeMs": 470430.49659999995,
+      "telemetryErrors": 0
+    }
+  },
+  "asks": [],
+  "changed": [
+    "README.md",
+    "src/config.ts",
+    "src/index.ts",
+    "src/invoice.ts",
+    "test/invoice.test.ts"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 2,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 6,
+    "pass": 6,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R1",
+        "category": "regression",
+        "label": "ok 1 - R1 [regression]: lineTotal существует до витка и считает верно."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "R2",
+        "category": "regression",
+        "label": "ok 2 - R2 [regression]: subtotal на эталонном наборе: 2×333 + 1×334 = 1000."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr1",
+        "category": "precision",
+        "label": "ok 3 - Pr1 [precision] (claim-1): Без опций и без конфига — встроенный дефолт 14."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr2",
+        "category": "precision",
+        "label": "ok 4 - Pr2 [precision] (claim-2): Конфиг площадки побеждает встроенный дефолт: defaultDueDays 30 → 30."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr3",
+        "category": "precision",
+        "label": "ok 5 - Pr3 [precision] (claim-2): Явная опция вызова побеждает конфиг: opts.dueDays 7 → 7."
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "Pr4",
+        "category": "precision",
+        "label": "ok 6 - Pr4 [precision] (claim-1): Поле есть у любого счёта, и пустой конфиг не ломает дефолт: config {} → 14."
+      }
+    ],
+    "errorText": null
+  },
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "26a776ba3dd26745dea11a840bd81c55d1c1e01dbcc28dc055b407d919288cfb",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}

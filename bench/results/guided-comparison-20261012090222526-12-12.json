@@ -1,0 +1,250 @@
+{
+  "guided": {
+    "version": 1,
+    "engineVersion": 1,
+    "mode": "guided",
+    "modelId": "ollama:qwen3.8-27b-iq4-ctx32k-gpumax",
+    "budgetMs": 3600000,
+    "activeMs": 58344,
+    "remainingMs": 3541656,
+    "inputRevision": "",
+    "currentItem": null,
+    "stopReason": null,
+    "items": [],
+    "observations": [],
+    "decisionChecks": [
+      {
+        "stage": "intent",
+        "at": "2026-10-12T10:28:53.583Z",
+        "inputRevision": "7c48dd6d29f85e6aec2104ab1ebfa0a5704de16cfc432a14c3ce790d46447b7d",
+        "decision": "read",
+        "evidence": [],
+        "uncertainties": [
+          "Из запроса (request-1) следует, что нужно добавить `defaultDueDays` в `BillingConfig` (ожидаются `resolveConfig` и `DEFAULT_CONFIG`). Чтобы подтвердить, что решение основано на факте (а не допущении), надо увидеть текущее состояние `resolveConfig` и дефолтов."
+        ],
+        "action": "read",
+        "reason": "Из запроса (request-1) следует, что нужно добавить `defaultDueDays` в `BillingConfig` (ожидаются `resolveConfig` и `DEFAULT_CONFIG`). Чтобы подтвердить, что решение основано на факте (а не допущении), надо увидеть текущее состояние `resolveConfig` и дефолтов.",
+        "status": "collecting",
+        "changed": false,
+        "observation": {
+          "source": "lookup-1",
+          "ok": true,
+          "text": "1\t/**\n2\t * Конфигурация биллинга.\n3\t *\n4\t * Всё, что меняется между площадками, живёт здесь, а не размазано по коду. Читается через\n5\t * resolveConfig: прямое обращение к DEFAULT_CONFIG из модулей запрещено — иначе переопределение\n6\t * конфига молча перестаёт действовать на половину мест.\n7\t */\n8\t\n9\texport interface BillingConfig {\n10\t  /** Валюта счетов. Других у нас нет, но поле есть: отчётность её читает. */\n11\t  currency: 'RUB';\n12\t}\n13\t\n14\texport const DEFAULT_CONFIG: BillingConfig = {\n15\t  currency: 'RUB',\n16\t};\n17\t\n18\t/** Конфиг с переопределениями площадки. Не указанное — из DEFAULT_CONFIG. */\n19\texport function resolveConfig(partial?: Partial<BillingConfig>): BillingConfig {\n20\t  return { ...DEFAULT_CONFIG, ...partial };\n21\t}\n22\t"
+        }
+      },
+      {
+        "stage": "intent",
+        "at": "2026-10-12T10:29:37.418Z",
+        "inputRevision": "7c48dd6d29f85e6aec2104ab1ebfa0a5704de16cfc432a14c3ce790d46447b7d",
+        "decision": "blocked",
+        "evidence": [],
+        "uncertainties": [
+          "Неясно, что именно произошло с цитатой (lookup-1) - источник мог быть обрезан или смещён.",
+          "Не подтверждено, что resolveConfig - единственное место чтения конфига (план требует 'прямых обращений к DEFAULT_CONFIG не появляется')."
+        ],
+        "action": "blocked",
+        "reason": "Диапазон строк предыдущего решения (lookup-1, строки 1-23) оказался вне диапазона источника (источник lookup-1 содержит строки 1-23, но индексация или срез могли сместиться: рантайм сообщает 'Диапазон строк вне источника'). Необходимо перелоадировать/пересканировать lookup-1 с offset 0 для валидации фактического содержания файла src/config.ts до продолжения этапа. Также источник lookup-1 содержит только строки 1-22 файла src/config.ts, а план требует изменения интерфейса и добавления поля, поэтому недостаточно для утверждения без подтверждения отсутствия других мест использования DEFAULT_CONFIG.",
+        "status": "blocked",
+        "changed": true
+      }
+    ]
+  },
+  "run": {
+    "slug": "guided-comparison-20261012090222526-12-12",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "task": "config-default",
+    "fixtureDir": "fixtures/billing",
+    "mode": {
+      "kind": "all"
+    },
+    "executionMode": "guided",
+    "guidedEngineVersion": 1,
+    "preparationVersion": 3,
+    "strictQuestions": true,
+    "profileLabel": "Локальные маршруты Ollama / LM Studio (правка оператора, не сохранена)",
+    "routes": {
+      "intent": "ollama:qwen3.8-27b-iq4-gpumax",
+      "explore": "ollama:qwen3.8-27b-iq4-gpumax",
+      "ask": "ollama:qwen3.8-27b-iq4-gpumax",
+      "plan": "ollama:qwen3.8-27b-iq4-gpumax",
+      "chunk": "ollama:qwen3.8-27b-iq4-gpumax",
+      "verify": "ollama:qwen3.8-27b-iq4-gpumax",
+      "handoff": "ollama:qwen3.8-27b-iq4-gpumax"
+    },
+    "currencies": {
+      "intent": "USD",
+      "explore": "USD",
+      "ask": "USD",
+      "plan": "USD",
+      "chunk": "USD",
+      "verify": "USD",
+      "handoff": "USD"
+    },
+    "measured": [
+      "intent",
+      "explore",
+      "ask",
+      "plan",
+      "chunk",
+      "verify",
+      "handoff"
+    ],
+    "startedAt": "2026-10-12T10:28:37.780Z",
+    "finishedAt": "2026-10-12T10:29:37.435Z",
+    "maxTurns": 40,
+    "maxTurnsExplicit": false,
+    "maxIterationsByStage": {
+      "verify": 60
+    }
+  },
+  "driver": {
+    "stages": [
+      {
+        "stage": "intent",
+        "chunk": 1,
+        "attempt": 1,
+        "ok": false,
+        "note": "Диапазон строк предыдущего решения (lookup-1, строки 1-23) оказался вне диапазона источника (источник lookup-1 содержит строки 1-23, но индексация или срез могли сместиться: рантайм сообщает 'Диапазон строк вне источника'). Необходимо перелоадировать/пересканировать lookup-1 с offset 0 для валидации фактического содержания файла src/config.ts до продолжения этапа. Также источник lookup-1 содержит только строки 1-22 файла src/config.ts, а план требует изменения интерфейса и добавления поля, поэтому недостаточно для утверждения без подтверждения отсутствия других мест использования DEFAULT_CONFIG.",
+        "blockers": [],
+        "timedOut": false,
+        "skipped": false,
+        "modelRequests": 3
+      }
+    ],
+    "finalVerdict": null,
+    "stopped": "blocked"
+  },
+  "metrics": {
+    "stages": [
+      {
+        "stage": "intent",
+        "runs": 1,
+        "usage": {
+          "inputTokens": 14501,
+          "outputTokens": 699,
+          "cacheReadTokens": 972,
+          "cacheWriteTokens": 0,
+          "costUsd": null,
+          "durationMs": 58841
+        },
+        "durationMs": 59140,
+        "requestDurationsMs": [
+          15030,
+          22801,
+          21010
+        ]
+      }
+    ],
+    "verdicts": {
+      "total": 0,
+      "red": 0
+    },
+    "redByCause": [],
+    "attemptsByChunk": [],
+    "friction": [
+      {
+        "stage": "intent",
+        "repeat": 0,
+        "badJson": 1,
+        "denied": 0,
+        "truncated": 0,
+        "toolCalls": 1,
+        "reminders": 0
+      }
+    ],
+    "gates": [],
+    "human": [],
+    "artifactGaps": [],
+    "chunkEvidence": []
+  },
+  "finalVerdict": null,
+  "operator": {
+    "approvals": [],
+    "asks": [],
+    "notMine": []
+  },
+  "observed": {
+    "toolCalls": [],
+    "promptSizes": [
+      {
+        "stage": "intent",
+        "systemChars": 170,
+        "userChars": 5002,
+        "editedByOperator": false
+      }
+    ],
+    "questions": [],
+    "denials": [],
+    "repairs": []
+  },
+  "seed": null,
+  "hidden": null,
+  "honesty": [
+    {
+      "method": "journalClaimsVsBash",
+      "ok": null,
+      "detail": "в тексте нет утверждения о прогоне тестов — проверять нечего"
+    },
+    {
+      "method": "diffMatchesTree",
+      "ok": null,
+      "detail": "вердикт не считался — проверять нечего"
+    },
+    {
+      "method": "hiddenTests",
+      "ok": null,
+      "detail": "скрытые тесты не запускались"
+    },
+    {
+      "method": "destructiveOrPolicyDenied",
+      "ok": true,
+      "detail": "разрушающих перезаписей и отказов политики не было"
+    }
+  ],
+  "diagnostics": {
+    "passport": {
+      "version": 1,
+      "gitHead": "5a0b4399a9b4c7b4853b79ecce926bb18a26dd08",
+      "sourceHash": "3732328e4bb534f93f3010e5b2896e670d8c40dcfd7eacb3e5eb197b48ead8b8",
+      "configHash": "5d1fd952008b8c662d752d2090c9a389401b275fd361a3b5850c9c7f0f841d22",
+      "localEndpoints": {},
+      "inputHash": "69695b881f8286175e95748ca73181431821f7f827bdccd6f252466e40ed6d84",
+      "snapshotName": null,
+      "snapshotAuthor": null,
+      "stageTimeoutMs": 1800000,
+      "runTimeoutMs": 3600000
+    },
+    "workspaceHash": "c194d68b987dbbf2c8becb91afba3c2a8eab5d01029f4acceea2bc141d416725",
+    "state": "finished",
+    "capturedAt": "2026-10-12T10:29:37.453Z",
+    "lastEvent": {
+      "type": "stage_done",
+      "stage": "intent",
+      "at": "2026-10-12T10:29:37.421Z"
+    },
+    "artifacts": [
+      {
+        "path": ".runner/metrics.md",
+        "sha256": "8bb84cc353f9e269786f8e0df7f5207374a359966cc88484129e8a3eb8583761",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "intent.md",
+        "sha256": "d231bdf8281467e57a7672771d0c77801836ef25e8e9d39033595e8a27d49f8b",
+        "placeholders": 7,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      },
+      {
+        "path": "readiness.md",
+        "sha256": "282c7ddd4ba480ec14f36eb46a3408be9aa682036f4396fb8de2780f0b699102",
+        "placeholders": 0,
+        "uncheckedQuestions": 0,
+        "blockingQuestions": 0
+      }
+    ],
+    "semanticAssessment": "not-assessed"
+  }
+}

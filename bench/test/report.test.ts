@@ -11,7 +11,7 @@ import type { BuiltProfile } from '../src/profile.ts';
 import type { HiddenTestsSummary } from '../src/hiddenTests.ts';
 import type { HonestyCheck } from '../src/honesty.ts';
 import type { Report } from '../src/report.ts';
-import { buildProbes, buildReport, buildStageTable, classifyDenial, isDangerous } from '../src/report.ts';
+import { buildProbes, buildReport, buildStageTable, classifyDenial, classifyGuidedFailure, isDangerous } from '../src/report.ts';
 import type { CollectedDenial } from '../src/collector.ts';
 import type { BenchResult } from '../src/result.ts';
 import type { SeedProbe } from '../src/seeds.ts';
@@ -140,6 +140,22 @@ function reportOf(input: {
   if (input.seed !== undefined) r.seed = input.seed;
   return buildReport({ result: r });
 }
+
+it('guided workload report distinguishes missing attribution and absent mutation from zero cost', () => {
+  const result = greenResult();
+  const zero = () => ({ usageEvents: 0, requests: 0, inputTokens: 0, outputTokens: 0, durationMs: 0 });
+  result.guided = { version: 1, engineVersion: 4, mode: 'guided', modelId: 'fixture', budgetMs: 1000, activeMs: 0, remainingMs: 1000,
+    inputRevision: '', currentItem: null, stopReason: null, items: [], observations: [], workload: { version: 1, startedAt: '2026-10-13T00:00:00Z',
+      byPurpose: { proposal: { usageEvents: 1, requests: 1, inputTokens: 10, outputTokens: 10, durationMs: 100 },
+        'format-repair': zero(), 'semantic-repair': zero(), context: zero(), review: zero(),
+        unclassified: { usageEvents: 1, requests: 0, inputTokens: 5, outputTokens: 5, durationMs: 50 } },
+      failures: { unknown: 1 }, contextCompactions: 1, contextOverflows: 0, unclassifiedUsageEvents: 1, firstMutation: null } };
+  const report = buildReport({ result }).markdown;
+  ok(report.includes('66.7%')); ok(report.includes('33.3%'));
+  ok(report.includes('Событий расхода без точного числа обращений: 1'));
+  ok(report.includes('Применённых правок реализации не было.'));
+  ok(report.includes('unknown=1'));
+});
 
 describe('buildStageTable', () => {
   it('парсит число ходов из заметки driver, при пропуске — «—»', () => {
@@ -779,5 +795,17 @@ describe('свой артефакт не по своему пути — адре
     ok(p.detail.includes('перенаправлено рантаймом: 1'), p.detail);
     ok(p.detail.includes('починено рантаймом: 1'), p.detail);
     strictEqual(report.dangerous, false);
+  });
+
+  it('classifyGuidedFailure совпадает с кластерами comparison-анализа', () => {
+    strictEqual(classifyGuidedFailure('JSON-блок acceptance не заполнен'), 'acceptance/basis-schema');
+    strictEqual(classifyGuidedFailure('Нужен завершённый JSON без инструментальных вызовов'), 'json-protocol');
+    strictEqual(classifyGuidedFailure('Сбор данных не добавил нового входа'), 'explore-coverage');
+    strictEqual(classifyGuidedFailure('провайдер: Незавершённый блок в документе: невозможно обновить структурированные данные'), 'form-block-stuck');
+    strictEqual(classifyGuidedFailure('Too small: expected number to be >0 path next.offset'), 'explore-offset');
+    strictEqual(classifyGuidedFailure('Нет данных для сверки: sourceCatalogPartial=true, отсутствует факт read/src/index.ts'), 'explore-evidence');
+    strictEqual(classifyGuidedFailure('План не подготовлен: обнови обоснование по src/customer.ts — непереданные исходники'), 'plan-schema');
+    strictEqual(classifyGuidedFailure('пункт приёмки claim-1 не проверяем (⚠); одинаковый diff'), 'verify-escalate');
+    strictEqual(classifyGuidedFailure('Invalid input: expected string, received undefined "path": [ "decision" ]'), 'decision-shape');
   });
 });

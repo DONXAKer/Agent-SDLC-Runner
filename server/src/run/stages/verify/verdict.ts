@@ -14,6 +14,7 @@ import { claimTextCell, type RetryDetail } from '../../../verdict/retryBrief.ts'
 import { computeVerdict } from '../../../verdict/verdict.ts';
 import type { StageHost } from '../types.ts';
 import { REVIEW_GATE, gateResultsForVerdict } from './gates.ts';
+import { checkInvariants } from '../../guidedInvariants.ts';
 
 /**
  * Тексты для выжимки ретрая — всё уже посчитано этапом 6, здесь только сбор:
@@ -91,6 +92,8 @@ export function stageVerdict(host: StageHost, noProgress: boolean): { verdict: V
     noProgress,
   });
 
+  const invariants = checkInvariants(host.paths, host.projectRoot);
+  if (!invariants.passed) input.brokenInvariants.push(invariants.result);
   const verdict = computeVerdict(input, disagreements);
   // Расхождение отчёта с прогоном не роняет вердикт само по себе (в статус уже взят
   // худший из двух), но обязано быть видно: рецензент, переписывающий статусы, —

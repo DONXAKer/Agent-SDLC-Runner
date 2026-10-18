@@ -67,11 +67,11 @@ export function buildProfile(args: {
 }): BuiltProfile {
   const { control, opts } = args;
   const measured = opts.dryRun && opts.model === '' ? [] : measuredStages(opts.mode).filter((stage) =>
-    opts.mode.kind === 'stage' || opts.controlOverrides[stage] === undefined || opts.controlOverrides[stage] === opts.model,
+    opts.mode.kind === 'stage' || (stage === 'plan' && opts.planCandidates !== undefined) || opts.controlOverrides[stage] === undefined || opts.controlOverrides[stage] === opts.model,
   );
 
   const routes: Record<string, string> = { ...control.stages, ...opts.controlOverrides };
-  for (const stage of measured) routes[stage] = opts.model;
+  for (const stage of measured) if (!(stage === 'plan' && opts.planCandidates !== undefined && opts.controlOverrides.plan)) routes[stage] = opts.model;
   const allLocal = Object.values(routes).every((id) => {
     const model = args.models.models.find((entry) => entry.id === id);
     return model !== undefined && ['ollama', 'lmstudio'].includes(model.provider);
@@ -85,7 +85,13 @@ export function buildProfile(args: {
     // ограничителями остаются ходы и стенные часы. Здесь это только верхняя планка.
     maxBudgetUsd: opts.maxBudgetUsd,
     profiles: {
-      control: { label: allLocal ? 'Локальные маршруты Ollama / LM Studio' : control.label, stages: control.stages },
+      control: { label: allLocal ? 'Локальные маршруты Ollama / LM Studio' : control.label, stages: control.stages,
+        ...((opts.consumerContext || opts.evidenceRepair) ? { guidedImprovements: {
+          consumerContext: opts.consumerContext ?? false, evidenceRepair: opts.evidenceRepair ?? false } } : {}),
+        ...(opts.chunkCandidates ? { chunkSelection: { candidates: opts.chunkCandidates,
+          ...(opts.chunkJudge ? { judgeModel: opts.chunkJudge } : {}),
+          ...(opts.chunkCandidateTimeoutMs === undefined ? {} : { candidateTimeoutMs: opts.chunkCandidateTimeoutMs }) } } : {}),
+        ...(opts.planCandidates ? { planSelection: { candidates: opts.planCandidates, ...(opts.planJudge ? { judgeModel: opts.planJudge } : {}) } } : {}) },
     },
   };
 

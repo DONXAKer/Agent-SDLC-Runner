@@ -1,0 +1,30 @@
+[
+  {
+    "id": "normalize-label",
+    "request": "Trim leading and trailing whitespace from display labels. An empty label remains empty. Keep internal whitespace and the public API unchanged.",
+    "files": { "lib/labels.ts": "function normalizeLabel(value: string): string { return value; }\n" },
+    "checks": [
+      { "symbol": "normalizeLabel", "args": ["  Ada  "], "expected": "Ada" },
+      { "symbol": "normalizeLabel", "args": [""], "expected": "" },
+      { "symbol": "normalizeLabel", "args": ["A  B"], "expected": "A  B" }
+    ],
+    "acceptance": [
+      { "id": "claim-1", "behavior": "Leading and trailing whitespace is removed", "procedure": "Call normalizeLabel with padded text", "expected": "Text with no surrounding spaces" },
+      { "id": "claim-2", "behavior": "Empty labels remain empty and internal whitespace is preserved", "procedure": "Call normalizeLabel with an empty string and text containing internal spaces", "expected": "Empty string and unchanged internal spaces" }
+    ]
+  },
+  {
+    "id": "clamp-counter",
+    "request": "Clamp negative counts to zero in the internal count adjustment. Zero and positive counts must remain unchanged. Keep the public API unchanged.",
+    "files": { "engine/count.ts": "function adjustCount(value: number): number { return value; }\n" },
+    "checks": [
+      { "symbol": "adjustCount", "args": [-7], "expected": 0 },
+      { "symbol": "adjustCount", "args": [0], "expected": 0 },
+      { "symbol": "adjustCount", "args": [9], "expected": 9 }
+    ],
+    "acceptance": [
+      { "id": "claim-1", "behavior": "Negative counts become zero", "procedure": "Call adjustCount with negative integers", "expected": "Zero" },
+      { "id": "claim-2", "behavior": "Zero and positive counts remain unchanged", "procedure": "Call adjustCount with zero and positive integers", "expected": "The original value" }
+    ]
+  }
+]

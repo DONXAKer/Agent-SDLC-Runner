@@ -98,6 +98,10 @@ import { checkStageDecision, stageDecisionInstructions, stageDecisionTools } fro
 import { RunFlowRecorder, flowReadDenied } from './runFlow.ts';
 import { stageInputs } from './stages/inputs.ts';
 import { guidedPrompt } from './guidedPrompt.ts';
+import { GuidedProgress } from './guidedProgress.ts';
+import { GuidedWorkloadStore } from './guidedWorkload.ts';
+import { captureInvariantBaseline, checkInvariants } from './guidedInvariants.ts';
+import { guidedRuntimeReadiness } from './guidedReadiness.ts';
 import { appendGuidedData, documentFacts, decisionData } from '../exec/guidedProtocol.ts';
 import { edgeExampleLines } from '../artifacts/edgeExample.ts';
 import { createProvider } from '../provider/registry.ts';
@@ -158,6 +162,8 @@ import { stepFillExecutor } from './stages/chunk/steps.ts';
 import { guidedExecutor } from './guidedExecutor.ts';
 import { GuidedAskExecutor } from '../exec/GuidedAskExecutor.ts';
 import { GuidedPlanExecutor } from '../exec/GuidedPlanExecutor.ts';
+import { PlanSelectionExecutor } from '../exec/PlanSelectionExecutor.ts';
+import { guidedRouteMatches } from '../config/profiles.ts';
 import { accountGuidedTime, digest, guidedBudgetReason, initGuided, readGuided, saveGuided } from './guidedState.ts';
 import { decideReviewScan, routeKey } from './reviewRoute.ts';
 import type { ReviewScanDecision } from './reviewRoute.ts';
@@ -218,6 +224,7 @@ export interface RunOptions {
 
 export interface RunStageOptions {
   executionMode?: 'legacy' | 'guided';
+  guidedEngineVersion?: 1 | 2 | 3 | 4;
   prompt?: PreparedPrompt;
   requirement?: string;
   /** Только для нового витка: v3 по умолчанию; v1/v2 остаются для воспроизводимости. */
@@ -422,6 +429,8 @@ export class Run {
     return this.flowRecorder ??= new RunFlowRecorder(this.paths, this.id);
   }
   flowHtml(): string { return this.flow().html(); }
+  executionPage(cursor: number, limit: number) { return this.flow().page(cursor, limit); }
+  executionReport() { return this.flow().report(); }
   private recordDecisionCheck(check: StageDecisionCheck): void {
     const state = readGuided(this.paths);
     if (!state) throw new Error('Состояние guided исчезло при проверке решения');
@@ -1548,6 +1557,8 @@ export class Run {
    * запроса `reviewFill`/`claimFill`/`planAxisFill`/`exploreFill` вовсе).
    */
   private accountOffPathUsage(stage: StageId, usage: Usage, currency: string | undefined): void {
+    this.flow().record('model_work', { usage, durationMs: usage.durationMs, currency: currency ?? 'USD' }, 'Модель', 'Учёт', stage);
+    if (readGuided(this.paths)?.engineVersion === 4) new GuidedWorkloadStore(this.paths).usage(usage, usage.durationMs);
     const st = this.stageStats.get(stage);
     if (st !== undefined) {
       st.usage = addUsage(st.usage, usage);
@@ -1996,10 +2007,24 @@ export class Run {
 
   private executorFor(stage: StageId, forRoute?: ResolvedRoute, preparationForms = true): StageExecutor {
     const route = forRoute ?? this.profile.routes[stage];
-    if (stage === 'chunk' && readGuided(this.paths) !== null) return guidedExecutor(this.host, route);
+    if (stage === 'plan' && this.profile.planSelection && readGuided(this.paths) === null)
+      throw new Error('planSelection требует guided; эксперимент не применён');
+    if (stage === 'chunk' && this.profile.chunkSelection && readGuided(this.paths) === null)
+      throw new Error('chunkSelection требует guided; эксперимент не применён');
+    if (stage === 'chunk' && (this.profile.guidedImprovements?.consumerContext || this.profile.guidedImprovements?.evidenceRepair) && readGuided(this.paths)?.engineVersion !== 4)
+      throw new Error('guidedImprovements требует guided v4; эксперимент не применён');
+    if (stage === 'chunk' && readGuided(this.paths) !== null) return guidedExecutor(this.host, route, this.profile.chunkSelection, this.profile.guidedImprovements);
     if (preparationForms && stage === 'ask' && readGuided(this.paths) !== null) return new GuidedAskExecutor(this.host, {
       provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'loop')),
       params: route.params, contextWindow: route.contextWindow ?? 16384 });
+    if (preparationForms && stage === 'plan' && readGuided(this.paths) !== null && this.profile.planSelection && this.profile.planSelection.candidates !== 1) {
+      const selection = this.profile.planSelection;
+      return new PlanSelectionExecutor({ paths: this.paths, slug: this.slug, candidates: selection.candidates === 2 ? 2 : 3,
+        generator: { provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill')),
+          params: route.params, contextWindow: route.contextWindow ?? 16384 },
+        judge: { provider: createProvider(selection.judge.provider, selection.judge.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'planJudge')),
+          model: selection.judge.model, params: selection.judge.params, contextWindow: selection.judge.contextWindow ?? 16384 } });
+    }
     if (preparationForms && stage === 'plan' && readGuided(this.paths) !== null) return new GuidedPlanExecutor({
       paths: this.paths, slug: this.slug, provider: createProvider(route.provider, route.providerDef, this.config.runner.limits.chatTimeoutMs, this.trace(stage, 'formFill')),
       params: route.params, contextWindow: route.contextWindow ?? 16384 });
@@ -2440,6 +2465,10 @@ export class Run {
   }
 
   async runStage(stage: StageId, opts: RunStageOptions = {}): Promise<StageResult> {
+    if (opts.guidedEngineVersion !== undefined && ![1, 2, 3, 4].includes(opts.guidedEngineVersion)) throw new Error('Неизвестная версия движка guided');
+    const existingGuided = readGuided(this.paths);
+    if (opts.guidedEngineVersion !== undefined && existingGuided && opts.guidedEngineVersion !== (existingGuided.engineVersion ?? 1)) throw new Error('Версия движка закреплена за задачей');
+    if (opts.guidedEngineVersion !== undefined && !existingGuided && opts.executionMode !== 'guided') throw new Error('guidedEngineVersion требует executionMode=guided');
     if (opts.executionMode !== undefined && opts.executionMode !== 'legacy' && opts.executionMode !== 'guided') throw new Error('Неизвестный режим исполнения');
     if (opts.executionMode === 'legacy' && readGuided(this.paths)) throw new Error('Режим задачи уже закреплён как guided');
     if (opts.executionMode === 'guided' && !readGuided(this.paths)) {
@@ -2447,18 +2476,17 @@ export class Run {
       if (opts.preparationVersion !== undefined && opts.preparationVersion !== 3) throw new Error('guided требует preparationVersion=3');
       const selected = this.profile.routes.intent;
       const routes = Object.values(this.profile.ensemble).flat();
-      if (routes.some(r => r.flow !== 'loop' || r.model !== selected.model || r.provider !== selected.provider ||
-        !['localhost', '127.0.0.1', '[::1]'].includes(new URL(r.providerDef.baseUrl ?? 'http://invalid').hostname))) {
+      if (routes.some(r => !guidedRouteMatches(this.profile, r, `${selected.provider}:${selected.model}`))) {
         throw new Error('guided требует одну локальную модель на всех этапах и маршрутах ревью');
       }
-      initGuided(this.paths, `${selected.provider}:${selected.model}`);
+      initGuided(this.paths, `${selected.provider}:${selected.model}`, opts.guidedEngineVersion ?? 1);
+      if (opts.guidedEngineVersion === 4) captureInvariantBaseline(this.paths, this.project.projectRoot);
     }
     const guided = readGuided(this.paths);
     if (guided) {
       opts = { ...opts, preparationVersion: 3 };
       if ([...Object.values(this.profile.routes), ...Object.values(this.profile.ensemble).flat()].some(r =>
-        `${r.provider}:${r.model}` !== guided.modelId || r.flow !== 'loop' ||
-        !['localhost', '127.0.0.1', '[::1]'].includes(new URL(r.providerDef.baseUrl ?? 'http://invalid').hostname))) throw new Error('Локальная модель guided-задачи изменена');
+        !guidedRouteMatches(this.profile, r, guided.modelId))) throw new Error('Локальная модель guided-задачи изменена');
       if (guided.activeMs >= guided.budgetMs) return { ok: false, finalText: '', usage: emptyUsage(), note: guidedBudgetReason(guided) };
       for (const r of [this.profile.routes.verify, ...this.profile.ensemble.verify]) {
         r.reviewFill = true;
@@ -2584,6 +2612,8 @@ export class Run {
       catch (error) { this.aborter?.abort(error); }
     }, 1000) : null;
     const stat = this.stageStats.get(stage) ?? { runs: 0, usage: emptyUsage(), durationMs: 0, requestDurationsMs: [] };
+    const workload = guided?.engineVersion === 4 ? new GuidedWorkloadStore(this.paths) : null;
+    workload?.start();
     stat.runs += 1;
     this.stageStats.set(stage, stat);
 
@@ -2966,7 +2996,9 @@ export class Run {
           advisory: routeKey(route) === routeKey(this.profile.routes.chunk),
         }),
 
-        onUsage: (usage, durationMs) => {
+        onUsage: (usage, durationMs, work) => {
+          this.flow().record('model_work', { usage, durationMs, work, currency: route.providerDef.currency ?? 'USD' }, 'Модель', 'Учёт', stage);
+          workload?.usage(usage, durationMs, work);
           const st = this.stageStats.get(stage);
           if (st !== undefined) {
             st.usage = addUsage(st.usage, usage);
@@ -3003,6 +3035,11 @@ export class Run {
         onWarn: (message) => this.emit({ type: 'warning', runId: this.id, stage, message }),
 
         onFriction: (kind) => this.countFriction(stage, kind),
+        onHarnessEvent: event => {
+          workload?.event(event);
+          if (workload) this.flow().record('guided_workload', event, 'Рантайм', 'Рантайм', stage);
+        },
+        onExecution: event => this.flow().record('execution_operation', event, 'Рантайм', 'Рантайм', stage),
       };
 
       // Исполнитель создаётся ВНУТРИ try: `createProvider` бросает при отсутствии ключа
@@ -3016,7 +3053,15 @@ export class Run {
       let decisionUsage = emptyUsage();
       let decisionRequests = 0;
       let decisionContext: string | undefined;
-      if (guided) {
+      if ((guided?.engineVersion ?? 1) >= 3) {
+        const readiness = guidedRuntimeReadiness(stage, prompt);
+        this.recordDecisionCheck(readiness);
+        if (readiness.status === 'blocked') {
+          this.status = 'failed';
+          this.emit({ type: 'stage_done', runId: this.id, stage, ok: false, note: readiness.reason });
+          return { ok: false, note: readiness.reason, finalText: '', usage: emptyUsage(), modelRequests: 0 };
+        }
+      } else if (guided) {
         const decisionSignal = this.aborter.signal;
         let checked: Awaited<ReturnType<typeof checkStageDecision>>;
         checkingDecision = true;
@@ -3061,6 +3106,10 @@ export class Run {
       // «Ход завершён» и «работа сделана» — разные утверждения, и второе проверяется
       // диском. Замечание даёт модели доделать в том же этапе, а не отчитаться пустым.
       const finishGuard = (): string | null => {
+        if (guided?.engineVersion === 4 && mod.checksImplementationInvariants) {
+          const invariants = checkInvariants(this.paths, this.project.projectRoot);
+          if (!invariants.passed) return invariants.result;
+        }
         const missing = notDone();
         if (missing.length > 0) {
           return (
@@ -3076,6 +3125,9 @@ export class Run {
 
       await inv.beforeModel?.(hooks, seeded);
       const execRequest: ExecRequest = {
+          ...(guided ? { guidedEngineVersion: guided.engineVersion ?? 1 } : {}),
+          ...((guided?.engineVersion ?? 1) >= 2 ? { progress: new GuidedProgress(this.paths,
+            summary => this.flow().record('guided_progress', summary, 'Рантайм', 'Рантайм', stage)) } : {}),
           prompt: stagePrompt,
           ...(decisionContext === undefined ? {} : { decisionContext }),
           cwd: this.project.projectRoot,
@@ -3142,11 +3194,13 @@ export class Run {
       // каких условиях, говорит этап (`formFinish`); этап закрывается ТОЛЬКО если исполнитель
       // упал именно на оформлении и после дозаполнения на диске всё на месте.
       const finish = inv.formFinish?.(result) ?? null;
+      const handoffPlaceholderRescue = finish !== null && mod.guidedPlaceholderRescue === true && guided !== null &&
+        countPlaceholdersExceptDecisions(readArtifact(finish.path).text) === 1;
       if (
         finish !== null &&
         // Guided executors own their bounded repair loops; a failed judgment must
         // not fall through to legacy form filling (nor become a success there).
-        (guided === null || result.ok) &&
+        (guided === null || result.ok || handoffPlaceholderRescue) &&
         route.flow === 'loop' &&
         (route.formFill || finish.forced) && (!isPreparationV2(this.paths) || guided !== null) &&
         !this.aborter.signal.aborted
@@ -3211,6 +3265,12 @@ export class Run {
 
       // Вердикт этапа (verify) — сразу после хода, по только что записанному отчёту.
       await inv.verdict?.();
+      if (guided?.engineVersion === 4 && mod.checksImplementationInvariants) {
+        const invariants = checkInvariants(this.paths, this.project.projectRoot);
+        this.flow().record('guided_invariants', invariants, 'Рантайм', 'Рантайм', stage);
+        if (!invariants.passed) result = { ...result, ok: false, note: invariants.result,
+          failure: { kind: 'checks', origin: 'chunk', retryStage: 'chunk', reason: invariants.result } };
+      }
 
       // Последнее слово об исходе — за диском, а не за исполнителем. Модель, объявившая
       // ход завершённым и не записавшая ни одного из объявленных этапом артефактов,
@@ -3260,6 +3320,7 @@ export class Run {
       };
     } finally {
       if (guidedTimer) { clearInterval(guidedTimer); chargeGuided(); }
+      if ((guided?.engineVersion ?? 1) >= 2) this.flow().record('guided_progress', new GuidedProgress(this.paths).summary(), 'Рантайм', 'Рантайм', stage);
       stat.durationMs += Date.now() - stageStartedAt;
       this.aborter = null;
       // Снапшот после КАЖДОГО этапа: виток переживает пересоздание `Run`, и метрики

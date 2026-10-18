@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "task": "expiry-policy",
+  "model": "ollama:qwen3.8-27b-iq4-gpumax",
+  "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+  "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-A4mAeq",
+  "baseCommit": "708c6ae0dfc6af31c8cfa4f0f7f142ad6c670811",
+  "contract": {
+    "task": "Export expiresAt(createdAtMs,ttlMs) from src/expiry.mjs. createdAtMs must be finite; an explicit ttlMs must be finite and nonnegative. Invalid values or nonfinite result throw RangeError. Return createdAtMs+ttlMs, preserving explicit zero. When ttlMs is undefined, use the default TTL from the human: this business value is intentionally absent from the repository, ask before implementing it. null is invalid.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+    "writable": [
+      "src/",
+      "test/"
+    ],
+    "protected": [
+      "test/existing.test.mjs",
+      "README.md",
+      "package.json",
+      "package-lock.json",
+      "scripts/"
+    ],
+    "allowDestructiveOverwrite": false,
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export expiresAt(createdAtMs,ttlMs) from src/expiry.mjs. createdAtMs must be finite; an explicit ttlMs must be finite and nonnegative. Invalid values or nonfinite result throw RangeError. Return createdAtMs+ttlMs, preserving explicit zero. When ttlMs is undefined, use the default TTL from the human: this business value is intentionally absent from the repository, ask before implementing it. null is invalid.",
+        "source": "Human task",
+        "checks": []
+      }
+    ]
+  },
+  "commands": [
+    {
+      "name": "build",
+      "args": [
+        "scripts/build.mjs"
+      ]
+    },
+    {
+      "name": "test",
+      "args": [
+        "--test",
+        "test/*.test.mjs"
+      ]
+    }
+  ],
+  "structuredFeedback": true,
+  "visibleChecks": [
+    {
+      "name": "public-examples",
+      "file": "bench/checks/evidence/expiry-policy.visible.mjs"
+    }
+  ],
+  "activeTimeoutMs": 600000,
+  "maxTurns": 40,
+  "maxCost": null,
+  "params": {
+    "reasoning_effort": "none",
+    "max_tokens": 4096
+  },
+  "temperature": null,
+  "contextWindow": 32768,
+  "casesFile": "bench/experiments/task-loop-evidence.json",
+  "acceptanceFile": null,
+  "control": "local",
+  "startedAt": "2026-10-14T18:08:56.760Z"
+}

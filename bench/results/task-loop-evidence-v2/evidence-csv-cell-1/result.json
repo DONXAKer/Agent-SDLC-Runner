@@ -1,0 +1,281 @@
+{
+  "version": 1,
+  "passport": {
+    "version": 1,
+    "task": "csv-cell",
+    "model": "ollama:qwen3.8-27b-iq4-gpumax",
+    "sourceHash": "19d2665cd9a4a4e34cd1cb729d5104cccf971cf2eef65842cad75b42ddae823e",
+    "workspace": "C:\\Users\\Root\\AppData\\Local\\Temp\\sdlc-bench-HhKFis",
+    "baseCommit": "ed7270d1d608d3d9b09a78adef96d4b9a65f7e04",
+    "contract": {
+      "task": "Export csvRow(values) from src/format.mjs. Accept an array of strings and return one CSV row without a trailing newline. Separate cells with commas. Quote cells containing comma, double quote, CR or LF; double each embedded double quote. Preserve whitespace, Unicode and empty cells exactly. Empty array returns empty string. Do not mutate values.\nPreserve existing exports and tests. Add at least one executable test in test/. Only src/ and test/ are writable; existing tests are protected.\n",
+      "writable": [
+        "src/",
+        "test/"
+      ],
+      "protected": [
+        "test/existing.test.mjs",
+        "README.md",
+        "package.json",
+        "package-lock.json",
+        "scripts/"
+      ],
+      "allowDestructiveOverwrite": false,
+      "requirements": [
+        {
+          "id": "public-examples",
+          "description": "Required module export and the registered public examples",
+          "source": "Human task and registered visible examples",
+          "checks": [
+            "public-examples"
+          ]
+        },
+        {
+          "id": "regression",
+          "description": "Preserve existing public behavior covered by project tests",
+          "source": "Repository baseline tests",
+          "checks": [
+            "build",
+            "test"
+          ]
+        },
+        {
+          "id": "full-contract",
+          "description": "Export csvRow(values) from src/format.mjs. Accept an array of strings and return one CSV row without a trailing newline. Separate cells with commas. Quote cells containing comma, double quote, CR or LF; double each embedded double quote. Preserve whitespace, Unicode and empty cells exactly. Empty array returns empty string. Do not mutate values.",
+          "source": "Human task",
+          "checks": []
+        }
+      ]
+    },
+    "commands": [
+      {
+        "name": "build",
+        "args": [
+          "scripts/build.mjs"
+        ]
+      },
+      {
+        "name": "test",
+        "args": [
+          "--test",
+          "test/*.test.mjs"
+        ]
+      }
+    ],
+    "structuredFeedback": true,
+    "visibleChecks": [
+      {
+        "name": "public-examples",
+        "file": "bench/checks/evidence/csv-cell.visible.mjs"
+      }
+    ],
+    "activeTimeoutMs": 600000,
+    "maxTurns": 40,
+    "maxCost": null,
+    "params": {
+      "reasoning_effort": "none",
+      "max_tokens": 4096
+    },
+    "temperature": null,
+    "contextWindow": 32768,
+    "casesFile": "bench/experiments/task-loop-evidence.json",
+    "acceptanceFile": null,
+    "control": "local",
+    "startedAt": "2026-10-14T17:51:52.402Z"
+  },
+  "finishedAt": "2026-10-14T17:52:52.441Z",
+  "result": {
+    "version": 1,
+    "status": "ready_for_review",
+    "reason": "Current visible checks passed; independent acceptance is still required",
+    "finalText": "Done.\n\n**Implementation** (`src/format.mjs`): added `export function csvRow(values)` next to the existing `protocolVersion` export:\n\n- Rejects non-arrays with `TypeError`.\n- Maps each cell: empty stays empty; cells matching `/[\",\\r\\n]/` are wrapped in double quotes with every embedded `\"` doubled via `replaceAll('\"', '\"\"')`; all other cells pass through untouched (whitespace and Unicode preserved).\n- Joins cells with `,` — no trailing newline; empty array yields `''`.\n- Pure: only reads `values`, never mutates it.\n\n**Tests** (`test/csvRow.test.mjs`, new file): 5 executable tests covering plain comma joining, quoting of comma/quote/CR/LF with doubled quotes, preservation of whitespace/Unicode/empty cells, empty array + non-mutation, and preservation of the existing `protocolVersion` export. `test/existing.test.mjs` was left untouched.\n\n**Checks**: all registered checks pass — build PASS, test PASS (6/6, including the pre-existing protected test), public-examples PASS.\n\n**Remaining limitation**: the `full-contract` binding is an unverified caller-supplied requirement with no dedicated registered check; its satisfaction rests on the new tests I authored rather than an independent check.",
+    "usage": {
+      "inputTokens": 14423,
+      "outputTokens": 936,
+      "cacheReadTokens": 12561,
+      "cacheWriteTokens": 0,
+      "costUsd": null,
+      "durationMs": 58603
+    },
+    "currency": "USD",
+    "checks": [
+      {
+        "name": "build",
+        "baseline": true,
+        "revision": "d9b02c3838af25caee5c4d2dca6db1f2a4478897d4311867f86e7b799b022812",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": true,
+        "revision": "d9b02c3838af25caee5c4d2dca6db1f2a4478897d4311867f86e7b799b022812",
+        "passed": true,
+        "output": "✔ existing public API (0.564ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 86.2211\n"
+      },
+      {
+        "name": "build",
+        "baseline": false,
+        "revision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+        "passed": true,
+        "output": ""
+      },
+      {
+        "name": "test",
+        "baseline": false,
+        "revision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+        "passed": true,
+        "output": "✔ csvRow joins plain cells with commas and has no trailing newline (0.731ms)\n✔ csvRow quotes cells with comma, double quote, CR or LF and doubles quotes (0.669ms)\n✔ csvRow preserves whitespace, unicode and empty cells exactly (0.1296ms)\n✔ csvRow returns empty string for empty array and does not mutate input (0.5788ms)\n✔ existing exports preserved (0.1136ms)\n✔ existing public API (0.5924ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 124.4365\n"
+      },
+      {
+        "name": "public-examples",
+        "baseline": false,
+        "revision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+        "passed": true,
+        "output": "✔ V1 [visible] required export and public examples (1.0586ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 95.1041\n"
+      }
+    ],
+    "questions": [],
+    "metrics": {
+      "modelRequests": 6,
+      "writes": 2,
+      "denied": 0,
+      "repairs": 0,
+      "repeatedErrors": 0,
+      "repeatedCheckFailures": 0,
+      "firstEditMs": 30883.8445,
+      "firstCheckMs": 41172.4716,
+      "humanWaitMs": 0,
+      "activeMs": 59354.4407,
+      "telemetryErrors": 0
+    },
+    "requirements": [
+      {
+        "id": "public-examples",
+        "description": "Required module export and the registered public examples",
+        "source": "Human task and registered visible examples",
+        "checks": [
+          "public-examples"
+        ],
+        "status": "verified",
+        "revision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+        "evidence": [
+          {
+            "name": "public-examples",
+            "baseline": false,
+            "revision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+            "passed": true,
+            "output": "✔ V1 [visible] required export and public examples (1.0586ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 95.1041\n"
+          }
+        ]
+      },
+      {
+        "id": "regression",
+        "description": "Preserve existing public behavior covered by project tests",
+        "source": "Repository baseline tests",
+        "checks": [
+          "build",
+          "test"
+        ],
+        "status": "verified",
+        "revision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+        "evidence": [
+          {
+            "name": "build",
+            "baseline": false,
+            "revision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+            "passed": true,
+            "output": ""
+          },
+          {
+            "name": "test",
+            "baseline": false,
+            "revision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+            "passed": true,
+            "output": "✔ csvRow joins plain cells with commas and has no trailing newline (0.731ms)\n✔ csvRow quotes cells with comma, double quote, CR or LF and doubles quotes (0.669ms)\n✔ csvRow preserves whitespace, unicode and empty cells exactly (0.1296ms)\n✔ csvRow returns empty string for empty array and does not mutate input (0.5788ms)\n✔ existing exports preserved (0.1136ms)\n✔ existing public API (0.5924ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 124.4365\n"
+          }
+        ]
+      },
+      {
+        "id": "full-contract",
+        "description": "Export csvRow(values) from src/format.mjs. Accept an array of strings and return one CSV row without a trailing newline. Separate cells with commas. Quote cells containing comma, double quote, CR or LF; double each embedded double quote. Preserve whitespace, Unicode and empty cells exactly. Empty array returns empty string. Do not mutate values.",
+        "source": "Human task",
+        "checks": [],
+        "status": "unverified",
+        "revision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+        "evidence": []
+      }
+    ]
+  },
+  "asks": [],
+  "changed": [
+    "src/format.mjs",
+    "test/csvRow.test.mjs"
+  ],
+  "boundaryViolations": [],
+  "gradingVersion": 3,
+  "independent": null,
+  "testEvidence": {
+    "passed": true,
+    "baseline": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "final": {
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "todo": 0
+    },
+    "reason": "Additional tests executed successfully",
+    "baselineExitCode": 0,
+    "finalExitCode": 0
+  },
+  "hidden": {
+    "total": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H1",
+        "category": "contract",
+        "label": "ok 1 - H1 [contract] public module contract"
+      },
+      {
+        "ok": true,
+        "skipped": false,
+        "id": "H2",
+        "category": "behavior",
+        "label": "ok 2 - H2 [behavior] independent boundary and sequence cases"
+      }
+    ],
+    "errorText": null
+  },
+  "hiddenOutcome": "pass",
+  "readyWithUnverifiedRequirements": true,
+  "obligations": {
+    "boundaries": true,
+    "questions": true,
+    "newTest": true,
+    "documentation": true,
+    "stableTree": true,
+    "independent": true,
+    "hidden": true
+  },
+  "acceptance": true,
+  "falseSuccess": false,
+  "frozenRevision": "59a96245ccac323419b1b0927d84ad308d3e7ebb2c7d4325aac720fe1f7e9909",
+  "limitations": [
+    "Visible checks and hidden cases do not prove every semantic requirement.",
+    "Documentation presence is checked; documentation meaning still requires review."
+  ]
+}
