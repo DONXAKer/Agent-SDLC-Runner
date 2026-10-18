@@ -1,0 +1,33 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const cli = fileURLToPath(new URL('../src/simulator/cli.ts', import.meta.url));
+test('CLI сохраняет отчёт, не использует состояние пользователя и не перезаписывает результат', t => {
+  const root = mkdtempSync(join(tmpdir(), 'sdlc-simulator-cli-test-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const state = join(root, 'user-state');
+  mkdirSync(state);
+  writeFileSync(join(state, 'sentinel'), 'не менять');
+  const output = join(root, 'report');
+  const env: NodeJS.ProcessEnv = { ...process.env, SDLC_STATE_DIR: state };
+  delete env.NODE_TEST_CONTEXT;
+  const run = (...args: string[]) => spawnSync(process.execPath, [cli, ...args], { env, encoding: 'utf8', timeout: 20000 });
+  const good = run('--suite', 'guided', '--output', output);
+  assert.equal(good.status, 0, good.stderr + good.stdout);
+  const original = readFileSync(join(output, 'report.json'), 'utf8');
+  const report = JSON.parse(original);
+  assert.equal(report.passed, true);
+  assert.equal(report.cases.length, 4);
+  assert.match(report.sourceHash, /^[a-f0-9]{64}$/);
+  assert.ok(report.cases.every((c: { traceFile: string }) => JSON.parse(readFileSync(join(output, c.traceFile), 'utf8')).length > 0));
+  assert.deepEqual(readdirSync(state), ['sentinel']);
+  assert.equal(readFileSync(join(state, 'sentinel'), 'utf8'), 'не менять');
+  assert.equal(run('--suite', 'guided', '--output', output).status, 2);
+  assert.equal(readFileSync(join(output, 'report.json'), 'utf8'), original);
+  assert.equal(run('--suite', 'typo').status, 2);
+});
