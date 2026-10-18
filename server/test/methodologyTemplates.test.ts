@@ -22,6 +22,7 @@ import { readinessVerdict } from '../src/run/stages/preconditions.ts';
 import { RECONCILE_GATE, REVIEW_GATE, UNSCRIPTED_GATES } from '../src/run/stages/verify/gates.ts';
 import { autofillVerificationReport, writeVerdictSection } from '../src/run/verifyAutofill.ts';
 import { computeVerdict } from '../src/verdict/verdict.ts';
+import { preparationInstructions } from '../src/prompt/preparation.ts';
 
 function methodologyDir(): string | null {
   const fromEnv = process.env['SDLC_METHODOLOGY_DIR'];
@@ -44,6 +45,29 @@ const GATES_TPL = template('gates.template.md');
 const READINESS = template('readiness.template.md');
 const EXAMPLE_GATES = dir !== null && existsSync(join(dir, 'example', 'gates.md')) ? readFileSync(join(dir, 'example', 'gates.md'), 'utf8') : null;
 const skip = (t: string | null): string | false => (t === null ? 'эталон методологии не найден (SDLC_METHODOLOGY_DIR / runner.local.json)' : false);
+
+describe('профили Runner в эталоне методологии', () => {
+  const available = dir !== null && existsSync(join(dir, 'SDLC.md'));
+  const normalize = (text: string): string => text.replace(/\r\n/g, '\n');
+  for (const name of ['guided.md', 'preparation-v2.md']) {
+    it(`${name}: установленный профиль совпадает с поставляемым`, { skip: !available }, () => {
+      const installed = join(dir!, 'profiles', name);
+      ok(existsSync(installed), `В эталоне отсутствует profiles/${name}`);
+      strictEqual(normalize(readFileSync(installed, 'utf8')),
+        normalize(readFileSync(new URL(`../methodology/${name}`, import.meta.url), 'utf8')),
+        'Профили разошлись: сверь норму с реализацией и обнови обе поставки');
+    });
+  }
+
+  it('установленный профиль сохраняет инструкции каждого этапа проработки', { skip: !available }, () => {
+    for (const stage of ['intent', 'explore', 'ask', 'plan', 'chunk'] as const) {
+      for (const formFill of [false, true]) {
+        strictEqual(normalize(preparationInstructions(dir!, stage, formFill)),
+          normalize(preparationInstructions('', stage, formFill)), `${stage}, formFill=${formFill}`);
+      }
+    }
+  });
+});
 
 const gate = (name: string, status: '✅' | '❌' | '⏭'): GateRunResult => ({
   name,
